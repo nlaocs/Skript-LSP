@@ -66,9 +66,36 @@ impl std::fmt::Display for PatternTypeExpr {
     }
 }
 
-pub fn parse(input: &str) -> Pattern {
+#[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParseErrorKind {
+    #[error("Unclosed parenthesis '('")]
+    UnclosedParenthesis,
+    #[error("Unclosed bracket '['")]
+    UnclosedBracket,
+    #[error("Unclosed type delimiter '%'")]
+    UnclosedTypeDelimiter,
+    #[error("Unclosed regex delimiter '>'")]
+    UnclosedRegexDelimiter,
+    #[error("Incorrect time state in type expression")]
+    IncorrectTimeState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
+#[error("{kind} at position {span:?}")] // todo implement
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub span: Span,
+}
+
+pub fn parse(input: &str) -> Result<Pattern, ParseError> {
     let mut chars = input.chars().peekable();
-    Pattern(parse_choice(&mut chars, Scope::Global, input))
+    Ok(Pattern(parse_choice(&mut chars, Scope::Global, input)?))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -82,7 +109,7 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
-) -> Vec<PatternElement> {
+) -> Result<Vec<PatternElement>, ParseError> {
     let mut elements = Vec::new();
     let mut buffer = String::new();
 
@@ -94,7 +121,7 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '('
-                let group = parse_choice(chars, Scope::Group, raw_pattern);
+                let group = parse_choice(chars, Scope::Group, raw_pattern)?;
                 elements.push(PatternElement::Group(group));
             }
             ')' if scope == Scope::Group => {
@@ -124,7 +151,7 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     }
                 }
 
-                let option = parse_choice(chars, Scope::Option, raw_pattern);
+                let option = parse_choice(chars, Scope::Option, raw_pattern)?;
                 elements.push(PatternElement::Option(option));
             }
             ']' if scope == Scope::Option => {
@@ -256,19 +283,19 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
         elements.push(PatternElement::Literal(buffer));
     }
 
-    elements
+    Ok(elements)
 }
 
 fn parse_choice<I: Iterator<Item = char> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
-) -> Vec<PatternElement> {
+) -> Result<Vec<PatternElement>, ParseError> {
     let mut branches: Vec<Vec<PatternElement>> = Vec::new();
     let mut closed = false; // 対応する閉じ括弧を消費できたか
 
     loop {
-        let seq = parse_sequence(chars, scope, raw_pattern);
+        let seq = parse_sequence(chars, scope, raw_pattern)?;
         if !seq.is_empty() {
             branches.push(seq);
         } else {
@@ -307,9 +334,9 @@ fn parse_choice<I: Iterator<Item = char> + Clone>(
     }
 
     if branches.len() == 1 {
-        branches.into_iter().next().unwrap()
+        Ok(branches.into_iter().next().unwrap())
     } else {
-        vec![PatternElement::Choice(branches)]
+        Ok(vec![PatternElement::Choice(branches)])
     }
 }
 
@@ -324,7 +351,7 @@ mod tests {
         #[test]
         fn parse_literal() {
             let literal = parse("literal");
-            assert_eq!(literal, Pattern(vec![Literal("literal".to_string())]));
+            assert_eq!(literal, Ok(Pattern(vec![Literal("literal".to_string())])));
         }
 
         #[test]
@@ -332,10 +359,10 @@ mod tests {
             let choice = parse("choice1|choice2");
             assert_eq!(
                 choice,
-                Pattern(vec![Choice(vec![
+                Ok(Pattern(vec![Choice(vec![
                     vec![Literal("choice1".to_string())],
                     vec![Literal("choice2".to_string())],
-                ])])
+                ])]))
             );
         }
 
@@ -344,7 +371,7 @@ mod tests {
             let group = parse("(group)");
             assert_eq!(
                 group,
-                Pattern(vec![Group(vec![Literal("group".to_string())])])
+                Ok(Pattern(vec![Group(vec![Literal("group".to_string())])]))
             );
         }
 
@@ -353,14 +380,14 @@ mod tests {
             let option = parse("[option]");
             assert_eq!(
                 option,
-                Pattern(vec![Option(vec![Literal("option".to_string())])])
+                Ok(Pattern(vec![Option(vec![Literal("option".to_string())])]))
             );
         }
 
         #[test]
         fn parse_regex() {
             let regex = parse("<[0-9]+>");
-            assert_eq!(regex, Pattern(vec![Regex("[0-9]+".to_string())]));
+            assert_eq!(regex, Ok(Pattern(vec![Regex("[0-9]+".to_string())])));
         }
 
         mod type_expr {
@@ -371,13 +398,13 @@ mod tests {
                 let type_expr = parse("%string%");
                 assert_eq!(
                     type_expr,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
+                    Ok(Pattern(vec![TypeExpr(vec![PatternTypeExpr {
                         name: "string".to_string(),
                         literal: false,
                         non_literal: false,
                         nullable: false,
                         time_state: None,
-                    }])])
+                    }])]))
                 );
             }
 
@@ -386,13 +413,13 @@ mod tests {
                 let t = parse("%*string%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
+                    Ok(Pattern(vec![TypeExpr(vec![PatternTypeExpr {
                         name: "string".to_string(),
                         literal: true,
                         non_literal: false,
                         nullable: false,
                         time_state: None,
-                    }])])
+                    }])]))
                 );
             }
 
@@ -401,13 +428,13 @@ mod tests {
                 let t = parse("%~string%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
+                    Ok(Pattern(vec![TypeExpr(vec![PatternTypeExpr {
                         name: "string".to_string(),
                         literal: false,
                         non_literal: true,
                         nullable: false,
                         time_state: None,
-                    }])])
+                    }])]))
                 );
             }
 
@@ -416,13 +443,13 @@ mod tests {
                 let t = parse("%-string%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
+                    Ok(Pattern(vec![TypeExpr(vec![PatternTypeExpr {
                         name: "string".to_string(),
                         literal: false,
                         non_literal: false,
                         nullable: true,
                         time_state: None,
-                    }])])
+                    }])]))
                 );
             }
 
@@ -431,13 +458,13 @@ mod tests {
                 let t = parse("%string@1%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
+                    Ok(Pattern(vec![TypeExpr(vec![PatternTypeExpr {
                         name: "string".to_string(),
                         literal: false,
                         non_literal: false,
                         nullable: false,
                         time_state: std::num::NonZeroI8::new(1),
-                    }])])
+                    }])]))
                 );
             }
 
@@ -446,7 +473,7 @@ mod tests {
                 let t = parse("%string/*number/-text%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![
+                    Ok(Pattern(vec![TypeExpr(vec![
                         PatternTypeExpr {
                             name: "string".to_string(),
                             literal: false,
@@ -468,7 +495,7 @@ mod tests {
                             nullable: true,
                             time_state: None,
                         },
-                    ])])
+                    ])]))
                 );
             }
 
@@ -477,7 +504,7 @@ mod tests {
                 let t = parse("%*string/~number/-text@-1%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![
+                    Ok(Pattern(vec![TypeExpr(vec![
                         PatternTypeExpr {
                             name: "string".to_string(),
                             literal: true,
@@ -499,7 +526,7 @@ mod tests {
                             nullable: true,
                             time_state: std::num::NonZeroI8::new(-1),
                         },
-                    ])])
+                    ])]))
                 );
             }
         }
@@ -510,7 +537,7 @@ mod tests {
             #[test]
             fn simple() {
                 let empty_simple = parse("");
-                assert_eq!(empty_simple, Pattern(vec![Empty]));
+                assert_eq!(empty_simple, Ok(Pattern(vec![Empty])));
             }
 
             #[test]
@@ -518,10 +545,10 @@ mod tests {
                 let empty_choice = parse("a|");
                 assert_eq!(
                     empty_choice,
-                    Pattern(vec![Choice(vec![
+                    Ok(Pattern(vec![Choice(vec![
                         vec![Literal("a".to_string())],
                         vec![Empty],
-                    ])])
+                    ])]))
                 );
             }
 
@@ -530,10 +557,10 @@ mod tests {
                 let empty_choice2 = parse("|b");
                 assert_eq!(
                     empty_choice2,
-                    Pattern(vec![Choice(vec![
+                    Ok(Pattern(vec![Choice(vec![
                         vec![Empty],
                         vec![Literal("b".to_string())],
-                    ])])
+                    ])]))
                 );
             }
 
@@ -542,7 +569,7 @@ mod tests {
                 let empty_choice3 = parse("|");
                 assert_eq!(
                     empty_choice3,
-                    Pattern(vec![Choice(vec![vec![Empty], vec![Empty],])])
+                    Ok(Pattern(vec![Choice(vec![vec![Empty], vec![Empty],])]))
                 );
             }
 
@@ -551,10 +578,10 @@ mod tests {
                 let empty_group_option = parse("(|[|])");
                 assert_eq!(
                     empty_group_option,
-                    Pattern(vec![Group(vec![Choice(vec![
+                    Ok(Pattern(vec![Group(vec![Choice(vec![
                         vec![Empty],
                         vec![Option(vec![Choice(vec![vec![Empty], vec![Empty],])])],
-                    ])])])
+                    ])])]))
                 );
             }
         }
@@ -567,7 +594,7 @@ mod tests {
         let syntax = parse("(absolute|complete) path of %string%");
         assert_eq!(
             syntax,
-            Pattern(vec![
+            Ok(Pattern(vec![
                 Group(vec![Choice(vec![
                     vec![Literal("absolute".to_string())],
                     vec![Literal("complete".to_string())],
@@ -580,13 +607,13 @@ mod tests {
                     nullable: false,
                     time_state: None,
                 }]),
-            ])
+            ]))
         );
 
         let syntax = parse("[local] %skript types% property condition <pattern>");
         assert_eq!(
             syntax,
-            Pattern(vec![
+            Ok(Pattern(vec![
                 Option(vec![Literal("local".to_string())]),
                 Literal(" ".to_string()),
                 TypeExpr(vec![PatternTypeExpr {
@@ -598,33 +625,33 @@ mod tests {
                 }]),
                 Literal(" property condition ".to_string()),
                 Regex("pattern".to_string()),
-            ])
+            ]))
         );
 
         let syntax = parse("<.+> \\|\\| <.+>");
         assert_eq!(
             syntax,
-            Pattern(vec![
+            Ok(Pattern(vec![
                 Regex(".+".to_string()),
                 Literal(" || ".to_string()),
                 Regex(".+".to_string()),
-            ])
+            ]))
         );
 
         let syntax = parse("folder|dir|box");
         assert_eq!(
             syntax,
-            Pattern(vec![Choice(vec![
+            Ok(Pattern(vec![Choice(vec![
                 vec![Literal("folder".to_string())],
                 vec![Literal("dir".to_string())],
                 vec![Literal("box".to_string())],
-            ])])
+            ])]))
         );
 
         let syntax = parse("active[ |-](group|model)[s]");
         assert_eq!(
             syntax,
-            Pattern(vec![
+            Ok(Pattern(vec![
                 Literal("active".to_string()),
                 Option(vec![Choice(vec![
                     vec![Literal(" ".to_string())],
@@ -635,7 +662,7 @@ mod tests {
                     vec![Literal("model".to_string())],
                 ])]),
                 Option(vec![Literal("s".to_string())]),
-            ])
+            ]))
         );
 
         let syntax = parse(
@@ -643,7 +670,7 @@ mod tests {
         );
         assert_eq!(
             syntax,
-            Pattern(vec![
+            Ok(Pattern(vec![
                 Literal("last".to_string()),
                 Option(vec![Literal("ly".to_string())]),
                 Literal(" ".to_string()),
@@ -707,7 +734,7 @@ mod tests {
                         }])],
                     ])]),
                 ]),
-            ])
+            ]))
         );
     }
 
@@ -720,13 +747,13 @@ mod tests {
             let pattern = parse("(label:group)");
             assert_eq!(
                 pattern,
-                Pattern(vec![Group(vec![Literal("group".to_string())])])
+                Ok(Pattern(vec![Group(vec![Literal("group".to_string())])]))
             );
 
             let pattern = parse("(¦group)");
             assert_eq!(
                 pattern,
-                Pattern(vec![Group(vec![Literal("group".to_string())])])
+                Ok(Pattern(vec![Group(vec![Literal("group".to_string())])]))
             );
         }
     }
