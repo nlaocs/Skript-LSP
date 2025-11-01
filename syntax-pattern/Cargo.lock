@@ -3,12 +3,5 @@
 version = 4
 
 [[package]]
-name = "skript-lsp"
-version = "0.1.0"
-dependencies = [
- "syntax-pattern",
-]
-
-[[package]]
 name = "syntax-pattern"
 version = "0.1.0"

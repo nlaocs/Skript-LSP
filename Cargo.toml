@@ -3,4 +3,10 @@ name = "skript-lsp"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    "syntax-pattern"
+]
+
 [dependencies]
+syntax-pattern = { path = "./syntax-pattern" }
