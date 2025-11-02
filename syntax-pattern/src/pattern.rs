@@ -179,6 +179,8 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     chars.next(); // consume '>'
                     elements.push(PatternElement::Regex(regex));
                 } else {
+                    // todo 今のままでは不完全な正規表現がリテラルとして扱われるが、[]などが出てきてもリテラルとして扱われてしまう
+                    // https://github.com/nlaocs/Skript-LSP/issues/3
                     elements.push(PatternElement::Literal(format!("<{}", regex)));
                 }
             }
@@ -785,6 +787,7 @@ mod tests {
         #[test]
         fn unclosed_regex_delimiter() {
             let pattern = parse("<unclosed");
+            // todo https://github.com/nlaocs/Skript-LSP/issues/3
             assert_eq!(pattern, Ok(Pattern(vec![Literal("<unclosed".to_string())])));
         }
     }
