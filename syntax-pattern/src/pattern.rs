@@ -164,29 +164,38 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '<'
-                let mut regex = String::new();
-                while let Some(&(_, c)) = chars.peek() {
+
+                let mut cloned_chars = chars.clone();
+                let mut is_closed = false;
+                while let Some(&(_, c)) = cloned_chars.peek() {
                     if c == '>' {
+                        is_closed = true;
                         break;
                     }
-                    regex.push(c);
-                    chars.next();
+                    cloned_chars.next();
                 }
-                if let Some(&(_, next_ch)) = chars.peek() {
-                    if next_ch == '>' {
-                        chars.next(); // consume '>'
-                        elements.push(PatternElement::Regex(regex));
-                    } else {
-                        // peek is Some but not '>'
-                        // todo 今のままでは不完全な正規表現がリテラルとして扱われるが、[]などが出てきてもリテラルとして扱われてしまう
-                        // https://github.com/nlaocs/Skript-LSP/issues/3
-                        elements.push(PatternElement::Literal(format!("<{}", regex)));
+                if is_closed {
+                    let mut regex = String::new();
+                    while let Some(&(_, c)) = chars.peek() {
+                        if c == '>' {
+                            chars.next(); // consume '>'
+                            break;
+                        } else {
+                            regex.push(c);
+                            chars.next();
+                        }
                     }
+                    elements.push(PatternElement::Regex(regex));
                 } else {
-                    // peek is None
-                    // todo 今のままでは不完全な正規表現がリテラルとして扱われるが、[]などが出てきてもリテラルとして扱われてしまう
-                    // https://github.com/nlaocs/Skript-LSP/issues/3
-                    elements.push(PatternElement::Literal(format!("<{}", regex)));
+                    // unclosed regex
+                    warnings.push(ParseWarning {
+                        kind: ParseWarningKind::UnclosedRegexDelimiter,
+                        span: Span {
+                            start: i,
+                            end: raw_pattern.len(),
+                        },
+                    });
+                    elements.push(PatternElement::Literal("<".to_string()));
                 }
             }
             '%' => {
@@ -788,8 +797,28 @@ mod tests {
             assert_eq!(
                 pattern,
                 Ok(ParseResult {
-                    elements: vec![Literal("<unclosed".to_string())],
-                    warnings: vec![]
+                    elements: vec![Literal("<".to_string()), Literal("unclosed".to_string())],
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::UnclosedRegexDelimiter,
+                        span: Span { start: 0, end: 9 },
+                    },]
+                })
+            );
+
+            let pattern = parse("start <unclosed [any]");
+            assert_eq!(
+                pattern,
+                Ok(ParseResult {
+                    elements: vec![
+                        Literal("start ".to_string()),
+                        Literal("<".to_string()),
+                        Literal("unclosed ".to_string()),
+                        Option(vec![Literal("any".to_string())]),
+                    ],
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::UnclosedRegexDelimiter,
+                        span: Span { start: 6, end: 21 },
+                    },]
                 })
             );
         }
