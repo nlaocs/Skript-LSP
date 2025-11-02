@@ -190,13 +190,6 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     Err(e) => return Err(e),
                 }
             }
-            /*']' if scope == Scope::Option => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
-                }
-                break;
-            }*/
             ']' => {
                 if scope == Scope::Option {
                     if !buffer.is_empty() {
@@ -743,22 +736,6 @@ mod tests {
                     })
                 );
             }
-
-            // []の中に存在する|は正しくないものとして扱うため、このテストは廃止
-            /*#[test]
-            fn group_option() {
-                let empty_group_option = parse("(|[|])");
-                assert_eq!(
-                    empty_group_option,
-                    Ok(ParseResult {
-                        elements: vec![Group(vec![Choice(vec![
-                            vec![Empty],
-                            vec![Option(vec![Choice(vec![vec![Empty], vec![Empty]])])],
-                        ])])],
-                        warnings: vec![]
-                    })
-                );
-            }*/
         }
     }
 
@@ -825,14 +802,6 @@ mod tests {
         let syntax = parse("folder|dir|box");
         assert_eq!(
             syntax,
-            /*Ok(ParseResult {
-                elements: vec![Choice(vec![
-                    vec![Literal("folder".to_string())],
-                    vec![Literal("dir".to_string())],
-                    vec![Literal("box".to_string())],
-                ])],
-                warnings: vec![]
-            })*/
             Err(ParseError {
                 kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
             })
@@ -841,21 +810,6 @@ mod tests {
         let syntax = parse("active[ |-](group|model)[s]");
         assert_eq!(
             syntax,
-            /*Ok(ParseResult {
-                elements: vec![
-                    Literal("active".to_string()),
-                    Option(vec![Choice(vec![
-                        vec![Literal(" ".to_string())],
-                        vec![Literal("-".to_string())],
-                    ])]),
-                    Group(vec![Choice(vec![
-                        vec![Literal("group".to_string())],
-                        vec![Literal("model".to_string())],
-                    ])]),
-                    Option(vec![Literal("s".to_string())]),
-                ],
-                warnings: vec![]
-            })*/
             Err(ParseError {
                 kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
             })
@@ -873,7 +827,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::UnclosedBracket,
-                    //span: Span { start: 0, end: 1 },
                 })
             );
 
@@ -882,7 +835,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::UnclosedBracket,
-                    //span: Span { start: 6, end: 7 },
                 })
             );
         }
@@ -894,7 +846,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::UnclosedParenthesis,
-                    //span: Span { start: 0, end: 1 },
                 })
             );
 
@@ -903,7 +854,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::UnclosedParenthesis,
-                    //span: Span { start: 6, end: 7 },
                 })
             );
         }
@@ -915,7 +865,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::IncorrectTimeState,
-                    //span: Span { start: 7, end: 9 },
                 })
             );
 
@@ -924,7 +873,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::IncorrectTimeState,
-                    //span: Span { start: 13, end: 15 },
                 })
             );
         }
