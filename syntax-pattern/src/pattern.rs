@@ -65,6 +65,10 @@ pub enum ParseWarningKind {
     UnclosedTypeDelimiter,
     #[display("Unclosed regex delimiter '>'")]
     UnclosedRegexDelimiter,
+    #[display(
+        "Label not supported. However, it may be supported in the future (this has no effect on end users)."
+    )]
+    LabelNotSupported,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ParseWarning {
