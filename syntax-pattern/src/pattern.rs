@@ -794,7 +794,7 @@ mod tests {
     }
 
     #[cfg(test)]
-    mod error_tests {
+    mod error_warn_tests {
         use super::*;
 
         #[test]
@@ -803,8 +803,27 @@ mod tests {
             assert_eq!(
                 pattern,
                 Ok(ParseResult {
-                    elements: vec![Literal("%unclosed".to_string())],
-                    warnings: vec![]
+                    elements: vec![Literal("%".to_string()), Literal("unclosed".to_string())],
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::UnclosedTypeDelimiter,
+                        span: Span { start: 0, end: 9 },
+                    },]
+                })
+            );
+
+            let pattern = parse("start %unclosed/string");
+            assert_eq!(
+                pattern,
+                Ok(ParseResult {
+                    elements: vec![
+                        Literal("start ".to_string()),
+                        Literal("%".to_string()),
+                        Literal("unclosed/string".to_string()),
+                    ],
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::UnclosedTypeDelimiter,
+                        span: Span { start: 6, end: 22 },
+                    },]
                 })
             );
         }
