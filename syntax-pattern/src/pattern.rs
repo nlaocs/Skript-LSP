@@ -59,7 +59,7 @@ pub enum ParseErrorKind {
     )]
     UnclosedTypeDelimiter,
     #[error(
-        "Missing closing regex bracket '>'. Escape the '<' if you want to match a literal bracket: '\\<"
+        "Missing closing regex bracket '>'. Escape the '<' if you want to match a literal bracket: '\\<'"
     )]
     UnclosedRegexDelimiter,
     #[error(
