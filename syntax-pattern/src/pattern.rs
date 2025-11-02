@@ -40,12 +40,22 @@ impl std::fmt::Display for PatternTypeExpr {
 pub enum ParseErrorKind {
     #[error("Unclosed parenthesis '('")]
     UnclosedParenthesis,
+    #[error("Unexpected closing parenthesis ')'")]
+    UnexpectedClosingParenthesis,
     #[error("Unclosed bracket '['")]
     UnclosedBracket,
+    #[error("Unexpected closing bracket ']'")]
+    UnexpectedClosingBracket,
     #[error("Unclosed type delimiter '%'")]
     UnclosedTypeDelimiter,
-    #[error("Unclosed regex delimiter '>'")]
+    #[error("Unclosed regex delimiter '<'")]
     UnclosedRegexDelimiter,
+    #[error("Unexpected closing regex delimiter '>'")]
+    UnexpectedClosingRegexDelimiter,
+    #[error(
+        "Cannot use the pipe character '|' outside of groups. Escape it if you want to match a literal pipe: '\\|'"
+    )]
+    UnexpectedPipeOutsideGroup,
     #[error("Incorrect time state in type expression")]
     IncorrectTimeState,
 }
@@ -118,16 +128,35 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '('
-                let group = parse_choice(chars, Scope::Group, raw_pattern)?;
-                warnings.extend(group.warnings);
-                elements.push(PatternElement::Group(group.elements));
-            }
-            ')' if scope == Scope::Group => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+
+                match parse_choice(chars, Scope::Group, raw_pattern) {
+                    Ok(group) => {
+                        warnings.extend(group.warnings);
+                        elements.push(PatternElement::Group(group.elements));
+                    }
+                    Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingBracket,
+                        ..
+                    }) if scope == Scope::Option => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                        });
+                    }
+                    Err(e) => return Err(e),
                 }
-                break;
+            }
+            ')' => {
+                if scope == Scope::Group {
+                    if !buffer.is_empty() {
+                        elements.push(PatternElement::Literal(buffer.clone()));
+                        buffer.clear();
+                    }
+                    break;
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                    });
+                }
             }
             '[' => {
                 if !buffer.is_empty() {
@@ -153,16 +182,41 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     }
                 }
 
-                let option = parse_choice(chars, Scope::Option, raw_pattern)?;
-                warnings.extend(option.warnings);
-                elements.push(PatternElement::Option(option.elements));
+                match parse_choice(chars, Scope::Option, raw_pattern) {
+                    Ok(option) => {
+                        warnings.extend(option.warnings);
+                        elements.push(PatternElement::Option(option.elements));
+                    }
+                    Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                        ..
+                    }) if scope == Scope::Group => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnclosedBracket,
+                        });
+                    }
+                    Err(e) => return Err(e),
+                }
             }
-            ']' if scope == Scope::Option => {
+            /*']' if scope == Scope::Option => {
                 if !buffer.is_empty() {
                     elements.push(PatternElement::Literal(buffer.clone()));
                     buffer.clear();
                 }
                 break;
+            }*/
+            ']' => {
+                if scope == Scope::Option {
+                    if !buffer.is_empty() {
+                        elements.push(PatternElement::Literal(buffer.clone()));
+                        buffer.clear();
+                    }
+                    break;
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingBracket,
+                    });
+                }
             }
             '<' => {
                 if !buffer.is_empty() {
@@ -202,6 +256,11 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                         kind: ParseErrorKind::UnclosedRegexDelimiter,
                     });
                 }
+            }
+            '>' => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
+                });
             }
             '%' => {
                 if !buffer.is_empty() {
@@ -285,11 +344,17 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             '|' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                if scope == Scope::Group {
+                    if !buffer.is_empty() {
+                        elements.push(PatternElement::Literal(buffer.clone()));
+                        buffer.clear();
+                    }
+                    break;
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+                    });
                 }
-                break;
             }
             '\\' => {
                 chars.next(); // consume '\'
@@ -419,14 +484,14 @@ mod tests {
 
         #[test]
         fn parse_choice() {
-            let choice = parse("choice1|choice2");
+            let choice = parse("(choice1|choice2)");
             assert_eq!(
                 choice,
                 Ok(ParseResult {
-                    elements: vec![Choice(vec![
+                    elements: vec![Group(vec![Choice(vec![
                         vec![Literal("choice1".to_string())],
                         vec![Literal("choice2".to_string())],
-                    ])],
+                    ])])],
                     warnings: vec![]
                 })
             );
@@ -647,11 +712,14 @@ mod tests {
 
             #[test]
             fn choice_trailing() {
-                let empty_choice = parse("a|");
+                let empty_choice = parse("(a|)");
                 assert_eq!(
                     empty_choice,
                     Ok(ParseResult {
-                        elements: vec![Choice(vec![vec![Literal("a".to_string())], vec![Empty],])],
+                        elements: vec![Group(vec![Choice(vec![
+                            vec![Literal("a".to_string())],
+                            vec![Empty],
+                        ])])],
                         warnings: vec![]
                     })
                 );
@@ -659,11 +727,14 @@ mod tests {
 
             #[test]
             fn choice_leading() {
-                let empty_choice2 = parse("|b");
+                let empty_choice2 = parse("(|b)");
                 assert_eq!(
                     empty_choice2,
                     Ok(ParseResult {
-                        elements: vec![Choice(vec![vec![Empty], vec![Literal("b".to_string())],])],
+                        elements: vec![Group(vec![Choice(vec![
+                            vec![Empty],
+                            vec![Literal("b".to_string())],
+                        ])])],
                         warnings: vec![]
                     })
                 );
@@ -671,17 +742,18 @@ mod tests {
 
             #[test]
             fn choice_both() {
-                let empty_choice3 = parse("|");
+                let empty_choice3 = parse("(|)");
                 assert_eq!(
                     empty_choice3,
                     Ok(ParseResult {
-                        elements: vec![Choice(vec![vec![Empty], vec![Empty]])],
+                        elements: vec![Group(vec![Choice(vec![vec![Empty], vec![Empty]])])],
                         warnings: vec![]
                     })
                 );
             }
 
-            #[test]
+            // []の中に存在する|は正しくないものとして扱うため、このテストは廃止
+            /*#[test]
             fn group_option() {
                 let empty_group_option = parse("(|[|])");
                 assert_eq!(
@@ -694,7 +766,7 @@ mod tests {
                         warnings: vec![]
                     })
                 );
-            }
+            }*/
         }
     }
 
@@ -761,20 +833,23 @@ mod tests {
         let syntax = parse("folder|dir|box");
         assert_eq!(
             syntax,
-            Ok(ParseResult {
+            /*Ok(ParseResult {
                 elements: vec![Choice(vec![
                     vec![Literal("folder".to_string())],
                     vec![Literal("dir".to_string())],
                     vec![Literal("box".to_string())],
                 ])],
                 warnings: vec![]
+            })*/
+            Err(ParseError {
+                kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
             })
         );
 
         let syntax = parse("active[ |-](group|model)[s]");
         assert_eq!(
             syntax,
-            Ok(ParseResult {
+            /*Ok(ParseResult {
                 elements: vec![
                     Literal("active".to_string()),
                     Option(vec![Choice(vec![
@@ -788,6 +863,9 @@ mod tests {
                     Option(vec![Literal("s".to_string())]),
                 ],
                 warnings: vec![]
+            })*/
+            Err(ParseError {
+                kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
             })
         );
     }
@@ -893,6 +971,72 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::UnclosedRegexDelimiter,
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_parenthesis_in_option() {
+            let pattern = parse("[(unclosed group]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_bracket_in_group() {
+            let pattern = parse("([unclosed option)");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_closing_parenthesis() {
+            let pattern = parse("unclosed group)");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_closing_bracket() {
+            let pattern = parse("unclosed option]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingBracket,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_closing_regex_delimiter() {
+            let pattern = parse("unclosed regex>");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_pipe_in_global() {
+            let pattern = parse("no|group");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
                 })
             );
         }
