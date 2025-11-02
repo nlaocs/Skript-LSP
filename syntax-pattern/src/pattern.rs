@@ -165,29 +165,33 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
                 chars.next(); // consume '<'
 
-                let mut cloned_chars = chars.clone();
-                let mut is_closed = false;
-                while let Some(&(_, c)) = cloned_chars.peek() {
-                    if c == '>' {
-                        is_closed = true;
-                        break;
-                    }
-                    cloned_chars.next();
-                }
-                if is_closed {
-                    let mut regex = String::new();
-                    while let Some(&(_, c)) = chars.peek() {
-                        if c == '>' {
-                            chars.next(); // consume '>'
-                            break;
-                        } else {
-                            regex.push(c);
-                            chars.next();
+                let start = i + '<'.len_utf8();
+                if let Some(rel) = raw_pattern[start..].find('>') {
+                    let end = start + rel;
+
+                    let regex_slice = &raw_pattern[start..end];
+
+                    // イテレータを '>' の直後まで一気に進める
+                    while let Some(&(j, _)) = chars.peek() {
+                        match j.cmp(&end) {
+                            std::cmp::Ordering::Less => {
+                                // j < end
+                                chars.next();
+                            }
+                            std::cmp::Ordering::Equal => {
+                                // j == end
+                                chars.next(); // consume '>'
+                                break;
+                            }
+                            std::cmp::Ordering::Greater => {
+                                break; // shouldn't happen
+                            }
                         }
                     }
-                    elements.push(PatternElement::Regex(regex));
+
+                    elements.push(PatternElement::Regex(regex_slice.to_string()));
                 } else {
-                    // unclosed regex
+                    // unclosed regex（先読みのみで、'<' 以降は消費しない）
                     warnings.push(ParseWarning {
                         kind: ParseWarningKind::UnclosedRegexDelimiter,
                         span: Span {
