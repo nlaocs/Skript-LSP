@@ -84,7 +84,7 @@ pub struct ParseResult {
 
 pub fn parse(input: &str) -> Result<ParseResult, ParseError> {
     let mut chars = input.char_indices().peekable();
-    Ok(parse_choice(&mut chars, Scope::Global, input)?)
+    parse_choice(&mut chars, Scope::Global, input)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
