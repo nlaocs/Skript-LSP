@@ -38,25 +38,39 @@ impl std::fmt::Display for PatternTypeExpr {
 
 #[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParseErrorKind {
-    #[error("Unclosed parenthesis '('")]
+    #[error(
+        "Missing closing group bracket ')'. Escape the '(' if you want to match a literal bracket: '\\('"
+    )]
     UnclosedParenthesis,
-    #[error("Unexpected closing parenthesis ')'")]
+    #[error(
+        "Unexpected closing group bracket ')'. Escape it if you want to match a literal bracket: '\\)'"
+    )]
     UnexpectedClosingParenthesis,
-    #[error("Unclosed bracket '['")]
+    #[error(
+        "Missing closing optional bracket ']'. Escape the '[' if you want to match a literal bracket: '\\['"
+    )]
     UnclosedBracket,
-    #[error("Unexpected closing bracket ']'")]
+    #[error(
+        "Unexpected closing optional bracket ']'. Escape it if you want to match a literal bracket: '\\]'"
+    )]
     UnexpectedClosingBracket,
-    #[error("Unclosed type delimiter '%'")]
+    #[error(
+        "Missing closing type delimiter '%'. Escape the '%' if you want to match a literal percent sign: '\\%'"
+    )]
     UnclosedTypeDelimiter,
-    #[error("Unclosed regex delimiter '<'")]
+    #[error(
+        "Missing closing regex bracket '>'. Escape the '<' if you want to match a literal bracket: '\\<"
+    )]
     UnclosedRegexDelimiter,
-    #[error("Unexpected closing regex delimiter '>'")]
+    #[error(
+        "Unexpected closing regex bracket '>'. Escape it if you want to match a literal bracket: '\\>'"
+    )]
     UnexpectedClosingRegexDelimiter,
     #[error(
         "Cannot use the pipe character '|' outside of groups. Escape it if you want to match a literal pipe: '\\|'"
     )]
     UnexpectedPipeOutsideGroup,
-    #[error("Incorrect time state in type expression")]
+    #[error("Incorrect time state in type expression. It must be either @1 or @-1.")]
     IncorrectTimeState,
 }
 
