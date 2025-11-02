@@ -321,16 +321,26 @@ fn parse_choice<I: Iterator<Item = char> + Clone>(
         }
     }
 
-    if cfg!(debug_assertions) {
-        match scope {
-            Scope::Group if !closed => {
-                eprintln!("Warning: Unmatched '(' in pattern: {}", raw_pattern) // todo result
-            }
-            Scope::Option if !closed => {
-                eprintln!("Warning: Unmatched '[' in pattern: {}", raw_pattern) // todo result
-            }
-            _ => {}
+    match scope {
+        Scope::Group if !closed => {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnclosedParenthesis,
+                span: Span {
+                    start: 0, // todo
+                    end: raw_pattern.len(),
+                },
+            });
         }
+        Scope::Option if !closed => {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnclosedBracket,
+                span: Span {
+                    start: 0, // todo
+                    end: raw_pattern.len(),
+                },
+            });
+        }
+        _ => {}
     }
 
     if branches.len() == 1 {
@@ -736,6 +746,47 @@ mod tests {
                 ]),
             ]))
         );
+    }
+
+    #[cfg(test)]
+    mod error_tests {
+        use super::*;
+
+        #[test]
+        fn unclosed_parenthesis() {
+            let pattern = parse("(unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedParenthesis,
+                    span: Span { start: 0, end: 9 },
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_bracket() {
+            let pattern = parse("[unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                    span: Span { start: 0, end: 9 },
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_type_delimiter() {
+            let pattern = parse("%unclosed");
+            assert_eq!(pattern, Ok(Pattern(vec![Literal("%unclosed".to_string())])));
+        }
+
+        #[test]
+        fn unclosed_regex_delimiter() {
+            let pattern = parse("<unclosed");
+            assert_eq!(pattern, Ok(Pattern(vec![Literal("<unclosed".to_string())])));
+        }
     }
 
     #[cfg(test)]
