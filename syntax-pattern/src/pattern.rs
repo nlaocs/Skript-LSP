@@ -129,11 +129,6 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
 
     let mut warnings = Vec::new();
 
-    // todo skriptで通らないがlspでは通るというsyntaxがある 後に本家に合わせる
-    // 例えば、 a|b) や a|b] のようなもの
-    // これらは本家ではエラーになるが、b)やb]の部分がchoiceの一部として扱われるため、lspではエラーにならない
-    // 本家: https://github.com/SkriptLang/Skript/blob/eae1f09622cd39b44b98527e2915476029453e32/src/main/java/ch/njol/skript/lang/SkriptParser.java#L1668-L1733
-    // issue: https://github.com/nlaocs/Skript-LSP/issues/4
     while let Some(&(i, ch)) = chars.peek() {
         match ch {
             '(' => {
