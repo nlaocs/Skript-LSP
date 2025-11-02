@@ -188,7 +188,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                                 break; // shouldn't happen
                             }
                         }
-                    }
+                    } // todo macro
 
                     elements.push(PatternElement::Regex(regex_slice.to_string()));
                 } else {
@@ -209,67 +209,80 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '%'
-                let mut type_expr_str = String::new();
-                while let Some(&(_, c)) = chars.peek() {
-                    if c == '%' {
-                        break;
-                    }
-                    type_expr_str.push(c);
-                    chars.next();
-                }
-                //if chars.peek() == Some(&'%') {
-                if let Some(&(_, next_ch)) = chars.peek() {
-                    if next_ch == '%' {
-                        chars.next(); // consume '%'
-                        if cfg!(debug_assertions) && type_expr_str.contains(' ') {
-                            eprintln!(
-                                "Warning: Type expression contains spaces in pattern: {}",
-                                raw_pattern
-                            );
+
+                let start = i + '%'.len_utf8();
+                if let Some(rel) = raw_pattern[start..].find('%') {
+                    let end = start + rel;
+
+                    let type_expr_str = &raw_pattern[start..end];
+
+                    // イテレータを '%' の直後まで一気に進める
+                    while let Some(&(j, _)) = chars.peek() {
+                        use std::cmp::Ordering;
+                        match j.cmp(&end) {
+                            Ordering::Less => {
+                                // j < end
+                                chars.next();
+                            }
+                            Ordering::Equal => {
+                                // j == end
+                                chars.next(); // consume '%'
+                                break;
+                            }
+                            Ordering::Greater => {
+                                break; // shouldn't happen
+                            }
                         }
-                        let types = type_expr_str.split('/');
-                        let mut type_exprs = Vec::new();
-                        for t in types {
-                            let mut a = t;
-                            let mut literal = false;
-                            let mut non_literal = false;
-                            let mut nullable = false;
-                            let mut time_state = None;
-                            loop {
-                                if a.starts_with('*') {
-                                    literal = true;
-                                    a = &a[1..];
-                                } else if a.starts_with('~') {
-                                    non_literal = true;
-                                    a = &a[1..];
-                                } else if a.starts_with('-') {
-                                    nullable = true;
-                                    a = &a[1..];
-                                } else if let Some(at_pos) = a.find('@') {
-                                    if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
-                                        time_state = std::num::NonZeroI8::new(ts);
-                                        a = &a[..at_pos];
-                                    } else {
-                                        break;
-                                    }
+                    } // todo macro
+
+                    let types = type_expr_str.split('/');
+                    let mut type_exprs = Vec::new();
+                    for t in types {
+                        let mut a = t;
+                        let mut literal = false;
+                        let mut non_literal = false;
+                        let mut nullable = false;
+                        let mut time_state = None;
+                        loop {
+                            if a.starts_with('*') {
+                                literal = true;
+                                a = &a[1..];
+                            } else if a.starts_with('~') {
+                                non_literal = true;
+                                a = &a[1..];
+                            } else if a.starts_with('-') {
+                                nullable = true;
+                                a = &a[1..];
+                            } else if let Some(at_pos) = a.find('@') {
+                                if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
+                                    time_state = std::num::NonZeroI8::new(ts);
+                                    a = &a[..at_pos];
                                 } else {
                                     break;
                                 }
+                            } else {
+                                break;
                             }
-                            type_exprs.push(PatternTypeExpr {
-                                name: a.to_string(),
-                                literal,
-                                non_literal,
-                                nullable,
-                                time_state,
-                            });
                         }
-                        elements.push(PatternElement::TypeExpr(type_exprs));
-                    } else {
-                        elements.push(PatternElement::Literal(format!("%{}", type_expr_str)));
+                        type_exprs.push(PatternTypeExpr {
+                            name: a.to_string(),
+                            literal,
+                            non_literal,
+                            nullable,
+                            time_state,
+                        });
                     }
+                    elements.push(PatternElement::TypeExpr(type_exprs));
                 } else {
-                    elements.push(PatternElement::Literal(format!("%{}", type_expr_str)));
+                    // unclosed type delimiter（先読みのみで、'%' 以降は消費しない）
+                    warnings.push(ParseWarning {
+                        kind: ParseWarningKind::UnclosedTypeDelimiter,
+                        span: Span {
+                            start: i,
+                            end: raw_pattern.len(),
+                        },
+                    });
+                    elements.push(PatternElement::Literal("%".to_string()));
                 }
             }
             '|' => {
