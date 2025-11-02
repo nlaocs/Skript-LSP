@@ -72,10 +72,6 @@ pub enum ParseErrorKind {
     UnclosedParenthesis,
     #[error("Unclosed bracket '['")]
     UnclosedBracket,
-    #[error("Unclosed type delimiter '%'")]
-    UnclosedTypeDelimiter,
-    #[error("Unclosed regex delimiter '>'")]
-    UnclosedRegexDelimiter,
     #[error("Incorrect time state in type expression")]
     IncorrectTimeState,
 }
@@ -91,6 +87,25 @@ pub struct Span {
 pub struct ParseError {
     pub kind: ParseErrorKind,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParseWarningKind {
+    #[dirive_more::Display(fmt = "Unclosed type delimiter '%'")]
+    UnclosedTypeDelimiter,
+    #[dirive_more::Display(fmt = "Unclosed regex delimiter '>'")]
+    UnclosedRegexDelimiter,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ParseWarning {
+    pub kind: ParseWarningKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParseResult {
+    pub elements: Vec<PatternElement>,
+    pub warnings: Vec<ParseWarning>,
 }
 
 pub fn parse(input: &str) -> Result<Pattern, ParseError> {
