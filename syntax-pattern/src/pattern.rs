@@ -83,7 +83,7 @@ pub struct ParseResult {
 }
 
 pub fn parse(input: &str) -> Result<ParseResult, ParseError> {
-    let mut chars = input.chars().peekable();
+    let mut chars = input.char_indices().peekable();
     Ok(parse_choice(&mut chars, Scope::Global, input)?)
 }
 
@@ -94,7 +94,7 @@ enum Scope {
     Option,
 }
 
-fn parse_sequence<I: Iterator<Item = char> + Clone>(
+fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
@@ -104,7 +104,7 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
 
     let mut warnings = Vec::new();
 
-    while let Some(&ch) = chars.peek() {
+    while let Some(&(i, ch)) = chars.peek() {
         match ch {
             '(' => {
                 if !buffer.is_empty() {
@@ -129,17 +129,21 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '['
-                // [(] の場合はOption(Literal("("))として扱う todo typeをskript patternにしたときのバグの可能性があるので必要がどうかが不明
-                if chars.peek() == Some(&'(') {
-                    let mut chars_clone = chars.clone();
-                    chars_clone.next(); // consume '('
-                    if chars_clone.peek() == Some(&']') {
-                        chars.next(); // consume '('
-                        chars.next(); // consume ']'
-                        elements.push(PatternElement::Option(vec![PatternElement::Literal(
-                            "(".to_string(),
-                        )]));
-                        continue;
+                if let Some(&(_, next_ch)) = chars.peek() {
+                    // [(] の場合はOption(Literal("("))として扱う todo typeをskript patternにしたときのバグの可能性があるので必要がどうかが不明
+                    if next_ch == '(' {
+                        let mut chars_clone = chars.clone();
+                        chars_clone.next(); // consume '('
+                        if let Some(&(_, next_next_ch)) = chars_clone.peek() {
+                            if next_next_ch == ']' {
+                                chars.next(); // consume '('
+                                chars.next(); // consume ']'
+                                elements.push(PatternElement::Option(vec![
+                                    PatternElement::Literal("(".to_string()),
+                                ]));
+                                continue;
+                            }
+                        }
                     }
                 }
 
@@ -161,17 +165,25 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                 }
                 chars.next(); // consume '<'
                 let mut regex = String::new();
-                while let Some(&c) = chars.peek() {
+                while let Some(&(_, c)) = chars.peek() {
                     if c == '>' {
                         break;
                     }
                     regex.push(c);
                     chars.next();
                 }
-                if chars.peek() == Some(&'>') {
-                    chars.next(); // consume '>'
-                    elements.push(PatternElement::Regex(regex));
+                if let Some(&(_, next_ch)) = chars.peek() {
+                    if next_ch == '>' {
+                        chars.next(); // consume '>'
+                        elements.push(PatternElement::Regex(regex));
+                    } else {
+                        // peek is Some but not '>'
+                        // todo 今のままでは不完全な正規表現がリテラルとして扱われるが、[]などが出てきてもリテラルとして扱われてしまう
+                        // https://github.com/nlaocs/Skript-LSP/issues/3
+                        elements.push(PatternElement::Literal(format!("<{}", regex)));
+                    }
                 } else {
+                    // peek is None
                     // todo 今のままでは不完全な正規表現がリテラルとして扱われるが、[]などが出てきてもリテラルとして扱われてしまう
                     // https://github.com/nlaocs/Skript-LSP/issues/3
                     elements.push(PatternElement::Literal(format!("<{}", regex)));
@@ -184,59 +196,64 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                 }
                 chars.next(); // consume '%'
                 let mut type_expr_str = String::new();
-                while let Some(&c) = chars.peek() {
+                while let Some(&(_, c)) = chars.peek() {
                     if c == '%' {
                         break;
                     }
                     type_expr_str.push(c);
                     chars.next();
                 }
-                if chars.peek() == Some(&'%') {
-                    chars.next(); // consume '%'
-                    if cfg!(debug_assertions) && type_expr_str.contains(' ') {
-                        eprintln!(
-                            "Warning: Type expression contains spaces in pattern: {}",
-                            raw_pattern
-                        );
-                    }
-                    let types = type_expr_str.split('/');
-                    let mut type_exprs = Vec::new();
-                    for t in types {
-                        let mut a = t;
-                        let mut literal = false;
-                        let mut non_literal = false;
-                        let mut nullable = false;
-                        let mut time_state = None;
-                        loop {
-                            if a.starts_with('*') {
-                                literal = true;
-                                a = &a[1..];
-                            } else if a.starts_with('~') {
-                                non_literal = true;
-                                a = &a[1..];
-                            } else if a.starts_with('-') {
-                                nullable = true;
-                                a = &a[1..];
-                            } else if let Some(at_pos) = a.find('@') {
-                                if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
-                                    time_state = std::num::NonZeroI8::new(ts);
-                                    a = &a[..at_pos];
+                //if chars.peek() == Some(&'%') {
+                if let Some(&(_, next_ch)) = chars.peek() {
+                    if next_ch == '%' {
+                        chars.next(); // consume '%'
+                        if cfg!(debug_assertions) && type_expr_str.contains(' ') {
+                            eprintln!(
+                                "Warning: Type expression contains spaces in pattern: {}",
+                                raw_pattern
+                            );
+                        }
+                        let types = type_expr_str.split('/');
+                        let mut type_exprs = Vec::new();
+                        for t in types {
+                            let mut a = t;
+                            let mut literal = false;
+                            let mut non_literal = false;
+                            let mut nullable = false;
+                            let mut time_state = None;
+                            loop {
+                                if a.starts_with('*') {
+                                    literal = true;
+                                    a = &a[1..];
+                                } else if a.starts_with('~') {
+                                    non_literal = true;
+                                    a = &a[1..];
+                                } else if a.starts_with('-') {
+                                    nullable = true;
+                                    a = &a[1..];
+                                } else if let Some(at_pos) = a.find('@') {
+                                    if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
+                                        time_state = std::num::NonZeroI8::new(ts);
+                                        a = &a[..at_pos];
+                                    } else {
+                                        break;
+                                    }
                                 } else {
                                     break;
                                 }
-                            } else {
-                                break;
                             }
+                            type_exprs.push(PatternTypeExpr {
+                                name: a.to_string(),
+                                literal,
+                                non_literal,
+                                nullable,
+                                time_state,
+                            });
                         }
-                        type_exprs.push(PatternTypeExpr {
-                            name: a.to_string(),
-                            literal,
-                            non_literal,
-                            nullable,
-                            time_state,
-                        });
+                        elements.push(PatternElement::TypeExpr(type_exprs));
+                    } else {
+                        elements.push(PatternElement::Literal(format!("%{}", type_expr_str)));
                     }
-                    elements.push(PatternElement::TypeExpr(type_exprs));
                 } else {
                     elements.push(PatternElement::Literal(format!("%{}", type_expr_str)));
                 }
@@ -250,8 +267,8 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
             }
             '\\' => {
                 chars.next(); // consume '\'
-                if let Some(&next_ch) = chars.peek() {
-                    buffer.push(next_ch);
+                if let Some(&(_, c)) = chars.peek() {
+                    buffer.push(c);
                     chars.next(); // consume escaped character
                 } else {
                     buffer.push('\\');
@@ -281,7 +298,7 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
     Ok(ParseResult { elements, warnings })
 }
 
-fn parse_choice<I: Iterator<Item = char> + Clone>(
+fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
@@ -301,15 +318,15 @@ fn parse_choice<I: Iterator<Item = char> + Clone>(
         }
 
         match chars.peek() {
-            Some('|') => {
+            Some(&(_, '|')) => {
                 chars.next(); // 次の分岐へ
             }
-            Some(')') if scope == Scope::Group => {
+            Some(&(_, ')')) if scope == Scope::Group => {
                 chars.next(); // 対応する閉じ括弧を消費
                 closed = true;
                 break;
             }
-            Some(']') if scope == Scope::Option => {
+            Some(&(_, ']')) if scope == Scope::Option => {
                 chars.next(); // 対応する閉じ括弧を消費
                 closed = true;
                 break;
