@@ -104,6 +104,11 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
 
     let mut warnings = Vec::new();
 
+    // todo skriptで通らないがlspでは通るというsyntaxがある 後に本家に合わせる
+    // 例えば、 a|b) や a|b] のようなもの
+    // これらは本家ではエラーになるが、b)やb]の部分がchoiceの一部として扱われるため、lspではエラーにならない
+    // 本家: https://github.com/SkriptLang/Skript/blob/eae1f09622cd39b44b98527e2915476029453e32/src/main/java/ch/njol/skript/lang/SkriptParser.java#L1668-L1733
+    // issue: https://github.com/nlaocs/Skript-LSP/issues/4
     while let Some(&(i, ch)) = chars.peek() {
         match ch {
             '(' => {
@@ -306,6 +311,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 // skript-hubではpatternに変換される際にラベルが消されるため、実装の優先度は低い
                 // (詳しくはこちら: https://github.com/SkriptHub/SkriptHubDocsTool/blob/0e0ef70a370227672301a51e3125dc7fc1663278/src/main/kotlin/net/skripthub/docstool/documentation/GenerateSyntax.kt#L265-L288)
                 // そのため今はあっても破棄している
+                // issue: https://github.com/nlaocs/Skript-LSP/issues/5
                 if !buffer.is_empty() {
                     buffer.clear();
                 }
