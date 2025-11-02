@@ -819,5 +819,17 @@ mod tests {
                 })
             );
         }
+
+        #[test]
+        fn bracket_group() {
+            let pattern = parse("[(]");
+            assert_eq!(
+                pattern,
+                Ok(ParseResult {
+                    elements: vec![Option(vec![Literal("(".to_string())]),],
+                    warnings: vec![]
+                })
+            );
+        }
     }
 }
