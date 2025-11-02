@@ -173,17 +173,18 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
 
                     // イテレータを '>' の直後まで一気に進める
                     while let Some(&(j, _)) = chars.peek() {
+                        use std::cmp::Ordering;
                         match j.cmp(&end) {
-                            std::cmp::Ordering::Less => {
+                            Ordering::Less => {
                                 // j < end
                                 chars.next();
                             }
-                            std::cmp::Ordering::Equal => {
+                            Ordering::Equal => {
                                 // j == end
                                 chars.next(); // consume '>'
                                 break;
                             }
-                            std::cmp::Ordering::Greater => {
+                            Ordering::Greater => {
                                 break; // shouldn't happen
                             }
                         }
