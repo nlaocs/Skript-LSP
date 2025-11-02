@@ -315,6 +315,13 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 if !buffer.is_empty() {
                     buffer.clear();
                 }
+                warnings.push(ParseWarning {
+                    kind: ParseWarningKind::LabelNotSupported,
+                    span: Span {
+                        start: i,
+                        end: i + ch.len_utf8(),
+                    },
+                });
                 chars.next();
             }
             _ => {
@@ -878,7 +885,10 @@ mod tests {
                 pattern,
                 Ok(ParseResult {
                     elements: vec![Group(vec![Literal("group".to_string())])],
-                    warnings: vec![]
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::LabelNotSupported,
+                        span: Span { start: 6, end: 7 },
+                    }]
                 })
             );
 
@@ -887,7 +897,10 @@ mod tests {
                 pattern,
                 Ok(ParseResult {
                     elements: vec![Group(vec![Literal("group".to_string())])],
-                    warnings: vec![]
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::LabelNotSupported,
+                        span: Span { start: 1, end: 3 },
+                    }]
                 })
             );
         }
