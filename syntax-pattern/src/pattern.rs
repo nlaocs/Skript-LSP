@@ -1,34 +1,4 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Pattern(pub Vec<PatternElement>);
-impl std::ops::Deref for Pattern {
-    type Target = Vec<PatternElement>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl std::ops::DerefMut for Pattern {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl IntoIterator for Pattern {
-    type Item = PatternElement;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-impl<'a> IntoIterator for &'a Pattern {
-    type Item = &'a PatternElement;
-    type IntoIter = std::slice::Iter<'a, PatternElement>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PatternElement {
     Literal(String),
     Choice(Vec<Vec<PatternElement>>), // stuff|otherstuff
@@ -66,9 +36,80 @@ impl std::fmt::Display for PatternTypeExpr {
     }
 }
 
-pub fn parse(input: &str) -> Pattern {
-    let mut chars = input.chars().peekable();
-    Pattern(parse_choice(&mut chars, Scope::Global, input))
+#[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParseErrorKind {
+    #[error(
+        "Missing closing group bracket ')'. Escape the '(' if you want to match a literal bracket: '\\('"
+    )]
+    UnclosedParenthesis,
+    #[error(
+        "Unexpected closing group bracket ')'. Escape it if you want to match a literal bracket: '\\)'"
+    )]
+    UnexpectedClosingParenthesis,
+    #[error(
+        "Missing closing optional bracket ']'. Escape the '[' if you want to match a literal bracket: '\\['"
+    )]
+    UnclosedBracket,
+    #[error(
+        "Unexpected closing optional bracket ']'. Escape it if you want to match a literal bracket: '\\]'"
+    )]
+    UnexpectedClosingBracket,
+    #[error(
+        "Missing closing type delimiter '%'. Escape the '%' if you want to match a literal percent sign: '\\%'"
+    )]
+    UnclosedTypeDelimiter,
+    #[error(
+        "Missing closing regex bracket '>'. Escape the '<' if you want to match a literal bracket: '\\<'"
+    )]
+    UnclosedRegexDelimiter,
+    #[error(
+        "Unexpected closing regex bracket '>'. Escape it if you want to match a literal bracket: '\\>'"
+    )]
+    UnexpectedClosingRegexDelimiter,
+    #[error(
+        "Cannot use the pipe character '|' outside of groups. Escape it if you want to match a literal pipe: '\\|'"
+    )]
+    UnexpectedPipeOutsideGroup,
+    #[error("Incorrect time state in type expression. It must be either @1 or @-1.")]
+    IncorrectTimeState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
+//#[error("{kind} at position {span:?}")] // todo implement
+#[error("{kind}")]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    //pub span: Span, // todo implement
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, derive_more::Display)]
+pub enum ParseWarningKind {
+    #[display(
+        "Label not supported. However, it may be supported in the future (this has no effect on end users)."
+    )]
+    LabelNotSupported,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ParseWarning {
+    pub kind: ParseWarningKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParseResult {
+    pub elements: Vec<PatternElement>,
+    pub warnings: Vec<ParseWarning>,
+}
+
+pub fn parse(input: &str) -> Result<ParseResult, ParseError> {
+    let mut chars = input.char_indices().peekable();
+    parse_choice(&mut chars, Scope::Global, input)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,15 +119,17 @@ enum Scope {
     Option,
 }
 
-fn parse_sequence<I: Iterator<Item = char> + Clone>(
+fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
-) -> Vec<PatternElement> {
+) -> Result<ParseResult, ParseError> {
     let mut elements = Vec::new();
     let mut buffer = String::new();
 
-    while let Some(&ch) = chars.peek() {
+    let mut warnings = Vec::new();
+
+    while let Some(&(i, ch)) = chars.peek() {
         match ch {
             '(' => {
                 if !buffer.is_empty() {
@@ -94,15 +137,35 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '('
-                let group = parse_choice(chars, Scope::Group, raw_pattern);
-                elements.push(PatternElement::Group(group));
-            }
-            ')' if scope == Scope::Group => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+
+                match parse_choice(chars, Scope::Group, raw_pattern) {
+                    Ok(group) => {
+                        warnings.extend(group.warnings);
+                        elements.push(PatternElement::Group(group.elements));
+                    }
+                    Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingBracket,
+                        ..
+                    }) if scope == Scope::Option => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                        });
+                    }
+                    Err(e) => return Err(e),
                 }
-                break;
+            }
+            ')' => {
+                if scope == Scope::Group {
+                    if !buffer.is_empty() {
+                        elements.push(PatternElement::Literal(buffer.clone()));
+                        buffer.clear();
+                    }
+                    break;
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                    });
+                }
             }
             '[' => {
                 if !buffer.is_empty() {
@@ -110,29 +173,59 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '['
-                // [(] の場合はOption(Literal("("))として扱う todo typeをskript patternにしたときのバグの可能性があるので必要がどうかが不明
-                if chars.peek() == Some(&'(') {
-                    let mut chars_clone = chars.clone();
-                    chars_clone.next(); // consume '('
-                    if chars_clone.peek() == Some(&']') {
-                        chars.next(); // consume '('
-                        chars.next(); // consume ']'
-                        elements.push(PatternElement::Option(vec![PatternElement::Literal(
-                            "(".to_string(),
-                        )]));
-                        continue;
+                if let Some(&(_, next_ch)) = chars.peek() {
+                    // [(] の場合はOption(Literal("("))として扱う todo typeをskript patternにしたときのバグの可能性があるので必要がどうかが不明
+                    if next_ch == '(' {
+                        let mut chars_clone = chars.clone();
+                        chars_clone.next(); // consume '('
+                        if let Some(&(_, next_next_ch)) = chars_clone.peek() {
+                            if next_next_ch == ']' {
+                                chars.next(); // consume '('
+                                chars.next(); // consume ']'
+                                elements.push(PatternElement::Option(vec![
+                                    PatternElement::Literal("(".to_string()),
+                                ]));
+                                continue;
+                            }
+                        }
                     }
                 }
 
-                let option = parse_choice(chars, Scope::Option, raw_pattern);
-                elements.push(PatternElement::Option(option));
+                match parse_choice(chars, Scope::Option, raw_pattern) {
+                    Ok(option) => {
+                        warnings.extend(option.warnings);
+                        elements.push(PatternElement::Option(option.elements));
+                    }
+                    Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                        ..
+                    }) if scope == Scope::Group => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnclosedBracket,
+                        });
+                    }
+                    Err(e) => return Err(e),
+                }
             }
-            ']' if scope == Scope::Option => {
+            /*']' if scope == Scope::Option => {
                 if !buffer.is_empty() {
                     elements.push(PatternElement::Literal(buffer.clone()));
                     buffer.clear();
                 }
                 break;
+            }*/
+            ']' => {
+                if scope == Scope::Option {
+                    if !buffer.is_empty() {
+                        elements.push(PatternElement::Literal(buffer.clone()));
+                        buffer.clear();
+                    }
+                    break;
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedClosingBracket,
+                    });
+                }
             }
             '<' => {
                 if !buffer.is_empty() {
@@ -140,20 +233,43 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '<'
-                let mut regex = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c == '>' {
-                        break;
-                    }
-                    regex.push(c);
-                    chars.next();
-                }
-                if chars.peek() == Some(&'>') {
-                    chars.next(); // consume '>'
-                    elements.push(PatternElement::Regex(regex));
+
+                let start = i + '<'.len_utf8();
+                if let Some(rel) = raw_pattern[start..].find('>') {
+                    let end = start + rel;
+
+                    let regex_slice = &raw_pattern[start..end];
+
+                    // イテレータを '>' の直後まで一気に進める
+                    while let Some(&(j, _)) = chars.peek() {
+                        use std::cmp::Ordering;
+                        match j.cmp(&end) {
+                            Ordering::Less => {
+                                // j < end
+                                chars.next();
+                            }
+                            Ordering::Equal => {
+                                // j == end
+                                chars.next(); // consume '>'
+                                break;
+                            }
+                            Ordering::Greater => {
+                                break; // shouldn't happen
+                            }
+                        }
+                    } // todo macro
+
+                    elements.push(PatternElement::Regex(regex_slice.to_string()));
                 } else {
-                    elements.push(PatternElement::Literal(format!("<{}", regex)));
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnclosedRegexDelimiter,
+                    });
                 }
+            }
+            '>' => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
+                });
             }
             '%' => {
                 if !buffer.is_empty() {
@@ -161,22 +277,32 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '%'
-                let mut type_expr_str = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c == '%' {
-                        break;
-                    }
-                    type_expr_str.push(c);
-                    chars.next();
-                }
-                if chars.peek() == Some(&'%') {
-                    chars.next(); // consume '%'
-                    if cfg!(debug_assertions) && type_expr_str.contains(' ') {
-                        eprintln!(
-                            "Warning: Type expression contains spaces in pattern: {}",
-                            raw_pattern
-                        );
-                    }
+
+                let start = i + '%'.len_utf8();
+                if let Some(rel) = raw_pattern[start..].find('%') {
+                    let end = start + rel;
+
+                    let type_expr_str = &raw_pattern[start..end];
+
+                    // イテレータを '%' の直後まで一気に進める
+                    while let Some(&(j, _)) = chars.peek() {
+                        use std::cmp::Ordering;
+                        match j.cmp(&end) {
+                            Ordering::Less => {
+                                // j < end
+                                chars.next();
+                            }
+                            Ordering::Equal => {
+                                // j == end
+                                chars.next(); // consume '%'
+                                break;
+                            }
+                            Ordering::Greater => {
+                                break; // shouldn't happen
+                            }
+                        }
+                    } // todo macro
+
                     let types = type_expr_str.split('/');
                     let mut type_exprs = Vec::new();
                     for t in types {
@@ -197,6 +323,11 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                                 a = &a[1..];
                             } else if let Some(at_pos) = a.find('@') {
                                 if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
+                                    if !(ts == -1 || ts == 1) {
+                                        return Err(ParseError {
+                                            kind: ParseErrorKind::IncorrectTimeState,
+                                        });
+                                    }
                                     time_state = std::num::NonZeroI8::new(ts);
                                     a = &a[..at_pos];
                                 } else {
@@ -216,20 +347,28 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                     }
                     elements.push(PatternElement::TypeExpr(type_exprs));
                 } else {
-                    elements.push(PatternElement::Literal(format!("%{}", type_expr_str)));
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnclosedTypeDelimiter,
+                    });
                 }
             }
             '|' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                if scope == Scope::Group {
+                    if !buffer.is_empty() {
+                        elements.push(PatternElement::Literal(buffer.clone()));
+                        buffer.clear();
+                    }
+                    break;
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+                    });
                 }
-                break;
             }
             '\\' => {
                 chars.next(); // consume '\'
-                if let Some(&next_ch) = chars.peek() {
-                    buffer.push(next_ch);
+                if let Some(&(_, c)) = chars.peek() {
+                    buffer.push(c);
                     chars.next(); // consume escaped character
                 } else {
                     buffer.push('\\');
@@ -240,9 +379,17 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
                 // skript-hubではpatternに変換される際にラベルが消されるため、実装の優先度は低い
                 // (詳しくはこちら: https://github.com/SkriptHub/SkriptHubDocsTool/blob/0e0ef70a370227672301a51e3125dc7fc1663278/src/main/kotlin/net/skripthub/docstool/documentation/GenerateSyntax.kt#L265-L288)
                 // そのため今はあっても破棄している
+                // issue: https://github.com/nlaocs/Skript-LSP/issues/5
                 if !buffer.is_empty() {
                     buffer.clear();
                 }
+                warnings.push(ParseWarning {
+                    kind: ParseWarningKind::LabelNotSupported,
+                    span: Span {
+                        start: i,
+                        end: i + ch.len_utf8(),
+                    },
+                });
                 chars.next();
             }
             _ => {
@@ -256,35 +403,38 @@ fn parse_sequence<I: Iterator<Item = char> + Clone>(
         elements.push(PatternElement::Literal(buffer));
     }
 
-    elements
+    Ok(ParseResult { elements, warnings })
 }
 
-fn parse_choice<I: Iterator<Item = char> + Clone>(
+fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
-) -> Vec<PatternElement> {
+) -> Result<ParseResult, ParseError> {
     let mut branches: Vec<Vec<PatternElement>> = Vec::new();
     let mut closed = false; // 対応する閉じ括弧を消費できたか
 
+    let mut warnings = Vec::new();
+
     loop {
-        let seq = parse_sequence(chars, scope, raw_pattern);
-        if !seq.is_empty() {
-            branches.push(seq);
+        let seq = parse_sequence(chars, scope, raw_pattern)?;
+        warnings.extend(seq.warnings);
+        if !seq.elements.is_empty() {
+            branches.push(seq.elements);
         } else {
             branches.push(vec![PatternElement::Empty]);
         }
 
         match chars.peek() {
-            Some('|') => {
+            Some(&(_, '|')) => {
                 chars.next(); // 次の分岐へ
             }
-            Some(')') if scope == Scope::Group => {
+            Some(&(_, ')')) if scope == Scope::Group => {
                 chars.next(); // 対応する閉じ括弧を消費
                 closed = true;
                 break;
             }
-            Some(']') if scope == Scope::Option => {
+            Some(&(_, ']')) if scope == Scope::Option => {
                 chars.next(); // 対応する閉じ括弧を消費
                 closed = true;
                 break;
@@ -294,22 +444,30 @@ fn parse_choice<I: Iterator<Item = char> + Clone>(
         }
     }
 
-    if cfg!(debug_assertions) {
-        match scope {
-            Scope::Group if !closed => {
-                eprintln!("Warning: Unmatched '(' in pattern: {}", raw_pattern) // todo result
-            }
-            Scope::Option if !closed => {
-                eprintln!("Warning: Unmatched '[' in pattern: {}", raw_pattern) // todo result
-            }
-            _ => {}
+    match scope {
+        Scope::Group if !closed => {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnclosedParenthesis,
+            });
         }
+        Scope::Option if !closed => {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnclosedBracket,
+            });
+        }
+        _ => {}
     }
 
     if branches.len() == 1 {
-        branches.into_iter().next().unwrap()
+        Ok(ParseResult {
+            elements: branches.into_iter().next().unwrap(),
+            warnings,
+        })
     } else {
-        vec![PatternElement::Choice(branches)]
+        Ok(ParseResult {
+            elements: vec![PatternElement::Choice(branches)],
+            warnings,
+        })
     }
 }
 
@@ -324,18 +482,27 @@ mod tests {
         #[test]
         fn parse_literal() {
             let literal = parse("literal");
-            assert_eq!(literal, Pattern(vec![Literal("literal".to_string())]));
+            assert_eq!(
+                literal,
+                Ok(ParseResult {
+                    elements: vec![Literal("literal".to_string())],
+                    warnings: vec![]
+                })
+            );
         }
 
         #[test]
         fn parse_choice() {
-            let choice = parse("choice1|choice2");
+            let choice = parse("(choice1|choice2)");
             assert_eq!(
                 choice,
-                Pattern(vec![Choice(vec![
-                    vec![Literal("choice1".to_string())],
-                    vec![Literal("choice2".to_string())],
-                ])])
+                Ok(ParseResult {
+                    elements: vec![Group(vec![Choice(vec![
+                        vec![Literal("choice1".to_string())],
+                        vec![Literal("choice2".to_string())],
+                    ])])],
+                    warnings: vec![]
+                })
             );
         }
 
@@ -344,7 +511,10 @@ mod tests {
             let group = parse("(group)");
             assert_eq!(
                 group,
-                Pattern(vec![Group(vec![Literal("group".to_string())])])
+                Ok(ParseResult {
+                    elements: vec![Group(vec![Literal("group".to_string())])],
+                    warnings: vec![]
+                })
             );
         }
 
@@ -353,14 +523,23 @@ mod tests {
             let option = parse("[option]");
             assert_eq!(
                 option,
-                Pattern(vec![Option(vec![Literal("option".to_string())])])
+                Ok(ParseResult {
+                    elements: vec![Option(vec![Literal("option".to_string())])],
+                    warnings: vec![]
+                })
             );
         }
 
         #[test]
         fn parse_regex() {
             let regex = parse("<[0-9]+>");
-            assert_eq!(regex, Pattern(vec![Regex("[0-9]+".to_string())]));
+            assert_eq!(
+                regex,
+                Ok(ParseResult {
+                    elements: vec![Regex("[0-9]+".to_string())],
+                    warnings: vec![]
+                })
+            );
         }
 
         mod type_expr {
@@ -371,13 +550,16 @@ mod tests {
                 let type_expr = parse("%string%");
                 assert_eq!(
                     type_expr,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
-                        name: "string".to_string(),
-                        literal: false,
-                        non_literal: false,
-                        nullable: false,
-                        time_state: None,
-                    }])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![PatternTypeExpr {
+                            name: "string".to_string(),
+                            literal: false,
+                            non_literal: false,
+                            nullable: false,
+                            time_state: None,
+                        }])],
+                        warnings: vec![]
+                    })
                 );
             }
 
@@ -386,13 +568,16 @@ mod tests {
                 let t = parse("%*string%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
-                        name: "string".to_string(),
-                        literal: true,
-                        non_literal: false,
-                        nullable: false,
-                        time_state: None,
-                    }])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![PatternTypeExpr {
+                            name: "string".to_string(),
+                            literal: true,
+                            non_literal: false,
+                            nullable: false,
+                            time_state: None,
+                        }])],
+                        warnings: vec![]
+                    })
                 );
             }
 
@@ -401,13 +586,16 @@ mod tests {
                 let t = parse("%~string%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
-                        name: "string".to_string(),
-                        literal: false,
-                        non_literal: true,
-                        nullable: false,
-                        time_state: None,
-                    }])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![PatternTypeExpr {
+                            name: "string".to_string(),
+                            literal: false,
+                            non_literal: true,
+                            nullable: false,
+                            time_state: None,
+                        }])],
+                        warnings: vec![]
+                    })
                 );
             }
 
@@ -416,13 +604,16 @@ mod tests {
                 let t = parse("%-string%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
-                        name: "string".to_string(),
-                        literal: false,
-                        non_literal: false,
-                        nullable: true,
-                        time_state: None,
-                    }])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![PatternTypeExpr {
+                            name: "string".to_string(),
+                            literal: false,
+                            non_literal: false,
+                            nullable: true,
+                            time_state: None,
+                        }])],
+                        warnings: vec![]
+                    })
                 );
             }
 
@@ -431,13 +622,16 @@ mod tests {
                 let t = parse("%string@1%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![PatternTypeExpr {
-                        name: "string".to_string(),
-                        literal: false,
-                        non_literal: false,
-                        nullable: false,
-                        time_state: std::num::NonZeroI8::new(1),
-                    }])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![PatternTypeExpr {
+                            name: "string".to_string(),
+                            literal: false,
+                            non_literal: false,
+                            nullable: false,
+                            time_state: std::num::NonZeroI8::new(1),
+                        }])],
+                        warnings: vec![]
+                    })
                 );
             }
 
@@ -446,29 +640,32 @@ mod tests {
                 let t = parse("%string/*number/-text%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![
-                        PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        },
-                        PatternTypeExpr {
-                            name: "number".to_string(),
-                            literal: true,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        },
-                        PatternTypeExpr {
-                            name: "text".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: None,
-                        },
-                    ])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![
+                            PatternTypeExpr {
+                                name: "string".to_string(),
+                                literal: false,
+                                non_literal: false,
+                                nullable: false,
+                                time_state: None,
+                            },
+                            PatternTypeExpr {
+                                name: "number".to_string(),
+                                literal: true,
+                                non_literal: false,
+                                nullable: false,
+                                time_state: None,
+                            },
+                            PatternTypeExpr {
+                                name: "text".to_string(),
+                                literal: false,
+                                non_literal: false,
+                                nullable: true,
+                                time_state: None,
+                            },
+                        ])],
+                        warnings: vec![]
+                    })
                 );
             }
 
@@ -477,29 +674,32 @@ mod tests {
                 let t = parse("%*string/~number/-text@-1%");
                 assert_eq!(
                     t,
-                    Pattern(vec![TypeExpr(vec![
-                        PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: true,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        },
-                        PatternTypeExpr {
-                            name: "number".to_string(),
-                            literal: false,
-                            non_literal: true,
-                            nullable: false,
-                            time_state: None,
-                        },
-                        PatternTypeExpr {
-                            name: "text".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: std::num::NonZeroI8::new(-1),
-                        },
-                    ])])
+                    Ok(ParseResult {
+                        elements: vec![TypeExpr(vec![
+                            PatternTypeExpr {
+                                name: "string".to_string(),
+                                literal: true,
+                                non_literal: false,
+                                nullable: false,
+                                time_state: None,
+                            },
+                            PatternTypeExpr {
+                                name: "number".to_string(),
+                                literal: false,
+                                non_literal: true,
+                                nullable: false,
+                                time_state: None,
+                            },
+                            PatternTypeExpr {
+                                name: "text".to_string(),
+                                literal: false,
+                                non_literal: false,
+                                nullable: true,
+                                time_state: std::num::NonZeroI8::new(-1),
+                            },
+                        ])],
+                        warnings: vec![]
+                    })
                 );
             }
         }
@@ -510,53 +710,72 @@ mod tests {
             #[test]
             fn simple() {
                 let empty_simple = parse("");
-                assert_eq!(empty_simple, Pattern(vec![Empty]));
+                assert_eq!(
+                    empty_simple,
+                    Ok(ParseResult {
+                        elements: vec![Empty],
+                        warnings: vec![]
+                    })
+                );
             }
 
             #[test]
             fn choice_trailing() {
-                let empty_choice = parse("a|");
+                let empty_choice = parse("(a|)");
                 assert_eq!(
                     empty_choice,
-                    Pattern(vec![Choice(vec![
-                        vec![Literal("a".to_string())],
-                        vec![Empty],
-                    ])])
+                    Ok(ParseResult {
+                        elements: vec![Group(vec![Choice(vec![
+                            vec![Literal("a".to_string())],
+                            vec![Empty],
+                        ])])],
+                        warnings: vec![]
+                    })
                 );
             }
 
             #[test]
             fn choice_leading() {
-                let empty_choice2 = parse("|b");
+                let empty_choice2 = parse("(|b)");
                 assert_eq!(
                     empty_choice2,
-                    Pattern(vec![Choice(vec![
-                        vec![Empty],
-                        vec![Literal("b".to_string())],
-                    ])])
+                    Ok(ParseResult {
+                        elements: vec![Group(vec![Choice(vec![
+                            vec![Empty],
+                            vec![Literal("b".to_string())],
+                        ])])],
+                        warnings: vec![]
+                    })
                 );
             }
 
             #[test]
             fn choice_both() {
-                let empty_choice3 = parse("|");
+                let empty_choice3 = parse("(|)");
                 assert_eq!(
                     empty_choice3,
-                    Pattern(vec![Choice(vec![vec![Empty], vec![Empty],])])
+                    Ok(ParseResult {
+                        elements: vec![Group(vec![Choice(vec![vec![Empty], vec![Empty]])])],
+                        warnings: vec![]
+                    })
                 );
             }
 
-            #[test]
+            // []の中に存在する|は正しくないものとして扱うため、このテストは廃止
+            /*#[test]
             fn group_option() {
                 let empty_group_option = parse("(|[|])");
                 assert_eq!(
                     empty_group_option,
-                    Pattern(vec![Group(vec![Choice(vec![
-                        vec![Empty],
-                        vec![Option(vec![Choice(vec![vec![Empty], vec![Empty],])])],
-                    ])])])
+                    Ok(ParseResult {
+                        elements: vec![Group(vec![Choice(vec![
+                            vec![Empty],
+                            vec![Option(vec![Choice(vec![vec![Empty], vec![Empty]])])],
+                        ])])],
+                        warnings: vec![]
+                    })
                 );
-            }
+            }*/
         }
     }
 
@@ -567,148 +786,269 @@ mod tests {
         let syntax = parse("(absolute|complete) path of %string%");
         assert_eq!(
             syntax,
-            Pattern(vec![
-                Group(vec![Choice(vec![
-                    vec![Literal("absolute".to_string())],
-                    vec![Literal("complete".to_string())],
-                ]),]),
-                Literal(" path of ".to_string()),
-                TypeExpr(vec![PatternTypeExpr {
-                    name: "string".to_string(),
-                    literal: false,
-                    non_literal: false,
-                    nullable: false,
-                    time_state: None,
-                }]),
-            ])
+            Ok(ParseResult {
+                elements: vec![
+                    Group(vec![Choice(vec![
+                        vec![Literal("absolute".to_string())],
+                        vec![Literal("complete".to_string())],
+                    ])]),
+                    Literal(" path of ".to_string()),
+                    TypeExpr(vec![PatternTypeExpr {
+                        name: "string".to_string(),
+                        literal: false,
+                        non_literal: false,
+                        nullable: false,
+                        time_state: None,
+                    }]),
+                ],
+                warnings: vec![]
+            })
         );
 
         let syntax = parse("[local] %skript types% property condition <pattern>");
         assert_eq!(
             syntax,
-            Pattern(vec![
-                Option(vec![Literal("local".to_string())]),
-                Literal(" ".to_string()),
-                TypeExpr(vec![PatternTypeExpr {
-                    name: "skript types".to_string(),
-                    literal: false,
-                    non_literal: false,
-                    nullable: false,
-                    time_state: None,
-                }]),
-                Literal(" property condition ".to_string()),
-                Regex("pattern".to_string()),
-            ])
+            Ok(ParseResult {
+                elements: vec![
+                    Option(vec![Literal("local".to_string())]),
+                    Literal(" ".to_string()),
+                    TypeExpr(vec![PatternTypeExpr {
+                        name: "skript types".to_string(),
+                        literal: false,
+                        non_literal: false,
+                        nullable: false,
+                        time_state: None,
+                    }]),
+                    Literal(" property condition ".to_string()),
+                    Regex("pattern".to_string()),
+                ],
+                warnings: vec![]
+            })
         );
 
         let syntax = parse("<.+> \\|\\| <.+>");
         assert_eq!(
             syntax,
-            Pattern(vec![
-                Regex(".+".to_string()),
-                Literal(" || ".to_string()),
-                Regex(".+".to_string()),
-            ])
+            Ok(ParseResult {
+                elements: vec![
+                    Regex(".+".to_string()),
+                    Literal(" || ".to_string()),
+                    Regex(".+".to_string()),
+                ],
+                warnings: vec![]
+            })
         );
 
         let syntax = parse("folder|dir|box");
         assert_eq!(
             syntax,
-            Pattern(vec![Choice(vec![
-                vec![Literal("folder".to_string())],
-                vec![Literal("dir".to_string())],
-                vec![Literal("box".to_string())],
-            ])])
+            /*Ok(ParseResult {
+                elements: vec![Choice(vec![
+                    vec![Literal("folder".to_string())],
+                    vec![Literal("dir".to_string())],
+                    vec![Literal("box".to_string())],
+                ])],
+                warnings: vec![]
+            })*/
+            Err(ParseError {
+                kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+            })
         );
 
         let syntax = parse("active[ |-](group|model)[s]");
         assert_eq!(
             syntax,
-            Pattern(vec![
-                Literal("active".to_string()),
-                Option(vec![Choice(vec![
-                    vec![Literal(" ".to_string())],
-                    vec![Literal("-".to_string())],
-                ])]),
-                Group(vec![Choice(vec![
-                    vec![Literal("group".to_string())],
-                    vec![Literal("model".to_string())],
-                ])]),
-                Option(vec![Literal("s".to_string())]),
-            ])
+            /*Ok(ParseResult {
+                elements: vec![
+                    Literal("active".to_string()),
+                    Option(vec![Choice(vec![
+                        vec![Literal(" ".to_string())],
+                        vec![Literal("-".to_string())],
+                    ])]),
+                    Group(vec![Choice(vec![
+                        vec![Literal("group".to_string())],
+                        vec![Literal("model".to_string())],
+                    ])]),
+                    Option(vec![Literal("s".to_string())]),
+                ],
+                warnings: vec![]
+            })*/
+            Err(ParseError {
+                kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+            })
         );
+    }
 
-        let syntax = parse(
-            "last[ly] [%-integer%] [e]mail[s] [in [(folder|dir)] (%-string%|%-folder%)] [(using|with) (%-session%|%-string%)]",
-        );
-        assert_eq!(
-            syntax,
-            Pattern(vec![
-                Literal("last".to_string()),
-                Option(vec![Literal("ly".to_string())]),
-                Literal(" ".to_string()),
-                Option(vec![TypeExpr(vec![PatternTypeExpr {
-                    name: "integer".to_string(),
-                    literal: false,
-                    non_literal: false,
-                    nullable: true,
-                    time_state: None,
-                }])]),
-                Literal(" ".to_string()),
-                Option(vec![Literal("e".to_string())]),
-                Literal("mail".to_string()),
-                Option(vec![Literal("s".to_string())]),
-                Literal(" ".to_string()),
-                Option(vec![
-                    Literal("in ".to_string()),
-                    Option(vec![Group(vec![Choice(vec![
-                        vec![Literal("folder".to_string())],
-                        vec![Literal("dir".to_string())]
-                    ])])]),
-                    Literal(" ".to_string()),
-                    Group(vec![Choice(vec![
-                        vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: None,
-                        }])],
-                        vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "folder".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: None,
-                        }])],
-                    ])]),
-                ]),
-                Literal(" ".to_string()),
-                Option(vec![
-                    Group(vec![Choice(vec![
-                        vec![Literal("using".to_string())],
-                        vec![Literal("with".to_string())],
-                    ])]),
-                    Literal(" ".to_string()),
-                    Group(vec![Choice(vec![
-                        vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "session".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: None,
-                        }])],
-                        vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: None,
-                        }])],
-                    ])]),
-                ]),
-            ])
-        );
+    #[cfg(test)]
+    mod error_warn_tests {
+        use super::*;
+
+        #[test]
+        fn unclosed_bracket() {
+            let pattern = parse("[unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                    //span: Span { start: 0, end: 1 },
+                })
+            );
+
+            let pattern = parse("start [unclosed (group)");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                    //span: Span { start: 6, end: 7 },
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_parenthesis() {
+            let pattern = parse("(unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedParenthesis,
+                    //span: Span { start: 0, end: 1 },
+                })
+            );
+
+            let pattern = parse("start (unclosed [option]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedParenthesis,
+                    //span: Span { start: 6, end: 7 },
+                })
+            );
+        }
+
+        #[test]
+        fn incorrect_time_state() {
+            let pattern = parse("%string@0%");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::IncorrectTimeState,
+                    //span: Span { start: 7, end: 9 },
+                })
+            );
+
+            let pattern = parse("start %number@2%");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::IncorrectTimeState,
+                    //span: Span { start: 13, end: 15 },
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_type_delimiter() {
+            let pattern = parse("%unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedTypeDelimiter,
+                })
+            );
+
+            let pattern = parse("start %unclosed/string");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedTypeDelimiter,
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_regex_delimiter() {
+            let pattern = parse("<unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedRegexDelimiter,
+                })
+            );
+
+            let pattern = parse("start <unclosed [any]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedRegexDelimiter,
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_parenthesis_in_option() {
+            let pattern = parse("[(unclosed group]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_bracket_in_group() {
+            let pattern = parse("([unclosed option)");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_closing_parenthesis() {
+            let pattern = parse("unclosed group)");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingParenthesis,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_closing_bracket() {
+            let pattern = parse("unclosed option]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingBracket,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_closing_regex_delimiter() {
+            let pattern = parse("unclosed regex>");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
+                })
+            );
+        }
+
+        #[test]
+        fn unexpected_pipe_in_global() {
+            let pattern = parse("no|group");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+                })
+            );
+        }
     }
 
     #[cfg(test)]
@@ -720,13 +1060,37 @@ mod tests {
             let pattern = parse("(label:group)");
             assert_eq!(
                 pattern,
-                Pattern(vec![Group(vec![Literal("group".to_string())])])
+                Ok(ParseResult {
+                    elements: vec![Group(vec![Literal("group".to_string())])],
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::LabelNotSupported,
+                        span: Span { start: 6, end: 7 },
+                    }]
+                })
             );
 
             let pattern = parse("(¦group)");
             assert_eq!(
                 pattern,
-                Pattern(vec![Group(vec![Literal("group".to_string())])])
+                Ok(ParseResult {
+                    elements: vec![Group(vec![Literal("group".to_string())])],
+                    warnings: vec![ParseWarning {
+                        kind: ParseWarningKind::LabelNotSupported,
+                        span: Span { start: 1, end: 3 },
+                    }]
+                })
+            );
+        }
+
+        #[test]
+        fn bracket_group() {
+            let pattern = parse("[(]");
+            assert_eq!(
+                pattern,
+                Ok(ParseResult {
+                    elements: vec![Option(vec![Literal("(".to_string())]),],
+                    warnings: vec![]
+                })
             );
         }
     }
