@@ -173,8 +173,10 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     buffer.clear();
                 }
                 chars.next(); // consume '['
-                if let Some(&(_, next_ch)) = chars.peek() {
-                    // [(] の場合はOption(Literal("("))として扱う todo typeをskript patternにしたときのバグの可能性があるので必要がどうかが不明
+
+                // 以下はissue#7により廃止 https://github.com/nlaocs/Skript-LSP/issues/7
+                /*if let Some(&(_, next_ch)) = chars.peek() {
+                    // [(] の場合はOption(Literal("("))として扱う typeをskript patternにしたときのバグの可能性があるので必要がどうかが不明
                     if next_ch == '(' {
                         let mut chars_clone = chars.clone();
                         chars_clone.next(); // consume '('
@@ -189,7 +191,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                             }
                         }
                     }
-                }
+                }*/
 
                 match parse_choice(chars, Scope::Option, raw_pattern) {
                     Ok(option) => {
@@ -1082,6 +1084,8 @@ mod tests {
             );
         }
 
+        // 以下のテストはissue#7により廃止 https://github.com/nlaocs/Skript-LSP/issues/7
+        /*
         #[test]
         fn bracket_group() {
             let pattern = parse("[(]");
@@ -1092,6 +1096,6 @@ mod tests {
                     warnings: vec![]
                 })
             );
-        }
+        }*/
     }
 }
