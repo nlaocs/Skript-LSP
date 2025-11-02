@@ -42,6 +42,10 @@ pub enum ParseErrorKind {
     UnclosedParenthesis,
     #[error("Unclosed bracket '['")]
     UnclosedBracket,
+    #[error("Unclosed type delimiter '%'")]
+    UnclosedTypeDelimiter,
+    #[error("Unclosed regex delimiter '>'")]
+    UnclosedRegexDelimiter,
     #[error("Incorrect time state in type expression")]
     IncorrectTimeState,
 }
@@ -53,18 +57,15 @@ pub struct Span {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
-#[error("{kind} at position {span:?}")] // todo implement
+//#[error("{kind} at position {span:?}")] // todo implement
+#[error("{kind}")]
 pub struct ParseError {
     pub kind: ParseErrorKind,
-    pub span: Span,
+    //pub span: Span, // todo implement
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, derive_more::Display)]
 pub enum ParseWarningKind {
-    #[display("Unclosed type delimiter '%'")]
-    UnclosedTypeDelimiter,
-    #[display("Unclosed regex delimiter '>'")]
-    UnclosedRegexDelimiter,
     #[display(
         "Label not supported. However, it may be supported in the future (this has no effect on end users)."
     )]
@@ -197,15 +198,9 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
 
                     elements.push(PatternElement::Regex(regex_slice.to_string()));
                 } else {
-                    // unclosed regex（先読みのみで、'<' 以降は消費しない）
-                    warnings.push(ParseWarning {
-                        kind: ParseWarningKind::UnclosedRegexDelimiter,
-                        span: Span {
-                            start: i,
-                            end: raw_pattern.len(),
-                        },
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnclosedRegexDelimiter,
                     });
-                    elements.push(PatternElement::Literal("<".to_string()));
                 }
             }
             '%' => {
@@ -260,6 +255,11 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                                 a = &a[1..];
                             } else if let Some(at_pos) = a.find('@') {
                                 if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
+                                    if !(ts == -1 || ts == 1) {
+                                        return Err(ParseError {
+                                            kind: ParseErrorKind::IncorrectTimeState,
+                                        });
+                                    }
                                     time_state = std::num::NonZeroI8::new(ts);
                                     a = &a[..at_pos];
                                 } else {
@@ -279,15 +279,9 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     }
                     elements.push(PatternElement::TypeExpr(type_exprs));
                 } else {
-                    // unclosed type delimiter（先読みのみで、'%' 以降は消費しない）
-                    warnings.push(ParseWarning {
-                        kind: ParseWarningKind::UnclosedTypeDelimiter,
-                        span: Span {
-                            start: i,
-                            end: raw_pattern.len(),
-                        },
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnclosedTypeDelimiter,
                     });
-                    elements.push(PatternElement::Literal("%".to_string()));
                 }
             }
             '|' => {
@@ -380,19 +374,11 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
         Scope::Group if !closed => {
             return Err(ParseError {
                 kind: ParseErrorKind::UnclosedParenthesis,
-                span: Span {
-                    start: 0, // todo
-                    end: raw_pattern.len(),
-                },
             });
         }
         Scope::Option if !closed => {
             return Err(ParseError {
                 kind: ParseErrorKind::UnclosedBracket,
-                span: Span {
-                    start: 0, // todo
-                    end: raw_pattern.len(),
-                },
             });
         }
         _ => {}
@@ -811,32 +797,83 @@ mod tests {
         use super::*;
 
         #[test]
+        fn unclosed_bracket() {
+            let pattern = parse("[unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                    //span: Span { start: 0, end: 1 },
+                })
+            );
+
+            let pattern = parse("start [unclosed (group)");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedBracket,
+                    //span: Span { start: 6, end: 7 },
+                })
+            );
+        }
+
+        #[test]
+        fn unclosed_parenthesis() {
+            let pattern = parse("(unclosed");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedParenthesis,
+                    //span: Span { start: 0, end: 1 },
+                })
+            );
+
+            let pattern = parse("start (unclosed [option]");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedParenthesis,
+                    //span: Span { start: 6, end: 7 },
+                })
+            );
+        }
+
+        #[test]
+        fn incorrect_time_state() {
+            let pattern = parse("%string@0%");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::IncorrectTimeState,
+                    //span: Span { start: 7, end: 9 },
+                })
+            );
+
+            let pattern = parse("start %number@2%");
+            assert_eq!(
+                pattern,
+                Err(ParseError {
+                    kind: ParseErrorKind::IncorrectTimeState,
+                    //span: Span { start: 13, end: 15 },
+                })
+            );
+        }
+
+        #[test]
         fn unclosed_type_delimiter() {
             let pattern = parse("%unclosed");
             assert_eq!(
                 pattern,
-                Ok(ParseResult {
-                    elements: vec![Literal("%".to_string()), Literal("unclosed".to_string())],
-                    warnings: vec![ParseWarning {
-                        kind: ParseWarningKind::UnclosedTypeDelimiter,
-                        span: Span { start: 0, end: 9 },
-                    },]
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedTypeDelimiter,
                 })
             );
 
             let pattern = parse("start %unclosed/string");
             assert_eq!(
                 pattern,
-                Ok(ParseResult {
-                    elements: vec![
-                        Literal("start ".to_string()),
-                        Literal("%".to_string()),
-                        Literal("unclosed/string".to_string()),
-                    ],
-                    warnings: vec![ParseWarning {
-                        kind: ParseWarningKind::UnclosedTypeDelimiter,
-                        span: Span { start: 6, end: 22 },
-                    },]
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedTypeDelimiter,
                 })
             );
         }
@@ -846,29 +883,16 @@ mod tests {
             let pattern = parse("<unclosed");
             assert_eq!(
                 pattern,
-                Ok(ParseResult {
-                    elements: vec![Literal("<".to_string()), Literal("unclosed".to_string())],
-                    warnings: vec![ParseWarning {
-                        kind: ParseWarningKind::UnclosedRegexDelimiter,
-                        span: Span { start: 0, end: 9 },
-                    },]
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedRegexDelimiter,
                 })
             );
 
             let pattern = parse("start <unclosed [any]");
             assert_eq!(
                 pattern,
-                Ok(ParseResult {
-                    elements: vec![
-                        Literal("start ".to_string()),
-                        Literal("<".to_string()),
-                        Literal("unclosed ".to_string()),
-                        Option(vec![Literal("any".to_string())]),
-                    ],
-                    warnings: vec![ParseWarning {
-                        kind: ParseWarningKind::UnclosedRegexDelimiter,
-                        span: Span { start: 6, end: 21 },
-                    },]
+                Err(ParseError {
+                    kind: ParseErrorKind::UnclosedRegexDelimiter,
                 })
             );
         }
