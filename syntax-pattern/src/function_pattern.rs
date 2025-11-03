@@ -107,7 +107,6 @@ pub fn parse(input: &str) -> Result<FnParseResult, FnParseError> {
             ')' => {
                 chars.next();
                 let arg_str = buffer.trim();
-                dbg!(&arg_str);
                 if arg_str.is_empty() && last_char_was_comma {
                     return Err(FnParseError {
                         kind: FnParseErrorKind::InvalidArgument,
