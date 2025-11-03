@@ -1,7 +1,7 @@
 mod function_pattern;
 mod pattern;
 
-mod function {
+pub mod function {
     use super::function_pattern;
     pub use function_pattern::*;
 }
