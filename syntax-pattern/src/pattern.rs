@@ -1,3 +1,39 @@
+macro_rules! consume_until {
+    ($chars:expr, $end:expr) => {{
+        use std::cmp::Ordering;
+        while let Some(&(j, _)) = $chars.peek() {
+            match j.cmp(&$end) {
+                Ordering::Less => {
+                    // j < end
+                    $chars.next();
+                }
+                Ordering::Equal => {
+                    // j == end
+                    $chars.next(); // consume end char
+                    break;
+                }
+                Ordering::Greater => {
+                    // shouldn't happen
+                    break;
+                }
+            }
+        }
+    }};
+}
+
+macro_rules! handle_scope_close {
+    ($scope:expr, $expected:pat, $buffer:expr, $elements:expr, $err_kind:expr) => {{
+        if matches!($scope, $expected) {
+            if !$buffer.is_empty() {
+                $elements.push(PatternElement::Literal(std::mem::take(&mut $buffer)));
+            }
+            break;
+        } else {
+            return Err(ParseError { kind: $err_kind });
+        }
+    }};
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PatternElement {
     Literal(String),
@@ -30,7 +66,7 @@ impl std::fmt::Display for PatternTypeExpr {
         }
         write!(f, "{}", self.name)?;
         if let Some(ts) = self.time_state {
-            write!(f, "@{}", ts.get())?; //todo
+            write!(f, "@{}", ts.get())?;
         }
         Ok(())
     }
@@ -133,8 +169,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
         match ch {
             '(' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '('
 
@@ -155,22 +190,17 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             ')' => {
-                if scope == Scope::Group {
-                    if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(buffer.clone()));
-                        buffer.clear();
-                    }
-                    break;
-                } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                    });
-                }
+                handle_scope_close!(
+                    scope,
+                    Scope::Group,
+                    buffer,
+                    elements,
+                    ParseErrorKind::UnexpectedClosingParenthesis
+                );
             }
             '[' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '['
 
@@ -191,22 +221,17 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             ']' => {
-                if scope == Scope::Option {
-                    if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(buffer.clone()));
-                        buffer.clear();
-                    }
-                    break;
-                } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedClosingBracket,
-                    });
-                }
+                handle_scope_close!(
+                    scope,
+                    Scope::Option,
+                    buffer,
+                    elements,
+                    ParseErrorKind::UnexpectedClosingBracket
+                );
             }
             '<' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '<'
 
@@ -217,23 +242,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     let regex_slice = &raw_pattern[start..end];
 
                     // イテレータを '>' の直後まで一気に進める
-                    while let Some(&(j, _)) = chars.peek() {
-                        use std::cmp::Ordering;
-                        match j.cmp(&end) {
-                            Ordering::Less => {
-                                // j < end
-                                chars.next();
-                            }
-                            Ordering::Equal => {
-                                // j == end
-                                chars.next(); // consume '>'
-                                break;
-                            }
-                            Ordering::Greater => {
-                                break; // shouldn't happen
-                            }
-                        }
-                    } // todo macro
+                    consume_until!(chars, end);
 
                     elements.push(PatternElement::Regex(regex_slice.to_string()));
                 } else {
@@ -249,8 +258,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             }
             '%' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '%'
 
@@ -261,23 +269,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     let type_expr_str = &raw_pattern[start..end];
 
                     // イテレータを '%' の直後まで一気に進める
-                    while let Some(&(j, _)) = chars.peek() {
-                        use std::cmp::Ordering;
-                        match j.cmp(&end) {
-                            Ordering::Less => {
-                                // j < end
-                                chars.next();
-                            }
-                            Ordering::Equal => {
-                                // j == end
-                                chars.next(); // consume '%'
-                                break;
-                            }
-                            Ordering::Greater => {
-                                break; // shouldn't happen
-                            }
-                        }
-                    } // todo macro
+                    consume_until!(chars, end);
 
                     let types = type_expr_str.split('/');
                     let mut type_exprs = Vec::new();
@@ -329,17 +321,13 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             '|' => {
-                if scope == Scope::Group {
-                    if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(buffer.clone()));
-                        buffer.clear();
-                    }
-                    break;
-                } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
-                    });
-                }
+                handle_scope_close!(
+                    scope,
+                    Scope::Group,
+                    buffer,
+                    elements,
+                    ParseErrorKind::UnexpectedPipeOutsideGroup
+                );
             }
             '\\' => {
                 chars.next(); // consume '\'
