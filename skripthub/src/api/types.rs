@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::api::internal_utils::intern_arc_str_with_empty;
 use serde_intern::intern_arc_str;
 use std::sync::Arc;
