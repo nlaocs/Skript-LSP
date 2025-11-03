@@ -60,7 +60,7 @@ pub fn parse(input: &str) -> Result<FnParseResult, FnParseError> {
                         kind: FnParseErrorKind::EmptyFunctionName,
                     });
                 }
-                name = buffer.clone();
+                name = std::mem::take(&mut buffer);
                 break;
             }
             ch if first_char => {
@@ -98,7 +98,6 @@ pub fn parse(input: &str) -> Result<FnParseResult, FnParseError> {
     let mut abstract_args = Vec::new();
     let mut is_closed = false;
 
-    buffer.clear();
     let mut last_char_was_comma = false;
 
     // この時点でabc(d: string)のd:string)の部分だけになっている

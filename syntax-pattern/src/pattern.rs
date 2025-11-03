@@ -133,8 +133,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
         match ch {
             '(' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '('
 
@@ -157,8 +156,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             ')' => {
                 if scope == Scope::Group {
                     if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(buffer.clone()));
-                        buffer.clear();
+                        elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                     }
                     break;
                 } else {
@@ -169,8 +167,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             }
             '[' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '['
 
@@ -193,8 +190,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             ']' => {
                 if scope == Scope::Option {
                     if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(buffer.clone()));
-                        buffer.clear();
+                        elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                     }
                     break;
                 } else {
@@ -205,8 +201,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             }
             '<' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '<'
 
@@ -249,8 +244,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             }
             '%' => {
                 if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(buffer.clone()));
-                    buffer.clear();
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                 }
                 chars.next(); // consume '%'
 
@@ -331,8 +325,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
             '|' => {
                 if scope == Scope::Group {
                     if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(buffer.clone()));
-                        buffer.clear();
+                        elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
                     }
                     break;
                 } else {
