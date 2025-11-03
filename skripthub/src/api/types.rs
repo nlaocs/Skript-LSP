@@ -4,6 +4,34 @@ use serde_intern::intern_arc_str;
 use std::sync::Arc;
 
 #[derive(serde::Deserialize, Debug, Clone)]
+pub struct AbstractAddonSyntaxList(pub Vec<AbstractAddonSyntaxListEntry>);
+impl std::ops::Deref for AbstractAddonSyntaxList {
+    type Target = Vec<AbstractAddonSyntaxListEntry>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for AbstractAddonSyntaxList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl IntoIterator for AbstractAddonSyntaxList {
+    type Item = AbstractAddonSyntaxListEntry;
+    type IntoIter = std::vec::IntoIter<AbstractAddonSyntaxListEntry>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+impl<'a> IntoIterator for &'a AbstractAddonSyntaxList {
+    type Item = &'a AbstractAddonSyntaxListEntry;
+    type IntoIter = std::slice::Iter<'a, AbstractAddonSyntaxListEntry>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum SyntaxType {
     Event,
