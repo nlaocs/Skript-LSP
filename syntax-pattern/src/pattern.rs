@@ -66,7 +66,7 @@ impl std::fmt::Display for PatternTypeExpr {
         }
         write!(f, "{}", self.name)?;
         if let Some(ts) = self.time_state {
-            write!(f, "@{}", ts.get())?; //todo
+            write!(f, "@{}", ts.get())?;
         }
         Ok(())
     }
