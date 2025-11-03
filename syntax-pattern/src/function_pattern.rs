@@ -17,7 +17,7 @@ pub struct Arg {
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
 #[error("{kind}")]
 pub struct FnParseError {
-    kind: FnParseErrorKind,
+    pub kind: FnParseErrorKind,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
