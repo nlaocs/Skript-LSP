@@ -1,3 +1,26 @@
+macro_rules! consume_until {
+    ($chars:expr, $end:expr) => {{
+        use std::cmp::Ordering;
+        while let Some(&(j, _)) = $chars.peek() {
+            match j.cmp(&$end) {
+                Ordering::Less => {
+                    // j < end
+                    $chars.next();
+                }
+                Ordering::Equal => {
+                    // j == end
+                    $chars.next(); // consume end char
+                    break;
+                }
+                Ordering::Greater => {
+                    // shouldn't happen
+                    break;
+                }
+            }
+        }
+    }};
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PatternElement {
     Literal(String),
@@ -212,23 +235,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     let regex_slice = &raw_pattern[start..end];
 
                     // イテレータを '>' の直後まで一気に進める
-                    while let Some(&(j, _)) = chars.peek() {
-                        use std::cmp::Ordering;
-                        match j.cmp(&end) {
-                            Ordering::Less => {
-                                // j < end
-                                chars.next();
-                            }
-                            Ordering::Equal => {
-                                // j == end
-                                chars.next(); // consume '>'
-                                break;
-                            }
-                            Ordering::Greater => {
-                                break; // shouldn't happen
-                            }
-                        }
-                    } // todo macro
+                    consume_until!(chars, end);
 
                     elements.push(PatternElement::Regex(regex_slice.to_string()));
                 } else {
@@ -255,23 +262,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     let type_expr_str = &raw_pattern[start..end];
 
                     // イテレータを '%' の直後まで一気に進める
-                    while let Some(&(j, _)) = chars.peek() {
-                        use std::cmp::Ordering;
-                        match j.cmp(&end) {
-                            Ordering::Less => {
-                                // j < end
-                                chars.next();
-                            }
-                            Ordering::Equal => {
-                                // j == end
-                                chars.next(); // consume '%'
-                                break;
-                            }
-                            Ordering::Greater => {
-                                break; // shouldn't happen
-                            }
-                        }
-                    } // todo macro
+                    consume_until!(chars, end);
 
                     let types = type_expr_str.split('/');
                     let mut type_exprs = Vec::new();
