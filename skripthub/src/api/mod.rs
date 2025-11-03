@@ -1,2 +1,2 @@
 mod internal_utils;
-mod types;
+pub mod types;
