@@ -4,8 +4,8 @@ pub struct FnParseResult {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
-    name: String,
-    args: Vec<Arg>,
+    pub name: String,
+    pub args: Vec<Arg>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Arg {
