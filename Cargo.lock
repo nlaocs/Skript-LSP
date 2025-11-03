@@ -962,6 +962,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-intern"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3f629efcb467952d169915ca0847af4202fd5672f62527a5dbedd10aa2bbf6f"
+dependencies = [
+ "rustc-hash",
+ "serde",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1024,6 +1034,9 @@ name = "skripthub"
 version = "0.1.0"
 dependencies = [
  "reqwest",
+ "serde",
+ "serde-intern",
+ "serde_json",
  "tokio",
 ]
 
