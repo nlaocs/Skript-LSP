@@ -167,7 +167,6 @@ pub fn parse(input: &str) -> Result<FnParseResult, FnParseError> {
             kind: FnParseErrorKind::UnclosedParenthesis,
         });
     }
-    dbg!(&buffer);
 
     // function test(a: string = "hello", b: number)
     for abstract_arg in abstract_args {
