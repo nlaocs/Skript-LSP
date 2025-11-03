@@ -21,6 +21,19 @@ macro_rules! consume_until {
     }};
 }
 
+macro_rules! handle_scope_close {
+    ($scope:expr, $expected:pat, $buffer:expr, $elements:expr, $err_kind:expr) => {{
+        if matches!($scope, $expected) {
+            if !$buffer.is_empty() {
+                $elements.push(PatternElement::Literal(std::mem::take(&mut $buffer)));
+            }
+            break;
+        } else {
+            return Err(ParseError { kind: $err_kind });
+        }
+    }};
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PatternElement {
     Literal(String),
@@ -177,16 +190,13 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             ')' => {
-                if scope == Scope::Group {
-                    if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                    }
-                    break;
-                } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                    });
-                }
+                handle_scope_close!(
+                    scope,
+                    Scope::Group,
+                    buffer,
+                    elements,
+                    ParseErrorKind::UnexpectedClosingParenthesis
+                );
             }
             '[' => {
                 if !buffer.is_empty() {
@@ -211,16 +221,13 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             ']' => {
-                if scope == Scope::Option {
-                    if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                    }
-                    break;
-                } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedClosingBracket,
-                    });
-                }
+                handle_scope_close!(
+                    scope,
+                    Scope::Option,
+                    buffer,
+                    elements,
+                    ParseErrorKind::UnexpectedClosingBracket
+                );
             }
             '<' => {
                 if !buffer.is_empty() {
@@ -314,16 +321,13 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             '|' => {
-                if scope == Scope::Group {
-                    if !buffer.is_empty() {
-                        elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                    }
-                    break;
-                } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
-                    });
-                }
+                handle_scope_close!(
+                    scope,
+                    Scope::Group,
+                    buffer,
+                    elements,
+                    ParseErrorKind::UnexpectedPipeOutsideGroup
+                );
             }
             '\\' => {
                 chars.next(); // consume '\'
