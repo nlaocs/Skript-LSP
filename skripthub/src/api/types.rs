@@ -1,3 +1,4 @@
+use crate::api::internal_utils::intern_arc_str_with_empty;
 use serde_intern::intern_arc_str;
 use std::sync::Arc;
 
@@ -34,8 +35,9 @@ pub struct InternalAddon {
 pub struct AbstractAddonSyntaxListEntry {
     pub id: i64,
     pub creator: i64,
-    pub title: String,       // required [1..100]
-    pub description: String, // <=8000
+    pub title: String, // required [1..100]
+    #[serde(deserialize_with = "intern_arc_str_with_empty")]
+    pub description: Arc<str>, // <=8000
     #[serde(deserialize_with = "intern_arc_str")]
     pub syntax_pattern: Arc<str>, // required [1..3500]
     #[serde(deserialize_with = "intern_arc_str")]
