@@ -76,7 +76,7 @@ pub fn parse(input: &str) -> Result<FnParseResult, FnParseError> {
                     });
                 }
             }
-            ch if ch.is_alphanumeric() || ch == '_' || ch.is_ascii_digit() => {
+            ch if ch.is_alphanumeric() || ch == '_' => {
                 buffer.push(ch);
                 chars.next();
             }
