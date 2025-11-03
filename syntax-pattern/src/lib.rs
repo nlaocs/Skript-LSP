@@ -8,7 +8,7 @@ pub mod function {
 
 // event, condition, effect, expression, section, structureはここに分類される
 // (typeはまた違うので注意)
-mod syntax {
+pub mod syntax {
     use super::pattern;
     pub use pattern::*;
 }
