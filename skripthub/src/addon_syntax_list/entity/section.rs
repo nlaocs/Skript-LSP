@@ -18,7 +18,7 @@ mod tests {
     use crate::api::types::AbstractAddonSyntaxListEntry;
 
     #[test]
-    fn test_section() {
+    fn section_creation() {
         // Sectionでの独自の実装以外はConditionと同じ実装をしているため、省略
         let json = r#"
         {

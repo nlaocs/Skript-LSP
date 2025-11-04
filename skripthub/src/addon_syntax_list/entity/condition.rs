@@ -10,7 +10,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn test_condition_creation() {
+    fn condition_creation() {
         let json = r#"{
         "id": 267,
         "creator": 4,

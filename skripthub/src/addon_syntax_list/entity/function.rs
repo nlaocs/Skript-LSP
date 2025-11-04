@@ -12,7 +12,7 @@ mod tests {
     use crate::api::types::AbstractAddonSyntaxListEntry;
 
     #[test]
-    fn function_test() {
+    fn function_creation() {
         let json = r#"{
         "id": 2113,
         "creator": 1,
