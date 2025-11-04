@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 macro_rules! define_syntax_struct {
-    ($name:ident {
+    ($name:ident, $parse_func:path, $pattern_type:ty, {
         $($field:ident : $ty:ty = $func:expr),* $(,)?
     }) => {
         #[derive(Debug, Clone, PartialEq)]
@@ -10,7 +10,7 @@ macro_rules! define_syntax_struct {
             pub creator: i64,
             pub title: String,
             pub description: Option<std::sync::Arc<str>>,
-            pub syntax_pattern: Vec<syntax_pattern::syntax::ParseResult>,
+            pub syntax_pattern: $pattern_type,
             pub raw_syntax_pattern: Vec<String>,
             pub compatible_addon_version: Option<Vec<String>>,
             pub compatible_minecraft_version: Option<std::sync::Arc<str>>,
@@ -31,16 +31,7 @@ macro_rules! define_syntax_struct {
                 src: crate::api::types::AbstractAddonSyntaxListEntry
             ) -> Result<Self, Box<dyn std::error::Error>> {
                 let syntax_pattern = {
-                    let patterns = src.syntax_pattern.lines();
-                    let mut parsed_patterns = Vec::new();
-                    for pattern in patterns {
-                        let pattern = pattern.trim();
-                        if pattern.is_empty() {
-                            continue;
-                        }
-                        parsed_patterns.push(syntax_pattern::syntax::parse(pattern)?);
-                    }
-                    parsed_patterns
+                    $parse_func(&src.syntax_pattern)?
                 };
                 Ok(Self {
                     id: src.id,
@@ -82,7 +73,6 @@ macro_rules! define_syntax_struct {
                                 }
                             });
                         }
-
                         Some(r)
                     },
                     addon: src.addon.clone(),
@@ -110,6 +100,21 @@ macro_rules! define_syntax_struct {
                 )
             }
         }
+    };
+    ($name:ident { $($field:ident : $ty:ty = $func:expr),* $(,)? }) => {
+        fn default_syntax_parser(src: &str) -> Result<Vec<syntax_pattern::syntax::ParseResult>, syntax_pattern::syntax::ParseError> {
+            let patterns = src.lines();
+            let mut parsed_patterns = Vec::new();
+            for pattern in patterns {
+                let pattern = pattern.trim();
+                if pattern.is_empty() {
+                    continue;
+                }
+                parsed_patterns.push(syntax_pattern::syntax::parse(pattern)?);
+            }
+            Ok(parsed_patterns)
+        }
+        define_syntax_struct!($name, default_syntax_parser, Vec<syntax_pattern::syntax::ParseResult>, { $($field : $ty = $func),* });
     };
 }
 

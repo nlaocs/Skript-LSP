@@ -1,7 +1,9 @@
 use crate::addon_syntax_list::entity::internal_utils::define_syntax_struct;
 
 #[inline(always)]
-fn return_type_parser(s: &crate::api::types::AbstractAddonSyntaxListEntry) -> Option<String> {
+pub(crate) fn return_type_parser(
+    s: &crate::api::types::AbstractAddonSyntaxListEntry,
+) -> Option<String> {
     match &s.return_type {
         Some(return_type) => {
             if return_type.trim().is_empty() {

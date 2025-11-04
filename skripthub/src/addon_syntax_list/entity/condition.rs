@@ -60,7 +60,7 @@ mod tests {
             ))
         );
         // todo パース結果の確認をするとsyntax_patternのテストも担ってしまうので今は省略
-        // assert_eq!(condition.syntax_pattern);
+        assert!(!condition.syntax_pattern.is_empty());
         assert_eq!(
             condition.raw_syntax_pattern,
             vec![
