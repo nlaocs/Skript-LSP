@@ -4,7 +4,7 @@ use serde_intern::intern_arc_str;
 use std::sync::Arc;
 
 #[derive(serde::Deserialize, Debug, Clone, PartialEq)]
-pub struct AbstractAddonSyntaxList(pub Vec<AbstractAddonSyntaxListEntry>);
+pub struct AbstractAddonSyntaxList(Vec<AbstractAddonSyntaxListEntry>);
 impl std::ops::Deref for AbstractAddonSyntaxList {
     type Target = Vec<AbstractAddonSyntaxListEntry>;
     fn deref(&self) -> &Self::Target {
