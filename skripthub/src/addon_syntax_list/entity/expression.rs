@@ -20,7 +20,6 @@ define_syntax_struct!(Expression {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::addon_syntax_list::entity::expression::Expression;
     use crate::api::types::AbstractAddonSyntaxListEntry;
 
