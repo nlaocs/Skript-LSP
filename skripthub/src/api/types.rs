@@ -3,7 +3,7 @@ use crate::api::internal_utils::intern_arc_str_with_empty;
 use serde_intern::intern_arc_str;
 use std::sync::Arc;
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct AbstractAddonSyntaxList(pub Vec<AbstractAddonSyntaxListEntry>);
 impl std::ops::Deref for AbstractAddonSyntaxList {
     type Target = Vec<AbstractAddonSyntaxListEntry>;
@@ -31,7 +31,7 @@ impl<'a> IntoIterator for &'a AbstractAddonSyntaxList {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SyntaxType {
     Event,
@@ -44,7 +44,7 @@ pub enum SyntaxType {
     Structure,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SupportingPlugin {
     #[serde(deserialize_with = "intern_arc_str")]
     pub name: Arc<str>, // required [1..80]
@@ -52,7 +52,7 @@ pub struct SupportingPlugin {
     pub link: Arc<str>, // <=200
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct InternalAddon {
     #[serde(deserialize_with = "intern_arc_str")]
     pub name: Arc<str>, // required [1..40]
@@ -60,7 +60,7 @@ pub struct InternalAddon {
     pub link_to_addon: Arc<str>, // <uri> required [1..200]
     pub usage_score: f64,
 }
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct AbstractAddonSyntaxListEntry {
     pub id: i64,
     pub creator: i64,
