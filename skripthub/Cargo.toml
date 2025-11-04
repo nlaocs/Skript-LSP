@@ -7,6 +7,6 @@ edition = "2024"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-intern = "1.0.0"
 serde_json = "1.0.145"
-syntax-pattern = { path = "../syntax-pattern" }
+syntax-pattern-parser = { path = "../syntax-pattern-parser" }
 time = { version = "0.3.41", features = ["serde", "parsing", "macros"] }
 ureq = { version = "3.1", features = ["json"] }

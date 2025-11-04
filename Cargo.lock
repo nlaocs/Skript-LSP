@@ -544,7 +544,7 @@ checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 name = "skript-lsp"
 version = "0.1.0"
 dependencies = [
- "syntax-pattern",
+ "syntax-pattern-parser",
 ]
 
 [[package]]
@@ -554,7 +554,7 @@ dependencies = [
  "serde",
  "serde-intern",
  "serde_json",
- "syntax-pattern",
+ "syntax-pattern-parser",
  "time",
  "ureq",
 ]
@@ -600,7 +600,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "syntax-pattern"
+name = "syntax-pattern-parser"
 version = "0.1.0"
 dependencies = [
  "derive_more",

@@ -1,6 +1,6 @@
 use crate::addon_syntax_list::entity::internal_utils::{define_syntax_struct, return_type_parser};
 
-define_syntax_struct!(Function, syntax_pattern::function::parse, syntax_pattern::function::FnParseResult, {
+define_syntax_struct!(Function, syntax_pattern_parser::function::parse, syntax_pattern_parser::function::FnParseResult, {
     return_type: Option<String> = return_type_parser,
 });
 

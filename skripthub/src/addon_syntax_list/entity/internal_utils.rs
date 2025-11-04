@@ -102,7 +102,7 @@ macro_rules! define_syntax_struct {
         }
     };
     ($name:ident { $($field:ident : $ty:ty = $func:expr),* $(,)? }) => {
-        fn default_syntax_parser(src: &str) -> Result<Vec<syntax_pattern::syntax::ParseResult>, syntax_pattern::syntax::ParseError> {
+        fn default_syntax_parser(src: &str) -> Result<Vec<syntax_pattern_parser::syntax::ParseResult>, syntax_pattern_parser::syntax::ParseError> {
             let patterns = src.lines();
             let mut parsed_patterns = Vec::new();
             for pattern in patterns {
@@ -110,11 +110,11 @@ macro_rules! define_syntax_struct {
                 if pattern.is_empty() {
                     continue;
                 }
-                parsed_patterns.push(syntax_pattern::syntax::parse(pattern)?);
+                parsed_patterns.push(syntax_pattern_parser::syntax::parse(pattern)?);
             }
             Ok(parsed_patterns)
         }
-        define_syntax_struct!($name, default_syntax_parser, Vec<syntax_pattern::syntax::ParseResult>, { $($field : $ty = $func),* });
+        define_syntax_struct!($name, default_syntax_parser, Vec<syntax_pattern_parser::syntax::ParseResult>, { $($field : $ty = $func),* });
     };
 }
 
