@@ -4,7 +4,6 @@ define_syntax_struct!(Function, syntax_pattern_parser::function::parse, syntax_p
     return_type: Option<String> = return_type_parser,
 });
 
-// テスト
 #[cfg(test)]
 mod tests {
     use crate::addon_syntax_list::entity::function::Function;
