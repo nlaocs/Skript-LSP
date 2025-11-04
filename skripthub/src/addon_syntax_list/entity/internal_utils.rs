@@ -169,3 +169,73 @@ pub struct SupportingPlugin {
     pub name: Arc<str>,
     pub link: Option<Arc<str>>,
 }
+
+#[inline(always)]
+pub(crate) fn entries_parser(
+    s: &crate::api::types::AbstractAddonSyntaxListEntry,
+) -> Option<Entries> {
+    let entries = s.entries.clone()?;
+    Entries::from_json_str(&entries).ok()
+}
+
+#[inline(always)]
+pub(crate) fn return_type_parser(
+    s: &crate::api::types::AbstractAddonSyntaxListEntry,
+) -> Option<String> {
+    match &s.return_type {
+        Some(return_type) => {
+            if return_type.trim().is_empty() {
+                None
+            } else {
+                Some(return_type.clone())
+            }
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entries_creation() {
+        let json = r#"[{"name": "timeout", "isRequired": false, "isSection": false, "defaultValue": "null"}, {"name": "follow redirects", "isRequired": false, "isSection": false, "defaultValue": "null"}, {"name": "priority", "isRequired": false, "isSection": false, "defaultValue": "null"}, {"name": "version", "isRequired": false, "isSection": false, "defaultValue": "null"}, {"name": "executor", "isRequired": false, "isSection": true, "defaultValue": "null"}]"#;
+        let entries = Entries::from_json_str(json).unwrap();
+        assert_eq!(
+            entries,
+            Entries(vec![
+                EntriesEntry {
+                    name: "timeout".into(),
+                    is_required: false,
+                    is_section: false,
+                    default_value: Some("null".into()),
+                },
+                EntriesEntry {
+                    name: "follow redirects".into(),
+                    is_required: false,
+                    is_section: false,
+                    default_value: Some("null".into()),
+                },
+                EntriesEntry {
+                    name: "priority".into(),
+                    is_required: false,
+                    is_section: false,
+                    default_value: Some("null".into()),
+                },
+                EntriesEntry {
+                    name: "version".into(),
+                    is_required: false,
+                    is_section: false,
+                    default_value: Some("null".into()),
+                },
+                EntriesEntry {
+                    name: "executor".into(),
+                    is_required: false,
+                    is_section: true,
+                    default_value: Some("null".into()),
+                },
+            ])
+        );
+    }
+}

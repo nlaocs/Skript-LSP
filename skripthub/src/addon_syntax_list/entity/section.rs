@@ -1,11 +1,6 @@
-use crate::addon_syntax_list::entity::internal_utils::{Entries, define_syntax_struct};
-
-pub(crate) fn entries_parser(
-    s: &crate::api::types::AbstractAddonSyntaxListEntry,
-) -> Option<Entries> {
-    let entries = s.entries.clone()?;
-    Entries::from_json_str(&entries).ok()
-}
+use crate::addon_syntax_list::entity::internal_utils::{
+    Entries, define_syntax_struct, entries_parser,
+};
 
 define_syntax_struct!(Section {
     entries: Option<Entries> = entries_parser,

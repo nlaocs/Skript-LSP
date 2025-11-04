@@ -1,20 +1,4 @@
-use crate::addon_syntax_list::entity::internal_utils::define_syntax_struct;
-
-#[inline(always)]
-pub(crate) fn return_type_parser(
-    s: &crate::api::types::AbstractAddonSyntaxListEntry,
-) -> Option<String> {
-    match &s.return_type {
-        Some(return_type) => {
-            if return_type.trim().is_empty() {
-                None
-            } else {
-                Some(return_type.clone())
-            }
-        }
-        _ => None,
-    }
-}
+use crate::addon_syntax_list::entity::internal_utils::{define_syntax_struct, return_type_parser};
 
 define_syntax_struct!(Expression {
     return_type: Option<String> = return_type_parser,
