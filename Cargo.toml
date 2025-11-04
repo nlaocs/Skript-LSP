@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [
-    "syntax-pattern"
-]
+members = ["skripthub", "syntax-pattern-parser"]
 
 [dependencies]
-syntax-pattern = { path = "./syntax-pattern" }
+syntax-pattern-parser = { path = "syntax-pattern-parser" }
