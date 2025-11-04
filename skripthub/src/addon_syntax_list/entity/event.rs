@@ -1,4 +1,4 @@
-use crate::addon_syntax_list::entity::internal_utils::define_syntax_struct;
+use crate::addon_syntax_list::entity::utils::define_syntax_struct;
 
 #[inline(always)]
 fn event_values_parser(s: &crate::api::types::AbstractAddonSyntaxListEntry) -> Option<Vec<String>> {

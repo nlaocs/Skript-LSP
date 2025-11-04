@@ -1,11 +1,11 @@
-use crate::addon_syntax_list::entity::internal_utils::define_syntax_struct;
+use crate::addon_syntax_list::entity::utils::define_syntax_struct;
 
 define_syntax_struct!(Condition {});
 
 #[cfg(test)]
 mod tests {
     use super::Condition;
-    use crate::addon_syntax_list::entity::internal_utils::SupportingPlugin;
+    use crate::addon_syntax_list::entity::utils::SupportingPlugin;
     use crate::api::types::AbstractAddonSyntaxListEntry;
     use std::sync::Arc;
 

@@ -1,4 +1,4 @@
-use crate::addon_syntax_list::entity::internal_utils::{define_syntax_struct, return_type_parser};
+use crate::addon_syntax_list::entity::utils::{define_syntax_struct, return_type_parser};
 
 define_syntax_struct!(Expression {
     return_type: Option<String> = return_type_parser,

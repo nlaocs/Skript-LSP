@@ -1,4 +1,4 @@
-use crate::addon_syntax_list::entity::internal_utils::define_syntax_struct;
+use crate::addon_syntax_list::entity::utils::define_syntax_struct;
 
 fn type_usage_parser(_s: &crate::api::types::AbstractAddonSyntaxListEntry) -> Vec<String> {
     //s.type_usage.clone().unwrap_or_default()

@@ -15,7 +15,7 @@ macro_rules! define_syntax_struct {
             pub compatible_addon_version: Option<Vec<String>>,
             pub compatible_minecraft_version: Option<std::sync::Arc<str>>,
             pub get_syntax_type_css_class: std::sync::Arc<str>,
-            pub required_plugins: Option<Vec<crate::addon_syntax_list::entity::internal_utils::SupportingPlugin>>,
+            pub required_plugins: Option<Vec<crate::addon_syntax_list::entity::utils::SupportingPlugin>>,
             pub addon: crate::api::types::InternalAddon,
             pub json_id: Option<String>,
             pub created_at: time::OffsetDateTime,
@@ -64,7 +64,7 @@ macro_rules! define_syntax_struct {
                         let rp = &src.required_plugins;
                         let mut r = Vec::with_capacity(rp.len());
                         for plugin in rp {
-                            r.push(crate::addon_syntax_list::entity::internal_utils::SupportingPlugin {
+                            r.push(crate::addon_syntax_list::entity::utils::SupportingPlugin {
                                 name: plugin.name.clone(),
                                 link: if plugin.link.is_empty() {
                                     None

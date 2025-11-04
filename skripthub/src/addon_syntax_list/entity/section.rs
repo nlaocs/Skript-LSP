@@ -1,6 +1,4 @@
-use crate::addon_syntax_list::entity::internal_utils::{
-    Entries, define_syntax_struct, entries_parser,
-};
+use crate::addon_syntax_list::entity::utils::{Entries, define_syntax_struct, entries_parser};
 
 define_syntax_struct!(Section {
     entries: Option<Entries> = entries_parser,
@@ -9,7 +7,7 @@ define_syntax_struct!(Section {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::addon_syntax_list::entity::internal_utils::{Entries, EntriesEntry};
+    use crate::addon_syntax_list::entity::utils::{Entries, EntriesEntry};
     use crate::api::types::AbstractAddonSyntaxListEntry;
 
     #[test]
