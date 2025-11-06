@@ -28,7 +28,7 @@ macro_rules! define_syntax_struct {
         #[allow(dead_code)]
         impl $name {
             pub fn from_abstract_syntax_list_entry(
-                src: crate::api::types::AbstractAddonSyntaxListEntry
+                src: &crate::api::types::AbstractAddonSyntaxListEntry
             ) -> Result<Self, Box<dyn std::error::Error>> {
                 let syntax_pattern = {
                     $parse_func(&src.syntax_pattern)?
