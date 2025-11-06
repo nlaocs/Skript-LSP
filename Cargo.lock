@@ -612,7 +612,6 @@ name = "syntaxes"
 version = "0.1.0"
 dependencies = [
  "skripthub",
- "syntax-pattern-parser",
 ]
 
 [[package]]
