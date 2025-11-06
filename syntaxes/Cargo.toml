@@ -1,0 +1,8 @@
+[package]
+name = "syntaxes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+skripthub = { path = "../skripthub" }
+syntax-pattern-parser = { path = "../syntax-pattern-parser" }
