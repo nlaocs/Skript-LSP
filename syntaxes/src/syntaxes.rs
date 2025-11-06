@@ -2,25 +2,21 @@
 use skripthub::addon_syntax_list::entity::{
     Condition, Effect, Event, Expression, Function, Section, Structure, Type,
 };
-use skripthub::api::types::{AbstractAddonSyntaxList, SyntaxType};
+use skripthub::api::types::{AbstractAddonSyntaxList, AbstractAddonSyntaxListEntry, SyntaxType};
 
 macro_rules! handle_syntax {
-    ($s:expr, $syntaxes:expr, {
+    ($s:expr, $syntaxes:expr, $errored_syntaxes:expr, {
         $( $syntax_type:pat => $variant:ty => $field:ident ),* $(,)?
     }) => {
         match $s.syntax_type {
             $(
                 $syntax_type => {
-                    let st = $s.syntax_type;
-                    match <$variant>::from_abstract_syntax_list_entry($s) {
+                    match <$variant>::from_abstract_syntax_list_entry(&$s) {
                         Ok(val) => {
                             $syntaxes.$field.push(val);
                         }
                         Err(e) => {
-                            eprintln!(
-                                "Failed to convert syntax entry (type: {:?})\nError: {}",
-                                st, e
-                            );
+                            $errored_syntaxes.push(($s, e));
                         }
                     }
                 }
@@ -28,6 +24,11 @@ macro_rules! handle_syntax {
         }
     }
 }
+
+pub type SyntaxesAndErrors = (
+    Syntaxes,
+    Vec<(AbstractAddonSyntaxListEntry, Box<dyn std::error::Error>)>,
+);
 
 #[derive(Debug, Clone, Default)]
 pub struct Syntaxes {
@@ -41,15 +42,19 @@ pub struct Syntaxes {
     pub structures: Vec<Structure>,
 }
 impl Syntaxes {
-    pub fn initialize() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn initialize() -> Result<SyntaxesAndErrors, Box<dyn std::error::Error>> {
         use skripthub::api::fetch_data;
         let abstract_syntax_list = fetch_data()?;
         Ok(Self::from_abstract_syntax_list(abstract_syntax_list))
     }
-    pub fn from_abstract_syntax_list(abstract_syntax_list: AbstractAddonSyntaxList) -> Self {
+    pub fn from_abstract_syntax_list(
+        abstract_syntax_list: AbstractAddonSyntaxList,
+    ) -> SyntaxesAndErrors {
         let mut syntaxes = Syntaxes::default();
+        let mut error_syntaxes: Vec<(AbstractAddonSyntaxListEntry, Box<dyn std::error::Error>)> =
+            Vec::new();
         for s in abstract_syntax_list {
-            handle_syntax!(s, syntaxes, {
+            handle_syntax!(s, syntaxes, error_syntaxes, {
                 SyntaxType::Event => Event => events,
                 SyntaxType::Condition => Condition => conditions,
                 SyntaxType::Effect => Effect => effects,
@@ -60,6 +65,6 @@ impl Syntaxes {
                 SyntaxType::Structure => Structure => structures,
             });
         }
-        syntaxes
+        (syntaxes, error_syntaxes)
     }
 }

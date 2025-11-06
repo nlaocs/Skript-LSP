@@ -61,7 +61,7 @@ mod tests {
     }
         "#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let event = Event::from_abstract_syntax_list_entry(parsed).unwrap();
+        let event = Event::from_abstract_syntax_list_entry(&parsed).unwrap();
         assert_eq!(event.event_values, Some(vec!["event-world".to_string()]));
         assert!(!event.event_cancellable);
     }

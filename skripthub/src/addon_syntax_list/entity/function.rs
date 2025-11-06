@@ -40,7 +40,7 @@ mod tests {
         "removed_since": null
     }"#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let function = Function::from_abstract_syntax_list_entry(parsed).unwrap();
+        let function = Function::from_abstract_syntax_list_entry(&parsed).unwrap();
         assert_eq!(function.syntax_pattern.inner.name, "ceil");
         assert_eq!(function.syntax_pattern.inner.args[0].arg_type, "number");
         assert_eq!(function.syntax_pattern.inner.args[0].name, "n");
