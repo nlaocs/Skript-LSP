@@ -11,8 +11,17 @@ macro_rules! handle_syntax {
         match $s.syntax_type {
             $(
                 $syntax_type => {
-                    if let Ok(val) = <$variant>::from_abstract_syntax_list_entry($s) {
-                        $syntaxes.$field.push(val);
+                    let st = $s.syntax_type;
+                    match <$variant>::from_abstract_syntax_list_entry($s) {
+                        Ok(val) => {
+                            $syntaxes.$field.push(val);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to convert syntax entry (type: {:?})\nError: {}",
+                                st, e
+                            );
+                        }
                     }
                 }
             )*
