@@ -46,7 +46,7 @@ mod tests {
         "removed_since": null
     }"#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let _type_ = Type::from_abstract_syntax_list_entry(parsed).unwrap();
+        let _type_ = Type::from_abstract_syntax_list_entry(&parsed).unwrap();
         // todo
     }
 }
