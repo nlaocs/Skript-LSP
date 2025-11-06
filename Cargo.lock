@@ -311,6 +311,9 @@ dependencies = [
 [[package]]
 name = "invalid-syntax-searcher"
 version = "0.1.0"
+dependencies = [
+ "syntaxes",
+]
 
 [[package]]
 name = "itoa"
