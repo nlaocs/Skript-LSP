@@ -31,7 +31,7 @@ impl<'a> IntoIterator for &'a AbstractAddonSyntaxList {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum SyntaxType {
     Event,
