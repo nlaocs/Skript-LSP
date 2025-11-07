@@ -8,4 +8,5 @@ name = "invalid-syntax-searcher"
 path = "src/main.rs"
 
 [dependencies]
+syntax-pattern-parser = { path = "../../syntax-pattern-parser" }
 syntaxes = { path = "../../syntaxes" }

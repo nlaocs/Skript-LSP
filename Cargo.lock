@@ -312,6 +312,7 @@ dependencies = [
 name = "invalid-syntax-searcher"
 version = "0.1.0"
 dependencies = [
+ "syntax-pattern-parser",
  "syntaxes",
 ]
 
