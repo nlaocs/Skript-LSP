@@ -1,15 +1,40 @@
+use skripthub::api::types::{AbstractAddonSyntaxListEntry, SyntaxType};
 use syntax_pattern_parser::function::{FnParseError, FnParseErrorKind, InvalidFunctionNameKind};
 use syntax_pattern_parser::syntax::{ParseError, ParseErrorKind};
 use syntaxes::Syntaxes;
 
-macro_rules! dump_patterns {
-    ($label:expr, $list:expr) => {{
-        println!("{}:", $label);
-        for s in $list {
-            println!("    {}", s.syntax_pattern);
+fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>) {
+    println!("{}:", label);
+    for s in list {
+        let patterns = s.syntax_pattern.lines();
+        for p in patterns {
+            let p = p.trim();
+            if p.is_empty() {
+                continue;
+            }
+            match s.syntax_type {
+                SyntaxType::Function => {
+                    let parsed = syntax_pattern_parser::function::parse(p);
+                    match parsed {
+                        Ok(_) => {}
+                        Err(_) => {
+                            println!("    https://skripthub.net/docs/?id={} (func): {}", s.id, p);
+                        }
+                    }
+                }
+                _ => {
+                    let parsed = syntax_pattern_parser::syntax::parse(p);
+                    match parsed {
+                        Ok(_) => {}
+                        Err(_) => {
+                            println!("    https://skripthub.net/docs/?id={}: {}", s.id, p);
+                        }
+                    }
+                }
+            }
         }
-        println!();
-    }};
+    }
+    println!();
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -100,39 +125,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    dump_patterns!("unclosed_parenthesis", unclosed_parenthesis);
-    dump_patterns!(
+    dump_patterns("unclosed_parenthesis", unclosed_parenthesis);
+    dump_patterns(
         "unexpected_closing_parenthesis",
-        unexpected_closing_parenthesis
+        unexpected_closing_parenthesis,
     );
-    dump_patterns!("unclosed_bracket", unclosed_bracket);
-    dump_patterns!("unexpected_closing_bracket", unexpected_closing_bracket);
-    dump_patterns!("unclosed_type_delimiter", unclosed_type_delimiter);
-    dump_patterns!("unclosed_regex_delimiter", unclosed_regex_delimiter);
-    dump_patterns!(
+    dump_patterns("unclosed_bracket", unclosed_bracket);
+    dump_patterns("unexpected_closing_bracket", unexpected_closing_bracket);
+    dump_patterns("unclosed_type_delimiter", unclosed_type_delimiter);
+    dump_patterns("unclosed_regex_delimiter", unclosed_regex_delimiter);
+    dump_patterns(
         "unexpected_closing_regex_delimiter",
-        unexpected_closing_regex_delimiter
+        unexpected_closing_regex_delimiter,
     );
-    dump_patterns!(
+    dump_patterns(
         "unexpected_pipe_outside_group",
-        unexpected_pipe_outside_group
+        unexpected_pipe_outside_group,
     );
-    dump_patterns!("incorrect_time_state", incorrect_time_state);
+    dump_patterns("incorrect_time_state", incorrect_time_state);
 
-    dump_patterns!(
+    dump_patterns(
         "invalid_function_name_unexpected_first_character",
-        invalid_function_name_unexpected_first_character
+        invalid_function_name_unexpected_first_character,
     );
-    dump_patterns!(
+    dump_patterns(
         "invalid_function_name_unexpected_character",
-        invalid_function_name_unexpected_character
+        invalid_function_name_unexpected_character,
     );
-    dump_patterns!("empty_function_name", empty_function_name);
-    dump_patterns!("invalid_argument", invalid_argument);
-    dump_patterns!("fn_unclosed_parenthesis", fn_unclosed_parenthesis);
-    dump_patterns!("fn_unclosed_string", fn_unclosed_string);
+    dump_patterns("empty_function_name", empty_function_name);
+    dump_patterns("invalid_argument", invalid_argument);
+    dump_patterns("fn_unclosed_parenthesis", fn_unclosed_parenthesis);
+    dump_patterns("fn_unclosed_string", fn_unclosed_string);
 
-    dump_patterns!("unknown", unknown);
+    dump_patterns("unknown", unknown);
 
     Ok(())
 }
