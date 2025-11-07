@@ -30,6 +30,18 @@ macro_rules! define_syntax_struct {
             pub fn from_abstract_syntax_list_entry(
                 src: &crate::api::types::AbstractAddonSyntaxListEntry
             ) -> Result<Self, Box<dyn std::error::Error>> {
+                <Self as crate::addon_syntax_list::types::SkriptHubSyntax>::_from_abstract_syntax_list_entry(src)
+            }
+            pub fn get_link(&self) -> String {
+                <Self as crate::addon_syntax_list::types::SkriptHubSyntax>::_get_link(self)
+            }
+        }
+        impl crate::addon_syntax_list::types::Syntax for $name {}
+        #[allow(dead_code)]
+        impl crate::addon_syntax_list::types::SkriptHubSyntax for $name {
+            fn _from_abstract_syntax_list_entry(
+                src: &crate::api::types::AbstractAddonSyntaxListEntry
+            ) -> Result<Self, Box<dyn std::error::Error>> {
                 let syntax_pattern = {
                     $parse_func(&src.syntax_pattern)?
                 };
@@ -93,7 +105,7 @@ macro_rules! define_syntax_struct {
                     $($field: $func(&src),)*
                 })
             }
-            pub fn get_link(&self) -> String {
+            fn _get_link(&self) -> String {
                 format!(
                     "https://skripthub.net/docs/?id={}",
                     self.id
