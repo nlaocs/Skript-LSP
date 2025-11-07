@@ -90,3 +90,22 @@ pub struct AbstractAddonSyntaxListEntry {
     pub mark_as_removed: bool,
     pub removed_since: Option<String>, // <=100
 }
+impl AbstractAddonSyntaxListEntry {
+    /// 速度を犠牲に、型変換を実装
+    pub fn to_syntax(
+        &self,
+    ) -> Result<Box<dyn crate::addon_syntax_list::types::SkriptHubSyntax>, Box<dyn std::error::Error>>
+    {
+        use crate::addon_syntax_list::entity::*;
+        Ok(match self.syntax_type {
+            SyntaxType::Event => Box::new(Event::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Condition => Box::new(Condition::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Effect => Box::new(Effect::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Expression => Box::new(Expression::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Type => Box::new(Type::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Function => Box::new(Function::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Section => Box::new(Section::from_abstract_syntax_list_entry(self)?),
+            SyntaxType::Structure => Box::new(Structure::from_abstract_syntax_list_entry(self)?),
+        })
+    }
+}
