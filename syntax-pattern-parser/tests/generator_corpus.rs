@@ -1,9 +1,10 @@
+#[allow(dead_code)]
+mod support;
+
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
-use syntax_pattern_parser::syntax::{
-    self, ParseResult, PatternElement, PluralRules, Span, SpannedPatternElement,
-};
+use syntax_pattern_parser::syntax::{self, PluralRules, Span};
 
 const CATEGORIES: [SyntaxCategory; 6] = [
     SyntaxCategory::new("event", "Events.json"),
@@ -84,11 +85,6 @@ struct SyntaxEntry {
     patterns: Vec<String>,
 }
 
-struct SpanFailure {
-    message: String,
-    span: Span,
-}
-
 #[test]
 fn parses_dummy_addon_generator_snapshot() {
     run_corpus(DUMMY_ADDON_CORPUS);
@@ -138,7 +134,7 @@ fn run_corpus(corpus: CorpusFixture) {
                 parsed_pattern_count += 1;
                 match syntax::parse(pattern, &plural_rules) {
                     Ok(result) => {
-                        if let Err(failure) = validate_parse_result(pattern, &result) {
+                        if let Err(failure) = support::validate_parse_result(pattern, &result) {
                             failures.push(format_failure(
                                 corpus,
                                 &manifest,
@@ -231,90 +227,6 @@ fn validate_manifest(corpus: CorpusFixture, manifest: &ManifestFixture) {
             corpus.name,
             plugin.name
         );
-    }
-}
-
-fn validate_parse_result(pattern: &str, result: &ParseResult) -> Result<(), SpanFailure> {
-    validate_elements(pattern, &result.elements, None, "root")?;
-
-    for (index, warning) in result.warnings.iter().enumerate() {
-        if !warning.span.is_valid_for(pattern) {
-            return Err(SpanFailure {
-                message: format!("warning[{index}] has an invalid span"),
-                span: warning.span,
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_elements(
-    pattern: &str,
-    elements: &[SpannedPatternElement],
-    parent: Option<Span>,
-    path: &str,
-) -> Result<(), SpanFailure> {
-    for (index, element) in elements.iter().enumerate() {
-        let element_path = format!("{path}[{index}].{}", element_kind(&element.value));
-
-        if !element.span.is_valid_for(pattern) {
-            return Err(SpanFailure {
-                message: format!("{element_path} has an invalid UTF-8 source span"),
-                span: element.span,
-            });
-        }
-
-        if let Some(parent) = parent
-            && (element.span.start < parent.start || element.span.end > parent.end)
-        {
-            return Err(SpanFailure {
-                message: format!(
-                    "{element_path} is outside parent span {}..{}",
-                    parent.start, parent.end
-                ),
-                span: element.span,
-            });
-        }
-
-        match &element.value {
-            PatternElement::Choice(branches) => {
-                for (branch_index, branch) in branches.iter().enumerate() {
-                    validate_elements(
-                        pattern,
-                        branch,
-                        Some(element.span),
-                        &format!("{element_path}.branch[{branch_index}]"),
-                    )?;
-                }
-            }
-            PatternElement::Group(children) | PatternElement::Option(children) => {
-                validate_elements(pattern, children, Some(element.span), &element_path)?;
-            }
-            PatternElement::Empty if element.span.start != element.span.end => {
-                return Err(SpanFailure {
-                    message: format!("{element_path} must have a zero-width span"),
-                    span: element.span,
-                });
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-
-fn element_kind(element: &PatternElement) -> &'static str {
-    match element {
-        PatternElement::Literal(_) => "literal",
-        PatternElement::Choice(_) => "choice",
-        PatternElement::Group(_) => "group",
-        PatternElement::Option(_) => "option",
-        PatternElement::Regex(_) => "regex",
-        PatternElement::TypeExpr(_) => "typeExpression",
-        PatternElement::ParseTag(_) => "parseTag",
-        PatternElement::ParseMark(_) => "parseMark",
-        PatternElement::Empty => "empty",
     }
 }
 
