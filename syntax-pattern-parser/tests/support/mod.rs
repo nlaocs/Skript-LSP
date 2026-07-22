@@ -19,7 +19,17 @@ pub fn validate_parse_invariants(pattern: &str, plural_rules: &PluralRules) -> R
     match first {
         Ok(result) => validate_parse_result(pattern, &result)
             .map_err(|failure| format!("{} at {:?}", failure.message, failure.span)),
-        Err(error) => validate_span(pattern, error.span, "parse error"),
+        Err(error) => {
+            validate_span(pattern, error.span, "parse error")?;
+            for (index, related) in error.related_spans.iter().enumerate() {
+                validate_span(
+                    pattern,
+                    related.span,
+                    &format!("parse error related span [{index}]"),
+                )?;
+            }
+            Ok(())
+        }
     }
 }
 
