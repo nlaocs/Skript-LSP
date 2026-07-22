@@ -1,0 +1,4 @@
+# SSG snapshot digests cover the serialized bytes, including line endings.
+# Keep generated fixtures byte-compatible across Windows and Linux checkouts.
+syntax-pattern-parser/tests/data/corpus/**/*.json text eol=crlf
+ssg/tests/data/**/*.json text eol=crlf
