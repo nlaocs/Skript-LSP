@@ -829,6 +829,7 @@ dependencies = [
  "serde-intern",
  "serde_json",
  "syntax-pattern-parser",
+ "thiserror",
  "time",
  "ureq",
 ]

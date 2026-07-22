@@ -55,13 +55,11 @@ impl Catalog {
                         .insert(value.code_name.as_str().to_owned(), position);
                 }
                 Syntax::Function(value) => {
-                    if let Some(name) = &value.documentation.name {
-                        index
-                            .functions_by_name
-                            .entry(name.clone())
-                            .or_default()
-                            .push(position);
-                    }
+                    index
+                        .functions_by_name
+                        .entry(value.name.clone())
+                        .or_default()
+                        .push(position);
                 }
                 _ => {}
             }

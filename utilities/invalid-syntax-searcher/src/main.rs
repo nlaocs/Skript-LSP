@@ -1,5 +1,5 @@
 use skripthub::api::types::{AbstractAddonSyntaxListEntry, SyntaxType};
-use syntax_pattern_parser::function::{FnParseError, FnParseErrorKind, InvalidFunctionNameKind};
+use skripthub::function_pattern::{FnParseError, FnParseErrorKind, InvalidFunctionNameKind};
 use syntax_pattern_parser::syntax::{ParseError, ParseErrorKind, PluralRules};
 
 fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>, plural_rules: &PluralRules) {
@@ -13,7 +13,7 @@ fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>, plural_ru
             }
             match s.syntax_type {
                 SyntaxType::Function => {
-                    let parsed = syntax_pattern_parser::function::parse(p);
+                    let parsed = skripthub::function_pattern::parse(p);
                     match parsed {
                         Ok(_) => {}
                         Err(_) => {
@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(str::trim)
             .filter(|pattern| !pattern.is_empty())
             .find_map(|pattern| match syntax.syntax_type {
-                SyntaxType::Function => syntax_pattern_parser::function::parse(pattern)
+                SyntaxType::Function => skripthub::function_pattern::parse(pattern)
                     .err()
                     .map(|error| Box::new(error) as Box<dyn std::error::Error>),
                 _ => syntax_pattern_parser::syntax::parse(pattern, &plural_rules)

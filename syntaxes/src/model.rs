@@ -282,6 +282,7 @@ pub struct FunctionParameter {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub registration_order: usize,
+    pub name: String,
     pub documentation: Documentation,
     pub return_type: Option<ClassName>,
     pub return_type_is_single: bool,

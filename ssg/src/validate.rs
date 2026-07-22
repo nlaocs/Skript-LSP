@@ -286,25 +286,55 @@ fn validate_syntaxes(snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
             &value.registration_id,
         )?;
     }
+    let mut function_signatures = HashMap::new();
     for (index, value) in snapshot.functions.iter().enumerate() {
         unique_id(
             &mut registration_ids,
             &format!("Functions.json[{index}].registrationId"),
             &value.registration_id,
         )?;
-        for (parameter_index, modifier) in value
-            .parameters
-            .iter()
-            .flat_map(|parameter| parameter.modifiers.iter())
-            .enumerate()
-        {
-            let range = matches!(modifier.kind, raw::ParameterModifierKind::Range);
-            if range != (modifier.min.is_some() && modifier.max.is_some()) {
-                return Err(SnapshotError::validation(
-                    format!("Functions.json[{index}].parameters.modifiers[{parameter_index}]"),
-                    "range modifiers require min and max; other modifiers must omit them",
-                ));
+        non_blank(
+            &format!("Functions.json[{index}].definitionId"),
+            &value.definition_id,
+        )?;
+        let name_path = format!("Functions.json[{index}].name");
+        let name = value
+            .name
+            .as_deref()
+            .ok_or_else(|| SnapshotError::validation(&name_path, "function name is required"))?;
+        non_blank(&name_path, name)?;
+
+        for (parameter_index, parameter) in value.parameters.iter().enumerate() {
+            non_blank(
+                &format!("Functions.json[{index}].parameters[{parameter_index}].name"),
+                &parameter.name,
+            )?;
+            for (modifier_index, modifier) in parameter.modifiers.iter().enumerate() {
+                let range = matches!(modifier.kind, raw::ParameterModifierKind::Range);
+                if range != (modifier.min.is_some() && modifier.max.is_some()) {
+                    return Err(SnapshotError::validation(
+                        format!(
+                            "Functions.json[{index}].parameters[{parameter_index}].modifiers[{modifier_index}]"
+                        ),
+                        "range modifiers require min and max; other modifiers must omit them",
+                    ));
+                }
             }
+        }
+
+        let signature = (
+            name.to_owned(),
+            value
+                .parameters
+                .iter()
+                .map(|parameter| parameter.parameter_type.clone())
+                .collect::<Vec<_>>(),
+        );
+        if let Some(previous) = function_signatures.insert(signature, name_path.clone()) {
+            return Err(SnapshotError::validation(
+                name_path,
+                format!("duplicate function signature; first declared at {previous}"),
+            ));
         }
     }
     Ok(())
@@ -1151,6 +1181,102 @@ mod tests {
             snapshot(&manifest, &data).unwrap_err(),
             &format!("Aliases.json.targets[{unreferenced_index}]"),
             "target is not referenced",
+        );
+    }
+
+    #[test]
+    fn rejects_missing_function_names() {
+        let (manifest, mut data) = fixture();
+        data.functions[0].name = None;
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Functions.json[0].name",
+            "function name is required",
+        );
+    }
+
+    #[test]
+    fn rejects_blank_function_parameter_names() {
+        let (manifest, mut data) = fixture();
+        data.functions[0].parameters[0].name = "  ".to_owned();
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Functions.json[0].parameters[0].name",
+            "value must not be blank",
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_function_signatures() {
+        let (manifest, mut data) = fixture();
+        data.functions[1].name = data.functions[0].name.clone();
+        data.functions[1].parameters = data.functions[0].parameters.clone();
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Functions.json[1].name",
+            "duplicate function signature",
+        );
+    }
+
+    #[test]
+    fn allows_function_overloads_with_different_parameter_types() {
+        let (manifest, mut data) = fixture();
+        assert_ne!(
+            data.functions[0].parameters[0].parameter_type,
+            data.functions[1].parameters[0].parameter_type
+        );
+        data.functions[1].name = data.functions[0].name.clone();
+
+        snapshot(&manifest, &data).unwrap();
+    }
+
+    #[test]
+    fn reports_the_exact_path_for_invalid_function_modifiers() {
+        let (manifest, mut data) = fixture();
+        let (function_index, parameter_index, modifier_index) = data
+            .functions
+            .iter()
+            .enumerate()
+            .find_map(|(function_index, function)| {
+                function
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .find_map(|(parameter_index, parameter)| {
+                        parameter
+                            .modifiers
+                            .iter()
+                            .position(|modifier| {
+                                matches!(modifier.kind, raw::ParameterModifierKind::Range)
+                            })
+                            .map(|modifier_index| (function_index, parameter_index, modifier_index))
+                    })
+            })
+            .expect("modern fixture must contain a range modifier");
+        data.functions[function_index].parameters[parameter_index].modifiers[modifier_index].min =
+            None;
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            &format!(
+                "Functions.json[{function_index}].parameters[{parameter_index}].modifiers[{modifier_index}]"
+            ),
+            "range modifiers require min and max",
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_function_parameter_classes() {
+        let (manifest, mut data) = fixture();
+        data.functions[0].parameters[0].parameter_type = "missing.FunctionParameter".to_owned();
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Functions.json[0].parameters[0].type",
+            "unknown class",
         );
     }
 }

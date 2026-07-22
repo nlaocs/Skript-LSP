@@ -3,14 +3,11 @@ use crate::addon_syntax_list::entity::utils::{define_syntax_struct, return_type_
 fn parse_function_pattern(
     source: &str,
     _plural_rules: &syntax_pattern_parser::syntax::PluralRules,
-) -> Result<
-    syntax_pattern_parser::function::FnParseResult,
-    syntax_pattern_parser::function::FnParseError,
-> {
-    syntax_pattern_parser::function::parse(source)
+) -> Result<crate::function_pattern::FnParseResult, crate::function_pattern::FnParseError> {
+    crate::function_pattern::parse(source)
 }
 
-define_syntax_struct!(Function, parse_function_pattern, syntax_pattern_parser::function::FnParseResult, {
+define_syntax_struct!(Function, parse_function_pattern, crate::function_pattern::FnParseResult, {
     return_type: Option<String> = return_type_parser,
 });
 

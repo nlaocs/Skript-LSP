@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use syntax_pattern_parser::syntax::PluralRules;
 use syntaxes::{
     Addon, AliasItem, AliasRegistry, AliasTarget, Catalog, CatalogParts, Class, ClassKind,
-    ClassName, Converter, DefinitionId, Documentation, EventValue, Function, Noun, RegistrationId,
-    Syntax, Type, TypeCodeName,
+    ClassName, Converter, DefinitionId, Documentation, EventValue, Function, FunctionParameter,
+    Noun, RegistrationId, Syntax, Type, TypeCodeName,
 };
 
 fn id(value: &str) -> RegistrationId {
@@ -56,16 +56,30 @@ fn event_value(
     }
 }
 
-fn function(name: &str, registration_id: &str, registration_order: usize) -> Syntax {
+fn function(
+    name: &str,
+    registration_id: &str,
+    registration_order: usize,
+    parameter_type: Option<&str>,
+) -> Syntax {
     Syntax::Function(Function {
         registration_order,
+        name: name.to_owned(),
         documentation: Documentation {
             name: Some(name.to_owned()),
             ..Documentation::default()
         },
         return_type: None,
         return_type_is_single: true,
-        parameters: Vec::new(),
+        parameters: parameter_type
+            .map(|parameter_type| FunctionParameter {
+                name: "value".to_owned(),
+                parameter_type: class_name(parameter_type),
+                modifiers: Vec::new(),
+                single: true,
+            })
+            .into_iter()
+            .collect(),
         addon: addon(),
         definition_id: DefinitionId(format!("definition-{registration_order}")),
         registration_id: id(registration_id),
@@ -248,8 +262,8 @@ fn event_value_inheritance_terminates_on_class_cycles() {
 fn indexes_functions_converters_registration_ids_and_aliases() {
     let mut parts = parts();
     parts.syntaxes = vec![
-        function("lookup", "function-one", 0),
-        function("lookup", "function-two", 1),
+        function("lookup", "function-one", 0, None),
+        function("lookup", "function-two", 1, Some("test.Argument")),
     ];
     parts.converters = vec![
         Converter {

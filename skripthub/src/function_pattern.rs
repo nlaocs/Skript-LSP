@@ -1,3 +1,6 @@
+//! Compatibility parser for SkriptHub's legacy function syntax strings.
+//! SSG `Functions.json` is already structured and must not pass through this parser.
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FnParseResult {
     pub inner: Function,
