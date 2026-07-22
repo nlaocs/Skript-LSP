@@ -42,7 +42,9 @@ mod tests {
     }
     "#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let expression = Expression::from_abstract_syntax_list_entry(&parsed).unwrap();
+        let expression =
+            Expression::from_abstract_syntax_list_entry(&parsed, crate::test_plural_rules())
+                .unwrap();
         assert_eq!(expression.return_type, Some("Boolean".to_string()));
     }
 }

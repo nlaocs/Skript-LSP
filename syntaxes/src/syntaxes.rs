@@ -5,13 +5,13 @@ use skripthub::addon_syntax_list::entity::{
 use skripthub::api::types::{AbstractAddonSyntaxList, AbstractAddonSyntaxListEntry, SyntaxType};
 
 macro_rules! handle_syntax {
-    ($s:expr, $syntaxes:expr, $errored_syntaxes:expr, {
+    ($s:expr, $syntaxes:expr, $errored_syntaxes:expr, $plural_rules:expr, {
         $( $syntax_type:pat => $variant:ty => $field:ident ),* $(,)?
     }) => {
         match $s.syntax_type {
             $(
                 $syntax_type => {
-                    match <$variant>::from_abstract_syntax_list_entry(&$s) {
+                    match <$variant>::from_abstract_syntax_list_entry(&$s, $plural_rules) {
                         Ok(val) => {
                             $syntaxes.$field.push(val);
                         }
@@ -42,19 +42,26 @@ pub struct Syntaxes {
     pub structures: Vec<Structure>,
 }
 impl Syntaxes {
-    pub fn initialize() -> Result<SyntaxesAndErrors, Box<dyn std::error::Error>> {
+    pub fn initialize(
+        plural_rules: &syntax_pattern_parser::syntax::PluralRules,
+    ) -> Result<SyntaxesAndErrors, Box<dyn std::error::Error>> {
         use skripthub::api::fetch_data;
         let abstract_syntax_list = fetch_data()?;
-        Ok(Self::from_abstract_syntax_list(abstract_syntax_list))
+        Ok(Self::from_abstract_syntax_list(
+            abstract_syntax_list,
+            plural_rules,
+        ))
     }
+
     pub fn from_abstract_syntax_list(
         abstract_syntax_list: AbstractAddonSyntaxList,
+        plural_rules: &syntax_pattern_parser::syntax::PluralRules,
     ) -> SyntaxesAndErrors {
         let mut syntaxes = Syntaxes::default();
         let mut error_syntaxes: Vec<(AbstractAddonSyntaxListEntry, Box<dyn std::error::Error>)> =
             Vec::new();
         for s in abstract_syntax_list {
-            handle_syntax!(s, syntaxes, error_syntaxes, {
+            handle_syntax!(s, syntaxes, error_syntaxes, plural_rules, {
                 SyntaxType::Event => Event => events,
                 SyntaxType::Condition => Condition => conditions,
                 SyntaxType::Effect => Effect => effects,

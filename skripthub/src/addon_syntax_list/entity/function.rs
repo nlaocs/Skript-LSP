@@ -1,6 +1,16 @@
 use crate::addon_syntax_list::entity::utils::{define_syntax_struct, return_type_parser};
 
-define_syntax_struct!(Function, syntax_pattern_parser::function::parse, syntax_pattern_parser::function::FnParseResult, {
+fn parse_function_pattern(
+    source: &str,
+    _plural_rules: &syntax_pattern_parser::syntax::PluralRules,
+) -> Result<
+    syntax_pattern_parser::function::FnParseResult,
+    syntax_pattern_parser::function::FnParseError,
+> {
+    syntax_pattern_parser::function::parse(source)
+}
+
+define_syntax_struct!(Function, parse_function_pattern, syntax_pattern_parser::function::FnParseResult, {
     return_type: Option<String> = return_type_parser,
 });
 
@@ -40,7 +50,8 @@ mod tests {
         "removed_since": null
     }"#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let function = Function::from_abstract_syntax_list_entry(&parsed).unwrap();
+        let function =
+            Function::from_abstract_syntax_list_entry(&parsed, crate::test_plural_rules()).unwrap();
         assert_eq!(function.syntax_pattern.inner.name, "ceil");
         assert_eq!(function.syntax_pattern.inner.args[0].arg_type, "number");
         assert_eq!(function.syntax_pattern.inner.args[0].name, "n");

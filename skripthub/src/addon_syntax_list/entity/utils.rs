@@ -28,9 +28,13 @@ macro_rules! define_syntax_struct {
         #[allow(dead_code)]
         impl $name {
             pub fn from_abstract_syntax_list_entry(
-                src: &crate::api::types::AbstractAddonSyntaxListEntry
+                src: &crate::api::types::AbstractAddonSyntaxListEntry,
+                plural_rules: &syntax_pattern_parser::syntax::PluralRules,
             ) -> Result<Self, Box<dyn std::error::Error>> {
-                <Self as crate::addon_syntax_list::types::SkriptHubSyntax>::_from_abstract_syntax_list_entry(src)
+                <Self as crate::addon_syntax_list::types::SkriptHubSyntax>::_from_abstract_syntax_list_entry(
+                    src,
+                    plural_rules,
+                )
             }
             pub fn get_link(&self) -> String {
                 <Self as crate::addon_syntax_list::types::SkriptHubSyntax>::_get_link(self)
@@ -40,10 +44,11 @@ macro_rules! define_syntax_struct {
         #[allow(dead_code)]
         impl crate::addon_syntax_list::types::SkriptHubSyntax for $name {
             fn _from_abstract_syntax_list_entry(
-                src: &crate::api::types::AbstractAddonSyntaxListEntry
+                src: &crate::api::types::AbstractAddonSyntaxListEntry,
+                plural_rules: &syntax_pattern_parser::syntax::PluralRules,
             ) -> Result<Self, Box<dyn std::error::Error>> {
                 let syntax_pattern = {
-                    $parse_func(&src.syntax_pattern)?
+                    $parse_func(&src.syntax_pattern, plural_rules)?
                 };
                 Ok(Self {
                     id: src.id,
@@ -114,7 +119,10 @@ macro_rules! define_syntax_struct {
         }
     };
     ($name:ident { $($field:ident : $ty:ty = $func:expr),* $(,)? }) => {
-        fn default_syntax_parser(src: &str) -> Result<Vec<syntax_pattern_parser::syntax::ParseResult>, syntax_pattern_parser::syntax::ParseError> {
+        fn default_syntax_parser(
+            src: &str,
+            plural_rules: &syntax_pattern_parser::syntax::PluralRules,
+        ) -> Result<Vec<syntax_pattern_parser::syntax::ParseResult>, syntax_pattern_parser::syntax::ParseError> {
             let patterns = src.lines();
             let mut parsed_patterns = Vec::new();
             for pattern in patterns {
@@ -122,7 +130,7 @@ macro_rules! define_syntax_struct {
                 if pattern.is_empty() {
                     continue;
                 }
-                parsed_patterns.push(syntax_pattern_parser::syntax::parse(pattern)?);
+                parsed_patterns.push(syntax_pattern_parser::syntax::parse(pattern, plural_rules)?);
             }
             Ok(parsed_patterns)
         }

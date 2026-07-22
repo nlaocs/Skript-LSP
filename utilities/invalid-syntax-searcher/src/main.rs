@@ -1,9 +1,9 @@
 use skripthub::api::types::{AbstractAddonSyntaxListEntry, SyntaxType};
 use syntax_pattern_parser::function::{FnParseError, FnParseErrorKind, InvalidFunctionNameKind};
-use syntax_pattern_parser::syntax::{ParseError, ParseErrorKind};
+use syntax_pattern_parser::syntax::{ParseError, ParseErrorKind, PluralRules};
 use syntaxes::Syntaxes;
 
-fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>) {
+fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>, plural_rules: &PluralRules) {
     println!("{}:", label);
     for s in list {
         let patterns = s.syntax_pattern.lines();
@@ -23,7 +23,7 @@ fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>) {
                     }
                 }
                 _ => {
-                    let parsed = syntax_pattern_parser::syntax::parse(p);
+                    let parsed = syntax_pattern_parser::syntax::parse(p, plural_rules);
                     match parsed {
                         Ok(_) => {}
                         Err(_) => {
@@ -38,7 +38,16 @@ fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let syntaxes = Syntaxes::initialize()?;
+    let plural_rules_path = std::env::args_os().nth(1).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "usage: invalid-syntax-searcher <path-to-PluralRules.json>",
+        )
+    })?;
+    let plural_rules_json = std::fs::read_to_string(plural_rules_path)?;
+    let plural_rules = PluralRules::from_json(&plural_rules_json)?;
+
+    let syntaxes = Syntaxes::initialize(&plural_rules)?;
     let errors_syntaxes = syntaxes.1;
 
     let mut unclosed_parenthesis: Vec<_> = Vec::new();
@@ -124,6 +133,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             unknown.push(syntax);
         }
     }
+
+    let dump_patterns = |label, syntaxes| {
+        dump_patterns(label, syntaxes, &plural_rules);
+    };
 
     dump_patterns("unclosed_parenthesis", unclosed_parenthesis);
     dump_patterns(

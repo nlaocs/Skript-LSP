@@ -49,7 +49,9 @@ mod tests {
         "removed_since": null
     }"#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let condition = Condition::from_abstract_syntax_list_entry(&parsed).unwrap();
+        let condition =
+            Condition::from_abstract_syntax_list_entry(&parsed, crate::test_plural_rules())
+                .unwrap();
         assert_eq!(condition.id, 267);
         assert_eq!(condition.creator, 4);
         assert_eq!(condition.title, "File Exists");
