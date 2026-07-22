@@ -23,31 +23,64 @@ macro_rules! consume_until {
     }};
 }
 
-macro_rules! handle_scope_close {
-    ($scope:expr, $expected:pat, $buffer:expr, $elements:expr, $err_kind:expr) => {{
-        if matches!($scope, $expected) {
-            if !$buffer.is_empty() {
-                $elements.push(PatternElement::Literal(std::mem::take(&mut $buffer)));
-            }
-            break;
-        } else {
-            return Err(ParseError { kind: $err_kind });
-        }
-    }};
+/// A half-open UTF-8 byte range in the original syntax pattern.
+///
+/// Both offsets are guaranteed to be character boundaries for parser output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub const fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    pub fn is_valid_for(self, input: &str) -> bool {
+        self.start <= self.end
+            && self.end <= input.len()
+            && input.is_char_boundary(self.start)
+            && input.is_char_boundary(self.end)
+    }
+
+    pub fn slice(self, input: &str) -> Option<&str> {
+        input.get(self.start..self.end)
+    }
+}
+
+/// A parsed value paired with the source range that produced it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Spanned<T> {
+    pub value: T,
+    pub span: Span,
+}
+
+impl<T> Spanned<T> {
+    pub const fn new(value: T, span: Span) -> Self {
+        Self { value, span }
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U> {
+        Spanned::new(f(self.value), self.span)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PatternElement {
     Literal(String),
-    Choice(Vec<Vec<PatternElement>>), // stuff|otherstuff
-    Group(Vec<PatternElement>),       // (stuff)
-    Option(Vec<PatternElement>),      // [stuff]
-    Regex(String),                    // <[0-9]+>
-    TypeExpr(PatternTypeExpr),        // %stuff%
-    ParseTag(String),                 // tag:stuff
-    ParseMark(i32),                   // 1¦stuff
-    Empty,                            // (a|) -> Choice([Literal("a"), Empty])
+    Choice(Vec<Vec<SpannedPatternElement>>), // stuff|otherstuff
+    Group(Vec<SpannedPatternElement>),       // (stuff)
+    Option(Vec<SpannedPatternElement>),      // [stuff]
+    Regex(String),                           // <[0-9]+>
+    TypeExpr(PatternTypeExpr),               // %stuff%
+    ParseTag(String),                        // tag:stuff
+    ParseMark(i32),                          // 1¦stuff
+    Empty,                                   // (a|) -> Choice([Literal("a"), Empty])
 } // todo display実装
+
+/// A syntax pattern AST element with its range in the original pattern.
+pub type SpannedPatternElement = Spanned<PatternElement>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PatternTypeExpr {
@@ -108,6 +141,7 @@ impl std::fmt::Display for PatternTypeExprDisplay<'_> {
 
 fn parse_pattern_type_expr(
     input: &str,
+    input_offset: usize,
     plural_rules: &PluralRules,
 ) -> Result<PatternTypeExpr, ParseError> {
     let mut body = input;
@@ -125,11 +159,16 @@ fn parse_pattern_type_expr(
         body = &body[1..];
     }
 
+    let body_offset = input.len() - body.len();
     let (alternatives, time) = if let Some(time_start) = body.find('@') {
         let time = body[time_start + 1..]
             .parse::<i32>()
             .map_err(|_| ParseError {
                 kind: ParseErrorKind::IncorrectTimeState,
+                span: Span::new(
+                    input_offset + body_offset + time_start + 1,
+                    input_offset + input.len(),
+                ),
             })?;
         (&body[..time_start], time)
     } else {
@@ -187,18 +226,11 @@ pub enum ParseErrorKind {
     InvalidParseMark,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-}
-
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
-//#[error("{kind} at position {span:?}")] // todo implement
-#[error("{kind}")]
+#[error("{kind} at byte range {span:?}")]
 pub struct ParseError {
     pub kind: ParseErrorKind,
-    //pub span: Span, // todo implement
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, derive_more::Display)]
@@ -216,7 +248,7 @@ pub struct ParseWarning {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseResult {
-    pub elements: Vec<PatternElement>,
+    pub elements: Vec<SpannedPatternElement>,
     pub warnings: Vec<ParseWarning>,
 }
 
@@ -232,6 +264,35 @@ enum Scope {
     Option,
 }
 
+fn current_offset<I: Iterator<Item = (usize, char)>>(
+    chars: &mut std::iter::Peekable<I>,
+    input_len: usize,
+) -> usize {
+    chars.peek().map_or(input_len, |(offset, _)| *offset)
+}
+
+fn parse_error(kind: ParseErrorKind, span: Span) -> ParseError {
+    ParseError { kind, span }
+}
+
+fn push_literal(
+    elements: &mut Vec<SpannedPatternElement>,
+    buffer: &mut String,
+    buffer_start: &mut Option<usize>,
+    end: usize,
+) {
+    if buffer.is_empty() {
+        *buffer_start = None;
+        return;
+    }
+
+    let start = buffer_start.take().unwrap_or(end);
+    elements.push(Spanned::new(
+        PatternElement::Literal(std::mem::take(buffer)),
+        Span::new(start, end),
+    ));
+}
+
 fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
@@ -240,163 +301,176 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
 ) -> Result<ParseResult, ParseError> {
     let mut elements = Vec::new();
     let mut buffer = String::new();
-
+    let mut buffer_start = None;
     let mut warnings = Vec::new();
 
     while let Some(&(i, ch)) = chars.peek() {
         match ch {
             '(' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                }
-                chars.next(); // consume '('
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                chars.next();
 
                 match parse_choice(chars, Scope::Group, raw_pattern, plural_rules) {
                     Ok(group) => {
                         warnings.extend(group.warnings);
-                        elements.push(PatternElement::Group(group.elements));
+                        let end = current_offset(chars, raw_pattern.len());
+                        elements.push(Spanned::new(
+                            PatternElement::Group(group.elements),
+                            Span::new(i, end),
+                        ));
                     }
                     Err(ParseError {
                         kind: ParseErrorKind::UnexpectedClosingBracket,
-                        ..
+                        span,
                     }) if scope == Scope::Option => {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                        });
+                        return Err(parse_error(
+                            ParseErrorKind::UnexpectedClosingParenthesis,
+                            span,
+                        ));
                     }
-                    Err(e) => return Err(e),
+                    Err(error) => return Err(error),
                 }
             }
             ')' => {
-                handle_scope_close!(
-                    scope,
-                    Scope::Group,
-                    buffer,
-                    elements,
-                    ParseErrorKind::UnexpectedClosingParenthesis
-                );
+                if scope == Scope::Group {
+                    push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                    break;
+                }
+                return Err(parse_error(
+                    ParseErrorKind::UnexpectedClosingParenthesis,
+                    Span::new(i, i + ch.len_utf8()),
+                ));
             }
             '[' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                }
-                chars.next(); // consume '['
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                chars.next();
 
                 match parse_choice(chars, Scope::Option, raw_pattern, plural_rules) {
                     Ok(option) => {
                         warnings.extend(option.warnings);
-                        elements.push(PatternElement::Option(option.elements));
+                        let end = current_offset(chars, raw_pattern.len());
+                        elements.push(Spanned::new(
+                            PatternElement::Option(option.elements),
+                            Span::new(i, end),
+                        ));
                     }
                     Err(ParseError {
                         kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                        ..
+                        span,
                     }) if scope == Scope::Group => {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UnclosedBracket,
-                        });
+                        return Err(parse_error(ParseErrorKind::UnclosedBracket, span));
                     }
-                    Err(e) => return Err(e),
+                    Err(error) => return Err(error),
                 }
             }
             ']' => {
-                handle_scope_close!(
-                    scope,
-                    Scope::Option,
-                    buffer,
-                    elements,
-                    ParseErrorKind::UnexpectedClosingBracket
-                );
+                if scope == Scope::Option {
+                    push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                    break;
+                }
+                return Err(parse_error(
+                    ParseErrorKind::UnexpectedClosingBracket,
+                    Span::new(i, i + ch.len_utf8()),
+                ));
             }
             '<' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                }
-                chars.next(); // consume '<'
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                chars.next();
 
-                let start = i + '<'.len_utf8();
-                if let Some(rel) = raw_pattern[start..].find('>') {
-                    let end = start + rel;
+                let content_start = i + ch.len_utf8();
+                if let Some(relative_end) = raw_pattern[content_start..].find('>') {
+                    let content_end = content_start + relative_end;
+                    let regex = &raw_pattern[content_start..content_end];
 
-                    let regex_slice = &raw_pattern[start..end];
-
-                    // イテレータを '>' の直後まで一気に進める
-                    consume_until!(chars, end);
-
-                    elements.push(PatternElement::Regex(regex_slice.to_string()));
+                    consume_until!(chars, content_end);
+                    elements.push(Spanned::new(
+                        PatternElement::Regex(regex.to_string()),
+                        Span::new(i, content_end + '>'.len_utf8()),
+                    ));
                 } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnclosedRegexDelimiter,
-                    });
+                    let end = raw_pattern.len();
+                    return Err(parse_error(
+                        ParseErrorKind::UnclosedRegexDelimiter,
+                        Span::new(end, end),
+                    ));
                 }
             }
             '>' => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
-                });
+                return Err(parse_error(
+                    ParseErrorKind::UnexpectedClosingRegexDelimiter,
+                    Span::new(i, i + ch.len_utf8()),
+                ));
             }
             '%' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                }
-                chars.next(); // consume '%'
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                chars.next();
 
-                let start = i + '%'.len_utf8();
-                if let Some(rel) = raw_pattern[start..].find('%') {
-                    let end = start + rel;
-
-                    let type_expr_str = &raw_pattern[start..end];
-
-                    // イテレータを '%' の直後まで一気に進める
-                    consume_until!(chars, end);
-
-                    elements.push(PatternElement::TypeExpr(parse_pattern_type_expr(
-                        type_expr_str,
+                let content_start = i + ch.len_utf8();
+                if let Some(relative_end) = raw_pattern[content_start..].find('%') {
+                    let content_end = content_start + relative_end;
+                    let type_expr = parse_pattern_type_expr(
+                        &raw_pattern[content_start..content_end],
+                        content_start,
                         plural_rules,
-                    )?));
+                    )?;
+
+                    consume_until!(chars, content_end);
+                    elements.push(Spanned::new(
+                        PatternElement::TypeExpr(type_expr),
+                        Span::new(i, content_end + '%'.len_utf8()),
+                    ));
                 } else {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnclosedTypeDelimiter,
-                    });
+                    let end = raw_pattern.len();
+                    return Err(parse_error(
+                        ParseErrorKind::UnclosedTypeDelimiter,
+                        Span::new(end, end),
+                    ));
                 }
             }
             '|' => {
-                if !buffer.is_empty() {
-                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
-                }
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 break;
             }
             '\\' => {
-                chars.next(); // consume '\'
-                if let Some(&(_, c)) = chars.peek() {
-                    buffer.push(c);
-                    chars.next(); // consume escaped character
+                buffer_start.get_or_insert(i);
+                chars.next();
+                if let Some(&(_, escaped)) = chars.peek() {
+                    buffer.push(escaped);
+                    chars.next();
                 } else {
                     buffer.push('\\');
                 }
             }
             ':' => {
-                elements.push(PatternElement::ParseTag(std::mem::take(&mut buffer)));
+                let start = buffer_start.take().unwrap_or(i);
+                elements.push(Spanned::new(
+                    PatternElement::ParseTag(std::mem::take(&mut buffer)),
+                    Span::new(start, i + ch.len_utf8()),
+                ));
                 chars.next();
             }
             '¦' => {
-                let mark = std::mem::take(&mut buffer)
-                    .parse::<i32>()
-                    .map_err(|_| ParseError {
-                        kind: ParseErrorKind::InvalidParseMark,
-                    })?;
-                elements.push(PatternElement::ParseMark(mark));
+                let start = buffer_start.take().unwrap_or(i);
+                let mark_text = std::mem::take(&mut buffer);
+                let mark = mark_text.parse::<i32>().map_err(|_| {
+                    parse_error(ParseErrorKind::InvalidParseMark, Span::new(start, i))
+                })?;
+                elements.push(Spanned::new(
+                    PatternElement::ParseMark(mark),
+                    Span::new(start, i + ch.len_utf8()),
+                ));
                 chars.next();
             }
             _ => {
+                buffer_start.get_or_insert(i);
                 buffer.push(ch);
                 chars.next();
             }
         }
     }
 
-    if !buffer.is_empty() {
-        elements.push(PatternElement::Literal(buffer));
-    }
+    let end = current_offset(chars, raw_pattern.len());
+    push_literal(&mut elements, &mut buffer, &mut buffer_start, end);
 
     Ok(ParseResult { elements, warnings })
 }
@@ -407,49 +481,59 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
     raw_pattern: &str,
     plural_rules: &PluralRules,
 ) -> Result<ParseResult, ParseError> {
-    let mut branches: Vec<Vec<PatternElement>> = Vec::new();
-    let mut closed = false; // 対応する閉じ括弧を消費できたか
-
+    let choice_start = current_offset(chars, raw_pattern.len());
+    let mut branches: Vec<Vec<SpannedPatternElement>> = Vec::new();
+    let mut closed = false;
     let mut warnings = Vec::new();
 
-    loop {
-        let seq = parse_sequence(chars, scope, raw_pattern, plural_rules)?;
-        warnings.extend(seq.warnings);
-        if !seq.elements.is_empty() {
-            branches.push(seq.elements);
+    let choice_end = loop {
+        let branch_start = current_offset(chars, raw_pattern.len());
+        let sequence = parse_sequence(chars, scope, raw_pattern, plural_rules)?;
+        warnings.extend(sequence.warnings);
+        let branch_end = current_offset(chars, raw_pattern.len());
+
+        if sequence.elements.is_empty() {
+            branches.push(vec![Spanned::new(
+                PatternElement::Empty,
+                Span::new(branch_start, branch_start),
+            )]);
         } else {
-            branches.push(vec![PatternElement::Empty]);
+            branches.push(sequence.elements);
         }
 
         match chars.peek() {
             Some(&(_, '|')) => {
-                chars.next(); // 次の分岐へ
+                chars.next();
             }
             Some(&(_, ')')) if scope == Scope::Group => {
-                chars.next(); // 対応する閉じ括弧を消費
+                chars.next();
                 closed = true;
-                break;
+                break branch_end;
             }
             Some(&(_, ']')) if scope == Scope::Option => {
-                chars.next(); // 対応する閉じ括弧を消費
+                chars.next();
                 closed = true;
-                break;
+                break branch_end;
             }
-            None => break,
-            _ => break,
+            None => break branch_end,
+            _ => break branch_end,
         }
-    }
+    };
 
     match scope {
         Scope::Group if !closed => {
-            return Err(ParseError {
-                kind: ParseErrorKind::UnclosedParenthesis,
-            });
+            let end = raw_pattern.len();
+            return Err(parse_error(
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(end, end),
+            ));
         }
         Scope::Option if !closed => {
-            return Err(ParseError {
-                kind: ParseErrorKind::UnclosedBracket,
-            });
+            let end = raw_pattern.len();
+            return Err(parse_error(
+                ParseErrorKind::UnclosedBracket,
+                Span::new(end, end),
+            ));
         }
         _ => {}
     }
@@ -461,12 +545,14 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
         })
     } else {
         Ok(ParseResult {
-            elements: vec![PatternElement::Choice(branches)],
+            elements: vec![Spanned::new(
+                PatternElement::Choice(branches),
+                Span::new(choice_start, choice_end),
+            )],
             warnings,
         })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,7 +566,43 @@ mod tests {
         super::parse(input, &TEST_PLURAL_RULES)
     }
 
-    use PatternElement::*;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum SemanticElement {
+        Literal(String),
+        Choice(Vec<Vec<SemanticElement>>),
+        Group(Vec<SemanticElement>),
+        Option(Vec<SemanticElement>),
+        Regex(String),
+        TypeExpr(PatternTypeExpr),
+        ParseTag(String),
+        ParseMark(i32),
+        Empty,
+    }
+
+    fn semantic_element(element: &SpannedPatternElement) -> SemanticElement {
+        match &element.value {
+            PatternElement::Literal(value) => SemanticElement::Literal(value.clone()),
+            PatternElement::Choice(branches) => SemanticElement::Choice(
+                branches
+                    .iter()
+                    .map(|branch| semantic_elements(branch))
+                    .collect(),
+            ),
+            PatternElement::Group(elements) => SemanticElement::Group(semantic_elements(elements)),
+            PatternElement::Option(elements) => {
+                SemanticElement::Option(semantic_elements(elements))
+            }
+            PatternElement::Regex(value) => SemanticElement::Regex(value.clone()),
+            PatternElement::TypeExpr(value) => SemanticElement::TypeExpr(value.clone()),
+            PatternElement::ParseTag(value) => SemanticElement::ParseTag(value.clone()),
+            PatternElement::ParseMark(value) => SemanticElement::ParseMark(*value),
+            PatternElement::Empty => SemanticElement::Empty,
+        }
+    }
+
+    fn semantic_elements(elements: &[SpannedPatternElement]) -> Vec<SemanticElement> {
+        elements.iter().map(semantic_element).collect()
+    }
 
     fn type_element(
         alternatives: &[(&str, bool)],
@@ -488,8 +610,8 @@ mod tests {
         allow_literals: bool,
         allow_expressions: bool,
         time: i32,
-    ) -> PatternElement {
-        TypeExpr(PatternTypeExpr {
+    ) -> SemanticElement {
+        SemanticElement::TypeExpr(PatternTypeExpr {
             alternatives: alternatives
                 .iter()
                 .map(|(name, plural)| PatternTypeAlternative {
@@ -504,674 +626,478 @@ mod tests {
         })
     }
 
-    mod simple_tests {
-        use super::*;
-        #[test]
-        fn parse_literal() {
-            let literal = parse("literal");
-            assert_eq!(
-                literal,
-                Ok(ParseResult {
-                    elements: vec![Literal("literal".to_string())],
-                    warnings: vec![]
-                })
+    fn assert_semantics(input: &str, expected: Vec<SemanticElement>) {
+        let result = parse(input).unwrap_or_else(|error| panic!("{input:?}: {error}"));
+        assert!(result.warnings.is_empty());
+        assert_eq!(semantic_elements(&result.elements), expected);
+    }
+
+    fn assert_error(input: &str, kind: ParseErrorKind, span: Span) {
+        let error = parse(input).expect_err("pattern must fail");
+        assert_eq!(error.kind, kind, "{input:?}");
+        assert_eq!(error.span, span, "{input:?}");
+        assert!(error.span.is_valid_for(input), "{input:?}: {error:?}");
+    }
+
+    fn assert_valid_spans(input: &str, elements: &[SpannedPatternElement], parent: Option<Span>) {
+        for element in elements {
+            assert!(
+                element.span.is_valid_for(input),
+                "{:?} is invalid for {input:?}",
+                element.span
             );
-        }
-
-        #[test]
-        fn parse_choice() {
-            let choice = parse("(choice1|choice2)");
-            assert_eq!(
-                choice,
-                Ok(ParseResult {
-                    elements: vec![Group(vec![Choice(vec![
-                        vec![Literal("choice1".to_string())],
-                        vec![Literal("choice2".to_string())],
-                    ])])],
-                    warnings: vec![]
-                })
-            );
-        }
-
-        #[test]
-        fn parse_group() {
-            let group = parse("(group)");
-            assert_eq!(
-                group,
-                Ok(ParseResult {
-                    elements: vec![Group(vec![Literal("group".to_string())])],
-                    warnings: vec![]
-                })
-            );
-        }
-
-        #[test]
-        fn parse_option() {
-            let option = parse("[option]");
-            assert_eq!(
-                option,
-                Ok(ParseResult {
-                    elements: vec![Option(vec![Literal("option".to_string())])],
-                    warnings: vec![]
-                })
-            );
-        }
-
-        #[test]
-        fn parse_regex() {
-            let regex = parse("<[0-9]+>");
-            assert_eq!(
-                regex,
-                Ok(ParseResult {
-                    elements: vec![Regex("[0-9]+".to_string())],
-                    warnings: vec![]
-                })
-            );
-        }
-
-        mod type_expr {
-            use super::*;
-
-            #[test]
-            fn simple() {
-                assert_eq!(
-                    parse("%string%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(&[("string", false)], false, true, true, 0)],
-                        warnings: vec![]
-                    })
+            if let Some(parent) = parent {
+                assert!(
+                    parent.start <= element.span.start && element.span.end <= parent.end,
+                    "{:?} is outside parent {parent:?}",
+                    element.span
                 );
             }
 
-            #[test]
-            fn literal_only() {
-                assert_eq!(
-                    parse("%*string%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(&[("string", false)], false, true, false, 0)],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn expression_only() {
-                assert_eq!(
-                    parse("%~string%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(&[("string", false)], false, false, true, 0)],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn nullable() {
-                assert_eq!(
-                    parse("%-string%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(&[("string", false)], true, true, true, 0)],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn modifiers_apply_to_all_alternatives() {
-                assert_eq!(
-                    parse("%-*~strings/locations@12%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(
-                            &[("string", true), ("location", true)],
-                            true,
-                            false,
-                            false,
-                            12,
-                        )],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn modifiers_after_slash_are_part_of_the_type_name() {
-                assert_eq!(
-                    parse("%string/*numbers/-texts%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(
-                            &[("string", false), ("*number", true), ("-text", true)],
-                            false,
-                            true,
-                            true,
-                            0,
-                        )],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn plural_alternatives_use_skript_english_rules() {
-                assert_eq!(
-                    parse("%children/aliases/axes/sheep/sheeps/dummyfixturepeople%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(
-                            &[
-                                ("child", true),
-                                ("alias", true),
-                                ("axe", true),
-                                ("sheep", false),
-                                ("sheep", true),
-                                ("dummyfixtureperson", true),
-                            ],
-                            false,
-                            true,
-                            true,
-                            0,
-                        )],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn time_uses_the_full_i32_range() {
-                assert_eq!(
-                    parse("%string@2147483647%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(
-                            &[("string", false)],
-                            false,
-                            true,
-                            true,
-                            i32::MAX,
-                        )],
-                        warnings: vec![]
-                    })
-                );
-                assert_eq!(
-                    parse("%string@-2147483648%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(
-                            &[("string", false)],
-                            false,
-                            true,
-                            true,
-                            i32::MIN,
-                        )],
-                        warnings: vec![]
-                    })
-                );
-                assert_eq!(
-                    parse("%string@0%"),
-                    Ok(ParseResult {
-                        elements: vec![type_element(&[("string", false)], false, true, true, 0)],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn display_reconstructs_type_expression() {
-                let parsed = parse("%-*strings/location@-2%").unwrap();
-                let TypeExpr(type_expr) = &parsed.elements[0] else {
-                    panic!("expected a type expression");
-                };
-                assert_eq!(
-                    type_expr.display_with(&TEST_PLURAL_RULES).to_string(),
-                    "-*strings/location@-2"
-                );
-            }
-        }
-
-        mod empty {
-            use super::*;
-
-            #[test]
-            fn simple() {
-                let empty_simple = parse("");
-                assert_eq!(
-                    empty_simple,
-                    Ok(ParseResult {
-                        elements: vec![Empty],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn choice_trailing() {
-                let empty_choice = parse("(a|)");
-                assert_eq!(
-                    empty_choice,
-                    Ok(ParseResult {
-                        elements: vec![Group(vec![Choice(vec![
-                            vec![Literal("a".to_string())],
-                            vec![Empty],
-                        ])])],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn choice_leading() {
-                let empty_choice2 = parse("(|b)");
-                assert_eq!(
-                    empty_choice2,
-                    Ok(ParseResult {
-                        elements: vec![Group(vec![Choice(vec![
-                            vec![Empty],
-                            vec![Literal("b".to_string())],
-                        ])])],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn choice_both() {
-                let empty_choice3 = parse("(|)");
-                assert_eq!(
-                    empty_choice3,
-                    Ok(ParseResult {
-                        elements: vec![Group(vec![Choice(vec![vec![Empty], vec![Empty]])])],
-                        warnings: vec![]
-                    })
-                );
-            }
-
-            #[test]
-            fn global_choice_empty_branches() {
-                assert_eq!(
-                    parse("a|"),
-                    Ok(ParseResult {
-                        elements: vec![Choice(vec![vec![Literal("a".to_string())], vec![Empty],])],
-                        warnings: vec![],
-                    })
-                );
-
-                assert_eq!(
-                    parse("|b"),
-                    Ok(ParseResult {
-                        elements: vec![Choice(vec![vec![Empty], vec![Literal("b".to_string())],])],
-                        warnings: vec![],
-                    })
-                );
-
-                assert_eq!(
-                    parse("a||b"),
-                    Ok(ParseResult {
-                        elements: vec![Choice(vec![
-                            vec![Literal("a".to_string())],
-                            vec![Empty],
-                            vec![Literal("b".to_string())],
-                        ])],
-                        warnings: vec![],
-                    })
-                );
+            match &element.value {
+                PatternElement::Choice(branches) => {
+                    for branch in branches {
+                        assert_valid_spans(input, branch, Some(element.span));
+                    }
+                }
+                PatternElement::Group(children) | PatternElement::Option(children) => {
+                    assert_valid_spans(input, children, Some(element.span));
+                }
+                _ => {}
             }
         }
     }
 
     #[test]
-    fn parse_tests() {
-        use PatternElement::*;
+    fn parses_basic_elements_and_choices() {
+        use SemanticElement::*;
 
-        let syntax = parse("(absolute|complete) path of %string%");
-        assert_eq!(
-            syntax,
-            Ok(ParseResult {
-                elements: vec![
-                    Group(vec![Choice(vec![
-                        vec![Literal("absolute".to_string())],
-                        vec![Literal("complete".to_string())],
-                    ])]),
-                    Literal(" path of ".to_string()),
-                    type_element(&[("string", false)], false, true, true, 0),
-                ],
-                warnings: vec![]
-            })
+        assert_semantics("literal", vec![Literal("literal".into())]);
+        assert_semantics(
+            "(choice1|choice2)",
+            vec![Group(vec![Choice(vec![
+                vec![Literal("choice1".into())],
+                vec![Literal("choice2".into())],
+            ])])],
         );
-
-        let syntax = parse("[local] %skript types% property condition <pattern>");
-        assert_eq!(
-            syntax,
-            Ok(ParseResult {
-                elements: vec![
-                    Option(vec![Literal("local".to_string())]),
-                    Literal(" ".to_string()),
-                    type_element(&[("skript type", true)], false, true, true, 0),
-                    Literal(" property condition ".to_string()),
-                    Regex("pattern".to_string()),
-                ],
-                warnings: vec![]
-            })
+        assert_semantics(
+            "[foo|bar]",
+            vec![Option(vec![Choice(vec![
+                vec![Literal("foo".into())],
+                vec![Literal("bar".into())],
+            ])])],
         );
-
-        let syntax = parse("<.+> \\|\\| <.+>");
-        assert_eq!(
-            syntax,
-            Ok(ParseResult {
-                elements: vec![
-                    Regex(".+".to_string()),
-                    Literal(" || ".to_string()),
-                    Regex(".+".to_string()),
-                ],
-                warnings: vec![]
-            })
+        assert_semantics("<[0-9]+>", vec![Regex("[0-9]+".into())]);
+        assert_semantics(
+            "folder|dir|box",
+            vec![Choice(vec![
+                vec![Literal("folder".into())],
+                vec![Literal("dir".into())],
+                vec![Literal("box".into())],
+            ])],
         );
-
-        let syntax = parse("folder|dir|box");
-        assert_eq!(
-            syntax,
-            Ok(ParseResult {
-                elements: vec![Choice(vec![
-                    vec![Literal("folder".to_string())],
-                    vec![Literal("dir".to_string())],
-                    vec![Literal("box".to_string())],
-                ])],
-                warnings: vec![],
-            })
+        assert_semantics(
+            r"<.+> \|\| <.+>",
+            vec![
+                Regex(".+".into()),
+                Literal(" || ".into()),
+                Regex(".+".into()),
+            ],
         );
-
-        let syntax = parse("[foo|bar]");
-        assert_eq!(
-            syntax,
-            Ok(ParseResult {
-                elements: vec![Option(vec![Choice(vec![
-                    vec![Literal("foo".to_string())],
-                    vec![Literal("bar".to_string())],
-                ])])],
-                warnings: vec![],
-            })
-        );
-
-        let syntax = parse("active[ |-](group|model)[s]");
-        assert_eq!(
-            syntax,
-            Ok(ParseResult {
-                elements: vec![
-                    Literal("active".to_string()),
-                    Option(vec![Choice(vec![
-                        vec![Literal(" ".to_string())],
-                        vec![Literal("-".to_string())],
-                    ])]),
-                    Group(vec![Choice(vec![
-                        vec![Literal("group".to_string())],
-                        vec![Literal("model".to_string())],
-                    ])]),
-                    Option(vec![Literal("s".to_string())]),
-                ],
-                warnings: vec![],
-            })
+        assert_semantics(
+            "active[ |-](group|model)[s]",
+            vec![
+                Literal("active".into()),
+                Option(vec![Choice(vec![
+                    vec![Literal(" ".into())],
+                    vec![Literal("-".into())],
+                ])]),
+                Group(vec![Choice(vec![
+                    vec![Literal("group".into())],
+                    vec![Literal("model".into())],
+                ])]),
+                Option(vec![Literal("s".into())]),
+            ],
         );
     }
 
-    #[cfg(test)]
-    mod error_warn_tests {
-        use super::*;
+    #[test]
+    fn parses_type_expression_modifiers_and_plural_rules() {
+        for (input, expected) in [
+            (
+                "%string%",
+                type_element(&[("string", false)], false, true, true, 0),
+            ),
+            (
+                "%*string%",
+                type_element(&[("string", false)], false, true, false, 0),
+            ),
+            (
+                "%~string%",
+                type_element(&[("string", false)], false, false, true, 0),
+            ),
+            (
+                "%-string%",
+                type_element(&[("string", false)], true, true, true, 0),
+            ),
+        ] {
+            assert_semantics(input, vec![expected]);
+        }
 
-        #[test]
-        fn unclosed_bracket() {
-            let pattern = parse("[unclosed");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedBracket,
-                })
-            );
+        assert_semantics(
+            "%-*~strings/locations@12%",
+            vec![type_element(
+                &[("string", true), ("location", true)],
+                true,
+                false,
+                false,
+                12,
+            )],
+        );
+        assert_semantics(
+            "%string/*numbers/-texts%",
+            vec![type_element(
+                &[("string", false), ("*number", true), ("-text", true)],
+                false,
+                true,
+                true,
+                0,
+            )],
+        );
+        assert_semantics(
+            "%children/aliases/axes/sheep/sheeps/dummyfixturepeople%",
+            vec![type_element(
+                &[
+                    ("child", true),
+                    ("alias", true),
+                    ("axe", true),
+                    ("sheep", false),
+                    ("sheep", true),
+                    ("dummyfixtureperson", true),
+                ],
+                false,
+                true,
+                true,
+                0,
+            )],
+        );
 
-            let pattern = parse("start [unclosed (group)");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedBracket,
-                })
+        for (input, time) in [
+            ("%string@2147483647%", i32::MAX),
+            ("%string@-2147483648%", i32::MIN),
+            ("%string@0%", 0),
+        ] {
+            assert_semantics(
+                input,
+                vec![type_element(&[("string", false)], false, true, true, time)],
             );
         }
 
-        #[test]
-        fn unclosed_parenthesis() {
-            let pattern = parse("(unclosed");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedParenthesis,
-                })
-            );
-
-            let pattern = parse("start (unclosed [option]");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedParenthesis,
-                })
-            );
-        }
-
-        #[test]
-        fn incorrect_time_state() {
-            for pattern in [
-                "%string@%",
-                "%string@invalid%",
-                "start %number@2147483648%",
-                "%number@-2147483649%",
-            ] {
-                assert_eq!(
-                    parse(pattern),
-                    Err(ParseError {
-                        kind: ParseErrorKind::IncorrectTimeState,
-                    })
-                );
-            }
-        }
-
-        #[test]
-        fn unclosed_type_delimiter() {
-            let pattern = parse("%unclosed");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedTypeDelimiter,
-                })
-            );
-
-            let pattern = parse("start %unclosed/string");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedTypeDelimiter,
-                })
-            );
-        }
-
-        #[test]
-        fn unclosed_regex_delimiter() {
-            let pattern = parse("<unclosed");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedRegexDelimiter,
-                })
-            );
-
-            let pattern = parse("start <unclosed [any]");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedRegexDelimiter,
-                })
-            );
-        }
-
-        #[test]
-        fn unclosed_parenthesis_in_option() {
-            let pattern = parse("[(unclosed group]");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                })
-            );
-        }
-
-        #[test]
-        fn unclosed_bracket_in_group() {
-            let pattern = parse("([unclosed option)");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnclosedBracket,
-                })
-            );
-        }
-
-        #[test]
-        fn unexpected_closing_parenthesis() {
-            let pattern = parse("unclosed group)");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                })
-            );
-        }
-
-        #[test]
-        fn unexpected_closing_bracket() {
-            let pattern = parse("unclosed option]");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedClosingBracket,
-                })
-            );
-        }
-
-        #[test]
-        fn unexpected_closing_regex_delimiter() {
-            let pattern = parse("unclosed regex>");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
-                })
-            );
-        }
+        let parsed = parse("%-*strings/location@-2%").unwrap();
+        let PatternElement::TypeExpr(type_expr) = &parsed.elements[0].value else {
+            panic!("expected a type expression");
+        };
+        assert_eq!(
+            type_expr.display_with(&TEST_PLURAL_RULES).to_string(),
+            "-*strings/location@-2"
+        );
     }
 
-    #[cfg(test)]
-    mod other_tests {
-        use super::*;
+    #[test]
+    fn represents_empty_sequences_and_choice_branches() {
+        use SemanticElement::*;
 
-        #[test]
-        fn parse_tags_in_all_scopes_and_choices() {
-            let pattern = parse("root:value (group:inside|other:branch) [option:selected]");
-            assert_eq!(
-                pattern,
-                Ok(ParseResult {
-                    elements: vec![
-                        ParseTag("root".to_string()),
-                        Literal("value ".to_string()),
-                        Group(vec![Choice(vec![
-                            vec![ParseTag("group".to_string()), Literal("inside".to_string()),],
-                            vec![ParseTag("other".to_string()), Literal("branch".to_string()),],
-                        ])]),
-                        Literal(" ".to_string()),
-                        Option(vec![
-                            ParseTag("option".to_string()),
-                            Literal("selected".to_string()),
-                        ]),
-                    ],
-                    warnings: vec![],
-                })
-            );
+        assert_semantics("", vec![Empty]);
+        assert_semantics(
+            "(|)",
+            vec![Group(vec![Choice(vec![vec![Empty], vec![Empty]])])],
+        );
+        assert_semantics(
+            "a|",
+            vec![Choice(vec![vec![Literal("a".into())], vec![Empty]])],
+        );
+        assert_semantics(
+            "|b",
+            vec![Choice(vec![vec![Empty], vec![Literal("b".into())]])],
+        );
+        assert_semantics(
+            "(a|)",
+            vec![Group(vec![Choice(vec![
+                vec![Literal("a".into())],
+                vec![Empty],
+            ])])],
+        );
+        assert_semantics(
+            "(|b)",
+            vec![Group(vec![Choice(vec![
+                vec![Empty],
+                vec![Literal("b".into())],
+            ])])],
+        );
+        assert_semantics(
+            "a||b",
+            vec![Choice(vec![
+                vec![Literal("a".into())],
+                vec![Empty],
+                vec![Literal("b".into())],
+            ])],
+        );
+    }
 
-            assert_eq!(
-                parse(":additional"),
-                Ok(ParseResult {
-                    elements: vec![ParseTag(String::new()), Literal("additional".to_string()),],
-                    warnings: vec![],
-                })
-            );
-        }
+    #[test]
+    fn parses_tags_marks_and_escaped_delimiters() {
+        use SemanticElement::*;
 
-        #[test]
-        fn parse_marks_including_zero_and_negative_values() {
-            assert_eq!(
-                parse("1¦match|-1¦previous|0¦default"),
-                Ok(ParseResult {
-                    elements: vec![Choice(vec![
-                        vec![ParseMark(1), Literal("match".to_string())],
-                        vec![ParseMark(-1), Literal("previous".to_string())],
-                        vec![ParseMark(0), Literal("default".to_string())],
-                    ])],
-                    warnings: vec![],
-                })
-            );
-        }
+        assert_semantics(
+            "root:value (group:inside|other:branch) [option:selected]",
+            vec![
+                ParseTag("root".into()),
+                Literal("value ".into()),
+                Group(vec![Choice(vec![
+                    vec![ParseTag("group".into()), Literal("inside".into())],
+                    vec![ParseTag("other".into()), Literal("branch".into())],
+                ])]),
+                Literal(" ".into()),
+                Option(vec![ParseTag("option".into()), Literal("selected".into())]),
+            ],
+        );
+        assert_semantics(
+            "1¦match|-1¦previous|0¦default",
+            vec![Choice(vec![
+                vec![ParseMark(1), Literal("match".into())],
+                vec![ParseMark(-1), Literal("previous".into())],
+                vec![ParseMark(0), Literal("default".into())],
+            ])],
+        );
+        assert_semantics(
+            ":additional",
+            vec![ParseTag(String::new()), Literal("additional".into())],
+        );
+        assert_semantics(
+            "running [(1¦below)] minecraft %string%",
+            vec![
+                Literal("running ".into()),
+                Option(vec![Group(vec![ParseMark(1), Literal("below".into())])]),
+                Literal(" minecraft ".into()),
+                type_element(&[("string", false)], false, true, true, 0),
+            ],
+        );
+        assert_semantics(
+            "%entities% (is|are) (alive|1¦dead)",
+            vec![
+                type_element(&[("entity", true)], false, true, true, 0),
+                Literal(" ".into()),
+                Group(vec![Choice(vec![
+                    vec![Literal("is".into())],
+                    vec![Literal("are".into())],
+                ])]),
+                Literal(" ".into()),
+                Group(vec![Choice(vec![
+                    vec![Literal("alive".into())],
+                    vec![ParseMark(1), Literal("dead".into())],
+                ])]),
+            ],
+        );
+        assert_semantics(
+            r"tag\:value 1\¦match",
+            vec![Literal("tag:value 1¦match".into())],
+        );
+    }
 
-        #[test]
-        fn escaped_tag_and_mark_delimiters_are_literals() {
-            assert_eq!(
-                parse(r"tag\:value 1\¦match"),
-                Ok(ParseResult {
-                    elements: vec![Literal("tag:value 1¦match".to_string())],
-                    warnings: vec![],
-                })
-            );
-        }
+    #[test]
+    fn parse_errors_have_precise_byte_spans() {
+        let input = "[unclosed";
+        assert_error(
+            input,
+            ParseErrorKind::UnclosedBracket,
+            Span::new(input.len(), input.len()),
+        );
 
-        #[test]
-        fn invalid_parse_marks_are_rejected() {
-            for pattern in ["not-a-number¦value", "¦value", "2147483648¦overflow"] {
-                assert_eq!(
-                    parse(pattern),
-                    Err(ParseError {
-                        kind: ParseErrorKind::InvalidParseMark,
-                    })
-                );
-            }
-        }
+        let input = "(unclosed";
+        assert_error(
+            input,
+            ParseErrorKind::UnclosedParenthesis,
+            Span::new(input.len(), input.len()),
+        );
 
-        #[test]
-        fn parses_generator_patterns_with_marks() {
-            assert_eq!(
-                parse("running [(1¦below)] minecraft %string%"),
-                Ok(ParseResult {
-                    elements: vec![
-                        Literal("running ".to_string()),
-                        Option(vec![Group(vec![
-                            ParseMark(1),
-                            Literal("below".to_string()),
-                        ])]),
-                        Literal(" minecraft ".to_string()),
-                        type_element(&[("string", false)], false, true, true, 0),
-                    ],
-                    warnings: vec![],
-                })
-            );
+        let input = "%unclosed";
+        assert_error(
+            input,
+            ParseErrorKind::UnclosedTypeDelimiter,
+            Span::new(input.len(), input.len()),
+        );
 
-            assert_eq!(
-                parse("%entities% (is|are) (alive|1¦dead)"),
-                Ok(ParseResult {
-                    elements: vec![
-                        type_element(&[("entity", true)], false, true, true, 0),
-                        Literal(" ".to_string()),
-                        Group(vec![Choice(vec![
-                            vec![Literal("is".to_string())],
-                            vec![Literal("are".to_string())],
-                        ])]),
-                        Literal(" ".to_string()),
-                        Group(vec![Choice(vec![
-                            vec![Literal("alive".to_string())],
-                            vec![ParseMark(1), Literal("dead".to_string())],
-                        ])]),
-                    ],
-                    warnings: vec![],
-                })
-            );
-        }
+        let input = "<unclosed";
+        assert_error(
+            input,
+            ParseErrorKind::UnclosedRegexDelimiter,
+            Span::new(input.len(), input.len()),
+        );
+
+        assert_error(
+            "group)",
+            ParseErrorKind::UnexpectedClosingParenthesis,
+            Span::new(5, 6),
+        );
+        assert_error(
+            "option]",
+            ParseErrorKind::UnexpectedClosingBracket,
+            Span::new(6, 7),
+        );
+        assert_error(
+            "regex>",
+            ParseErrorKind::UnexpectedClosingRegexDelimiter,
+            Span::new(5, 6),
+        );
+        assert_error(
+            "%-*~object@invalid%",
+            ParseErrorKind::IncorrectTimeState,
+            Span::new(11, 18),
+        );
+        assert_error(
+            "%number@2147483648%",
+            ParseErrorKind::IncorrectTimeState,
+            Span::new(8, 18),
+        );
+        assert_error(
+            "%number@-2147483649%",
+            ParseErrorKind::IncorrectTimeState,
+            Span::new(8, 19),
+        );
+        assert_error(
+            "%object@invalid%",
+            ParseErrorKind::IncorrectTimeState,
+            Span::new(8, 15),
+        );
+        assert_error(
+            "%string@%",
+            ParseErrorKind::IncorrectTimeState,
+            Span::new(8, 8),
+        );
+        assert_error(
+            "not-a-number¦value",
+            ParseErrorKind::InvalidParseMark,
+            Span::new(0, 12),
+        );
+        assert_error("¦value", ParseErrorKind::InvalidParseMark, Span::new(0, 0));
+        assert_error(
+            "[(group]",
+            ParseErrorKind::UnexpectedClosingParenthesis,
+            Span::new(7, 8),
+        );
+        assert_error(
+            "([option)",
+            ParseErrorKind::UnclosedBracket,
+            Span::new(8, 9),
+        );
+
+        let error = parse("%string@invalid%").unwrap_err();
+        assert!(error.to_string().contains("Span { start: 8, end: 15 }"));
+    }
+
+    #[test]
+    fn spans_preserve_original_utf8_source_ranges() {
+        let input = "開始[選択|%strings%]終了";
+        let parsed = parse(input).unwrap();
+        assert_valid_spans(input, &parsed.elements, None);
+
+        assert_eq!(parsed.elements[0].span.slice(input), Some("開始"));
+        let option = &parsed.elements[1];
+        assert_eq!(option.span.slice(input), Some("[選択|%strings%]"));
+
+        let PatternElement::Option(option_elements) = &option.value else {
+            panic!("expected an option");
+        };
+        let choice = &option_elements[0];
+        assert_eq!(choice.span.slice(input), Some("選択|%strings%"));
+
+        let PatternElement::Choice(branches) = &choice.value else {
+            panic!("expected a choice");
+        };
+        assert_eq!(branches[0][0].span.slice(input), Some("選択"));
+        assert_eq!(branches[1][0].span.slice(input), Some("%strings%"));
+        assert_eq!(parsed.elements[2].span.slice(input), Some("終了"));
+
+        let closing = "日本語]";
+        assert_error(
+            closing,
+            ParseErrorKind::UnexpectedClosingBracket,
+            Span::new("日本語".len(), closing.len()),
+        );
+    }
+
+    #[test]
+    fn spans_include_delimiters_and_escaped_source_text() {
+        let parsed = parse("(a|[b])").unwrap();
+        assert_valid_spans("(a|[b])", &parsed.elements, None);
+        assert_eq!(parsed.elements[0].span, Span::new(0, 7));
+
+        let PatternElement::Group(group) = &parsed.elements[0].value else {
+            panic!("expected a group");
+        };
+        assert_eq!(group[0].span, Span::new(1, 6));
+
+        let PatternElement::Choice(branches) = &group[0].value else {
+            panic!("expected a choice");
+        };
+        assert_eq!(branches[0][0].span, Span::new(1, 2));
+        assert_eq!(branches[1][0].span, Span::new(3, 6));
+
+        let escaped = parse(r"\|\[").unwrap();
+        assert_eq!(escaped.elements[0].span, Span::new(0, 4));
+        assert_eq!(
+            escaped.elements[0].value,
+            PatternElement::Literal("|[".into())
+        );
+
+        let type_expr = parse("%string%").unwrap();
+        assert_eq!(type_expr.elements[0].span, Span::new(0, 8));
+        let regex = parse("<.+>").unwrap();
+        assert_eq!(regex.elements[0].span, Span::new(0, 4));
+
+        let tag = parse("tag:value").unwrap();
+        assert_eq!(tag.elements[0].span, Span::new(0, 4));
+        assert_eq!(tag.elements[1].span, Span::new(4, 9));
+
+        let mark = parse("1¦value").unwrap();
+        assert_eq!(mark.elements[0].span, Span::new(0, 3));
+        assert_eq!(mark.elements[1].span, Span::new(3, 8));
+    }
+
+    #[test]
+    fn empty_branches_use_zero_width_spans() {
+        let trailing = parse("a|").unwrap();
+        let PatternElement::Choice(branches) = &trailing.elements[0].value else {
+            panic!("expected a choice");
+        };
+        assert_eq!(branches[1][0].span, Span::new(2, 2));
+
+        let leading = parse("|b").unwrap();
+        let PatternElement::Choice(branches) = &leading.elements[0].value else {
+            panic!("expected a choice");
+        };
+        assert_eq!(branches[0][0].span, Span::new(0, 0));
+
+        let middle = parse("a||b").unwrap();
+        let PatternElement::Choice(branches) = &middle.elements[0].value else {
+            panic!("expected a choice");
+        };
+        assert_eq!(branches[1][0].span, Span::new(2, 2));
+
+        let empty = parse("").unwrap();
+        assert_eq!(empty.elements[0].span, Span::new(0, 0));
+    }
+
+    #[test]
+    fn warning_spans_use_the_same_validity_rules() {
+        let input = "ラベル";
+        let warning = ParseWarning {
+            kind: ParseWarningKind::LabelNotSupported,
+            span: Span::new(0, input.len()),
+        };
+        assert!(warning.span.is_valid_for(input));
+        assert_eq!(warning.span.slice(input), Some(input));
+        assert!(!Span::new(1, input.len()).is_valid_for(input));
+        assert_eq!(Span::new(1, input.len()).slice(input), None);
     }
 }
