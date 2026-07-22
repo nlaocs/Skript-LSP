@@ -42,6 +42,8 @@ pub enum PatternElement {
     Option(Vec<PatternElement>),      // [stuff]
     Regex(String),                    // <[0-9]+>
     TypeExpr(Vec<PatternTypeExpr>),   // %stuff%
+    ParseTag(String),                 // tag:stuff
+    ParseMark(i32),                   // 1¦stuff
     Empty,                            // (a|) -> Choice([Literal("a"), Empty])
 } // todo display実装
 
@@ -104,6 +106,8 @@ pub enum ParseErrorKind {
     UnexpectedClosingRegexDelimiter,
     #[error("Incorrect time state in type expression. It must be either @1 or @-1.")]
     IncorrectTimeState,
+    #[error("Invalid parse mark. Text before '¦' must be a 32-bit signed integer.")]
+    InvalidParseMark,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -331,22 +335,17 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     buffer.push('\\');
                 }
             }
-            ':' | '¦' if scope == Scope::Group => {
-                // todo ラベル付きグループのサポート
-                // skript-hubではpatternに変換される際にラベルが消されるため、実装の優先度は低い
-                // (詳しくはこちら: https://github.com/SkriptHub/SkriptHubDocsTool/blob/0e0ef70a370227672301a51e3125dc7fc1663278/src/main/kotlin/net/skripthub/docstool/documentation/GenerateSyntax.kt#L265-L288)
-                // そのため今はあっても破棄している
-                // issue: https://github.com/nlaocs/Skript-LSP/issues/5
-                if !buffer.is_empty() {
-                    buffer.clear();
-                }
-                warnings.push(ParseWarning {
-                    kind: ParseWarningKind::LabelNotSupported,
-                    span: Span {
-                        start: i,
-                        end: i + ch.len_utf8(),
-                    },
-                });
+            ':' => {
+                elements.push(PatternElement::ParseTag(std::mem::take(&mut buffer)));
+                chars.next();
+            }
+            '¦' => {
+                let mark = std::mem::take(&mut buffer)
+                    .parse::<i32>()
+                    .map_err(|_| ParseError {
+                        kind: ParseErrorKind::InvalidParseMark,
+                    })?;
+                elements.push(PatternElement::ParseMark(mark));
                 chars.next();
             }
             _ => {
@@ -1017,28 +1016,122 @@ mod tests {
         use super::*;
 
         #[test]
-        fn labelled_group() {
-            let pattern = parse("(label:group)");
+        fn parse_tags_in_all_scopes_and_choices() {
+            let pattern = parse("root:value (group:inside|other:branch) [option:selected]");
             assert_eq!(
                 pattern,
                 Ok(ParseResult {
-                    elements: vec![Group(vec![Literal("group".to_string())])],
-                    warnings: vec![ParseWarning {
-                        kind: ParseWarningKind::LabelNotSupported,
-                        span: Span { start: 6, end: 7 },
-                    }]
+                    elements: vec![
+                        ParseTag("root".to_string()),
+                        Literal("value ".to_string()),
+                        Group(vec![Choice(vec![
+                            vec![ParseTag("group".to_string()), Literal("inside".to_string()),],
+                            vec![ParseTag("other".to_string()), Literal("branch".to_string()),],
+                        ])]),
+                        Literal(" ".to_string()),
+                        Option(vec![
+                            ParseTag("option".to_string()),
+                            Literal("selected".to_string()),
+                        ]),
+                    ],
+                    warnings: vec![],
                 })
             );
 
-            let pattern = parse("(¦group)");
             assert_eq!(
-                pattern,
+                parse(":additional"),
                 Ok(ParseResult {
-                    elements: vec![Group(vec![Literal("group".to_string())])],
-                    warnings: vec![ParseWarning {
-                        kind: ParseWarningKind::LabelNotSupported,
-                        span: Span { start: 1, end: 3 },
-                    }]
+                    elements: vec![ParseTag(String::new()), Literal("additional".to_string()),],
+                    warnings: vec![],
+                })
+            );
+        }
+
+        #[test]
+        fn parse_marks_including_zero_and_negative_values() {
+            assert_eq!(
+                parse("1¦match|-1¦previous|0¦default"),
+                Ok(ParseResult {
+                    elements: vec![Choice(vec![
+                        vec![ParseMark(1), Literal("match".to_string())],
+                        vec![ParseMark(-1), Literal("previous".to_string())],
+                        vec![ParseMark(0), Literal("default".to_string())],
+                    ])],
+                    warnings: vec![],
+                })
+            );
+        }
+
+        #[test]
+        fn escaped_tag_and_mark_delimiters_are_literals() {
+            assert_eq!(
+                parse(r"tag\:value 1\¦match"),
+                Ok(ParseResult {
+                    elements: vec![Literal("tag:value 1¦match".to_string())],
+                    warnings: vec![],
+                })
+            );
+        }
+
+        #[test]
+        fn invalid_parse_marks_are_rejected() {
+            for pattern in ["not-a-number¦value", "¦value", "2147483648¦overflow"] {
+                assert_eq!(
+                    parse(pattern),
+                    Err(ParseError {
+                        kind: ParseErrorKind::InvalidParseMark,
+                    })
+                );
+            }
+        }
+
+        #[test]
+        fn parses_generator_patterns_with_marks() {
+            assert_eq!(
+                parse("running [(1¦below)] minecraft %string%"),
+                Ok(ParseResult {
+                    elements: vec![
+                        Literal("running ".to_string()),
+                        Option(vec![Group(vec![
+                            ParseMark(1),
+                            Literal("below".to_string()),
+                        ])]),
+                        Literal(" minecraft ".to_string()),
+                        TypeExpr(vec![PatternTypeExpr {
+                            name: "string".to_string(),
+                            literal: false,
+                            non_literal: false,
+                            nullable: false,
+                            time_state: None,
+                        }]),
+                    ],
+                    warnings: vec![],
+                })
+            );
+
+            assert_eq!(
+                parse("%entities% (is|are) (alive|1¦dead)"),
+                Ok(ParseResult {
+                    elements: vec![
+                        TypeExpr(vec![PatternTypeExpr {
+                            name: "entities".to_string(),
+                            literal: false,
+                            non_literal: false,
+                            nullable: false,
+                            time_state: None,
+                        }]),
+                        Literal(" ".to_string()),
+                        Group(vec![Choice(vec![
+                            vec![Literal("is".to_string())],
+                            vec![Literal("are".to_string())],
+                        ])]),
+                        Literal(" ".to_string()),
+                        Group(vec![Choice(vec![
+                            vec![Literal("alive".to_string())],
+                            vec![ParseMark(1), Literal("dead".to_string())],
+                        ])]),
+                    ],
+                    warnings: vec![],
                 })
             );
         }
