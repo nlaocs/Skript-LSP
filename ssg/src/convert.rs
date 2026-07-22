@@ -272,10 +272,17 @@ fn function(value: raw::Function) -> Result<model::Function, SnapshotError> {
         })
         .collect::<Result<Vec<_>, SnapshotError>>()?;
 
+    let name = value.name.ok_or_else(|| {
+        SnapshotError::validation(
+            format!("Functions.json[{}].name", value.registration_order),
+            "function name is required",
+        )
+    })?;
     Ok(model::Function {
         registration_order: value.registration_order,
+        name: name.clone(),
         documentation: documentation(
-            value.name,
+            Some(name),
             None,
             value.since,
             value.description,

@@ -49,6 +49,7 @@ fn loads_and_indexes_modern_multi_addon_snapshot() {
 
     let uuid = catalog.functions_named("uuid");
     assert_eq!(uuid.len(), 1);
+    assert_eq!(uuid[0].name, "uuid");
     assert_eq!(uuid[0].parameters.len(), 1);
 
     assert!(
