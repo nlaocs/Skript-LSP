@@ -44,7 +44,8 @@ mod tests {
     }
         "#;
         let parsed: AbstractAddonSyntaxListEntry = serde_json::from_str(json).unwrap();
-        let section = Section::from_abstract_syntax_list_entry(&parsed).unwrap();
+        let section =
+            Section::from_abstract_syntax_list_entry(&parsed, crate::test_plural_rules()).unwrap();
         assert_eq!(
             section.entries,
             Some(Entries(vec![

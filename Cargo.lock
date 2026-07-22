@@ -613,6 +613,8 @@ name = "syntax-pattern-parser"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -621,6 +623,7 @@ name = "syntaxes"
 version = "0.1.0"
 dependencies = [
  "skripthub",
+ "syntax-pattern-parser",
 ]
 
 [[package]]

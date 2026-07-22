@@ -7,6 +7,7 @@ pub trait SkriptHubSyntax: Syntax {
     /// SkriptHubのAbstractAddonSyntaxListEntryから変換する
     fn _from_abstract_syntax_list_entry(
         src: &crate::api::types::AbstractAddonSyntaxListEntry,
+        plural_rules: &syntax_pattern_parser::syntax::PluralRules,
     ) -> Result<Self, Box<dyn std::error::Error>>
     where
         Self: Sized;

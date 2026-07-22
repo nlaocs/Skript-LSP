@@ -1,3 +1,5 @@
+use crate::plural::PluralRules;
+
 macro_rules! consume_until {
     ($chars:expr, $end:expr) => {{
         use std::cmp::Ordering;
@@ -41,7 +43,7 @@ pub enum PatternElement {
     Group(Vec<PatternElement>),       // (stuff)
     Option(Vec<PatternElement>),      // [stuff]
     Regex(String),                    // <[0-9]+>
-    TypeExpr(Vec<PatternTypeExpr>),   // %stuff%
+    TypeExpr(PatternTypeExpr),        // %stuff%
     ParseTag(String),                 // tag:stuff
     ParseMark(i32),                   // 1¦stuff
     Empty,                            // (a|) -> Choice([Literal("a"), Empty])
@@ -49,29 +51,104 @@ pub enum PatternElement {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PatternTypeExpr {
-    pub name: String,
-    pub literal: bool,                           // %*stuff%
-    pub non_literal: bool,                       // %~stuff%
-    pub nullable: bool,                          // %-stuff%
-    pub time_state: Option<std::num::NonZeroI8>, // %stuff@d%
+    pub alternatives: Vec<PatternTypeAlternative>,
+    pub nullable: bool,
+    pub allow_literals: bool,
+    pub allow_expressions: bool,
+    pub time: i32,
 }
-impl std::fmt::Display for PatternTypeExpr {
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PatternTypeAlternative {
+    pub name: String,
+    pub plural: bool,
+}
+
+pub struct PatternTypeExprDisplay<'a> {
+    type_expr: &'a PatternTypeExpr,
+    plural_rules: &'a PluralRules,
+}
+
+impl PatternTypeExpr {
+    pub fn display_with<'a>(&'a self, plural_rules: &'a PluralRules) -> PatternTypeExprDisplay<'a> {
+        PatternTypeExprDisplay {
+            type_expr: self,
+            plural_rules,
+        }
+    }
+}
+
+impl std::fmt::Display for PatternTypeExprDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.literal {
-            write!(f, "*")?;
-        }
-        if self.non_literal {
-            write!(f, "~")?;
-        }
-        if self.nullable {
+        let type_expr = self.type_expr;
+        if type_expr.nullable {
             write!(f, "-")?;
         }
-        write!(f, "{}", self.name)?;
-        if let Some(ts) = self.time_state {
-            write!(f, "@{}", ts.get())?;
+        if !type_expr.allow_literals {
+            write!(f, "~")?;
+        } else if !type_expr.allow_expressions {
+            write!(f, "*")?;
+        }
+        for (index, alternative) in type_expr.alternatives.iter().enumerate() {
+            if index != 0 {
+                write!(f, "/")?;
+            }
+            if alternative.plural {
+                write!(f, "{}", self.plural_rules.to_plural(&alternative.name))?;
+            } else {
+                write!(f, "{}", alternative.name)?;
+            }
+        }
+        if type_expr.time != 0 {
+            write!(f, "@{}", type_expr.time)?;
         }
         Ok(())
     }
+}
+
+fn parse_pattern_type_expr(
+    input: &str,
+    plural_rules: &PluralRules,
+) -> Result<PatternTypeExpr, ParseError> {
+    let mut body = input;
+    let mut nullable = false;
+    let mut allow_literals = true;
+    let mut allow_expressions = true;
+
+    loop {
+        match body.as_bytes().first() {
+            Some(b'-') => nullable = true,
+            Some(b'*') => allow_expressions = false,
+            Some(b'~') => allow_literals = false,
+            _ => break,
+        }
+        body = &body[1..];
+    }
+
+    let (alternatives, time) = if let Some(time_start) = body.find('@') {
+        let time = body[time_start + 1..]
+            .parse::<i32>()
+            .map_err(|_| ParseError {
+                kind: ParseErrorKind::IncorrectTimeState,
+            })?;
+        (&body[..time_start], time)
+    } else {
+        (body, 0)
+    };
+
+    Ok(PatternTypeExpr {
+        alternatives: alternatives
+            .split('/')
+            .map(|word| {
+                let (name, plural) = plural_rules.to_singular(word);
+                PatternTypeAlternative { name, plural }
+            })
+            .collect(),
+        nullable,
+        allow_literals,
+        allow_expressions,
+        time,
+    })
 }
 
 #[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq, Hash)]
@@ -104,7 +181,7 @@ pub enum ParseErrorKind {
         "Unexpected closing regex bracket '>'. Escape it if you want to match a literal bracket: '\\>'"
     )]
     UnexpectedClosingRegexDelimiter,
-    #[error("Incorrect time state in type expression. It must be either @1 or @-1.")]
+    #[error("Incorrect time state in type expression. It must be a 32-bit signed integer.")]
     IncorrectTimeState,
     #[error("Invalid parse mark. Text before '¦' must be a 32-bit signed integer.")]
     InvalidParseMark,
@@ -143,9 +220,9 @@ pub struct ParseResult {
     pub warnings: Vec<ParseWarning>,
 }
 
-pub fn parse(input: &str) -> Result<ParseResult, ParseError> {
+pub fn parse(input: &str, plural_rules: &PluralRules) -> Result<ParseResult, ParseError> {
     let mut chars = input.char_indices().peekable();
-    parse_choice(&mut chars, Scope::Global, input)
+    parse_choice(&mut chars, Scope::Global, input, plural_rules)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -159,6 +236,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
+    plural_rules: &PluralRules,
 ) -> Result<ParseResult, ParseError> {
     let mut elements = Vec::new();
     let mut buffer = String::new();
@@ -173,7 +251,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
                 chars.next(); // consume '('
 
-                match parse_choice(chars, Scope::Group, raw_pattern) {
+                match parse_choice(chars, Scope::Group, raw_pattern, plural_rules) {
                     Ok(group) => {
                         warnings.extend(group.warnings);
                         elements.push(PatternElement::Group(group.elements));
@@ -204,7 +282,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
                 chars.next(); // consume '['
 
-                match parse_choice(chars, Scope::Option, raw_pattern) {
+                match parse_choice(chars, Scope::Option, raw_pattern, plural_rules) {
                     Ok(option) => {
                         warnings.extend(option.warnings);
                         elements.push(PatternElement::Option(option.elements));
@@ -271,49 +349,10 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     // イテレータを '%' の直後まで一気に進める
                     consume_until!(chars, end);
 
-                    let types = type_expr_str.split('/');
-                    let mut type_exprs = Vec::new();
-                    for t in types {
-                        let mut a = t;
-                        let mut literal = false;
-                        let mut non_literal = false;
-                        let mut nullable = false;
-                        let mut time_state = None;
-                        loop {
-                            if a.starts_with('*') {
-                                literal = true;
-                                a = &a[1..];
-                            } else if a.starts_with('~') {
-                                non_literal = true;
-                                a = &a[1..];
-                            } else if a.starts_with('-') {
-                                nullable = true;
-                                a = &a[1..];
-                            } else if let Some(at_pos) = a.find('@') {
-                                if let Ok(ts) = a[at_pos + 1..].parse::<i8>() {
-                                    if !(ts == -1 || ts == 1) {
-                                        return Err(ParseError {
-                                            kind: ParseErrorKind::IncorrectTimeState,
-                                        });
-                                    }
-                                    time_state = std::num::NonZeroI8::new(ts);
-                                    a = &a[..at_pos];
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-                        type_exprs.push(PatternTypeExpr {
-                            name: a.to_string(),
-                            literal,
-                            non_literal,
-                            nullable,
-                            time_state,
-                        });
-                    }
-                    elements.push(PatternElement::TypeExpr(type_exprs));
+                    elements.push(PatternElement::TypeExpr(parse_pattern_type_expr(
+                        type_expr_str,
+                        plural_rules,
+                    )?));
                 } else {
                     return Err(ParseError {
                         kind: ParseErrorKind::UnclosedTypeDelimiter,
@@ -366,6 +405,7 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
     chars: &mut std::iter::Peekable<I>,
     scope: Scope,
     raw_pattern: &str,
+    plural_rules: &PluralRules,
 ) -> Result<ParseResult, ParseError> {
     let mut branches: Vec<Vec<PatternElement>> = Vec::new();
     let mut closed = false; // 対応する閉じ括弧を消費できたか
@@ -373,7 +413,7 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
     let mut warnings = Vec::new();
 
     loop {
-        let seq = parse_sequence(chars, scope, raw_pattern)?;
+        let seq = parse_sequence(chars, scope, raw_pattern, plural_rules)?;
         warnings.extend(seq.warnings);
         if !seq.elements.is_empty() {
             branches.push(seq.elements);
@@ -431,7 +471,38 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
 mod tests {
     use super::*;
 
+    static TEST_PLURAL_RULES: std::sync::LazyLock<PluralRules> = std::sync::LazyLock::new(|| {
+        PluralRules::from_json(include_str!("../tests/data/PluralRules-2.15.4.json"))
+            .expect("generated PluralRules-2.15.4.json fixture must be valid")
+    });
+
+    fn parse(input: &str) -> Result<ParseResult, ParseError> {
+        super::parse(input, &TEST_PLURAL_RULES)
+    }
+
     use PatternElement::*;
+
+    fn type_element(
+        alternatives: &[(&str, bool)],
+        nullable: bool,
+        allow_literals: bool,
+        allow_expressions: bool,
+        time: i32,
+    ) -> PatternElement {
+        TypeExpr(PatternTypeExpr {
+            alternatives: alternatives
+                .iter()
+                .map(|(name, plural)| PatternTypeAlternative {
+                    name: (*name).to_string(),
+                    plural: *plural,
+                })
+                .collect(),
+            nullable,
+            allow_literals,
+            allow_expressions,
+            time,
+        })
+    }
 
     mod simple_tests {
         use super::*;
@@ -503,53 +574,32 @@ mod tests {
 
             #[test]
             fn simple() {
-                let type_expr = parse("%string%");
                 assert_eq!(
-                    type_expr,
+                    parse("%string%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        }])],
+                        elements: vec![type_element(&[("string", false)], false, true, true, 0)],
                         warnings: vec![]
                     })
                 );
             }
 
             #[test]
-            fn literal() {
-                let t = parse("%*string%");
+            fn literal_only() {
                 assert_eq!(
-                    t,
+                    parse("%*string%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: true,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        }])],
+                        elements: vec![type_element(&[("string", false)], false, true, false, 0)],
                         warnings: vec![]
                     })
                 );
             }
 
             #[test]
-            fn non_literal() {
-                let t = parse("%~string%");
+            fn expression_only() {
                 assert_eq!(
-                    t,
+                    parse("%~string%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: true,
-                            nullable: false,
-                            time_state: None,
-                        }])],
+                        elements: vec![type_element(&[("string", false)], false, false, true, 0)],
                         warnings: vec![]
                     })
                 );
@@ -557,105 +607,119 @@ mod tests {
 
             #[test]
             fn nullable() {
-                let t = parse("%-string%");
                 assert_eq!(
-                    t,
+                    parse("%-string%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: true,
-                            time_state: None,
-                        }])],
+                        elements: vec![type_element(&[("string", false)], true, true, true, 0)],
                         warnings: vec![]
                     })
                 );
             }
 
             #[test]
-            fn with_time_state() {
-                let t = parse("%string@1%");
+            fn modifiers_apply_to_all_alternatives() {
                 assert_eq!(
-                    t,
+                    parse("%-*~strings/locations@12%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: std::num::NonZeroI8::new(1),
-                        }])],
+                        elements: vec![type_element(
+                            &[("string", true), ("location", true)],
+                            true,
+                            false,
+                            false,
+                            12,
+                        )],
                         warnings: vec![]
                     })
                 );
             }
 
             #[test]
-            fn multiple() {
-                let t = parse("%string/*number/-text%");
+            fn modifiers_after_slash_are_part_of_the_type_name() {
                 assert_eq!(
-                    t,
+                    parse("%string/*numbers/-texts%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![
-                            PatternTypeExpr {
-                                name: "string".to_string(),
-                                literal: false,
-                                non_literal: false,
-                                nullable: false,
-                                time_state: None,
-                            },
-                            PatternTypeExpr {
-                                name: "number".to_string(),
-                                literal: true,
-                                non_literal: false,
-                                nullable: false,
-                                time_state: None,
-                            },
-                            PatternTypeExpr {
-                                name: "text".to_string(),
-                                literal: false,
-                                non_literal: false,
-                                nullable: true,
-                                time_state: None,
-                            },
-                        ])],
+                        elements: vec![type_element(
+                            &[("string", false), ("*number", true), ("-text", true)],
+                            false,
+                            true,
+                            true,
+                            0,
+                        )],
                         warnings: vec![]
                     })
                 );
             }
 
             #[test]
-            fn multiple_with_time() {
-                let t = parse("%*string/~number/-text@-1%");
+            fn plural_alternatives_use_skript_english_rules() {
                 assert_eq!(
-                    t,
+                    parse("%children/aliases/axes/sheep/sheeps/dummyfixturepeople%"),
                     Ok(ParseResult {
-                        elements: vec![TypeExpr(vec![
-                            PatternTypeExpr {
-                                name: "string".to_string(),
-                                literal: true,
-                                non_literal: false,
-                                nullable: false,
-                                time_state: None,
-                            },
-                            PatternTypeExpr {
-                                name: "number".to_string(),
-                                literal: false,
-                                non_literal: true,
-                                nullable: false,
-                                time_state: None,
-                            },
-                            PatternTypeExpr {
-                                name: "text".to_string(),
-                                literal: false,
-                                non_literal: false,
-                                nullable: true,
-                                time_state: std::num::NonZeroI8::new(-1),
-                            },
-                        ])],
+                        elements: vec![type_element(
+                            &[
+                                ("child", true),
+                                ("alias", true),
+                                ("axe", true),
+                                ("sheep", false),
+                                ("sheep", true),
+                                ("dummyfixtureperson", true),
+                            ],
+                            false,
+                            true,
+                            true,
+                            0,
+                        )],
                         warnings: vec![]
                     })
+                );
+            }
+
+            #[test]
+            fn time_uses_the_full_i32_range() {
+                assert_eq!(
+                    parse("%string@2147483647%"),
+                    Ok(ParseResult {
+                        elements: vec![type_element(
+                            &[("string", false)],
+                            false,
+                            true,
+                            true,
+                            i32::MAX,
+                        )],
+                        warnings: vec![]
+                    })
+                );
+                assert_eq!(
+                    parse("%string@-2147483648%"),
+                    Ok(ParseResult {
+                        elements: vec![type_element(
+                            &[("string", false)],
+                            false,
+                            true,
+                            true,
+                            i32::MIN,
+                        )],
+                        warnings: vec![]
+                    })
+                );
+                assert_eq!(
+                    parse("%string@0%"),
+                    Ok(ParseResult {
+                        elements: vec![type_element(&[("string", false)], false, true, true, 0)],
+                        warnings: vec![]
+                    })
+                );
+            }
+
+            #[test]
+            fn display_reconstructs_type_expression() {
+                let parsed = parse("%-*strings/location@-2%").unwrap();
+                let TypeExpr(type_expr) = &parsed.elements[0] else {
+                    panic!("expected a type expression");
+                };
+                assert_eq!(
+                    type_expr.display_with(&TEST_PLURAL_RULES).to_string(),
+                    "-*strings/location@-2"
                 );
             }
         }
@@ -764,13 +828,7 @@ mod tests {
                         vec![Literal("complete".to_string())],
                     ])]),
                     Literal(" path of ".to_string()),
-                    TypeExpr(vec![PatternTypeExpr {
-                        name: "string".to_string(),
-                        literal: false,
-                        non_literal: false,
-                        nullable: false,
-                        time_state: None,
-                    }]),
+                    type_element(&[("string", false)], false, true, true, 0),
                 ],
                 warnings: vec![]
             })
@@ -783,13 +841,7 @@ mod tests {
                 elements: vec![
                     Option(vec![Literal("local".to_string())]),
                     Literal(" ".to_string()),
-                    TypeExpr(vec![PatternTypeExpr {
-                        name: "skript types".to_string(),
-                        literal: false,
-                        non_literal: false,
-                        nullable: false,
-                        time_state: None,
-                    }]),
+                    type_element(&[("skript type", true)], false, true, true, 0),
                     Literal(" property condition ".to_string()),
                     Regex("pattern".to_string()),
                 ],
@@ -900,21 +952,19 @@ mod tests {
 
         #[test]
         fn incorrect_time_state() {
-            let pattern = parse("%string@0%");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::IncorrectTimeState,
-                })
-            );
-
-            let pattern = parse("start %number@2%");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::IncorrectTimeState,
-                })
-            );
+            for pattern in [
+                "%string@%",
+                "%string@invalid%",
+                "start %number@2147483648%",
+                "%number@-2147483649%",
+            ] {
+                assert_eq!(
+                    parse(pattern),
+                    Err(ParseError {
+                        kind: ParseErrorKind::IncorrectTimeState,
+                    })
+                );
+            }
         }
 
         #[test]
@@ -1097,13 +1147,7 @@ mod tests {
                             Literal("below".to_string()),
                         ])]),
                         Literal(" minecraft ".to_string()),
-                        TypeExpr(vec![PatternTypeExpr {
-                            name: "string".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        }]),
+                        type_element(&[("string", false)], false, true, true, 0),
                     ],
                     warnings: vec![],
                 })
@@ -1113,13 +1157,7 @@ mod tests {
                 parse("%entities% (is|are) (alive|1¦dead)"),
                 Ok(ParseResult {
                     elements: vec![
-                        TypeExpr(vec![PatternTypeExpr {
-                            name: "entities".to_string(),
-                            literal: false,
-                            non_literal: false,
-                            nullable: false,
-                            time_state: None,
-                        }]),
+                        type_element(&[("entity", true)], false, true, true, 0),
                         Literal(" ".to_string()),
                         Group(vec![Choice(vec![
                             vec![Literal("is".to_string())],
