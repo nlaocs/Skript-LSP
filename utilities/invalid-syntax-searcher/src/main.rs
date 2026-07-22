@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut unclosed_regex_delimiter: Vec<_> = Vec::new();
     let mut unexpected_closing_regex_delimiter: Vec<_> = Vec::new();
     let mut incorrect_time_state: Vec<_> = Vec::new();
+    let mut invalid_parse_mark: Vec<_> = Vec::new();
 
     let mut invalid_function_name_unexpected_first_character: Vec<_> = Vec::new();
     let mut invalid_function_name_unexpected_character: Vec<_> = Vec::new();
@@ -87,6 +88,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ParseErrorKind::IncorrectTimeState => {
                     incorrect_time_state.push(syntax);
+                }
+                ParseErrorKind::InvalidParseMark => {
+                    invalid_parse_mark.push(syntax);
                 }
             }
         } else if let Some(fn_parse_err) = err.downcast_ref::<FnParseError>() {
@@ -135,6 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         unexpected_closing_regex_delimiter,
     );
     dump_patterns("incorrect_time_state", incorrect_time_state);
+    dump_patterns("invalid_parse_mark", invalid_parse_mark);
 
     dump_patterns(
         "invalid_function_name_unexpected_first_character",
