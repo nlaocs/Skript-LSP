@@ -1,7 +1,6 @@
 use skripthub::api::types::{AbstractAddonSyntaxListEntry, SyntaxType};
 use syntax_pattern_parser::function::{FnParseError, FnParseErrorKind, InvalidFunctionNameKind};
 use syntax_pattern_parser::syntax::{ParseError, ParseErrorKind, PluralRules};
-use syntaxes::Syntaxes;
 
 fn dump_patterns(label: &str, list: Vec<AbstractAddonSyntaxListEntry>, plural_rules: &PluralRules) {
     println!("{}:", label);
@@ -47,8 +46,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plural_rules_json = std::fs::read_to_string(plural_rules_path)?;
     let plural_rules = PluralRules::from_json(&plural_rules_json)?;
 
-    let syntaxes = Syntaxes::initialize(&plural_rules)?;
-    let errors_syntaxes = syntaxes.1;
+    let mut errors_syntaxes = Vec::new();
+    for syntax in skripthub::api::fetch_data()? {
+        let error = syntax
+            .syntax_pattern
+            .lines()
+            .map(str::trim)
+            .filter(|pattern| !pattern.is_empty())
+            .find_map(|pattern| match syntax.syntax_type {
+                SyntaxType::Function => syntax_pattern_parser::function::parse(pattern)
+                    .err()
+                    .map(|error| Box::new(error) as Box<dyn std::error::Error>),
+                _ => syntax_pattern_parser::syntax::parse(pattern, &plural_rules)
+                    .err()
+                    .map(|error| Box::new(error) as Box<dyn std::error::Error>),
+            });
+
+        if let Some(error) = error {
+            errors_syntaxes.push((syntax, error));
+        }
+    }
 
     let mut unclosed_parenthesis: Vec<_> = Vec::new();
     let mut unclosed_bracket: Vec<_> = Vec::new();

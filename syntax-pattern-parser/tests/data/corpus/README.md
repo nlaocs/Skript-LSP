@@ -23,9 +23,12 @@ network access.
 - Snapshot ID: c0b089bba0b3ece13d2be50c9b6293bbd4f48153a346cff0a4fa75b765c6b5cc
 - Source: run/plugins/SkriptSyntaxGenerator
 
-The multi-addon corpus includes and uses its generated PluralRules.json. The
-DummyAddon corpus uses the existing ../PluralRules-2.15.4.json fixture, which
-is byte-for-byte identical to the schema 3 snapshot's plural rules.
+The multi-addon corpus is a complete, unmodified 19-file snapshot shared with
+the `ssg` loader tests. Its generated PluralRules.json is used by the pattern
+tests. The DummyAddon corpus contains the six syntax files and Manifest needed
+by the parser tests, and uses the existing ../PluralRules-2.15.4.json fixture,
+which is byte-for-byte identical to that schema 3 snapshot's plural rules.
 
 Do not edit generated JSON by hand. Refresh a corpus from a complete SSG
-snapshot and keep its Manifest.json together with all six syntax files.
+snapshot. Keep every file listed by Manifest.json together when the fixture is
+used by the `ssg` loader.

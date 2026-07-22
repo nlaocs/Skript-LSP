@@ -1,0 +1,1493 @@
+[ {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "resolutionOrder" : 0,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:f526280f74acc51b45bb0d28e196491f5eb19f76c86353dac4f08fa4d347176c"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFadeEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "resolutionOrder" : 1,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:f11f4562234fd75f4ccf5d77cdd22a5899c71f0da626b9bae23a11180ac2f3d7"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "resolutionOrder" : 2,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:2fc5eb6066cba86293ec79a1680235f273dc08632ed86617ac210e55b81bdd66"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "resolutionOrder" : 3,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1d725e000c74e2004821814afa63e1f20c2cdd44acae6b0c885e30c070986589"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockCanBuildEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "resolutionOrder" : 4,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:5fd2f95ad1997de9b98b001019e9cedf5ddd419b2d672ef003d6463999d55c1d"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEmptyEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "resolutionOrder" : 5,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:9339de477910a1a88bc08c8f4a3310e1654c757b3533a7b18f08c5362db3a146"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerTeleportEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : -1,
+  "resolutionOrder" : 6,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:2049e7f730c4ece4dc41cc9c22847cdcc0eb5172d723ec38378cbd5dc0308eaa"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerChangedWorldEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : -1,
+  "resolutionOrder" : 7,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:e27e4a0cd5c73a8031cf9d1841e830772ccd2f7e25c6a6f6ba0c7b06c60d92d1"
+}, {
+  "eventClass" : "org.bukkit.event.world.StructureGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 8,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3495f876fba75a023d870f75c1beaae502ed952690ddbab8eaef53c46586dc72"
+}, {
+  "eventClass" : "org.bukkit.event.world.ChunkEvent",
+  "valueClass" : "org.bukkit.Chunk",
+  "time" : 0,
+  "resolutionOrder" : 9,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:849e7b4f7cbb80794bb1b44e3a34e8387cdde8d77864500b714a0868f95e2520"
+}, {
+  "eventClass" : "org.bukkit.event.world.PortalCreateEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 10,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:5528549e27742c7a049cfd9f716de2488a5ef5bd449f1957dcecb95848b622bf"
+}, {
+  "eventClass" : "org.bukkit.event.world.WorldEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 11,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:cfc2675d05a1212e24462153495a50f83640803697f0b04265debcd6329baecb"
+}, {
+  "eventClass" : "org.bukkit.event.weather.LightningStrikeEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 12,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:72a784980c5b7c80c40fe668972a6504963d715de48aaa78cb5df3bb36ad339f"
+}, {
+  "eventClass" : "org.bukkit.event.weather.WeatherEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 13,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:975871d8f242d7b5de56a7ba3dd4bced14a207b8f0afe4328a469e3b752d78a8"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 14,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:eb3bdcb3d881b1f824995b034b8ec2ee5e4c61a4125c353eb3ae92b2e86f8e9e"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "resolutionOrder" : 15,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:ff176f1799ba669b2622d312c8c1aa15862eeba2a2b96bf8c3f733f60c51f116"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFadeEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 16,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:b02bde11f0dfeaf7c9d6cc916cc4a21c6d4620d66f80bb580c785c0198e40a89"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 17,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:5d8cc701b4710b23461a6557561ee1246a9701e04ecd995bbd10e34864b18322"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDamageEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 18,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:05df305e2ec59e97c7c765339d43c9b68c9ed2ae7b13a6de002b3e51c5deeac3"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 19,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3ba90ddc242419fa9c80f967bbcb97ab8f92b25a39f043b39a30819a70c4504d"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 20,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:fa87201d3bdd49e32711f27f561278844c39fe8bd986264bf4fc7c46dff37ff4"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockIgniteEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 21,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3ff5ecdcb0ae4b08fc576b375791a55b6cb76222d214cfc40f1021c6e1ebb93d"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockIgniteEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 22,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:90bd2f753e15819e71baf726b5fe30551b388c2eb626c7d1e3b88a8432f3f5d0"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDispenseEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 23,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:c34258ee8ab4ef252dc661f5be6c23289cd52f4a0f0b4641ab24c45535e51a10"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockCanBuildEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 24,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d11515c6127228ae94cd3a672687a25da4f3603c67977d18ad1195f39a4bcbcf"
+}, {
+  "eventClass" : "org.bukkit.event.block.SignChangeEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 25,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:42a0a026f82c2e0b6921eed2d6e813c08f3efd75309212da6cafb09557a9e692"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 26,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d883e99b73ad61d27287b6c46fece29dcafec3ba0b2409c8a29f78d12d2b5a0b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 27,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:137fd4e8399d460a01ff39e73c8dc4699868b56a7be404f2948fda5ae788490b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "resolutionOrder" : 28,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d99af29807188cb6d95fd312076247b4aecf67fb7b8c8636f5b7d1b76e291b7c"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDamageByEntityEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "resolutionOrder" : 29,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:c22d3a16668d885289930bb3629780f4f2d90705d38e9c5db83110416293b909"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDamageEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "time" : 0,
+  "resolutionOrder" : 30,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:64b2a305b5df89d644a21608eb960d4c2c7abf909b3ad56f48d4edb24fdf63cf"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDeathEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "resolutionOrder" : 31,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d60af3f3cbfdff311a25e60318e88649d9f845d474c2c432f7557a0c7af107a9"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDeathEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "time" : 0,
+  "resolutionOrder" : 32,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:5a4355ed57d72a6a21245877b9e9a8019916ed00f33e9a1c13efb3620d51df60"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 33,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:5c6632310106dfe2bd2fa63043d9a325a2e73254de8dbdf679e2b0c9a501a156"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "resolutionOrder" : 34,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3ac4016d3f789f016e94a6ff52e7b6dc383f2ec0beeac7e7cad96d49eee4250b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'projectile' and/or 'shooter' in projectile hit events",
+  "excludes" : [ "org.bukkit.event.entity.ProjectileHitEvent" ],
+  "resolutionOrder" : 35,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:aca573dfd2254cd7a8eb2622e8e85c1c0f828e8bf92da1c30a9217e85808360e"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "resolutionOrder" : 36,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:4d37dee9ab109304bdf9aeb586f686c2889f381d11b38f33d320edc84924f708"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileLaunchEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "resolutionOrder" : 37,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d8a091c0c4cdf5b75c5127fa3e2505d26e233749073058b61b8e0e6ce8dabdbb"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileLaunchEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'projectile' and/or 'shooter' in shoot events",
+  "excludes" : [ "org.bukkit.event.entity.ProjectileLaunchEvent" ],
+  "resolutionOrder" : 38,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1d0b31872449ea33c06e972372cde4b189a720fe293ffaf11c26664f6467f9b2"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.entity.ProjectileCollideEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "resolutionOrder" : 39,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:60b69680d1e508103e09b27bfebfe33395c342b39dcc0e3435dd33d5ce5a89f0"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.entity.ProjectileCollideEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 40,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:c5a9742b6685575ffb491c55e348813d5b3b0fdfcd0f161546b415cadf580b2a"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityTameEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 41,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:05b9c394aeeb5e92d1c2095fbcdbca46b278ea065924971b3b433bb0e40393fa"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityChangeBlockEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 42,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:692dfcab93344385305d4f6f4daf931a0abe9b8770842b2e144f54c006530d45"
+}, {
+  "eventClass" : "org.bukkit.event.entity.AreaEffectCloudApplyEvent",
+  "valueClass" : "org.bukkit.potion.PotionEffectType",
+  "time" : 0,
+  "resolutionOrder" : 43,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:0f60131f0f2023d2a1df756c703ce1e6a5c1016b061bdc936b6a7a0a5ba589c4"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemSpawnEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 44,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7594b9a12268ae583607caee435b1e2f7020fba438e0cadb95ca80901e358b88"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "resolutionOrder" : 45,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:4309fa749c83b97aad47dc140895dc690629b5e7eb780465757fb1ef0ff9cf2e"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 46,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:ea5a9039c281be20eff988a818755fe2ea7172626ad7d53775352ea3acf01c49"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPickupItemEvent",
+  "valueClass" : "ch.njol.skript.aliases.ItemType",
+  "time" : 0,
+  "resolutionOrder" : 47,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:552f0ac3098ddc08d194be7a1046e2663861830e97c30c1a3cf1beb311da144b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemDespawnEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "resolutionOrder" : 48,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:de4cc66dfa85e911df16216480a5b496456901a0fbec2ea068b7aa686e26de3c"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemDespawnEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 49,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:c31d36b6b96f336c16fdb2e24f8c40dd429cbe2c3c7a02f68fb85f920cb101c2"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemMergeEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "resolutionOrder" : 50,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1d0f3eb98b6cb911c3249b675d1af8152f0c18a2e88ea318ff6afafc9be2b242"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemMergeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 51,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:4107f71b55878608fbd2ac3731cd0727203f04d62da194d64c2dd6252a8c9f3b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.CreatureSpawnEvent",
+  "valueClass" : "org.bukkit.event.entity.CreatureSpawnEvent$SpawnReason",
+  "time" : 0,
+  "resolutionOrder" : 52,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:04581194c5697334e5365688d7fe6c45b76e2f196b3f14e8aec69cb160e51dab"
+}, {
+  "eventClass" : "org.bukkit.event.entity.FireworkExplodeEvent",
+  "valueClass" : "org.bukkit.entity.Firework",
+  "time" : 0,
+  "resolutionOrder" : 53,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:31957ccd1fae048c9ede3580ded41bdb29c3499a7964a6d99d330a1c837ca1d2"
+}, {
+  "eventClass" : "org.bukkit.event.entity.FireworkExplodeEvent",
+  "valueClass" : "org.bukkit.FireworkEffect",
+  "time" : 0,
+  "resolutionOrder" : 54,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:a14ab1ef1934c39a50c8a40185109d25f2d5aee54e10f1ec76eccf92a8de1808"
+}, {
+  "eventClass" : "org.bukkit.event.entity.HorseJumpEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 55,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:97a47445632ff0cc96c53df86fbe027557951ada1bff0200e4eff4ac068768b6"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'attacker' and/or 'victim' in damage/death events",
+  "excludes" : [ "org.bukkit.event.entity.EntityDamageEvent", "org.bukkit.event.entity.EntityDeathEvent" ],
+  "resolutionOrder" : 56,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:37529904bcfa9da0f35ed912a18c13314d555692183b972feb57abd0c296867b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'attacker' and/or 'victim' in damage/death events",
+  "excludes" : [ "org.bukkit.event.entity.EntityDamageEvent", "org.bukkit.event.entity.EntityDeathEvent" ],
+  "resolutionOrder" : 57,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:f14d11a2c45d1706f6d207589a61d7ce238c9fd1f5400272b06051881415c325"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 58,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7b041dc9d4190f298b2c2dcb0f6dbd511cd2a2d6583a30753b38df46537b6003"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "resolutionOrder" : 59,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:a4f19c7b61cbe24e5c1ad02e58ac89743bb614101510bb9e963e908306a09367"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBedEnterEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 60,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:26e13bd476fb0dbc71b317f0cb460c4e6dfb8e6eadbb307a3151387e5e5a838d"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBedLeaveEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 61,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:e4e882198ea59804c063dd530b8e0d88649e3c5e2a385fdc759ccbab40f25366"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketFillEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 62,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:31b7575a82dee67ca8a4f6aa95ae926dc3578270da8c04547ead6d39cdb6e56d"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEmptyEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 63,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7f5cfd77a7f59b2eac70d6abe85683bf32baeb8fce8194e90f7a294154828b7f"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 64,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:44b0429b7b219bb6835a59eed60738885ad2310b7c6e248d205e609bd9ce4f8a"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "resolutionOrder" : 65,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1bdeba0236b28d7a5f28e1f3c6b12fe693fec90b0dce41e04a3af72eacd871ed"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 66,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:ac808599273f84b12f35330dc4db7753e487f5d5f7f4496d973300b85297e58e"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 67,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7c073b0289cde260c54febc7d7450cb522f0afa9e8f48f22759a0d89050791cc"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "resolutionOrder" : 68,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1f0eab900dcb7a4c7a900fd5fac2ff241fccf62a1c62422af5a505c367366324"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 69,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d8b9fff851598fb31ee22f95fcde83ef9022f3cb716ffe8408628c7c44dbdfd4"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemConsumeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 70,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:44c22bf69414f6bd0f5eba36416568af97a5ba8c832adc892c6d0925740b75e7"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemBreakEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 71,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7c7debc32dfc7dd995897c741ff36e16ca3a20921cb0bf88493223ed770ef56c"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 72,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1e9684c6a7cf027915bdd3c4f495aa241064fc8019a0705201389713a661fc3f"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEntityEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 73,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:45f647f18435683a33753e893a97c1acbab217a954bca7503b61213c42c2f7bb"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 74,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:b098a8e593b99dd0c1842c9b955045f20aa616a12a2d0878eea5542db13fc9e6"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 75,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:6025179aa39dae21bf66a39413e6b5e76f4a1e7608099ca673db3acc7f61c585"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "resolutionOrder" : 76,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:219c39789ed97cba183e65751972ee96e550d5904ef24d221dd7cda20992d46a"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerShearEntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 77,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:9e129e26418d3a1d646e79bd27b97744d6860b235f2a2be817a4f7663c2c1441"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerTeleportEvent",
+  "valueClass" : "org.bukkit.event.player.PlayerTeleportEvent$TeleportCause",
+  "time" : 0,
+  "resolutionOrder" : 78,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:b81aa2be2de3327cd706f40a8103be734a96a06be6a5b5bae5126f60ddc06a93"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerMoveEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 79,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:999c5459310d1d8da323f7e3f279515c77fce5a50124aea0091e4976e65ae1f8"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemDamageEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 80,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:62b28aa58ef9a819bcc64968b394fd044d6c1fff8ae6129e723a562967ee6059"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemMendEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 81,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3af49d8103013b2e1ee0e641c74627713d8c8826421c727e5b6ca534dc1ea13b"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemMendEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 82,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:58bf9acea43fc577cf3ec5e93ca49d4739e2c3d9bbef0e2f794d377b1877fa10"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemMendEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 83,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:a01284c9a800ed4d65652bc62faa62478d3aba12748a2958a6e36216306be921"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEditBookEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 84,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:cb206243710d7ee06679dfffa96e5be59cfbb0c4c95774664b26336339c69991"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerToggleFlightEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 85,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:a4cad68522fb09636bfe6bd2a7c3ed92f55951d5a8d6d5f3489999f7965878b6"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerArmorChangeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 86,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:e7510448d0e871863361b86157302f238749546afc50d01782dff7655feee0b9"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 87,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:f2632b3c2cfb48c4084cd8565706d5bf91dcd53285c06c14c1b59957d055a074"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 88,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:01f76a6595d674d5dd5485ae250ae8a2b53be66cdbbf6dd64f2b264869f8e7bb"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingBreakEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 89,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:e2b0ce9f466299555df207f2584ed0e875c220593494122e35d9655a3ad723e4"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingPlaceEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 90,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:481b595aa551058daa5acc20a1c096171041adccfbe5f0c3430fefed9fbe4148"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingEvent",
+  "valueClass" : "org.bukkit.entity.Hanging",
+  "time" : 0,
+  "resolutionOrder" : 91,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3fdf8c92daea16e478e8c5f4e2bb1eb0f417b56aff92adf5bedebf9f07b981a3"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 92,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:bbbbce631cc05eed81510096666d32e180797945823f6ec07061924638623cf5"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "resolutionOrder" : 93,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:a2fb849f8f063a2923a2679baf632706c662f7c2ee10426de06499902bc2ca3a"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleExitEvent",
+  "valueClass" : "org.bukkit.entity.LivingEntity",
+  "time" : 0,
+  "resolutionOrder" : 94,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:53b5455b635e085ff2d94025f1395a500c20e40a75a4f925a7f32ebdffb80400"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEnterEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 95,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:29ef449eb1b859db511b7f9a6d6ece4cb1cb71c0cbb621fe783a3ce8fcfb1382"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleDamageEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 96,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:6dfdb9343961af494f7190434387736ed5be0361e8621ea31ea0745a8c0c1a35"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleDestroyEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 97,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:244f7dda604dd92e3b6e6bcfa02be9f21f851d4cf51da97245037556b7b77786"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEvent",
+  "valueClass" : "org.bukkit.entity.Vehicle",
+  "time" : 0,
+  "resolutionOrder" : 98,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d9ed60ea576278b817ab47c07006d8adf0ddcbe9ac92c6e3ab86a68029ee2df2"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 99,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1b070666ca44695888eee16d35371131a73004e4ced083a412df1861d0bb3862"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 100,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3e52cd94b25938431f4ee3186fabb682d1071fc85cdba947f768a5b33ff1f151"
+}, {
+  "eventClass" : "org.bukkit.event.server.ServerCommandEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "resolutionOrder" : 101,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:ca430cad1f265324f1be8e2cdcfb9deb11e73851e01ea6c9205294930f78b3bc"
+}, {
+  "eventClass" : "ch.njol.skript.command.CommandEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "resolutionOrder" : 102,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:4f3c72559a9ce3f907e7a3cd269a4a1d60a16fe8506115cfc1eb993006f14dba"
+}, {
+  "eventClass" : "ch.njol.skript.command.CommandEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 103,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:b80a48d7593dc6268714e39f12af6cdedd14acdcbfbca265f73edf7795aaa837"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ScriptEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "resolutionOrder" : 104,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:b4cc73d3b6d6375562c61dc61e19130646c0d27505800e244a59efa93332ede7"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.SkriptStartEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "resolutionOrder" : 105,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3e8fb5b01b3502c0f438cd8b84a8a9bd922eeee21e487ce6102377c6c6941dcf"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.SkriptStopEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "resolutionOrder" : 106,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7cd50da510fe25057d4908a65df7d40aca35001c1d98ee669794c21629dd4744"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.CraftItemEvent",
+  "valueClass" : "java.lang.String",
+  "time" : 0,
+  "resolutionOrder" : 107,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:a786a7ac0fe7a3af383de1479483b9ad24f2681642e3a788bcd3c39e6035bd19"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.CraftItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 108,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:9b7dcf6f6372936a6bf8f4a69dcaed821797c8af8173260e9bbb21fb513bf086"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 109,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:4776581e34af00b6df27aa450647f6c9cc98777149e6386b25484d2a13503867"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "resolutionOrder" : 110,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d91cc9996f59b7628c1ca24474ca6586de5a0c1f6c958dff129f8142d315e8f0"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 111,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3bcd87ae7c87a5bdd68da7bf8a1395badc5dbebe3fe0f45615e8a24d70f08701"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "resolutionOrder" : 112,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:de7c3a6aa20ca5bf907a3c9e1ad9ee133c95160bf9d35c98e5562fc70bf5b85a"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.event.inventory.InventoryAction",
+  "time" : 0,
+  "resolutionOrder" : 113,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:19ae7ef00734356d788fc7ff48b21d8d372e1c47f505dc19ae995b39fbaa45b5"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.event.inventory.ClickType",
+  "time" : 0,
+  "resolutionOrder" : 114,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:123b1b10cb091b6c7678fba95fe5ff0f1e48e4ae1950828239ee3135b93daf23"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "resolutionOrder" : 115,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:8cb476e5b8e9f166ea9ccb9fb2d87d13c480d6949fb1dd5cf4f3d1726c55fca9"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "resolutionOrder" : 116,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3a08baea8bb15aad08574ba43bcea1a0c4ffbf7da295421cfdfbf3575e77d61d"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 117,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:9dae453400f8ca2b89d9013f41505d1565315d8a0773f262d5f22e21d344fc6f"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "resolutionOrder" : 118,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:83d52bd5c65257aea7d850738f131ca396fa1bc97bc5843835a2a6d048a2afc5"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 119,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:75ec16004d8c9c56e5ed68001007025b60a6d59875e492fb5b89f11d12565239"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "java.lang.String",
+  "time" : 0,
+  "resolutionOrder" : 120,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:0317bf878885816e10c5084d1a5f4363ac51df078a754d003f61c4619bc95fb2"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryOpenEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 121,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:98724d612311a87e02ca9b762a840baaaf774406bf30bd424c332f7f91b2786f"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryOpenEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "resolutionOrder" : 122,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:9efe7bc974022e9c3a414da8bdc96a011af28cc828df867adb5ebe883ef1591d"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryCloseEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 123,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:001956e1de1f208d85051a38264a3a88d09a9375cdc72cb21d092ed1b4cf7869"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryCloseEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "resolutionOrder" : 124,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:cf429678233430c76c4d828100af51fd45742db139fb151b2908c37bf5ce4481"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryPickupItemEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "resolutionOrder" : 125,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:d90d3dc43d3b750e4eed86dfefee2dd9a40c9c4f29cfbb7cf9fd7e9c90b15c4e"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "resolutionOrder" : 126,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:634eee95fd2ddcc1d00006d323b7004beddab344476c76cc99ff03f04334e5a9"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryPickupItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 127,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:eb7c5a1ac2e6273693d97b82f4ac1f6e258944f39e52c7c77ed7b316402c1d35"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.PrepareItemEnchantEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 128,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:2a1b12574bc9415064af516780746ec59187884b87eb5b4d19876e8ed2caede1"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.PrepareItemEnchantEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 129,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:c6da7d0cb04a6958cabc0da8ef05742a8a0502c94feff09d4212836c6edfad2f"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.PrepareItemEnchantEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 130,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:82bc524a51ede53ac4f97e55b43c863102068e30b873aa5739e72675773e2b03"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "resolutionOrder" : 131,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:c0386d917d5cbd163374b0d7076b13ecd05e83a70f3f24cb203c8a7df38cf46d"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "resolutionOrder" : 132,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:b5033618513814cb78adc5e0948da623c193112e39ff39695ace8a4984181aef"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "resolutionOrder" : 133,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:1ffb6f288775db5aba4f2ec45d8be81fe57e356d9f542fefc8f9b3547ec9325f"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ScheduledEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludeErrorMessage" : "There's no world in a periodic event if no world is given in the event (e.g. like 'every hour in \"world\"')",
+  "excludes" : [ "ch.njol.skript.events.bukkit.ScheduledNoWorldEvent" ],
+  "resolutionOrder" : 134,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:2918e3abea341e4f9607866d690d6b3d82cbe416267026d7978e5cf66c2651d2"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ExperienceSpawnEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "resolutionOrder" : 135,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:13c424c74da7bd9bd35a6b798a1fe253a3e0c72b711a9c33e18e5f4be671fd88"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ExperienceSpawnEvent",
+  "valueClass" : "ch.njol.skript.util.Experience",
+  "time" : 0,
+  "resolutionOrder" : 136,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:921f2e4321b949b8d25c36e1ccb609ea34a9220667e87d6424b9e8c81bbb4047"
+}, {
+  "eventClass" : "ch.njol.skript.sections.EffSecSpawn$SpawnEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "resolutionOrder" : 137,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:2cf748bf0f79466c89acc810e06ce0daacc67bdec5e2db800335d970dbdccfb8"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "time" : 0,
+  "resolutionOrder" : 138,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.0.1"
+  },
+  "registrationId" : "event-value:skriptdummyaddon:b2d2896c4f1ebf74e0f1dca495e19220dace092497fa1d5f2afef3c2ce8b5fbe"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "java.lang.String",
+  "time" : 0,
+  "excludeErrorMessage" : "The child fixture event deliberately excludes this value.",
+  "excludes" : [ "jp.nlaocs.skriptDummyAddon.fixture.model.DummyChildEvent" ],
+  "resolutionOrder" : 139,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.0.1"
+  },
+  "registrationId" : "event-value:skriptdummyaddon:94aea2ebf0215b37c7933a3a7fd313f07c09b961e2ce0f25d3e981d31083fe2f"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue[]",
+  "time" : 0,
+  "resolutionOrder" : 140,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.0.1"
+  },
+  "registrationId" : "event-value:skriptdummyaddon:6a4a054d5419f56b8dd18490c7f619213b05c8db82734581349d9739db0cdee8"
+}, {
+  "eventClass" : "org.bukkit.event.world.StructureGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "resolutionOrder" : 141,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:fcb6f7ed42cc24ac4fe38067e05f1ad664c9f1fa287e3aab7521f0cb6c5cd9c5"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFadeEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "resolutionOrder" : 142,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:4aca08372c4da37dc78fc040c6cabd454890f4b7b3c7c6871c1554ba9b00eb30"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "resolutionOrder" : 143,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:20eaa591f21bea9b6973281a03d2e6bb489ff3ed073f8306a0f863fb9866ad9b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFromToEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "resolutionOrder" : 144,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:7bf849a9b97b45ac283c50ff585fae24fd77b4fb6dca7c4dfdf75d92343b5e07"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketFillEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "resolutionOrder" : 145,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:3855bb203a416cc9a961398f895616f4d27244bec4d0e63474b02a8db9f4ec98"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemMergeEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 1,
+  "resolutionOrder" : 146,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "event-value:skript:dc99373e4ad77919d74f29ee26d8a9a9b8451fcc73438d53f4164c06ef7ff67b"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "time" : 1,
+  "resolutionOrder" : 147,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.0.1"
+  },
+  "registrationId" : "event-value:skriptdummyaddon:b2c746f34c3f034a2e62c196ea2ce6cb9358cd3a72e9fc4713c17e7fc42c92a3"
+} ]
