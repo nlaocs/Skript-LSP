@@ -1,0 +1,2147 @@
+[ {
+  "kind" : "section",
+  "registrationOrder" : 0,
+  "name" : "Catch Runtime Errors",
+  "elementClass" : "ch.njol.skript.sections.SecCatchErrors",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "2.12" ],
+  "description" : [ "Catch any runtime errors produced by code within the section. This is an in progress feature." ],
+  "examples" : [ "catch runtime errors:\n\tset worldborder center of {_border} to location(0, 0, NaN value)\nif last caught runtime errors contains \"Your location can't have a NaN value as one of its components\":\n\tset worldborder center of {_border} to location(0, 0, 0)\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "catch [run[ ]time] error[s]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:5815970872e377676b8245a0b76c8e264defb21c94744c59b38a98d29506ca4f",
+  "registrationId" : "section:skript:5815970872e377676b8245a0b76c8e264defb21c94744c59b38a98d29506ca4f:e14fda7bb1e3ba1b964e58163f3d21c59960e367d24f54f036bfe7b84ea7f45d:0",
+  "experimentalSyntaxState" : "unresolved",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 1,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.inputs.SecSingleOptionInputOptions",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add options entry" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:17f8e284a2fa044bfd8d8226772316a6ba5eb05448b64ca5f08faad1ac2f433d",
+  "registrationId" : "section:skbee:17f8e284a2fa044bfd8d8226772316a6ba5eb05448b64ca5f08faad1ac2f433d:4ce16ac2e53a52ffe9bdf17d681e77ef73a8fe43f223ecdd277cc58e65e8a151:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 2,
+  "elementClass" : "com.shanebeestudios.skbee.elements.recipe.sections.SecRecipeSmithing",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register [a] [new] smithing [transform] recipe" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:c81589d70e3acb06d9d28b692f7edf73a1dce5c367e18d673484c694f751abba",
+  "registrationId" : "section:skbee:c81589d70e3acb06d9d28b692f7edf73a1dce5c367e18d673484c694f751abba:f5a7905003d1a226c5a419aa8d183d07d3ed308d7150522ca35ca988c073f217:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 3,
+  "name" : "Static Block",
+  "elementClass" : "me.pesekjak.hippo.elements.sections.SecStatic",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Adds new static block to the custom class." ],
+  "examples" : [ "public class Blob:", "\tstatic:", "\t\tbroadcast \"Hello Blob!\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "static" ],
+  "addon" : {
+    "name" : "Hippo",
+    "version" : "1.3.1"
+  },
+  "definitionId" : "section:hippo:f7ca92f0d1ca93aa24628a67f487706b8e2f5e86a232850ade516a710ce60518",
+  "registrationId" : "section:hippo:f7ca92f0d1ca93aa24628a67f487706b8e2f5e86a232850ade516a710ce60518:b555daf77926d8aed50d6d70dfbd1469c92606f62f5677619f45c4b1ffb56d3e:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 4,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.actions.SecDynamicCallbackActionButton",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add [dynamic] callback action button" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:9ad16fcf996e4fbc0bd11915427af1dd7c5bc8511f937d0ae24ada539c5d9a70",
+  "registrationId" : "section:skbee:9ad16fcf996e4fbc0bd11915427af1dd7c5bc8511f937d0ae24ada539c5d9a70:da183a3272d60abc899a836175e9545af918f9391fb2e9c3335657cc9d17cd1c:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 5,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.inputs.SecTextInput",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add text input" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:db84f5c3dcd06655288d3fbd98824c05d383a04cda670f52d94baabee6781bea",
+  "registrationId" : "section:skbee:db84f5c3dcd06655288d3fbd98824c05d383a04cda670f52d94baabee6781bea:fc64e866ab7a120c47686a2e2c8969464bc13f5b222681cb83a652827d2cc64f:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 6,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.actions.SecDynamicRunCommandActionButton",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add dynamic run command action button" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:5a632be69819f5a7a47eeffab95af41ab2b96bd9aa690e2ebeb60a8e7f5a5a64",
+  "registrationId" : "section:skbee:5a632be69819f5a7a47eeffab95af41ab2b96bd9aa690e2ebeb60a8e7f5a5a64:275c76ca5022ce6e7823c82bb95e74e6a522ab587e7b517108341bc0a4e34f3c:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 7,
+  "elementClass" : "com.shanebeestudios.skbee.elements.recipe.sections.SecRecipeCooking",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register [a] [new] (furnace|1:smoking|2:blasting|3:campfire) recipe" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:708b7fb39412b4bcf148284602d338879ba995ea5f51a0deb1f84218d0081f07",
+  "registrationId" : "section:skbee:708b7fb39412b4bcf148284602d338879ba995ea5f51a0deb1f84218d0081f07:55b05d70c9764eb069d85cd5f522457110fc6f603d9139e784a5bb1349150532:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 8,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.actions.SecStaticActionButton",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add static action button" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:388107f43f1b5dcdc16c19d41bcbf19978dd832f7979e37f63ffbcaa6d8d137b",
+  "registrationId" : "section:skbee:388107f43f1b5dcdc16c19d41bcbf19978dd832f7979e37f63ffbcaa6d8d137b:b4bf69cfdd047ef6c1c5e0866c89aa807d902e6f8e3d503a2eaa76c27e83fd61:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 9,
+  "elementClass" : "com.shanebeestudios.skbee.elements.recipe.sections.SecRecipeShapeless",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register [a] [new] shapeless recipe" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:f0a074895653b570b3e810b10b8d82ed74f7453b8ebcaf76ddaed0188973ef49",
+  "registrationId" : "section:skbee:f0a074895653b570b3e810b10b8d82ed74f7453b8ebcaf76ddaed0188973ef49:ad73a8ceceab497cb5fef137e9e30566627fadf3d7cf156f22caa4a736b78f58:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 10,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.inputs.SecNumberRangeInput",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add number range input" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:69d869d105934920e7d57a88b1ee246c6df77f506c0576a43b0e7cfe290ea2f7",
+  "registrationId" : "section:skbee:69d869d105934920e7d57a88b1ee246c6df77f506c0576a43b0e7cfe290ea2f7:84ddd4e3df9a71511185bdcfae513d40f2570e856953b6adfae1e05a006c230e:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 11,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecKineticWeaponCondition",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply kinetic weapon condition" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:1fae1799d81d8a2ce1209848926ded47de6af56fb6618a5b395c88e2a7971b1c",
+  "registrationId" : "section:skbee:1fae1799d81d8a2ce1209848926ded47de6af56fb6618a5b395c88e2a7971b1c:65a5937a9072c84f0441f98d2869938f1c9878085485e890ebec03efe1cd90d3:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 12,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.actions.SecDynamicActionButton",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add dynamic action button" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:4171610902ef745499a438e60fa4787a766fe6abbef81f3449ae2c207cf5ec66",
+  "registrationId" : "section:skbee:4171610902ef745499a438e60fa4787a766fe6abbef81f3449ae2c207cf5ec66:ca974941b974970c5c3aead2fe972dea74ccd6fbd6a1bf0f23c4d1566fd2e1f2:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 13,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.bodies.SecPlainMessageBody",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add (text|plain message) body" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:93b74caf583f8197ada14e7bb135ab15eb2c6d2f5d201afbb0cf22130283f47d",
+  "registrationId" : "section:skbee:93b74caf583f8197ada14e7bb135ab15eb2c6d2f5d201afbb0cf22130283f47d:ceadf901a5644c47a70e0be660204dfe25ca74b44149b85f62aef08baa46b523:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 14,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecToolRule",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply tool rule" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:890acc980f86af2cf012837492811adeefc534e7b5c66513ebff83bf200a44b3",
+  "registrationId" : "section:skbee:890acc980f86af2cf012837492811adeefc534e7b5c66513ebff83bf200a44b3:0502336cb6622a524e3b400933b65debedfb9a4ee13dad0a708412c262860aae:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 15,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.inputs.SecBooleanInput",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add boolean input" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:632a4ef30c03ce56047fde3317636320a508707400603f11b959be501052e448",
+  "registrationId" : "section:skbee:632a4ef30c03ce56047fde3317636320a508707400603f11b959be501052e448:4af35ef7380420257fe077495b0f2c472c7742fe230b44b4a971928b9893154f:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 16,
+  "name" : "Run Silently",
+  "elementClass" : "it.jakegblp.lusk.elements.other.sections.SecSilent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.3" ],
+  "description" : [ "Executes the effects within this section without making sounds, this currently only supports the changing of an item frame's item.\n\nNote: this is not related to errors or warnings in the console." ],
+  "examples" : [ "silently:\n  set item frame item of {_frame} to iron sword # won't play the sound\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[run|execute] (silent[ly]|without sounds)" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:1365bda7073222849b7a03c08f9d8a3fc6c3e381d862817396831ce951e2e437",
+  "registrationId" : "section:lusk:1365bda7073222849b7a03c08f9d8a3fc6c3e381d862817396831ce951e2e437:6f28b0ea11ec3e0d7eff67262689158484d87018c78b8e3464f44cf97d2c9ff7:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 17,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.bodies.SecItemBody",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add item body" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:cf092a28244a0094ce00138679d230e1f475626d006780045bc9090c05e27c76",
+  "registrationId" : "section:skbee:cf092a28244a0094ce00138679d230e1f475626d006780045bc9090c05e27c76:abbf0a637aa45cf11715f75d4c6c63d0f7319951fc47fb10c5da0b987ace7b46:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 18,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.inputs.SecSingleOptionInput",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "add single option input" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:78935087169efc9c89bd8ca92fbd71db2b5aa3b2cf10c64b0fc67bf1ca560960",
+  "registrationId" : "section:skbee:78935087169efc9c89bd8ca92fbd71db2b5aa3b2cf10c64b0fc67bf1ca560960:b9e3dcb2be55375d730afea2b5d411f8b077a0b88139133287004b1712b93009:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 19,
+  "elementClass" : "com.shanebeestudios.skbee.elements.recipe.sections.SecRecipeShaped",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register [a] [new] shaped recipe" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:1ec6c90220de015cc1038a0ddd39cdafa3205114978a1f475e3e9824221ca09a",
+  "registrationId" : "section:skbee:1ec6c90220de015cc1038a0ddd39cdafa3205114978a1f475e3e9824221ca09a:4bb927f0e76790da93c0e24d5cad482efcf49362e9513c4196bc0efed8c6df63:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 20,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecDamageReduction",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply damage reduction" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:910336d47a0b02a95d6b2c431ecb3d1b2a5ecf07c5f8480c875ba6951bf88930",
+  "registrationId" : "section:skbee:910336d47a0b02a95d6b2c431ecb3d1b2a5ecf07c5f8480c875ba6951bf88930:4314fab2eb4c46bca241459e2a51fcf0317509a5455edafbcf4f94596eee8f06:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 21,
+  "name" : "Dummy Return Handler Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReturnSection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Implements ReturnHandler and reports a single Object return value." ],
+  "examples" : [ "dummy return handler section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy return handler section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:f2d8daceb0db68bab3b88c9a32c479a0fa493334871da55b31d8ab6e93dcfdd8",
+  "registrationId" : "section:skriptdummyaddon:f2d8daceb0db68bab3b88c9a32c479a0fa493334871da55b31d8ab6e93dcfdd8:9ec911e7a864a23ad97c1eda0569c316de04ccf704e91c43aa9aa4d0e23cf911:0",
+  "returnHandler" : {
+    "returnValueType" : "java.lang.Object",
+    "singleReturnValue" : true
+  },
+  "returnHandlerState" : "resolved",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 22,
+  "elementClass" : "com.shanebeestudios.skbee.elements.recipe.sections.SecTransmuteRecipe",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register transmute recipe" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:82825901a2a9639bee470daff24683114c49e203cb41cbc0605d471e7802eb7c",
+  "registrationId" : "section:skbee:82825901a2a9639bee470daff24683114c49e203cb41cbc0605d471e7802eb7c:00664800a340c0f49a85ddca269d4a4bdda85cd3b9df4fec65262b75dfa829d7:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 23,
+  "name" : "Dummy Fixture Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A classic Section registration available before the Structure registry." ],
+  "examples" : [ "dummy fixture section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy fixture section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
+  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 24,
+  "elementClass" : "com.shanebeestudios.skbee.elements.recipe.sections.SecRecipeBrewing",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register [a] [new] (brewing recipe|potion mix)" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:c80e65c98dbe915a771a66a46b0509eb8289f9c7bfe6b996193f0426be785c91",
+  "registrationId" : "section:skbee:c80e65c98dbe915a771a66a46b0509eb8289f9c7bfe6b996193f0426be785c91:cdea811a394aa7e4ef32c0bad085ee39a1ca1dab814f92bf95b0e313c5dc3612:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 25,
+  "name" : "Loop",
+  "elementClass" : "ch.njol.skript.sections.SecLoop",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "since" : [ "1.0" ],
+  "description" : [ "Loop sections repeat their code with multiple values.", "", "A loop will loop through all elements of the given expression, e.g. all players, worlds, items, etc. The conditions & effects inside the loop will be executed for every of those elements, which can be accessed with ‘loop-<what>’, e.g. <code>send \"hello\" to loop-player</code>. When a condition inside a loop is not fulfilled the loop will start over with the next element of the loop. You can however use <code>stop loop</code> to exit the loop completely and resume code execution after the end of the loop.", "", "<b>Loopable Values</b>", "All expressions that represent more than one value, e.g. ‘all players’, ‘worlds’, etc., as well as list variables, can be looped. You can also use a list of expressions, e.g. <code>loop the victim and the attacker</code>, to execute the same code for only a few values.", "", "<b>List Variables</b>", "When looping list variables, you can also use <code>loop-index</code> in addition to <code>loop-value</code> inside the loop. <code>loop-value</code> is the value of the currently looped variable, and <code>loop-index</code> is the last part of the variable's name (the part where the list variable has its asterisk *)." ],
+  "examples" : [ "loop all players:\n\tsend \"Hello %loop-player%!\" to loop-player\n", "loop items in player's inventory:\n\tif loop-item is dirt:\n\t\tset loop-item to air\n", "loop 10 times:\n\tsend title \"%11 - loop-value%\" and subtitle \"seconds left until the game begins\" to player for 1 second # 10, 9, 8 etc.\n\twait 1 second\n", "loop {Coins::*}:\n\tset {Coins::%loop-index%} to loop-value + 5 # Same as \"add 5 to {Coins::%loop-index%}\" where loop-index is the uuid of \" +\n\t\"the player and loop-value is the number of coins for the player\n", "loop shuffled (integers between 0 and 8):\n\tif all:\n\t\tprevious loop-value = 1\n\t\tloop-value = 4\n\t\tnext loop-value = 8\n\tthen:\n\t\tkill all players\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "loop %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2",
+  "registrationId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2:4f7dc12c0b43146e488a0e33cc6cb8410652a73db5e23378084b54bde115fa06:0",
+  "loopSection" : true,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 26,
+  "name" : "Filter",
+  "elementClass" : "ch.njol.skript.sections.SecFilter",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "2.10" ],
+  "description" : [ "Filters a variable list based on the supplied conditions. Unlike the filter expression, this effect maintains the indices of the filtered list.", "It also supports filtering based on meeting any of the given criteria, rather than all, like multi-line if statements." ],
+  "examples" : [ "set {_a::*} to integers between -10 and 10", "filter {_a::*} to match:\n\tinput is a number\n\tmod(input, 2) = 0\n\tinput > 0\nsend {_a::*} # sends 2, 4, 6, 8, and 10\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "filter %~objects% to match [:any|all]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93",
+  "registrationId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93:33d8916301533c7860b3236c7171834ed23891fbef00d9717ea11a5d10311e98:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 27,
+  "name" : "For Each Loop",
+  "elementClass" : "ch.njol.skript.sections.SecFor",
+  "superClass" : "ch.njol.skript.sections.SecLoop",
+  "since" : [ "2.10, 2.14 (stable release)" ],
+  "description" : [ "A specialised loop section run for each element in a list.\nUnlike the basic loop, this is designed for extracting the key & value from pairs.\nThe loop element's key/index and value can be stored in a variable for convenience.\n\nWhen looping a simple (non-indexed) set of values, e.g. all players, the index will be the loop counter number." ],
+  "examples" : [ "for each {_player} in players:\n\tsend \"Hello %{_player}%!\" to {_player}\n", "loop {_item} in {list of items::*}:\n\tbroadcast {_item}'s name\n", "for each key {_index} in {list of items::*}:\n\tbroadcast {_index}\n", "loop key {_index} and value {_value} in {list of items::*}:\n\tbroadcast \"%{_index}% = %{_value}%\"\n", "for each {_index}, {_value} in {my list::*}:\n\tbroadcast \"%{_index}% = %{_value}%\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "(for [each]|loop) [value] %~object% in %objects%", "(for [each]|loop) (key|index) %~object% in %objects%", "(for [each]|loop) [key|index] %~object%(,| and) [value] %~object% in %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:e9c58bfd27f9837b4a4f8b26a4e95c4f7eb6e501650d9f5f3909fd439f8abea0",
+  "registrationId" : "section:skript:e9c58bfd27f9837b4a4f8b26a4e95c4f7eb6e501650d9f5f3909fd439f8abea0:dc0624f1816e194274f95d7ab0fdd45a0168c4d070a34a60bbde8bc9aa901e27:0",
+  "loopSection" : true,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 28,
+  "name" : "Shoot",
+  "elementClass" : "ch.njol.skript.sections.EffSecShoot",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "since" : [ "2.10" ],
+  "description" : [ "Shoots a projectile (or any other entity) from a given entity or location." ],
+  "examples" : [ "shoot arrow from all players at speed 2", "shoot a pig from all players:\n\tadd event-entity to {_projectiles::*}\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "shoot %entitydatas% [from %livingentities/locations%] [(at|with) (speed|velocity) %-number%] [%-direction%]", "(make|let) %livingentities/locations% shoot %entitydatas% [(at|with) (speed|velocity) %-number%] [%-direction%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:31f3b9f5761196862cee2e768f0c20b5f70074188ef28c4c2920018f393fb481",
+  "registrationId" : "section:skript:31f3b9f5761196862cee2e768f0c20b5f70074188ef28c4c2920018f393fb481:22a6e568d93bca034cd11508513f89acc3947b4cbeb8388529bf4c0f73e316a4:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 29,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.dialogs.SecDialogListDialogRegister",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "open [new] dialog list dialog to %audiences%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:18b320e978f9d580fea746660253bd409bb6ec1563fcb7b1714934fe531af44a",
+  "registrationId" : "section:skbee:18b320e978f9d580fea746660253bd409bb6ec1563fcb7b1714934fe531af44a:3d5e753d05e95e1a8240d78763f6621efa42bcf9fa04eab75989d154fa72250a:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 30,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecAttributeModifier",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply [:transient] attribute modifier to %itemtypes/livingentities%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:058a93e7a882ad2aa2fdd360996726d9615208b7696c1c170362876105745b8e",
+  "registrationId" : "section:skbee:058a93e7a882ad2aa2fdd360996726d9615208b7696c1c170362876105745b8e:cefdee45804e29d86f1fef825d7fd5418f0a8b9cbaa90e5d2ca582d570d74c30:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 31,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecPiercingWeapon",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply piercing weapon component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:66473d32bcf466bfaa652b4eed89b01e9f3a766687996bdefd6fbba70139dec7",
+  "registrationId" : "section:skbee:66473d32bcf466bfaa652b4eed89b01e9f3a766687996bdefd6fbba70139dec7:c400b76ea2c42940b7378c357c1f5f35ee212af24f9f96a74284db435ab0f4ed:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 32,
+  "elementClass" : "com.shanebeestudios.skbee.elements.switchcase.sections.SecCase",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "case %objects%", "(default [case]|case default)" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:a204bd28229b32f31cb6046d8ac0934e0124af2624c4ee1c94d6b2dd2091ccd7",
+  "registrationId" : "section:skbee:a204bd28229b32f31cb6046d8ac0934e0124af2624c4ee1c94d6b2dd2091ccd7:5651b9dd26e231b5f7d9128b0beb352a59d5dc4de90b06eaaf905ac5719406df:0",
+  "returnHandler" : {
+    "returnValueType" : "java.lang.Object",
+    "singleReturnValue" : true
+  },
+  "returnHandlerState" : "resolved",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 33,
+  "name" : "Custom Particle Section",
+  "elementClass" : "com.sovdee.skriptparticles.elements.sections.SecParticle",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.2" ],
+  "description" : [ "This section can be used in conjunction with the `last created particle` expression to create custom particles.", "The particle can be any custom particle from skript-particle or from skbee.", "Fields include:", "\tcount: integer - the number of particles to create (required)", "\toffset: vector - the offset value of the particle. See the Minecraft wiki on /particle for more info. (default: 0, 0, 0)", "\tvelocity: vector - the velocity of the particle. Can be a vector or a motion (inwards/clockwise/etc.). (default: 0, 0, 0)", "\textra: number - the extra value of the particle. Forces `count` to be 0 and cannot be combined with `offset`. See the Minecraft wiki on /particle for more info. (default: 0)", "\tforce: boolean - whether or not to force the particle to be seen at long range. (default: false)" ],
+  "examples" : [ "create a new custom electric spark particle with:", "\tcount: 10", "\toffset: vector(1, 1, 1)", "\textra: 0.2", "\tforce: true", "set {_particle} to last created particle", "", "create a new custom red dust particle with:", "\tcount: 0", "\tvelocity: inwards", "\textra: 0.5", "\tforce: true", "set {_particle} to last created particle" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "create [a] [new] custom %particle% [particle] [with]" ],
+  "addon" : {
+    "name" : "skript-particle",
+    "version" : "1.4.1"
+  },
+  "definitionId" : "section:skript-particle:e18f03c59d38431ddb86bd603fd49296c6d49c73097d3783f65f6ddbdd509112",
+  "registrationId" : "section:skript-particle:e18f03c59d38431ddb86bd603fd49296c6d49c73097d3783f65f6ddbdd509112:b6c4741e262ccd8513353b9d61e717ddc819d088bef7185a8b03e385d46c1746:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 34,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecFireworksComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply fireworks [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:1d9de0e578f1d057fbd7893d1fb8f3288fb48d5aac553c69ab2d5236ad8e990f",
+  "registrationId" : "section:skbee:1d9de0e578f1d057fbd7893d1fb8f3288fb48d5aac553c69ab2d5236ad8e990f:2f4440a3c97d000cba7b1ecf05d7a7e7d2a19a6bc46ace0b8544f31408f90834:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 35,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecResourcePack",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "send [a] resource pack[s] to %audience/playerconnection%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:f5d025e343216bc1f5b2b516aabf2f8a7cdd790b9325dc5889aa5dc39e012719",
+  "registrationId" : "section:skbee:f5d025e343216bc1f5b2b516aabf2f8a7cdd790b9325dc5889aa5dc39e012719:56a66b75ae479d9e319be2f0c3c3bf304d478b10eef412f1ceff78db62ec89a4:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 36,
+  "name" : "Block - on Break Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.blocks.block.sections.SecEvtBreak",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.2" ],
+  "description" : [ "Runs the code inside of it when the provided block gets broken.\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on (break[ing]|mine:min(e|ing)) of %~block%", "[execute|run] when %~block% get[s] (broken|mine:mined)" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:bb6e7a28ffa33902c76b7d4d0299f5f978a1572f7dcba52c1056887bc1a3f546",
+  "registrationId" : "section:lusk:bb6e7a28ffa33902c76b7d4d0299f5f978a1572f7dcba52c1056887bc1a3f546:581ab979079a5dce081a4188e51560bb012a2fd497904f9d17b44eaae4c35f24:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 37,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecFireworkExplosionComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply firework explosion [component] [to %-itemstacks/itemtypes/slots%]" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:201cec16c35a7a7296236f731f9e7cac3122101af5356ac0a8d1506a81ed6323",
+  "registrationId" : "section:skbee:201cec16c35a7a7296236f731f9e7cac3122101af5356ac0a8d1506a81ed6323:846ed40384efd2c7fabe7e18e369fdfea849782efa6c2e40bdf636172f97fd19:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 38,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecJukeboxPlayableComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply jukebox playable [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:f8366796fc1f493c395be4f50fac0e7d472107ddb2388bde9c36df6850d1640a",
+  "registrationId" : "section:skbee:f8366796fc1f493c395be4f50fac0e7d472107ddb2388bde9c36df6850d1640a:633b97f5dd2d85d767728682e73f007fe44093e9c0c8995d97d3b00c3f3ea1a4:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 39,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecWeaponComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.EffectSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply weapon component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:ce6af1aaccc7f812275363d8b6af72066b1c9c677d7fc2b81804f539c309ccdf",
+  "registrationId" : "section:skbee:ce6af1aaccc7f812275363d8b6af72066b1c9c677d7fc2b81804f539c309ccdf:f5b6423726d4bc84d9ea9c5063dedc2382175fd879dbaf67d89d20ef44cc4e7b:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 40,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecToolComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply tool component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:1e60016c4d45adfdce14c9e00f7426a8e470f57c1450f5dfb24c7cd1eef952f6",
+  "registrationId" : "section:skbee:1e60016c4d45adfdce14c9e00f7426a8e470f57c1450f5dfb24c7cd1eef952f6:a0fe00e4065da4ace798dec264cff2a13cd375c54c62671e6164f921f2bd7864:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 41,
+  "name" : "Entity - on Heal Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.entities.entity.sections.SecEvtHeal",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.1" ],
+  "description" : [ "Runs the code inside of it when the provided entity gets healed.\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "command /a:\n  trigger:\n    spawn pig at player:\n      set display name of entity to \"&dPig &7- &c%health of entity%&8/&c%max health of entity%\"\n      on heal of entity:\n        push entity upwards\n        broadcast \"%entity% has been healed, yay\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on heal of %~entity%", "[execute|run] when %~entity% get[s] healed" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:310951bf380dd5f6e0709741d2440177c206fe3d77daf8fe402850111fc6bca9",
+  "registrationId" : "section:lusk:310951bf380dd5f6e0709741d2440177c206fe3d77daf8fe402850111fc6bca9:8ec1c2cdf3265c4801f9c8f6f1846b26d5b09f8dec23ba852c4766c027ae40fe:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 42,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecBlocksAttacksComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply blocks attacks [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:8ac047797c08a80a8f247b314867243dd112ef0ece73b9e52fe53f0e9277c5bc",
+  "registrationId" : "section:skbee:8ac047797c08a80a8f247b314867243dd112ef0ece73b9e52fe53f0e9277c5bc:6e10880bfb870f31a7abfc52d761c51bf44dd7347d602a3594a4b28459b20445:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 43,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecEquippableComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply equippable [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:f1cbb9f8df90729debd82e2143426e2ec285cb81a85bbbb55f76cd06953bb604",
+  "registrationId" : "section:skbee:f1cbb9f8df90729debd82e2143426e2ec285cb81a85bbbb55f76cd06953bb604:ffe78a7dd9e36e19c7726f08b45f6bc43fbb278089f59c9267557c374d4860a0:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 44,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecTooltipDisplayComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply tooltip display [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:a4e86d7ae24775d094c8daa2936b936b4469012c08d644e96621c365e2c52d6c",
+  "registrationId" : "section:skbee:a4e86d7ae24775d094c8daa2936b936b4469012c08d644e96621c365e2c52d6c:da0c596cc028fe9e54f8e511371e15bceb316d639898741a54ce5f6d874fc7eb:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 45,
+  "elementClass" : "com.shanebeestudios.skbee.elements.nbt.sections.SecModifyNBT",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "modify [:custom] nbt of %entity/block/itemstack/itemtype/slot%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:ebcc4d56bcc7a64a01427e73f8928f55025257b3b6887980431b41c953a21d6b",
+  "registrationId" : "section:skbee:ebcc4d56bcc7a64a01427e73f8928f55025257b3b6887980431b41c953a21d6b:d62e3f125ab1dda4cc33ac4ad697dae3f18f2fbae84857a000fe21c810e5860c:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 46,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.dialogs.SecConfirmationDialogRegister",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "open [new] confirmation dialog to %audiences%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:3d5b1aaf0acb06d72b3e26bad3c83fb6bab3fded3b953b9d7e0dc1dbffe4810a",
+  "registrationId" : "section:skbee:3d5b1aaf0acb06d72b3e26bad3c83fb6bab3fded3b953b9d7e0dc1dbffe4810a:02362928c1073cfe235efe90bef15bad58096156d714ee3f3580e3ef6e1fa31f:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 47,
+  "name" : "Entity - on Death Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.entities.entity.sections.SecEvtDeath",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.2" ],
+  "description" : [ "Runs the code inside of it when the provided entity dies.\n\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "spawn skeleton at {_loc}:\n    on death of entity:\n        broadcast \"%entity% has died!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on death of %~entity%", "[execute|run] when %~entity% (get[s] killed|die[s])" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:7a048c1fba417321d52918e73e24c29adde01dd406ef94a5c92ae835fd37de27",
+  "registrationId" : "section:lusk:7a048c1fba417321d52918e73e24c29adde01dd406ef94a5c92ae835fd37de27:d2d3697adde2da379ea1f3e7ae62dce8ecd7757f2224d75365746a4729b12e68:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 48,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecPotionContentsComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply potion contents [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:31175ce8127283337e5e794ba5eb1fa6c98eb3da31623ad44826680fe7813ee7",
+  "registrationId" : "section:skbee:31175ce8127283337e5e794ba5eb1fa6c98eb3da31623ad44826680fe7813ee7:397fdc9bdf325482e10e6c4534a135fd0ca130c2ba89bfe365214acf2021d1e3:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 49,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.dialogs.SecNoticeDialogRegister",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "open [new] notice dialog to %audiences%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:301279f7f552b110c09a61d00924c4ad03758a83d33bd563e13f49f962d854df",
+  "registrationId" : "section:skbee:301279f7f552b110c09a61d00924c4ad03758a83d33bd563e13f49f962d854df:8cf5b21b03734dba0b9c7b8a4bef15c77ca2dfe02aaca653514056082c22fc46:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 50,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecFoodComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply food component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:ee8142a8181f8842e18e00114e941139325c90e99cceceac97977cfe656d63c8",
+  "registrationId" : "section:skbee:ee8142a8181f8842e18e00114e941139325c90e99cceceac97977cfe656d63c8:cba55cf83e1393cdcb1975e16650a486374f122ca39cc2cf13e62fb57f1481db:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 51,
+  "name" : "Entity - on Resurrect Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.entities.entity.sections.SecEvtResurrect",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.3.1" ],
+  "description" : [ "Runs the code inside of it when the provided entity dies and may have the opportunity to be resurrected.\nWill be called in a cancelled state if the entity does not have a totem equipped.\n\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "command /a:\n  trigger:\n    on resurrection of player:\n      uncancel event\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on [entity] resurrect[ion] [attempt] of %~entity%", "[execute|run] when %~entity% (resurrect[s]|attempt[s] to resurrect)" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:c186ca5cd30f89c07e7862cc7316d08686be29414959751ac4d2925a94785aa8",
+  "registrationId" : "section:lusk:c186ca5cd30f89c07e7862cc7316d08686be29414959751ac4d2925a94785aa8:4c5aef3e77871e55729f9f6afcab4ecb352ee2c46095c9ca4522baadcf604b6d:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 52,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecProfileComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply profile [component] to %itemstacks/itemtypes/slots/blocks/entities%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:9ae03ebbfb31b3f9e90b9936afbb0514d49cc06b8d3855523183e9acd5739f9f",
+  "registrationId" : "section:skbee:9ae03ebbfb31b3f9e90b9936afbb0514d49cc06b8d3855523183e9acd5739f9f:3a427eaf029826b6850c5b2432bcf1cedfd55043b961de4b69f55464c95a645a:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 53,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecAttackRangeComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply attack range component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:99e26fd260327f8bb0cda9879525217aaede851472694830871f4361f0a08c04",
+  "registrationId" : "section:skbee:99e26fd260327f8bb0cda9879525217aaede851472694830871f4361f0a08c04:3bb4793bb7d523793794a793848d44386fc61ef85fee729754e78cf318bf6a1d:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 54,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecSwingAnimationComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply swing animation component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:2803a80405e43a4829b7e3100ee134b117e19cc0717fa4f8301d35ad20d4a2e6",
+  "registrationId" : "section:skbee:2803a80405e43a4829b7e3100ee134b117e19cc0717fa4f8301d35ad20d4a2e6:350f96b951a6bca36cd1d667482309a78ee93e6408c8b09ddfe6a1e7e9b8f5d4:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 55,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecUseEffectsComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply use effects component to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:b0f28dc7b25e854e9e8663027ed39c76f60c9e0053204a96ed7d99c2318e9dc6",
+  "registrationId" : "section:skbee:b0f28dc7b25e854e9e8663027ed39c76f60c9e0053204a96ed7d99c2318e9dc6:f3f1688ddddb572e31227b6c740919b0cf74f1705c754b81414ec1d399826125:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 56,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecCustomModelDataComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply custom model data [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:80acadbff5e86b23b1645d2e0dd5e6bf7629af44e7c8b8cf6001ec570473ab96",
+  "registrationId" : "section:skbee:80acadbff5e86b23b1645d2e0dd5e6bf7629af44e7c8b8cf6001ec570473ab96:c34d024a4a201cb29e2d2a2e5414ba023fd29a664d258125f90b8a33fabcd67e:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 57,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecUseCooldownComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply use cooldown [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:1f7b08c7a5df19088deb80935cb6b877cea20e9b4071796e0db8093e6e84d6fc",
+  "registrationId" : "section:skbee:1f7b08c7a5df19088deb80935cb6b877cea20e9b4071796e0db8093e6e84d6fc:62575d1529b945133714be5276621cd23c9f5dd7a753815f5834cd35bc6de095:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 58,
+  "name" : "Entity - on Right Click Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.entities.entity.sections.SecEvtClick",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.1" ],
+  "description" : [ "Runs the code inside of it when the provided entity gets clicked.\n\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "command /a:\n  trigger:\n    spawn pig at player:\n      set display name of entity to \"&dPig\"\n      on click on entity:\n        broadcast \"%entity% has been clicked!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on [right[ |-]]click (on|of) %~entity%", "[execute|run] when %~entity% get[s] [right[-| ]]clicked" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:7e50de72bfdbc16d64d70daab443e25c6db420f25ebe9640b9930562d19f2c8d",
+  "registrationId" : "section:lusk:7e50de72bfdbc16d64d70daab443e25c6db420f25ebe9640b9930562d19f2c8d:441dd4d402d07490f67e21dadb1b31b5d39636defffa0c4500f50c9543a52992:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 59,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecConsumableComponent",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply consumable [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:94eadcac4aedd971171f657a48eeedde3276cfb794c045ec083603d67eff4ecd",
+  "registrationId" : "section:skbee:94eadcac4aedd971171f657a48eeedde3276cfb794c045ec083603d67eff4ecd:8ed087800aa5be6a19bcc1668d6fe3ab0a861e83ad4beb3353c54a14b43228bf:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 60,
+  "name" : "Entity - on Damage Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.entities.entity.sections.SecEvtDamage",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.1" ],
+  "description" : [ "Runs the code inside of it when the provided entity takes damage.\n\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "command /a:\n  trigger:\n    spawn pig at player:\n      set display name of entity to \"&dPig &7- &c%health of entity%&8/&c%max health of entity%\"\n      on damage of entity:\n        set display name of victim to \"&dPig &7- &c%health of victim - final damage%&8/&c%max health of victim%\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on damage of %~entity%", "[execute|run] when %~entity% (get[s] damaged|take[s] damage)" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:fafa381ed04952fa051a11e1dc49281e8fbf634b6453b1abe91c0060891b1a8a",
+  "registrationId" : "section:lusk:fafa381ed04952fa051a11e1dc49281e8fbf634b6453b1abe91c0060891b1a8a:09dc777f5cc17853616adf334b1a7bc35086fb1c2eff77c3e433cc8c9768e0d4:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 61,
+  "name" : "Anvil Gui - on Open/Close/Click Section",
+  "elementClass" : "it.jakegblp.lusk.elements.anvilgui.sections.SecEvtAnvilGui",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.3" ],
+  "description" : [ "Runs the code inside of it when the provided anvil gui is opened, closed or clicked.\n\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "set {_anvilGui} to a new anvil gui\n\nwhen {_anvilGui} gets opened:\n    broadcast \"%{_anvilGui}% has been opened!\"\n\nwhen {_anvilGui} gets clicked:\n    broadcast \"%{_anvilGui}% has been clicked!\"\n\nwhen {_anvilGui} gets closed:\n    broadcast \"%{_anvilGui}% has been closed!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on anvil [gui|inventory] (:open|:close|click) of %~anvilguiinventory%", "[execute|run] when [[the] anvil [gui|inventory]] %~anvilguiinventory% ((get[s]|is) (open:opened|close:closed|clicked))" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:e96944f3e3309f43614b966647deb420dde3ede6f354e1b7231a69678609015f",
+  "registrationId" : "section:lusk:e96944f3e3309f43614b966647deb420dde3ede6f354e1b7231a69678609015f:49585efdee72696d588121a3cff9ca01794d1ce3c1b83bbcd3e4ebe9bfd63602:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 62,
+  "elementClass" : "com.shanebeestudios.skbee.elements.dialog.sections.dialogs.SecMultiDialogRegister",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "open [new] multi action dialog to %audiences%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:3355d67aa0cecc8eb4e18a81f64f6f501a0b8af945558ff8914005e47164f2e3",
+  "registrationId" : "section:skbee:3355d67aa0cecc8eb4e18a81f64f6f501a0b8af945558ff8914005e47164f2e3:601caaa80b00de7b4f6b010fcb06b8e674ed77fef1f57bc4736001c3a269f9b8:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 63,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecInstrumentComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply instrument [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:b7dd7dcc7368c225e6adb0f76f191551f2f4c1c40475ae533248fb96d15c06cb",
+  "registrationId" : "section:skbee:b7dd7dcc7368c225e6adb0f76f191551f2f4c1c40475ae533248fb96d15c06cb:318aa30e7bcbd79fe15a88a04d89c23f75d64f8262e07bc5eb6903b8a16ae308:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 64,
+  "name" : "Entity - on Jump Section",
+  "elementClass" : "it.jakegblp.lusk.elements.minecraft.entities.entity.sections.SecEvtJump",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.2" ],
+  "description" : [ "Runs the code inside of it when the provided entity jumps.\n\nOnly works for horses on Spigot, Paper is required for players and entities.\n\nLocal Variables that are:\n- defined BEFORE this section CAN be used inside of it.\n- defined AFTER this section CANNOT be used inside of it.\n- defined INSIDE this section CANNOT be used outside of it.\n" ],
+  "examples" : [ "spawn villager at {_loc}:\n    on jump of entity:\n        broadcast \"%entity% has jumped!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[execute|run] on %~entity% jump[ing]", "[execute|run] when %~entity% jump[s]" ],
+  "addon" : {
+    "name" : "Lusk",
+    "version" : "1.3.14"
+  },
+  "definitionId" : "section:lusk:c7d280f745becdc46d73ddb425397f29816544c64fc7339f7fc405e737a2f546",
+  "registrationId" : "section:lusk:c7d280f745becdc46d73ddb425397f29816544c64fc7339f7fc405e737a2f546:3dd5d65fcea3b948eec542034bb6d66a2b52d8d215d1d57bd6e580496bcfb8bc:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 65,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecAdventureComponent",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply (place:can place on|can break) [adventure] predicate to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:47335cd6e3e0682cdcb236ecbf56d84c9b3d131b2a6d206710c336256714c9a1",
+  "registrationId" : "section:skbee:47335cd6e3e0682cdcb236ecbf56d84c9b3d131b2a6d206710c336256714c9a1:9a3776e8afc57a2173f0a4ef3cc029bf166e5af67d11c9fa589e08bf34005bac:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 66,
+  "elementClass" : "com.shanebeestudios.skbee.elements.switchcase.sections.SecSwitch",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "switch %object%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:9dbea2be6f1a79704cb716d712d37a4b0f6685806b21ddbb3dc83799fda350ad",
+  "registrationId" : "section:skbee:9dbea2be6f1a79704cb716d712d37a4b0f6685806b21ddbb3dc83799fda350ad:552f05f2351a010bdfd140fd3553f1390e7426f37598c4c6ae54b718ba2504d5:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 67,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecDeathProtectionComponent",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply death protection [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:7d172de42819e8300c18f43ae7ca7b143766c4a30020672d5196c255665fb65d",
+  "registrationId" : "section:skbee:7d172de42819e8300c18f43ae7ca7b143766c4a30020672d5196c255665fb65d:2346324e46a4c6558e07713024f8519ea7944ba854505ec33511ab64184fe31e:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 68,
+  "elementClass" : "com.shanebeestudios.skbee.elements.itemcomponent.sections.SecKineticWeaponComponent",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "apply kinetic weapon [component] to %itemstacks/itemtypes/slots%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:095bbf1b88bbcd6bb0b85182ee1fd66afb2ae47b15224addb3456aeca854004a",
+  "registrationId" : "section:skbee:095bbf1b88bbcd6bb0b85182ee1fd66afb2ae47b15224addb3456aeca854004a:2fe571402f98e80cab4827ec75ad6b7de20fa926a90bc2a8f52f5a0f18a93a65:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 69,
+  "elementClass" : "com.btk5h.skriptmirror.skript.reflect.sections.SecSection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "create [new] section [with [arguments variables] %-objects%] (and store it|stored) in %objects%" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "section:skript-reflect:37090a9b360354d4e94dc6efc9efeefefb6503d322ed6058dced2e4e19f4718c",
+  "registrationId" : "section:skript-reflect:37090a9b360354d4e94dc6efc9efeefefb6503d322ed6058dced2e4e19f4718c:1b4940863d8f5bdcf0349fa87e7c336645062ecd16e660fdbb290d1629cfd1fa:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 70,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecTransferCookieRetrieve",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "retrieve cookie with key %namespacedkey/string% [from %player/playerconnection%]" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:5051e61e5f04f3eb0ec5a06528ccf0bac3d7be4756d3a98eca2bc29b1fa6d92c",
+  "registrationId" : "section:skbee:5051e61e5f04f3eb0ec5a06528ccf0bac3d7be4756d3a98eca2bc29b1fa6d92c:dc3d0f171880e9db209addf20d6692baaf7e3424a139ec4b1427a73660fb93da:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 71,
+  "elementClass" : "com.shanebeestudios.skbee.elements.bound.sections.EffSecBoundCopy",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "create [a] copy of [bound] %bound% (with|using) [the] id %string%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:a17dff2c58597dac16f458b23be1646b5e6415ebdde94dd8249ed1cf509f9bea",
+  "registrationId" : "section:skbee:a17dff2c58597dac16f458b23be1646b5e6415ebdde94dd8249ed1cf509f9bea:b94c02e6a1f36cb9127e2be4d36313d532e888097eab5d8f9debedcc2845c36f:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 72,
+  "elementClass" : "com.shanebeestudios.skbee.elements.text.sections.SecClickEventCallback",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "create [a] [new] [click event] callback for %textcomp% [with %-number% use[s]] [[and] with [a] (lifetime|duration) of %-timespan%]" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:ee8490403c7326ff1da7a987cb3c7a71c395f1362ecfb616579cab0e64fe9697",
+  "registrationId" : "section:skbee:ee8490403c7326ff1da7a987cb3c7a71c395f1362ecfb616579cab0e64fe9697:997793bd6937c14c6f8c6cdd491770a39cec0e05aba63df6c93756effce8d389:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 73,
+  "elementClass" : "com.shanebeestudios.skbee.elements.structure.sections.SecStructureLocate",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "locate [:unexplored] structure %structure/structuretype% (within|in) radius %number% (around|of) %location%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:852b3636a41324429b1b8f281975d97f9cccfc2c6e2168ee8a728179bc6c6197",
+  "registrationId" : "section:skbee:852b3636a41324429b1b8f281975d97f9cccfc2c6e2168ee8a728179bc6c6197:934c99ac43e132e84129d81042cb590d309c5e546da62bc4946e82205ad73515:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 74,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecLocateBiome",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "locate biome %biomes/tagkeys% (within|in) radius %number% (around|of) %location%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:ba9dd0f96333bbaa7d3a57a6ec00c8ded7d67efab09565a5221b19bf7cea6e6b",
+  "registrationId" : "section:skbee:ba9dd0f96333bbaa7d3a57a6ec00c8ded7d67efab09565a5221b19bf7cea6e6b:6e3df6ff1762ac2f959be1252b2fe0bdefdc8cc7cf78ca36f4700a75bdf1b523:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 75,
+  "elementClass" : "com.shanebeestudios.skbee.elements.bound.sections.EffSecBoundCreate",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "create [a] [new] [:temporary] [:full] bound with id %string% (within|between) %block/location% and %block/location%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:9c1fcf33850799944834253ddaed8d01b719aa67e787afad53410daababf8ddc",
+  "registrationId" : "section:skbee:9c1fcf33850799944834253ddaed8d01b719aa67e787afad53410daababf8ddc:7cdbd727fa2d09256bf29768a9a6c2b9ceb08bb143faeef7f037a5e550d5c4f7:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 76,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecRunTaskLater",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:async] (run|execute) [task] %timespan% later [repeating every %-timespan%] [globally] [and store [task] id in %-object%]", "[:async] (run|execute) [task] %timespan% later [repeating every %-timespan%] [(at|on|for) %-entity/location%] [and store [task] id in %-object%]" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:647c9e554cb5449552aa1e139d3d03de1ffbe055853b90bb1424dbbc2a85a36b",
+  "registrationId" : "section:skbee:647c9e554cb5449552aa1e139d3d03de1ffbe055853b90bb1424dbbc2a85a36b:748b8e73bcfc2e514cca77c8091595f24533f760df15ad56fecf7e70a64c63c5:0",
+  "loopSection" : true,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 77,
+  "name" : "Method",
+  "elementClass" : "me.pesekjak.hippo.elements.sections.SecMethod",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Adds new method to the custom class." ],
+  "examples" : [ "public class Blob:", "\tpublic void run(@Nullable String value):", "\t\tbroadcast \"Hello %{_value}%!\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[override] %*modifiers% %*parameter%\\([%-*parameters%(0¦|1¦\\.\\.\\.)]\\) [throws %-javatypes%]" ],
+  "addon" : {
+    "name" : "Hippo",
+    "version" : "1.3.1"
+  },
+  "definitionId" : "section:hippo:472975b5077c5bf5bdbe0763fe1d819b3aa58d4e268ba8336a65e8c8451b35ea",
+  "registrationId" : "section:hippo:472975b5077c5bf5bdbe0763fe1d819b3aa58d4e268ba8336a65e8c8451b35ea:066ca93456f59e8d9a366608be89a815856de84084cb7d681bcfdc6a73fb728e:0",
+  "returnHandler" : {
+    "returnValueType" : "java.lang.Object",
+    "singleReturnValue" : true
+  },
+  "returnHandlerState" : "resolved",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 78,
+  "name" : "Constructor",
+  "elementClass" : "me.pesekjak.hippo.elements.sections.SecConstructor",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Adds new constructor to the custom class." ],
+  "examples" : [ "public class Blob:", "\tprivate String name", "\tpublic Blob(String name):", "\t\tsuper[]()", "\t\tset this.name to {_name}" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "%*modifiers% %javatype%\\([%-*parameters%(0¦|1¦\\.\\.\\.)]\\) [throws %-javatypes%]" ],
+  "addon" : {
+    "name" : "Hippo",
+    "version" : "1.3.1"
+  },
+  "definitionId" : "section:hippo:183021ae9e1ce510a7a7cb656f9ea8a3ff7166e17672b35cded16ccebf42dba7",
+  "registrationId" : "section:hippo:183021ae9e1ce510a7a7cb656f9ea8a3ff7166e17672b35cded16ccebf42dba7:7ced664a84414e781a647fc2310af8c78908e7bd9a825f05fa3725de1467e04e:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 79,
+  "name" : "Conditionals",
+  "elementClass" : "ch.njol.skript.sections.SecConditional",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0" ],
+  "description" : [ "Conditional sections", "if: executed when its condition is true", "else if: executed if all previous chained conditionals weren't executed, and its condition is true", "else: executed if all previous chained conditionals weren't executed", "", "parse if: a special case of 'if' condition that its code will not be parsed if the condition is not true", "else parse if: another special case of 'else if' condition that its code will not be parsed if all previous chained conditionals weren't executed, and its condition is true" ],
+  "examples" : [ "if player's health is greater than or equal to 4:\n\tsend \"Your health is okay so far but be careful!\"\nelse if player's health is greater than 2:\n\tsend \"You need to heal ASAP, your health is very low!\"\nelse: # Less than 2 hearts\n\tsend \"You are about to DIE if you don't heal NOW. You have only %player's health% heart(s)!\"\n", "parse if plugin \"SomePluginName\" is enabled: # parse if %condition%\n\t# This code will only be executed if the condition used is met otherwise Skript will not parse this section therefore will not give any errors/info about this section\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "else", "else [:parse] if <.+>", "else [:parse] if (:any|any:at least one [of])", "else [:parse] if [all]", "[:parse] if (:any|any:at least one [of])", "[:parse] if [all]", "[:parse] if <.+>", "then [run]", "implicit:<.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa",
+  "registrationId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa:d8ea5b6b1c41f086057801ab505002e1b82221956a9330bc7a47ba79df0bea06:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 80,
+  "name" : "While Loop",
+  "elementClass" : "ch.njol.skript.sections.SecWhile",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "since" : [ "2.0, 2.6 (do while)" ],
+  "description" : [ "While Loop sections are loops that will just keep repeating as long as a condition is met." ],
+  "examples" : [ "while size of all players < 5:\n\tsend \"More players are needed to begin the adventure\" to all players\n\twait 5 seconds\n", "set {_counter} to 1\ndo while {_counter} > 1: # false but will increase {_counter} by 1 then get out\n\tadd 1 to {_counter}\n", "# Be careful when using while loops with conditions that are almost\n# always true for a long time without using 'wait %timespan%' inside it,\n# otherwise it will probably hang and crash your server.\nwhile player is online:\n\tgive player 1 dirt\n\twait 1 second # without using a delay effect the server will crash\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:do] while <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b",
+  "registrationId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b:79f586e2f8236fbee6a6346e06f46dede2cd69e4f866924a98c2208ee6e2af97:0",
+  "loopSection" : true,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 81,
+  "name" : "Spawn",
+  "elementClass" : "ch.njol.skript.sections.EffSecSpawn",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "since" : [ "1.0, 2.6.1 (with section), 2.8.6 (dropped items), 2.10 (entity snapshots)" ],
+  "description" : [ "Spawns entities. This can be used as an effect and as a section.", "", "If it is used as a section, the section is run before the entity is added to the world.", "You can modify the entity in this section, using for example 'event-entity' or 'cow'. ", "Do note that other event values, such as 'player', won't work in this section.", "", "If you're spawning a display and want it to be empty on initialization, like not having a block display be stone, set hidden config node 'spawn empty displays' to true.", "", "Note that when spawning an entity via entity snapshots, the code within the section will not run instantaneously as compared to spawning normally (via 'a zombie')." ],
+  "examples" : [ "spawn 3 creepers at the targeted block", "spawn a ghast 5 meters above the player", "spawn a zombie at the player:\n\tset name of the zombie to \"\"\n", "spawn a block display of a ladder[waterlogged=true] at location above player:\n\tset billboard of event-display to center # allows the display to rotate around the center axis\n" ],
+  "requires" : [ "Minecraft 1.20.2+ (entity snapshots)" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "(spawn|summon) %entitytypes/entitysnapshots% [%directions% %locations%]", "(spawn|summon) %number% of %entitytypes/entitysnapshots% [%directions% %locations%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba",
+  "registrationId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba:127e7e5530239704cddf5f21d3a98814ec0f7ce55acef0432c6dd041542f438c:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 82,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecWhileRunnable",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:async] while <.+> repeating every %timespan% [globally]", "while <.+> repeating every %timespan% [(at|on|for) %-entity/location%]" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:788abfa3d36fb05c9f8c4f82943b43a4af4f64667f28256b2743ea9246d85582",
+  "registrationId" : "section:skbee:788abfa3d36fb05c9f8c4f82943b43a4af4f64667f28256b2743ea9246d85582:bf655d39c1f1c581fe8a1539ff8133768d92971ef361de43d7f9be9c2e0abadb:0",
+  "loopSection" : true,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 83,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.sections.SecSpawnMinecraftEntity",
+  "superClass" : "com.shanebeestudios.skbee.api.skript.base.EffectSection",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "(minecraft|mc|skbee|le) spawn [%number% of] %minecraftentitytypes/namespacedkeys/strings% [%directions% %locations%]" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "section:skbee:d5e83af1e675fb0a0b3cade921e17d1adc2839dbb6572c16d73589d4fc40d2df",
+  "registrationId" : "section:skbee:d5e83af1e675fb0a0b3cade921e17d1adc2839dbb6572c16d73589d4fc40d2df:bc15bf4571f56d5133053a9ab3fe59663a479352ea2a065d6c61e139645af468:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 84,
+  "name" : "Draw Shape Animation",
+  "elementClass" : "com.sovdee.skriptparticles.elements.sections.EffSecDrawShapeAnimation",
+  "superClass" : "com.sovdee.skriptparticles.elements.sections.DrawShapeEffectSection",
+  "since" : [ "1.2.0" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "draw [an] (animation [of] [the]|animated) shape[s] [of] %shapes% [%-directions% %-locations/entities%] [to %-players%] over %timespan%" ],
+  "addon" : {
+    "name" : "skript-particle",
+    "version" : "1.4.1"
+  },
+  "definitionId" : "section:skript-particle:1df4fef99bc5fe9683b7c2d990d1f4b86b2a1369e75029d3a673767601387104",
+  "registrationId" : "section:skript-particle:1df4fef99bc5fe9683b7c2d990d1f4b86b2a1369e75029d3a673767601387104:0e2d188dc32d0101463c27848aa9ce0137b573af82b841a7b0b1b85335951470:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 85,
+  "name" : "Draw Shape",
+  "elementClass" : "com.sovdee.skriptparticles.elements.sections.EffSecDrawShape",
+  "superClass" : "com.sovdee.skriptparticles.elements.sections.DrawShapeEffectSection",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Draws the given shapes at the given locations. The shapes will be drawn in the order they are given.", "The code inside the draw shape section will be executed before drawing begins. You can use `event-shape` or `drawn shape` to get the shape being drawn. Modifying this shape affects the end result, but it does not modify the original shape! This means you can set particle data, or change the shape's location, rotation, or scale, without affecting the shape the next time it's drawn.", "**Note that this means the section is run once for each shape!** This is the same way the spawn section works in Skript. This is subject to change if people find it cumbersome.", "", "By default, this effect will run asynchronously, meaning it will do all the calculation and drawing on a separate thread, instead of blocking your server's main thread. This is much better if you want to draw a lot of shapes at once, or if you want to draw large and complex shapes.", "Be aware that this changes the behavior of the section slightly. All the section code will first be executed synchronously, and then the drawing will be done asynchronously. This means that the time the shape appears may be slightly delayed compared to the completion of the section code.", "Additionally, the code immediately after the draw shape section will be executed immediately, often before the drawing is finished. If you stumble across issues with this, please report them on the Skript-Particles GitHub page and use the synchronous option instead.", "", "Drawing a shape for a duration is async only." ],
+  "examples" : [ "draw the shape (sphere with radius 1) at player's location", "draw the shapes of (a sphere with radius 1 and a cube with radius 1) at player's location for (all players in radius 10 of player)", "synchronously draw the shape of a sphere with radius 1 at player's location", "", "draw the shape {_shape} at player's location:", "\tset event-shape's particle to red dust", "", "synchronously draw shape (a sphere with radius 1 and a cube with radius 1) at player's location:", "\tset event-shape's radius to 2" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[sync:sync[hronously]] draw [the] shape[s] [of] %shapes% [%-directions% %-locations/entities%] [to %-players%]", "draw [the] shape[s] [of] %shapes% [%-directions% %-locations/entities%] [to %-players%] (duration:for) [duration] %timespan% [with (delay|refresh [rate]) [of] %-timespan%]" ],
+  "addon" : {
+    "name" : "skript-particle",
+    "version" : "1.4.1"
+  },
+  "definitionId" : "section:skript-particle:9c42aa78ee4e1702b5c92679281fbc2898b91b68addb459a0fede5140111506e",
+  "registrationId" : "section:skript-particle:9c42aa78ee4e1702b5c92679281fbc2898b91b68addb459a0fede5140111506e:78cb1cc24e9ed4a0366bc8145e55137042460189f452939ecee7497f5121369d:0",
+  "loopSection" : false,
+  "effectSection" : true
+} ]
