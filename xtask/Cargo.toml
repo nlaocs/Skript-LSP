@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+wit-component = "=0.253.0"
+wit-parser = { version = "=0.253.0", default-features = false, features = ["std"] }

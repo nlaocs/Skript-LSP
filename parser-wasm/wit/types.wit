@@ -71,6 +71,7 @@ interface types {
 
     record component-manifest {
         component-id: string,
+        component-version: string,
         abi: abi-version,
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
