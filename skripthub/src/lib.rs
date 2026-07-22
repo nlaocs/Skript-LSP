@@ -1,3 +1,8 @@
+/// Legacy parser for the flattened function strings returned by SkriptHub.
+///
+/// SSG consumers should use the structured `syntaxes::Function` model instead.
+pub mod function_pattern;
+
 pub mod addon_syntax_list;
 pub mod api;
 #[cfg(test)]
