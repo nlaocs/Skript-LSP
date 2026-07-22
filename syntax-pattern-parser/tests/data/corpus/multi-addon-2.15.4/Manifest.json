@@ -1,0 +1,129 @@
+{
+  "schemaVersion" : 3,
+  "snapshotId" : "c0b089bba0b3ece13d2be50c9b6293bbd4f48153a346cff0a4fa75b765c6b5cc",
+  "contentDigest" : "ac816781dc27efd440de28c27301049435a2e08ce3ba34daa0ffe226d9767017",
+  "generatedAt" : "2026-07-22T08:23:25.727157200Z",
+  "server" : {
+    "name" : "Paper",
+    "version" : "1.21.11-132-c5eb079 (MC: 1.21.11)",
+    "bukkitVersion" : "1.21.11-R0.1-SNAPSHOT",
+    "minecraftVersion" : "1.21.11",
+    "javaVersion" : "21.0.3"
+  },
+  "language" : "english",
+  "plugins" : [ {
+    "loadOrder" : 0,
+    "name" : "SkriptSyntaxGenerator",
+    "version" : "1.0",
+    "main" : "jp.nlaocs.skriptSyntaxGenerator.SkriptSyntaxGenerator",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ ],
+    "loadBefore" : [ "Skript" ],
+    "jarSha256" : "de9c085761370760ead0ff09daa09ef29ac653954609e1a54f7e01b909c64d46"
+  }, {
+    "loadOrder" : 1,
+    "name" : "Skript",
+    "version" : "2.15.4",
+    "main" : "ch.njol.skript.Skript",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ "SQLibrary", "Vault", "WorldGuard", "Residence", "PreciousStones", "GriefPrevention" ],
+    "loadBefore" : [ ],
+    "jarSha256" : "277393a965e164e854f5280aa1c30ce92e69b3fab4df5063711743f9d7847327"
+  }, {
+    "loadOrder" : 2,
+    "name" : "SkJson",
+    "version" : "5.6.0",
+    "main" : "cz.coffeerequired.SkJson",
+    "enabled" : true,
+    "depend" : [ "Skript" ],
+    "softDepend" : [ ],
+    "loadBefore" : [ "skript-reflect", "SkBee" ],
+    "jarSha256" : "031f7e7afd0f153ab401ed71864b38eabde35f96610343f04c6793dae653e224"
+  }, {
+    "loadOrder" : 3,
+    "name" : "skript-reflect",
+    "version" : "2.6.3",
+    "main" : "com.btk5h.skriptmirror.SkriptMirror",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ "Skript" ],
+    "loadBefore" : [ "skript-mirror" ],
+    "jarSha256" : "fb18cf678b0483baedd4acc42b4b91b9dd4c50f9fe04f838514d046edb89ec5f"
+  }, {
+    "loadOrder" : 4,
+    "name" : "SkBee",
+    "version" : "3.25.2",
+    "main" : "com.shanebeestudios.skbee.SkBee",
+    "enabled" : true,
+    "depend" : [ "Skript" ],
+    "softDepend" : [ "SkQuery" ],
+    "loadBefore" : [ "SkQuery" ],
+    "jarSha256" : "1cecae21e4f16ba3f875ee1d2e7aa892589e31f2cea864072bcfbd922066bbc3"
+  }, {
+    "loadOrder" : 5,
+    "name" : "Lusk",
+    "version" : "1.3.14",
+    "main" : "it.jakegblp.lusk.Lusk",
+    "enabled" : true,
+    "depend" : [ "Skript" ],
+    "softDepend" : [ "ViaVersion" ],
+    "loadBefore" : [ ],
+    "jarSha256" : "27cc11b5cdd268c1a48ff7302f4987290e431dc07c446f75875b1a45d01b604b"
+  }, {
+    "loadOrder" : 6,
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0",
+    "main" : "jp.nlaocs.skriptDummyAddon.SkriptDummyAddon",
+    "enabled" : true,
+    "depend" : [ "Skript" ],
+    "softDepend" : [ ],
+    "loadBefore" : [ ],
+    "jarSha256" : "56e280d3259360411060f05c3b9f44dbad613fc26cd36282f672e8b65f97e252"
+  }, {
+    "loadOrder" : 7,
+    "name" : "Hippo",
+    "version" : "1.3.1",
+    "main" : "me.pesekjak.hippo.Hippo",
+    "enabled" : true,
+    "depend" : [ "Skript", "skript-reflect" ],
+    "softDepend" : [ ],
+    "loadBefore" : [ ],
+    "jarSha256" : "c6ff5d0d967a771aa0ecb36b0e0031f1bd115b26a053b511df9ad757fb23a229"
+  }, {
+    "loadOrder" : 8,
+    "name" : "skript-particle",
+    "version" : "1.4.1",
+    "main" : "com.sovdee.skriptparticles.SkriptParticle",
+    "enabled" : true,
+    "depend" : [ "Skript" ],
+    "softDepend" : [ "SkBee" ],
+    "loadBefore" : [ ],
+    "jarSha256" : "a96f21c8c52514472c079e25fdb4da62b81761b5fcd594ac098fbde5c2ab5952"
+  } ],
+  "capabilities" : {
+    "syntaxApi" : "registry",
+    "eventValueApi" : "modern-2.16",
+    "syntaxKinds" : {
+      "conditions" : true,
+      "effects" : true,
+      "events" : true,
+      "expressions" : true,
+      "types" : true,
+      "functions" : true,
+      "sections" : true,
+      "structures" : true,
+      "properties" : true,
+      "arithmetic" : true,
+      "converters" : true,
+      "comparators" : true,
+      "eventValues" : true
+    },
+    "aliases" : {
+      "supported" : true,
+      "collected" : true
+    }
+  },
+  "files" : [ "Aliases.json", "ClassHierarchy.json", "Comparators.json", "Conditions.json", "Converters.json", "Differences.json", "Effects.json", "EventValues.json", "Events.json", "Expressions.json", "Functions.json", "Manifest.json", "Operations.json", "Operators.json", "PluralRules.json", "Properties.json", "Sections.json", "Structures.json", "Types.json" ]
+}

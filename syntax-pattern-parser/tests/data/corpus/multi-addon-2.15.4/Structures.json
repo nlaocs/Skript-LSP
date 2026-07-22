@@ -1,0 +1,1040 @@
+[ {
+  "kind" : "structure",
+  "registrationOrder" : 0,
+  "name" : "Dummy Rich Structure",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RichStructure",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A direct registry Structure with a rich EntryValidator and BOTH node type." ],
+  "examples" : [ "dummy rich structure \"example\":" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "CUSTOM",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ]
+  },
+  "patterns" : [ "dummy rich structure %string%" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "structure:skriptdummyaddon:1696fe2c2cfc87dee77edcd1e1949f331bab7db6c77e10a275720e9846dcab9f",
+  "registrationId" : "structure:skriptdummyaddon:1696fe2c2cfc87dee77edcd1e1949f331bab7db6c77e10a275720e9846dcab9f:e7195754641b5e81aba75944d3ffec65f7bd668a4519fd76d983258cfce053a5:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "required text",
+      "defaultValue" : "%string%",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "optional number",
+      "defaultValue" : "%number%",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "fixture trigger",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "BOTH"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 1,
+  "name" : "Auto Reload",
+  "elementClass" : "ch.njol.skript.structures.StructAutoReload",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.13" ],
+  "description" : [ "Place at the top of a script file to enable and configure automatic reloading of the script.\nWhen the script is saved, Skript will automatically reload the script.\nThe config.sk node 'script loader thread size' must be set to a positive number (async or parallel loading) for this to be enabled.\n\navailable optional nodes:\n\trecipients: The players to send reload messages to. Defaults to console.\n\tpermission: The permission required to receive reload messages. 'recipients' will override this node.\n" ],
+  "examples" : [ "auto reload", "auto reload:\n\trecipients: \"SkriptDev\",  \"61699b2e-d327-4a01-9f1e-0ea8c3f06bc6\" and \"Njol\"\n\tpermission: \"skript.reloadnotify\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "auto[matically] reload [(this|the) script]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:39067c4f07d963ef43e21282d87d36ced4a63f888b252f3bf359e0919e7bc90b",
+  "registrationId" : "structure:skript:39067c4f07d963ef43e21282d87d36ced4a63f888b252f3bf359e0919e7bc90b:dda68284109c303037a27f4d42fcab9f1f50fa4591d0bdb7376f37f9d62b633d:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "recipients",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.ExpressionEntryData",
+      "kind" : "expression",
+      "separator" : ": ",
+      "returnTypes" : [ "java.lang.String" ],
+      "flags" : 1
+    }, {
+      "key" : "permission",
+      "defaultValue" : "skript.reloadnotify",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    } ]
+  },
+  "nodeType" : "BOTH"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 2,
+  "name" : "Options",
+  "elementClass" : "ch.njol.skript.structures.StructOptions",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Options are used for replacing parts of a script with something else.", "For example, an option may represent a message that appears in multiple locations.", "Take a look at the example below that showcases this." ],
+  "examples" : [ "options:\n\tno_permission: You're missing the required permission to execute this command!\n\ncommand /ping:\n\tpermission: command.ping\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Pong!\"\n\ncommand /pong:\n\tpermission: command.pong\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Ping!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "options" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663",
+  "registrationId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663:8febdc11be7e8a66254680a5e962dce7291b6acf46864eb28a5b6f39f8cf617a:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 3,
+  "name" : "Aliases",
+  "elementClass" : "ch.njol.skript.structures.StructAliases",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for registering custom aliases for a script." ],
+  "examples" : [ "# Example aliases for a script\naliases:\n\tblacklisted items = TNT, bedrock, obsidian, mob spawner, lava, lava bucket\n\tshiny swords = golden sword, iron sword, diamond sword\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "aliases" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6",
+  "registrationId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6:d27befae1833f953492fb4330f547acf9b0d4f287b9df57aa1e068a7e0802aa7:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 4,
+  "name" : "Example",
+  "elementClass" : "ch.njol.skript.structures.StructExample",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.10" ],
+  "description" : [ "Examples are structures that are parsed, but will never be run.", "They are used as miniature tutorials for demonstrating code snippets in the example files.", "Scripts containing an example are seen as 'examples' by the parser and may have special safety restrictions." ],
+  "examples" : [ "example:\n\tbroadcast \"hello world\"\n\t# this is never run\n" ],
+  "noDoc" : true,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "example" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:15456ab3b8a29d50a1916a5880078b12bd9cfc444f664b0a95b7f6f611b9ede8",
+  "registrationId" : "structure:skript:15456ab3b8a29d50a1916a5880078b12bd9cfc444f664b0a95b7f6f611b9ede8:e6bd9275a98203216eb54d044c936ca1b57fb0f0169dc40cf9b989c10306548b:0",
+  "experimentalSyntax" : {
+    "required" : [ {
+      "codeName" : "examples",
+      "phase" : "stable",
+      "known" : true
+    } ],
+    "disallowed" : [ ],
+    "errorMessage" : "This element is experimental. To use this, enable 'examples'."
+  },
+  "experimentalSyntaxState" : "resolved",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 5,
+  "name" : "Variables",
+  "elementClass" : "ch.njol.skript.structures.StructVariables",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for defining variables present within a script.", "This section is not required, but it ensures that a variable has a value if it doesn't exist when the script is loaded." ],
+  "examples" : [ "variables:\n\t{joins} = 0\n\t{balance::%player%} = 0\n", "on join:\n\tadd 1 to {joins}\n\tmessage \"Your balance is %{balance::%player%}%\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "variables" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc",
+  "registrationId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc:cac23aa7e42206dbf43cf9b8bcff82371e847d4c8f47378f3673bc56d15b5b7d:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 6,
+  "elementClass" : "com.shanebeestudios.skbee.elements.other.structures.StructTagAliases",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:global|local] [(:block|item)] tag aliases" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "structure:skbee:8cc118cef3e9968b967263c5ff1a99e0e33e5f473db2760ce359d19a9c8524cd",
+  "registrationId" : "structure:skbee:8cc118cef3e9968b967263c5ff1a99e0e33e5f473db2760ce359d19a9c8524cd:95cf9837068269f41b2162acb386374a44a3c2703c6ae80bf598c757088fdf91:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 7,
+  "name" : "Pre-Import",
+  "elementClass" : "me.pesekjak.hippo.elements.structures.StructPreImport",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Pre-imports new classes to the script." ],
+  "examples" : [ "pre-import:", "\thippo.Blob", "\tjava.lang.RuntimeException as RTE" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "pre[-]import" ],
+  "addon" : {
+    "name" : "Hippo",
+    "version" : "1.3.1"
+  },
+  "definitionId" : "structure:hippo:3dafc3a6978dcd62446d798116cdbc15fd0d98e96fa6d1d990ae922bf6971b70",
+  "registrationId" : "structure:hippo:3dafc3a6978dcd62446d798116cdbc15fd0d98e96fa6d1d990ae922bf6971b70:b7d8fef1e9c1004e85eecb6a0e762d47808d208cb47f12bf7dd53430bfe9e110:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 8,
+  "elementClass" : "org.skriptlang.reflect.java.elements.structures.StructImport",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "import" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "structure:skript-reflect:feb541b98d0845a1f525b4aeedd6e22797f41f9f6e08a85456b929e2d65f06db",
+  "registrationId" : "structure:skript-reflect:feb541b98d0845a1f525b4aeedd6e22797f41f9f6e08a85456b929e2d65f06db:139206a59da429c1cb09729b4fffefd22629ce26fb4ef382b711b661bce0de07:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 9,
+  "elementClass" : "com.shanebeestudios.skbee.elements.worldgen.structures.StructChunkGen",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "register chunk generator with id %string%" ],
+  "addon" : {
+    "name" : "SkBee",
+    "version" : "3.25.2"
+  },
+  "definitionId" : "structure:skbee:83c19ffb6ea0e988059d089285317bcfd5b14482d4e25a2fadb9dd486926da7a",
+  "registrationId" : "structure:skbee:83c19ffb6ea0e988059d089285317bcfd5b14482d4e25a2fadb9dd486926da7a:05065687304420f2c8aeb93d08ea395cb9ab8ac4a8532902ade0b28b2db41ad8:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "vanilla decor",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.ExpressionEntryData",
+      "kind" : "expression",
+      "separator" : ": ",
+      "returnTypes" : [ "java.lang.Boolean" ],
+      "flags" : 3
+    }, {
+      "key" : "vanilla caves",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.ExpressionEntryData",
+      "kind" : "expression",
+      "separator" : ": ",
+      "returnTypes" : [ "java.lang.Boolean" ],
+      "flags" : 3
+    }, {
+      "key" : "vanilla structures",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.ExpressionEntryData",
+      "kind" : "expression",
+      "separator" : ": ",
+      "returnTypes" : [ "java.lang.Boolean" ],
+      "flags" : 3
+    }, {
+      "key" : "vanilla mobs",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.ExpressionEntryData",
+      "kind" : "expression",
+      "separator" : ": ",
+      "returnTypes" : [ "java.lang.Boolean" ],
+      "flags" : 3
+    }, {
+      "key" : "noise gen",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "surface gen",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "chunk gen",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "cave gen",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "biome gen",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "height gen",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "block pop",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 10,
+  "name" : "Dummy Classic Structure",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.structure.StructureFixtures$ClassicStructure",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A Structure with an EntryValidator, available from Skript 2.7." ],
+  "examples" : [ "dummy classic structure \"example\":", "    fixture value: hello" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy classic structure %string%" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "structure:skriptdummyaddon:69f66e4d1667ce3564d8ca4bfc1ebcda21ee458756e302d9171b4dff4481c148",
+  "registrationId" : "structure:skriptdummyaddon:69f66e4d1667ce3564d8ca4bfc1ebcda21ee458756e302d9171b4dff4481c148:ab3f41946ab23cc7210cca44a0bd20b72ee5d683c09f0c3824fe169b4d4068b8:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "fixture value",
+      "defaultValue" : "%string%",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "fixture code",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 11,
+  "elementClass" : "org.skriptlang.reflect.syntax.event.elements.StructCustomEvent",
+  "superClass" : "org.skriptlang.reflect.syntax.CustomSyntaxStructure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:local] [custom] event %string%" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "structure:skript-reflect:7d09b8611a7933b01b6ce70ba71eafdf7883d66e913ab9ab40468ea67f02589c",
+  "registrationId" : "structure:skript-reflect:7d09b8611a7933b01b6ce70ba71eafdf7883d66e913ab9ab40468ea67f02589c:da6083b837b6a3374c2e87ac04126f4b2583ff1da187614850cc6dbede87357d:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "patterns",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.PatternsEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "safe parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "usable in",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "pattern",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "event values",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.event.elements.StructCustomEvent$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "check",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 12,
+  "name" : "Class Annotations",
+  "elementClass" : "me.pesekjak.hippo.elements.structures.StructClassAnnotations",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Adds annotations to custom classes." ],
+  "examples" : [ "@HelloWorld(value = true)", "public class Blob:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "%annotations%" ],
+  "addon" : {
+    "name" : "Hippo",
+    "version" : "1.3.1"
+  },
+  "definitionId" : "structure:hippo:351e9899e16e9fc8035f101a0c247c81cbaf7bcd0d27d8cd8f39a38f29178ec4",
+  "registrationId" : "structure:hippo:351e9899e16e9fc8035f101a0c247c81cbaf7bcd0d27d8cd8f39a38f29178ec4:03e4542923874dff632ffdccd7628a3695468d9ea84628e6a908363576e3f113:0",
+  "nodeType" : "SIMPLE"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 13,
+  "name" : "New Class",
+  "elementClass" : "me.pesekjak.hippo.elements.structures.StructNewClass",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Creates new java class." ],
+  "examples" : [ "public class Blob:", "public interface Elephant implements Animal:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "%modifiers% (:class|:interface|:enum) %preimport% [extends %-preimport/javatype%] [implements %-preimports/javatypes%]" ],
+  "addon" : {
+    "name" : "Hippo",
+    "version" : "1.3.1"
+  },
+  "definitionId" : "structure:hippo:38ad1ad2d2f63089bcfb15755bb813295ff353fabefaa17644b3f575e27f74d9",
+  "registrationId" : "structure:hippo:38ad1ad2d2f63089bcfb15755bb813295ff353fabefaa17644b3f575e27f74d9:d50b860cee1e3d686e62958f291578616eb5d91160cd4212caff72da67764e72:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 14,
+  "name" : "Event",
+  "elementClass" : "ch.njol.skript.structures.StructEvent",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0", "2.6 (per-event priority)", "2.9 (listening to cancellable events)" ],
+  "description" : [ "The structure used for listening to events.\n\nOptionally allows specifying whether to listen to events that have been cancelled, and allows specifying with which priority to listen to events. Events are called in the following order of priorities.\n\n```\nlowest -> low -> normal -> high -> highest -> monitor\n```\n\nModifying event-values or cancelling events is not supported when using the 'monitor' priority. It should only be used for monitoring the outcome of an event.\n" ],
+  "examples" : [ "on load:\n\tbroadcast \"loading!\"\n", "on join:\n\tif {first-join::%player's uuid%} is not set:\n\t\tset {first-join::%player's uuid%} to now\n", "cancelled block break:\n\tsend \"<red>You can't break that here\" to player\n", "on join with priority lowest:\n\t# called first\n\non join:\n\t# called second\n\non join with priority highest:\n\t# called last\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[on] [:uncancelled|:cancelled|any:(any|all)] <.+> [priority:with priority (:(lowest|low|normal|high|highest|monitor))]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:3b4e047746082c6e758fb79207b7aa56b94b93eef3d4bf71203f9ee938716fa0",
+  "registrationId" : "structure:skript:3b4e047746082c6e758fb79207b7aa56b94b93eef3d4bf71203f9ee938716fa0:37abe1db154d81ebb12d511ca45d84a2dc4ba60fadcc3e1fa3ac56647639b056:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 15,
+  "name" : "Using Experimental Feature",
+  "elementClass" : "ch.njol.skript.structures.StructUsing",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.9.0" ],
+  "description" : [ "Place at the top of a script file to enable an optional experimental feature.", "Experimental features may change behavior in Skript and may contain bugs. Use at your own discretion.", "A list of the available experimental features can be found in the changelog for your version of Skript." ],
+  "examples" : [ "using 1.21", "using the experiment my-cool-addon-feature" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "using [[the] experiment] <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:a81d438607221912e46432533531e3fbdaae34e539def1a8e0ce0451eb86ac54",
+  "registrationId" : "structure:skript:a81d438607221912e46432533531e3fbdaae34e539def1a8e0ce0451eb86ac54:bf7d9f51e7f7ed3b0de2a3fc169dbfc8aa5bbf86c98c037f8bfb571ede5426b0:0",
+  "nodeType" : "SIMPLE"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 16,
+  "name" : "Command",
+  "elementClass" : "ch.njol.skript.structures.StructCommand",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for registering custom commands." ],
+  "examples" : [ "command /broadcast <string>:\n\tusage: A command for broadcasting a message to all players.\n\tpermission: skript.command.broadcast\n\tpermission message: You don't have permission to broadcast messages\n\taliases: /bc\n\texecutable by: players and console\n\tcooldown: 15 seconds\n\tcooldown message: You last broadcast a message %elapsed time% ago. You can broadcast another message in %remaining time%.\n\tcooldown bypass: skript.command.broadcast.admin\n\tcooldown storage: {cooldown::%player%}\n\ttrigger:\n\t\tbroadcast the argument\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "command <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:968829060b381976826e2512e553af8c9c2684217c4ce4bb900f618b37cdcf08",
+  "registrationId" : "structure:skript:968829060b381976826e2512e553af8c9c2684217c4ce4bb900f618b37cdcf08:7c753b7ad3a1c00c1fbbeaa5549b97d0f156590ebb6ee488ebebb7287ccf738e:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "usage",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.VariableStringEntryData",
+      "kind" : "variableString",
+      "separator" : ": ",
+      "stringMode" : "MESSAGE"
+    }, {
+      "key" : "description",
+      "defaultValue" : "",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "prefix",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "permission",
+      "defaultValue" : "",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "permission message",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.VariableStringEntryData",
+      "kind" : "variableString",
+      "separator" : ": ",
+      "stringMode" : "MESSAGE"
+    }, {
+      "key" : "aliases",
+      "defaultValue" : [ ],
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "ch.njol.skript.structures.StructCommand$2",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "executable by",
+      "defaultValue" : 3,
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "ch.njol.skript.structures.StructCommand$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "cooldown",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.LiteralEntryData",
+      "kind" : "literal",
+      "separator" : ": ",
+      "valueType" : "ch.njol.skript.util.Timespan"
+    }, {
+      "key" : "cooldown message",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.VariableStringEntryData",
+      "kind" : "variableString",
+      "separator" : ": ",
+      "stringMode" : "MESSAGE"
+    }, {
+      "key" : "cooldown bypass",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "cooldown storage",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.util.VariableStringEntryData",
+      "kind" : "variableString",
+      "separator" : ": ",
+      "stringMode" : "VARIABLE_NAME"
+    }, {
+      "key" : "trigger",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 17,
+  "name" : "Function",
+  "elementClass" : "ch.njol.skript.structures.StructFunction",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.2, 2.7 (local functions)" ],
+  "description" : [ "Functions are structures that can be executed with arguments/parameters to run code.", "They can also return a value to the trigger that is executing the function.", "Note that local functions come before global functions execution" ],
+  "examples" : [ "function sayMessage(message: text):\n\tbroadcast {_message} # our message argument is available in '{_message}'\n", "local function giveApple(amount: number) :: item:\n\treturn {_amount} of apple\n", "function getPoints(p: player) returns number:\n\treturn {points::%{_p}%}\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:local] function <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb",
+  "registrationId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb:3c31dc201f6f489cc93ace0d16708a3f6de4e0791476759c7c70843ec1cba68e:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 18,
+  "elementClass" : "org.skriptlang.reflect.syntax.expression.elements.StructCustomConstant",
+  "superClass" : "org.skriptlang.reflect.syntax.CustomSyntaxStructure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "option <.+>" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "structure:skript-reflect:0cbdcce1aa77ee23baddc963e6e6adf21779f93e4d7ce0ffe95baa4546250af2",
+  "registrationId" : "structure:skript-reflect:0cbdcce1aa77ee23baddc963e6e6adf21779f93e4d7ce0ffe95baa4546250af2:8825c46fa51adaa25ad91eb5934d86dabef95192d86e0bfe8dba22aca518fffb:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "get",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 19,
+  "elementClass" : "org.skriptlang.reflect.syntax.effect.elements.StructCustomEffect",
+  "superClass" : "org.skriptlang.reflect.syntax.CustomSyntaxStructure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:local] effect <.+>", "[:local] effect" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "structure:skript-reflect:4d8e26dc7f93c57adc15d3f72165bd0428891996fdb5466b04c780fe9a5e8c81",
+  "registrationId" : "structure:skript-reflect:4d8e26dc7f93c57adc15d3f72165bd0428891996fdb5466b04c780fe9a5e8c81:7669a4f9ee61b5bc1bed3069b8634d5e1669a5413ed1cd7f7ae66650d8047578:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "patterns",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.PatternsEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "safe parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "usable in",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "trigger",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 20,
+  "elementClass" : "org.skriptlang.reflect.syntax.condition.elements.StructCustomCondition",
+  "superClass" : "org.skriptlang.reflect.syntax.CustomSyntaxStructure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:local] condition <.+>", "[:local] condition", "[:local] %*classinfos% property condition <.+>" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "structure:skript-reflect:4d8b41be217ff61a5fac22f650506ab3fa83812f69c4ad1f09ea15fd17e15850",
+  "registrationId" : "structure:skript-reflect:4d8b41be217ff61a5fac22f650506ab3fa83812f69c4ad1f09ea15fd17e15850:682e4a5159fd9eda757f1073e55d5e48bbb70a8002fcd02dc455126697d6cd48:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "patterns",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.PatternsEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "safe parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "usable in",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "check",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    } ]
+  },
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 21,
+  "elementClass" : "org.skriptlang.reflect.syntax.expression.elements.StructCustomExpression",
+  "superClass" : "org.skriptlang.reflect.syntax.CustomSyntaxStructure",
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:local] [plural:(plural|non[-| ]single)] expression <.+>", "[:local] [plural:(plural|non[-| ]single)] expression", "[:local] [plural:(plural|non[-| ]single)] %*classinfos% property <.+>" ],
+  "addon" : {
+    "name" : "skript-reflect",
+    "version" : "2.6.3"
+  },
+  "definitionId" : "structure:skript-reflect:94cd0f657e7499b769a821d0c57bddea0127781e68f1794f9731bee104896067",
+  "registrationId" : "structure:skript-reflect:94cd0f657e7499b769a821d0c57bddea0127781e68f1794f9731bee104896067:f4de1e6e3e4abf1882e83e3f8abba4e012b3c8ede86fb6565cc212fa3ad68836:0",
+  "entryValidator" : {
+    "entryData" : [ {
+      "key" : "patterns",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.PatternsEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "safe parse",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "usable in",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "return type",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.elements.StructCustomExpression$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "loop of",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.EntryValidator$EntryValidatorBuilder$1",
+      "kind" : "keyValue",
+      "separator" : ": "
+    }, {
+      "key" : "get",
+      "optional" : false,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.skript.lang.entry.SectionEntryData",
+      "kind" : "section"
+    }, {
+      "key" : "remove all",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.ChangerEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "add",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.ChangerEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "set",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.ChangerEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "remove",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.ChangerEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "delete",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.ChangerEntryData",
+      "kind" : "unknown"
+    }, {
+      "key" : "reset",
+      "optional" : true,
+      "multiple" : false,
+      "entryDataClass" : "org.skriptlang.reflect.syntax.expression.ChangerEntryData",
+      "kind" : "unknown"
+    } ]
+  },
+  "nodeType" : "SECTION"
+} ]
