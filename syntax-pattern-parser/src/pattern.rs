@@ -161,15 +161,15 @@ fn parse_pattern_type_expr(
 
     let body_offset = input.len() - body.len();
     let (alternatives, time) = if let Some(time_start) = body.find('@') {
-        let time = body[time_start + 1..]
-            .parse::<i32>()
-            .map_err(|_| ParseError {
-                kind: ParseErrorKind::IncorrectTimeState,
-                span: Span::new(
+        let time = body[time_start + 1..].parse::<i32>().map_err(|_| {
+            parse_error(
+                ParseErrorKind::IncorrectTimeState,
+                Span::new(
                     input_offset + body_offset + time_start + 1,
                     input_offset + input.len(),
                 ),
-            })?;
+            )
+        })?;
         (&body[..time_start], time)
     } else {
         (body, 0)
@@ -214,11 +214,61 @@ pub enum ParseErrorKind {
     InvalidParseMark,
 }
 
-#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
-#[error("{kind} at byte range {span:?}")]
+/// The role of a secondary source range attached to a parse error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RelatedSpanKind {
+    /// The delimiter that opened a construct which was not closed.
+    OpeningDelimiter,
+}
+
+/// A secondary source range that provides context for a parse error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RelatedSpan {
+    pub kind: RelatedSpanKind,
+    pub span: Span,
+}
+
+impl RelatedSpan {
+    /// Creates related source information with a typed role.
+    pub const fn new(kind: RelatedSpanKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+/// A syntax pattern error with a primary range and optional related ranges.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseError {
     pub kind: ParseErrorKind,
     pub span: Span,
+    /// Additional locations such as the opening delimiter of an unclosed construct.
+    pub related_spans: Vec<RelatedSpan>,
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} at byte range {:?}", self.kind, self.span)?;
+        if !self.related_spans.is_empty() {
+            write!(f, "; related spans: {:?}", self.related_spans)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+impl ParseError {
+    fn new(kind: ParseErrorKind, span: Span) -> Self {
+        Self {
+            kind,
+            span,
+            related_spans: Vec::new(),
+        }
+    }
+
+    fn with_related_span(mut self, kind: RelatedSpanKind, span: Span) -> Self {
+        self.related_spans.push(RelatedSpan::new(kind, span));
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, derive_more::Display)]
@@ -248,8 +298,18 @@ pub fn parse(input: &str, plural_rules: &PluralRules) -> Result<ParseResult, Par
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Scope {
     Global,
-    Group,
-    Option,
+    Group { opening_span: Span },
+    Option { opening_span: Span },
+}
+
+impl Scope {
+    fn is_group(self) -> bool {
+        matches!(self, Self::Group { .. })
+    }
+
+    fn is_option(self) -> bool {
+        matches!(self, Self::Option { .. })
+    }
 }
 
 fn current_offset<I: Iterator<Item = (usize, char)>>(
@@ -260,7 +320,7 @@ fn current_offset<I: Iterator<Item = (usize, char)>>(
 }
 
 fn parse_error(kind: ParseErrorKind, span: Span) -> ParseError {
-    ParseError { kind, span }
+    ParseError::new(kind, span)
 }
 
 fn push_literal(
@@ -298,7 +358,14 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 chars.next();
 
-                let group = parse_choice(chars, Scope::Group, raw_pattern, plural_rules)?;
+                let group = parse_choice(
+                    chars,
+                    Scope::Group {
+                        opening_span: Span::new(i, i + ch.len_utf8()),
+                    },
+                    raw_pattern,
+                    plural_rules,
+                )?;
                 warnings.extend(group.warnings);
                 let end = current_offset(chars, raw_pattern.len());
                 elements.push(Spanned::new(
@@ -306,7 +373,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     Span::new(i, end),
                 ));
             }
-            ')' if scope == Scope::Group => {
+            ')' if scope.is_group() => {
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 break;
             }
@@ -314,7 +381,14 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 chars.next();
 
-                let option = parse_choice(chars, Scope::Option, raw_pattern, plural_rules)?;
+                let option = parse_choice(
+                    chars,
+                    Scope::Option {
+                        opening_span: Span::new(i, i + ch.len_utf8()),
+                    },
+                    raw_pattern,
+                    plural_rules,
+                )?;
                 warnings.extend(option.warnings);
                 let end = current_offset(chars, raw_pattern.len());
                 elements.push(Spanned::new(
@@ -322,7 +396,7 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     Span::new(i, end),
                 ));
             }
-            ']' if scope == Scope::Option => {
+            ']' if scope.is_option() => {
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 break;
             }
@@ -345,6 +419,10 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     return Err(parse_error(
                         ParseErrorKind::UnclosedRegexDelimiter,
                         Span::new(end, end),
+                    )
+                    .with_related_span(
+                        RelatedSpanKind::OpeningDelimiter,
+                        Span::new(i, content_start),
                     ));
                 }
             }
@@ -377,6 +455,10 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     return Err(parse_error(
                         ParseErrorKind::UnclosedTypeDelimiter,
                         Span::new(end, end),
+                    )
+                    .with_related_span(
+                        RelatedSpanKind::OpeningDelimiter,
+                        Span::new(i, content_start),
                     ));
                 }
             }
@@ -458,12 +540,12 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
             Some(&(_, '|')) => {
                 chars.next();
             }
-            Some(&(_, ')')) if scope == Scope::Group => {
+            Some(&(_, ')')) if scope.is_group() => {
                 chars.next();
                 closed = true;
                 break branch_end;
             }
-            Some(&(_, ']')) if scope == Scope::Option => {
+            Some(&(_, ']')) if scope.is_option() => {
                 chars.next();
                 closed = true;
                 break branch_end;
@@ -474,19 +556,19 @@ fn parse_choice<I: Iterator<Item = (usize, char)> + Clone>(
     };
 
     match scope {
-        Scope::Group if !closed => {
+        Scope::Group { opening_span } if !closed => {
             let end = raw_pattern.len();
-            return Err(parse_error(
-                ParseErrorKind::UnclosedParenthesis,
-                Span::new(end, end),
-            ));
+            return Err(
+                parse_error(ParseErrorKind::UnclosedParenthesis, Span::new(end, end))
+                    .with_related_span(RelatedSpanKind::OpeningDelimiter, opening_span),
+            );
         }
-        Scope::Option if !closed => {
+        Scope::Option { opening_span } if !closed => {
             let end = raw_pattern.len();
-            return Err(parse_error(
-                ParseErrorKind::UnclosedBracket,
-                Span::new(end, end),
-            ));
+            return Err(
+                parse_error(ParseErrorKind::UnclosedBracket, Span::new(end, end))
+                    .with_related_span(RelatedSpanKind::OpeningDelimiter, opening_span),
+            );
         }
         _ => {}
     }
@@ -590,6 +672,9 @@ mod tests {
         assert_eq!(error.kind, kind, "{input:?}");
         assert_eq!(error.span, span, "{input:?}");
         assert!(error.span.is_valid_for(input), "{input:?}: {error:?}");
+        for related in &error.related_spans {
+            assert!(related.span.is_valid_for(input), "{input:?}: {error:?}");
+        }
     }
 
     fn assert_valid_spans(input: &str, elements: &[SpannedPatternElement], parent: Option<Span>) {
@@ -945,6 +1030,138 @@ mod tests {
 
         let error = parse("%string@invalid%").unwrap_err();
         assert!(error.to_string().contains("Span { start: 8, end: 15 }"));
+    }
+
+    #[test]
+    fn unclosed_errors_include_opening_delimiter_related_spans() {
+        for (input, kind, opening_span) in [
+            (
+                "[unclosed",
+                ParseErrorKind::UnclosedBracket,
+                Span::new(0, 1),
+            ),
+            (
+                "(unclosed",
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(0, 1),
+            ),
+            (
+                "%unclosed",
+                ParseErrorKind::UnclosedTypeDelimiter,
+                Span::new(0, 1),
+            ),
+            (
+                "<unclosed",
+                ParseErrorKind::UnclosedRegexDelimiter,
+                Span::new(0, 1),
+            ),
+            (
+                "[(group]",
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(1, 2),
+            ),
+            (
+                "([option)",
+                ParseErrorKind::UnclosedBracket,
+                Span::new(1, 2),
+            ),
+            (
+                "((nested",
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(1, 2),
+            ),
+        ] {
+            let error = parse(input).expect_err("pattern must fail");
+            assert_eq!(error.kind, kind, "{input:?}");
+            assert_eq!(error.span, Span::new(input.len(), input.len()));
+            assert_eq!(
+                error.related_spans,
+                vec![RelatedSpan::new(
+                    RelatedSpanKind::OpeningDelimiter,
+                    opening_span
+                )],
+                "{input:?}"
+            );
+            assert!(opening_span.is_valid_for(input));
+            assert!(matches!(
+                opening_span.slice(input),
+                Some("(" | "[" | "%" | "<")
+            ));
+        }
+    }
+
+    #[test]
+    fn same_delimiter_nesting_reports_the_innermost_unclosed_opening() {
+        for (input, kind, opening_span) in [
+            (
+                "((group)",
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(0, 1),
+            ),
+            (
+                "(((group)",
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(1, 2),
+            ),
+            (
+                "(((group))",
+                ParseErrorKind::UnclosedParenthesis,
+                Span::new(0, 1),
+            ),
+            (
+                "[[option]",
+                ParseErrorKind::UnclosedBracket,
+                Span::new(0, 1),
+            ),
+            (
+                "[[[option]",
+                ParseErrorKind::UnclosedBracket,
+                Span::new(1, 2),
+            ),
+            (
+                "[[[option]]",
+                ParseErrorKind::UnclosedBracket,
+                Span::new(0, 1),
+            ),
+        ] {
+            let error = parse(input).expect_err("nested pattern must fail");
+            assert_eq!(error.kind, kind, "{input:?}");
+            assert_eq!(error.span, Span::new(input.len(), input.len()), "{input:?}");
+            assert_eq!(
+                error.related_spans,
+                vec![RelatedSpan::new(
+                    RelatedSpanKind::OpeningDelimiter,
+                    opening_span
+                )],
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn related_spans_preserve_utf8_offsets_and_appear_in_error_output() {
+        let prefix = "日本語";
+        for (delimiter, kind) in [
+            ('(', ParseErrorKind::UnclosedParenthesis),
+            ('[', ParseErrorKind::UnclosedBracket),
+            ('%', ParseErrorKind::UnclosedTypeDelimiter),
+            ('<', ParseErrorKind::UnclosedRegexDelimiter),
+        ] {
+            let input = format!("{prefix}{delimiter}unclosed");
+            let error = parse(&input).expect_err("pattern must fail");
+            assert_eq!(error.kind, kind);
+            assert_eq!(error.span, Span::new(input.len(), input.len()));
+            assert_eq!(
+                error.related_spans[0].span,
+                Span::new(prefix.len(), prefix.len() + 1)
+            );
+            assert!(error.related_spans[0].span.is_valid_for(&input));
+        }
+
+        let error = parse("(unclosed").unwrap_err();
+        assert!(error.to_string().contains("OpeningDelimiter"));
+        let unrelated = parse("%string@invalid%").unwrap_err();
+        assert!(unrelated.related_spans.is_empty());
     }
 
     #[test]
