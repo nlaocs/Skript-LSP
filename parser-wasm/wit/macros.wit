@@ -1,0 +1,37 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+interface text-macro {
+    use types.{
+        addon-error,
+        text-macro-input,
+        text-macro-output,
+    };
+
+    expand: func(
+        input: text-macro-input,
+    ) -> result<text-macro-output, addon-error>;
+}
+
+interface tree-macro {
+    use types.{
+        addon-error,
+        tree-macro-input,
+        tree-macro-output,
+    };
+
+    expand: func(
+        input: tree-macro-input,
+    ) -> result<tree-macro-output, addon-error>;
+}
+
+interface ast-macro {
+    use types.{
+        addon-error,
+        ast-macro-input,
+        ast-macro-output,
+    };
+
+    expand: func(
+        input: ast-macro-input,
+    ) -> result<ast-macro-output, addon-error>;
+}
