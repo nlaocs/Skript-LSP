@@ -24,3 +24,6 @@ target
 # Added by cargo
 
 /target
+
+# Rebuilt by `cargo run -p xtask -- build-core-library`
+/artifacts/*.wasm

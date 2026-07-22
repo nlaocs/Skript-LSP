@@ -18,6 +18,8 @@ Component Model values.
 
 ## Compatibility
 
+Every manifest exposes a component ID and component version for diagnostics.
+
 The package version identifies the WIT shape. The manifest's `abi` field is a
 runtime handshake and currently requires an exact `major.minor` match.
 

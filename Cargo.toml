@@ -4,7 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "utilities/*"]
+members = ["core-library", "parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "utilities/*", "xtask"]
 
 [dependencies]
 syntax-pattern-parser = { path = "syntax-pattern-parser" }
+
+[dev-dependencies]
+wit-component = "=0.253.0"
+
+[profile.core-library]
+inherits = "release"
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = "debuginfo"

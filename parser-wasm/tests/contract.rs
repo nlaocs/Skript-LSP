@@ -61,6 +61,7 @@ fn host_bindings_expose_typed_hook_contract() {
     };
     let manifest = ComponentManifest {
         component_id: "test.component".to_owned(),
+        component_version: "1.2.3".to_owned(),
         abi: AbiVersion { major: 1, minor: 0 },
         capabilities: vec![CapabilityRequirement {
             id: "parser.hooks".to_owned(),
@@ -71,6 +72,7 @@ fn host_bindings_expose_typed_hook_contract() {
     };
 
     assert_eq!(manifest.component_id, "test.component");
+    assert_eq!(manifest.component_version, "1.2.3");
     assert_eq!(manifest.subscriptions[0].id, "observe-expressions");
     assert_eq!(manifest.subscriptions[0].priority, -20);
     assert_eq!(manifest.abi.major, 1);
