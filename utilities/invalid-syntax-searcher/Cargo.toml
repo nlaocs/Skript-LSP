@@ -10,5 +10,4 @@ path = "src/main.rs"
 [dependencies]
 skripthub = { path = "../../skripthub" }
 syntax-pattern-parser = { path = "../../syntax-pattern-parser" }
-syntaxes = { path = "../../syntaxes" }
 
