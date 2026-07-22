@@ -1,0 +1,281 @@
+[ {
+  "from" : "java.lang.Integer",
+  "to" : "java.lang.Long",
+  "flags" : 0,
+  "registrationOrder" : 0,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:0b75bbf197f2992707446141bc6aacd2be4ec4a975d1a6b35c8bbfbd07158f0e"
+}, {
+  "from" : "org.bukkit.OfflinePlayer",
+  "to" : "org.bukkit.inventory.PlayerInventory",
+  "flags" : 4,
+  "registrationOrder" : 1,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:3d1b8a86050a92187e7b15edbf2af3f6d01d77ebc89ad37b1c98fdf1f4b5c60b"
+}, {
+  "from" : "org.bukkit.OfflinePlayer",
+  "to" : "org.bukkit.entity.Player",
+  "flags" : 4,
+  "registrationOrder" : 2,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:847d63eba5f87ae8be2f3c9c0173e84b9b366444b503305d3806258264edcb12"
+}, {
+  "from" : "org.bukkit.entity.Entity",
+  "to" : "org.bukkit.entity.LivingEntity",
+  "flags" : 0,
+  "registrationOrder" : 3,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:bc06a99739399f2c1aded45b8e474f54cf47901beee242b7123cadadffd6c87a"
+}, {
+  "from" : "org.bukkit.entity.Entity",
+  "to" : "org.bukkit.entity.Player",
+  "flags" : 0,
+  "registrationOrder" : 4,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:b5a8b9b82a21d9b952dd583c2bef98c206dbecb01d469e0c65dd6090f50e90c6"
+}, {
+  "from" : "org.bukkit.command.CommandSender",
+  "to" : "org.bukkit.entity.Player",
+  "flags" : 0,
+  "registrationOrder" : 5,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:4523d5a005cb0097d8d2fb2e6d2860337344d6b5dc8696af2af840be6518d234"
+}, {
+  "from" : "org.bukkit.command.BlockCommandSender",
+  "to" : "org.bukkit.block.Block",
+  "flags" : 0,
+  "registrationOrder" : 6,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:b1db6b04c4a7ec3a0446fb4cb542281f6214eee6bc494bb8ad258e9631a1c344"
+}, {
+  "from" : "org.bukkit.block.Block",
+  "to" : "org.bukkit.inventory.Inventory",
+  "flags" : 4,
+  "registrationOrder" : 7,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:3cd4eff8db4bdaedc684aa95ba28e17370c06e7a876fb425be72770088e90511"
+}, {
+  "from" : "org.bukkit.entity.Entity",
+  "to" : "org.bukkit.inventory.Inventory",
+  "flags" : 4,
+  "registrationOrder" : 8,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:30e98e153d4f52cdc3d82f8b5b6f247c8b9d93916f1c21cc1d0669183d74216d"
+}, {
+  "from" : "org.bukkit.block.Block",
+  "to" : "ch.njol.skript.aliases.ItemType",
+  "flags" : 5,
+  "registrationOrder" : 9,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:c626aabd6b90400645614f74480f225ef2c1d8abb2824a7568d00db8f049c042"
+}, {
+  "from" : "org.bukkit.block.Block",
+  "to" : "org.bukkit.Location",
+  "flags" : 4,
+  "registrationOrder" : 10,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:c593160f977120ce94aadfdda6547bb703f478d226a1c021b1be0415f37034e8"
+}, {
+  "from" : "org.bukkit.entity.Entity",
+  "to" : "org.bukkit.Location",
+  "flags" : 4,
+  "registrationOrder" : 11,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:b6a18034979244de327cb0b2d271f7407e35d3878200ece4cdf2afd83303e05e"
+}, {
+  "from" : "org.bukkit.entity.Entity",
+  "to" : "ch.njol.skript.entity.EntityData",
+  "flags" : 6,
+  "registrationOrder" : 12,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:b36bc8c74eb1612e04ed58fd80d93621a297c36994407927dc8485607aa8da0b"
+}, {
+  "from" : "ch.njol.skript.entity.EntityData",
+  "to" : "ch.njol.skript.entity.EntityType",
+  "flags" : 0,
+  "registrationOrder" : 13,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:788a8a540bf70706e7fc03f5a7cb2a9b2df4586c6c8960eebde5f63629e09d41"
+}, {
+  "from" : "ch.njol.skript.aliases.ItemType",
+  "to" : "org.bukkit.inventory.ItemStack",
+  "flags" : 0,
+  "registrationOrder" : 14,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:cd939ef1f907dcea18de858afbb9f73e9dfd7e4e95b96e87cc22c7c4bb22df00"
+}, {
+  "from" : "org.bukkit.inventory.ItemStack",
+  "to" : "ch.njol.skript.aliases.ItemType",
+  "flags" : 0,
+  "registrationOrder" : 15,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:d87904e5b634cc9d13067ef4dee1f0f67d8fb6efda04314a5648c3664d521649"
+}, {
+  "from" : "ch.njol.skript.util.Experience",
+  "to" : "ch.njol.skript.entity.XpOrbData",
+  "flags" : 0,
+  "registrationOrder" : 16,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:73747ca84cdbe49168b81303b40d31219632c50221f33629537ae19e0870267b"
+}, {
+  "from" : "ch.njol.skript.entity.XpOrbData",
+  "to" : "ch.njol.skript.util.Experience",
+  "flags" : 0,
+  "registrationOrder" : 17,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:a895cfe2e3e760cb8af316868a3fd49904b8202c5d55fdebdb5f65b42e806a9d"
+}, {
+  "from" : "ch.njol.skript.util.slot.Slot",
+  "to" : "ch.njol.skript.aliases.ItemType",
+  "flags" : 0,
+  "registrationOrder" : 18,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:ef8973022f925f4f45a9f2e34b66b3dc8b4f25607bd386fc587eca0e84da8ee5"
+}, {
+  "from" : "org.bukkit.block.Block",
+  "to" : "org.bukkit.inventory.InventoryHolder",
+  "flags" : 6,
+  "registrationOrder" : 19,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:9af0d421fd41a7dcba7cfcbed09e37358977cde07787cc5f11dd0e49d68d9828"
+}, {
+  "from" : "org.bukkit.inventory.InventoryHolder",
+  "to" : "org.bukkit.block.Block",
+  "flags" : 0,
+  "registrationOrder" : 20,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:d79c3d64b7142bba8409ed9f550dfec80b70fea1d47a1079964b24a4726bbfb6"
+}, {
+  "from" : "org.bukkit.inventory.InventoryHolder",
+  "to" : "org.bukkit.entity.Entity",
+  "flags" : 0,
+  "registrationOrder" : 21,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:da2aa38992e4cf1930e45536c27d3a64aa8e251902cfe2fbcad49def425f9752"
+}, {
+  "from" : "org.bukkit.enchantments.Enchantment",
+  "to" : "ch.njol.skript.util.EnchantmentType",
+  "flags" : 0,
+  "registrationOrder" : 22,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:ac8077c098f01c67c36e06774823e5ac30a134db151805fe827863932ae32d3c"
+}, {
+  "from" : "org.bukkit.util.Vector",
+  "to" : "ch.njol.skript.util.Direction",
+  "flags" : 0,
+  "registrationOrder" : 23,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:501c047663b2abe636aa073c9a18fe4a9fb1d231d17506ee114664c9408f5603"
+}, {
+  "from" : "org.bukkit.enchantments.EnchantmentOffer",
+  "to" : "ch.njol.skript.util.EnchantmentType",
+  "flags" : 0,
+  "registrationOrder" : 24,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:e447b65bb806f229f799440804ae90a85ae34e60beb7fb2aac350a938cc057cf"
+}, {
+  "from" : "java.lang.String",
+  "to" : "org.bukkit.World",
+  "flags" : 0,
+  "registrationOrder" : 25,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "registrationId" : "converter:skript:387e7ea64eb7f2d0ec13d4ca11cd6548cc1e1d7c5c37c129bc13ce7693df572d"
+}, {
+  "from" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "to" : "java.lang.String",
+  "flags" : 0,
+  "registrationOrder" : 26,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.0.1"
+  },
+  "registrationId" : "converter:skriptdummyaddon:e51f69ee4da181afdc2d6f1e5aeb0b503ab05612b3e46843c42097b04973107c"
+}, {
+  "from" : "java.lang.Number",
+  "to" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "flags" : 0,
+  "registrationOrder" : 27,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.0.1"
+  },
+  "registrationId" : "converter:skriptdummyaddon:c6062f88babcee37de510b852339e2654b884aa7c98d862879403d955ecb9ef1"
+} ]

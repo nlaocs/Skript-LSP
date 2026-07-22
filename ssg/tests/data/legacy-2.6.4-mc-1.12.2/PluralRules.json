@@ -1,0 +1,203 @@
+{
+  "algorithm" : "legacy-first-match",
+  "pluralOverrideSupported" : false,
+  "rules" : [ {
+    "ruleOrder" : 0,
+    "singular" : "fe",
+    "plural" : "ves",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 1,
+    "singular" : "axe",
+    "plural" : "axes",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 2,
+    "singular" : "x",
+    "plural" : "xes",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 3,
+    "singular" : "ay",
+    "plural" : "ays",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 4,
+    "singular" : "ey",
+    "plural" : "eys",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 5,
+    "singular" : "iy",
+    "plural" : "iys",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 6,
+    "singular" : "oy",
+    "plural" : "oys",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 7,
+    "singular" : "uy",
+    "plural" : "uys",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 8,
+    "singular" : "kie",
+    "plural" : "kies",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 9,
+    "singular" : "zombie",
+    "plural" : "zombies",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 10,
+    "singular" : "y",
+    "plural" : "ies",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 11,
+    "singular" : "h",
+    "plural" : "hes",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 12,
+    "singular" : "man",
+    "plural" : "men",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 13,
+    "singular" : "us",
+    "plural" : "i",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 14,
+    "singular" : "hoe",
+    "plural" : "hoes",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 15,
+    "singular" : "toe",
+    "plural" : "toes",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 16,
+    "singular" : "o",
+    "plural" : "oes",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 17,
+    "singular" : "alias",
+    "plural" : "aliases",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 18,
+    "singular" : "gas",
+    "plural" : "gases",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 19,
+    "singular" : "child",
+    "plural" : "children",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 20,
+    "singular" : "sheep",
+    "plural" : "sheep",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  }, {
+    "ruleOrder" : 21,
+    "singular" : "",
+    "plural" : "s",
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.6.4"
+    }
+  } ]
+}
