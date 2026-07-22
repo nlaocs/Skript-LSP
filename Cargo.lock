@@ -822,6 +822,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "skript-parser"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror",
+]
+
+[[package]]
 name = "skripthub"
 version = "0.1.0"
 dependencies = [
