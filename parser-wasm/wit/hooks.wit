@@ -1,0 +1,11 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+interface hooks {
+    use types.{
+        addon-error,
+        hook-invocation,
+        hook-output,
+    };
+
+    invoke: func(input: hook-invocation) -> result<hook-output, addon-error>;
+}

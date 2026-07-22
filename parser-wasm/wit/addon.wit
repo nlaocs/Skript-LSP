@@ -1,0 +1,17 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+interface addon {
+    use types.{
+        component-manifest,
+        compatibility-error,
+        host-profile,
+    };
+
+    /// Returns static declarations before any hook is invoked.
+    manifest: func() -> component-manifest;
+
+    /// Lets the guest independently reject an incompatible host profile.
+    initialize: func(
+        profile: host-profile,
+    ) -> result<_, compatibility-error>;
+}

@@ -1,0 +1,9 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+world parser-addon {
+    export addon;
+    export hooks;
+    export text-macro;
+    export tree-macro;
+    export ast-macro;
+}

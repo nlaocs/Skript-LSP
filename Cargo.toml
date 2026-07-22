@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "utilities/*"]
+members = ["parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "utilities/*"]
 
 [dependencies]
 syntax-pattern-parser = { path = "syntax-pattern-parser" }

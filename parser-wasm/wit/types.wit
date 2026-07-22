@@ -1,0 +1,369 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+interface types {
+    record abi-version {
+        major: u16,
+        minor: u16,
+    }
+
+    record capability {
+        id: string,
+        version: u32,
+    }
+
+    record capability-requirement {
+        id: string,
+        minimum-version: u32,
+        required: bool,
+    }
+
+    record host-profile {
+        abi: abi-version,
+        capabilities: list<capability>,
+    }
+
+    enum syntax-kind {
+        event,
+        condition,
+        effect,
+        expression,
+        %type,
+        function,
+        section,
+        structure,
+    }
+
+    variant hook-target {
+        syntax-definition(syntax-kind),
+        exact-registration(string),
+        parse-stage,
+    }
+
+    enum hook-phase {
+        document,
+        preprocess,
+        line,
+        tree,
+        node,
+        matching,
+        capture,
+        syntax,
+        candidate,
+        scope,
+        ast,
+        diagnostic,
+    }
+
+    enum hook-mode {
+        observe,
+        transform,
+        override,
+    }
+
+    record hook-subscription {
+        id: string,
+        target: hook-target,
+        phase: hook-phase,
+        priority: s32,
+        mode: hook-mode,
+        capability-id: string,
+    }
+
+    record component-manifest {
+        component-id: string,
+        abi: abi-version,
+        capabilities: list<capability-requirement>,
+        subscriptions: list<hook-subscription>,
+    }
+
+    enum compatibility-error-kind {
+        abi-version-mismatch,
+        missing-capability,
+        capability-version-too-old,
+        invalid-manifest,
+    }
+
+    record compatibility-error {
+        kind: compatibility-error-kind,
+        subject: string,
+        message: string,
+    }
+
+    record text-range {
+        start: u64,
+        end: u64,
+    }
+
+    type expansion-id = u64;
+    type syntax-context-id = u64;
+    type node-id = u64;
+
+    enum origin-kind {
+        exact,
+        replaced,
+        anchored,
+    }
+
+    record source-origin {
+        original-range: text-range,
+        kind: origin-kind,
+        expansion: option<expansion-id>,
+    }
+
+    record mapped-span {
+        virtual-range: text-range,
+        origins: list<source-origin>,
+    }
+
+    record invocation-context {
+        invocation-id: u64,
+        subscription-id: string,
+        document-id: string,
+        document-revision: u64,
+        expansion: option<expansion-id>,
+        syntax-context: syntax-context-id,
+    }
+
+    enum diagnostic-severity {
+        error,
+        warning,
+        information,
+        hint,
+    }
+
+    record related-span {
+        message: string,
+        span: mapped-span,
+    }
+
+    record diagnostic {
+        code: string,
+        message: string,
+        severity: diagnostic-severity,
+        span: mapped-span,
+        related: list<related-span>,
+    }
+
+    record rejection {
+        reason: string,
+        diagnostics: list<diagnostic>,
+    }
+
+    variant hook-decision {
+        continue-processing,
+        handled,
+        reject(rejection),
+    }
+
+    record context-update {
+        syntax-context: syntax-context-id,
+        key: string,
+        value: option<list<u8>>,
+    }
+
+    enum parse-request-kind {
+        expression,
+        condition,
+        line,
+        tree,
+        ast,
+    }
+
+    record parse-request {
+        request-id: u64,
+        kind: parse-request-kind,
+        input: string,
+        expected-types: list<string>,
+        span: mapped-span,
+    }
+
+    record hook-effects {
+        diagnostics: list<diagnostic>,
+        context-updates: list<context-update>,
+        parse-requests: list<parse-request>,
+    }
+
+    enum raw-node-kind {
+        line,
+        section,
+        invalid,
+    }
+
+    record raw-tree-node {
+        id: node-id,
+        kind: raw-node-kind,
+        text: string,
+        span: mapped-span,
+        parent: option<node-id>,
+        children: list<node-id>,
+    }
+
+    record raw-tree {
+        roots: list<node-id>,
+        nodes: list<raw-tree-node>,
+    }
+
+    variant capture-value {
+        text(string),
+        node(node-id),
+        nodes(list<node-id>),
+        span(mapped-span),
+    }
+
+    record capture {
+        name: string,
+        value: capture-value,
+    }
+
+    record ast-node {
+        id: node-id,
+        kind: syntax-kind,
+        syntax-id: string,
+        span: mapped-span,
+        syntax-context: syntax-context-id,
+        captures: list<capture>,
+        children: list<node-id>,
+    }
+
+    record ast-tree {
+        roots: list<node-id>,
+        nodes: list<ast-node>,
+    }
+
+    record syntax-definition-payload {
+        kind: syntax-kind,
+        syntax-id: string,
+        patterns: list<string>,
+    }
+
+    record exact-registration-payload {
+        registration-id: string,
+        definition: syntax-definition-payload,
+    }
+
+    record document-payload {
+        text: string,
+    }
+
+    record preprocess-payload {
+        text: string,
+        span: mapped-span,
+    }
+
+    record line-payload {
+        line-number: u64,
+        text: string,
+        span: mapped-span,
+    }
+
+    record node-payload {
+        node: raw-tree-node,
+    }
+
+    record matching-payload {
+        input: string,
+        pattern: string,
+        span: mapped-span,
+    }
+
+    record capture-payload {
+        syntax-id: string,
+        captures: list<capture>,
+        span: mapped-span,
+    }
+
+    record candidate-payload {
+        syntax-id: string,
+        registration-id: string,
+        score: s64,
+        span: mapped-span,
+    }
+
+    record scope-payload {
+        scope-id: u64,
+        parent-scope: option<u64>,
+        span: mapped-span,
+    }
+
+    variant hook-payload {
+        document(document-payload),
+        preprocess(preprocess-payload),
+        line(line-payload),
+        tree(raw-tree),
+        node(node-payload),
+        matching(matching-payload),
+        capture(capture-payload),
+        syntax(syntax-definition-payload),
+        exact-registration(exact-registration-payload),
+        candidate(candidate-payload),
+        scope(scope-payload),
+        ast(ast-tree),
+        diagnostic(diagnostic),
+    }
+
+    record hook-invocation {
+        context: invocation-context,
+        target: hook-target,
+        phase: hook-phase,
+        payload: hook-payload,
+    }
+
+    record hook-output {
+        decision: hook-decision,
+        replacement: option<hook-payload>,
+        effects: hook-effects,
+    }
+
+    record text-edit {
+        range: text-range,
+        replacement: string,
+    }
+
+    record text-macro-input {
+        context: invocation-context,
+        text: string,
+        span: mapped-span,
+    }
+
+    record text-macro-output {
+        decision: hook-decision,
+        edits: list<text-edit>,
+        effects: hook-effects,
+    }
+
+    record tree-macro-input {
+        context: invocation-context,
+        tree: raw-tree,
+    }
+
+    record tree-macro-output {
+        decision: hook-decision,
+        replacement: option<raw-tree>,
+        effects: hook-effects,
+    }
+
+    record ast-macro-input {
+        context: invocation-context,
+        tree: ast-tree,
+    }
+
+    record ast-macro-output {
+        decision: hook-decision,
+        replacement: option<ast-tree>,
+        effects: hook-effects,
+    }
+
+    enum addon-error-kind {
+        incompatible-abi,
+        unsupported-capability,
+        unsupported-hook,
+        invalid-payload,
+        internal,
+    }
+
+    record addon-error {
+        kind: addon-error-kind,
+        message: string,
+        diagnostics: list<diagnostic>,
+    }
+}

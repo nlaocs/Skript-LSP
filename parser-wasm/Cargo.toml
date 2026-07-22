@@ -1,0 +1,15 @@
+[package]
+name = "parser-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2.0.17"
+
+[dev-dependencies]
+wasmtime = { version = "=43.0.0", default-features = false, features = ["component-model", "runtime", "std"] }
+wit-bindgen = "0.59.0"
+wit-parser = { version = "=0.253.0", default-features = false, features = ["std"] }
+
+[package.metadata.component]
+package = "nlaocs:skript-parser-addon"
