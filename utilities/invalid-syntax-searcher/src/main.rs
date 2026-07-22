@@ -51,12 +51,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let errors_syntaxes = syntaxes.1;
 
     let mut unclosed_parenthesis: Vec<_> = Vec::new();
-    let mut unexpected_closing_parenthesis: Vec<_> = Vec::new();
     let mut unclosed_bracket: Vec<_> = Vec::new();
-    let mut unexpected_closing_bracket: Vec<_> = Vec::new();
     let mut unclosed_type_delimiter: Vec<_> = Vec::new();
     let mut unclosed_regex_delimiter: Vec<_> = Vec::new();
-    let mut unexpected_closing_regex_delimiter: Vec<_> = Vec::new();
     let mut incorrect_time_state: Vec<_> = Vec::new();
     let mut invalid_parse_mark: Vec<_> = Vec::new();
 
@@ -77,23 +74,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ParseErrorKind::UnclosedParenthesis => {
                     unclosed_parenthesis.push(syntax);
                 }
-                ParseErrorKind::UnexpectedClosingParenthesis => {
-                    unexpected_closing_parenthesis.push(syntax);
-                }
                 ParseErrorKind::UnclosedBracket => {
                     unclosed_bracket.push(syntax);
-                }
-                ParseErrorKind::UnexpectedClosingBracket => {
-                    unexpected_closing_bracket.push(syntax);
                 }
                 ParseErrorKind::UnclosedTypeDelimiter => {
                     unclosed_type_delimiter.push(syntax);
                 }
                 ParseErrorKind::UnclosedRegexDelimiter => {
                     unclosed_regex_delimiter.push(syntax);
-                }
-                ParseErrorKind::UnexpectedClosingRegexDelimiter => {
-                    unexpected_closing_regex_delimiter.push(syntax);
                 }
                 ParseErrorKind::IncorrectTimeState => {
                     incorrect_time_state.push(syntax);
@@ -139,18 +127,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     dump_patterns("unclosed_parenthesis", unclosed_parenthesis);
-    dump_patterns(
-        "unexpected_closing_parenthesis",
-        unexpected_closing_parenthesis,
-    );
     dump_patterns("unclosed_bracket", unclosed_bracket);
-    dump_patterns("unexpected_closing_bracket", unexpected_closing_bracket);
     dump_patterns("unclosed_type_delimiter", unclosed_type_delimiter);
     dump_patterns("unclosed_regex_delimiter", unclosed_regex_delimiter);
-    dump_patterns(
-        "unexpected_closing_regex_delimiter",
-        unexpected_closing_regex_delimiter,
-    );
     dump_patterns("incorrect_time_state", incorrect_time_state);
     dump_patterns("invalid_parse_mark", invalid_parse_mark);
 

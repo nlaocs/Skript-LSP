@@ -197,17 +197,9 @@ pub enum ParseErrorKind {
     )]
     UnclosedParenthesis,
     #[error(
-        "Unexpected closing group bracket ')'. Escape it if you want to match a literal bracket: '\\)'"
-    )]
-    UnexpectedClosingParenthesis,
-    #[error(
         "Missing closing optional bracket ']'. Escape the '[' if you want to match a literal bracket: '\\['"
     )]
     UnclosedBracket,
-    #[error(
-        "Unexpected closing optional bracket ']'. Escape it if you want to match a literal bracket: '\\]'"
-    )]
-    UnexpectedClosingBracket,
     #[error(
         "Missing closing type delimiter '%'. Escape the '%' if you want to match a literal percent sign: '\\%'"
     )]
@@ -216,10 +208,6 @@ pub enum ParseErrorKind {
         "Missing closing regex bracket '>'. Escape the '<' if you want to match a literal bracket: '\\<'"
     )]
     UnclosedRegexDelimiter,
-    #[error(
-        "Unexpected closing regex bracket '>'. Escape it if you want to match a literal bracket: '\\>'"
-    )]
-    UnexpectedClosingRegexDelimiter,
     #[error("Incorrect time state in type expression. It must be a 32-bit signed integer.")]
     IncorrectTimeState,
     #[error("Invalid parse mark. Text before '¦' must be a 32-bit signed integer.")]
@@ -310,68 +298,33 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 chars.next();
 
-                match parse_choice(chars, Scope::Group, raw_pattern, plural_rules) {
-                    Ok(group) => {
-                        warnings.extend(group.warnings);
-                        let end = current_offset(chars, raw_pattern.len());
-                        elements.push(Spanned::new(
-                            PatternElement::Group(group.elements),
-                            Span::new(i, end),
-                        ));
-                    }
-                    Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedClosingBracket,
-                        span,
-                    }) if scope == Scope::Option => {
-                        return Err(parse_error(
-                            ParseErrorKind::UnexpectedClosingParenthesis,
-                            span,
-                        ));
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            ')' => {
-                if scope == Scope::Group {
-                    push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
-                    break;
-                }
-                return Err(parse_error(
-                    ParseErrorKind::UnexpectedClosingParenthesis,
-                    Span::new(i, i + ch.len_utf8()),
+                let group = parse_choice(chars, Scope::Group, raw_pattern, plural_rules)?;
+                warnings.extend(group.warnings);
+                let end = current_offset(chars, raw_pattern.len());
+                elements.push(Spanned::new(
+                    PatternElement::Group(group.elements),
+                    Span::new(i, end),
                 ));
+            }
+            ')' if scope == Scope::Group => {
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                break;
             }
             '[' => {
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
                 chars.next();
 
-                match parse_choice(chars, Scope::Option, raw_pattern, plural_rules) {
-                    Ok(option) => {
-                        warnings.extend(option.warnings);
-                        let end = current_offset(chars, raw_pattern.len());
-                        elements.push(Spanned::new(
-                            PatternElement::Option(option.elements),
-                            Span::new(i, end),
-                        ));
-                    }
-                    Err(ParseError {
-                        kind: ParseErrorKind::UnexpectedClosingParenthesis,
-                        span,
-                    }) if scope == Scope::Group => {
-                        return Err(parse_error(ParseErrorKind::UnclosedBracket, span));
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            ']' => {
-                if scope == Scope::Option {
-                    push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
-                    break;
-                }
-                return Err(parse_error(
-                    ParseErrorKind::UnexpectedClosingBracket,
-                    Span::new(i, i + ch.len_utf8()),
+                let option = parse_choice(chars, Scope::Option, raw_pattern, plural_rules)?;
+                warnings.extend(option.warnings);
+                let end = current_offset(chars, raw_pattern.len());
+                elements.push(Spanned::new(
+                    PatternElement::Option(option.elements),
+                    Span::new(i, end),
                 ));
+            }
+            ']' if scope == Scope::Option => {
+                push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
+                break;
             }
             '<' => {
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
@@ -395,11 +348,11 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                     ));
                 }
             }
-            '>' => {
-                return Err(parse_error(
-                    ParseErrorKind::UnexpectedClosingRegexDelimiter,
-                    Span::new(i, i + ch.len_utf8()),
-                ));
+            // Skript's PatternCompiler treats unmatched closing delimiters as literal text.
+            ')' | ']' | '>' => {
+                buffer_start.get_or_insert(i);
+                buffer.push(ch);
+                chars.next();
             }
             '%' => {
                 push_literal(&mut elements, &mut buffer, &mut buffer_start, i);
@@ -905,6 +858,20 @@ mod tests {
     }
 
     #[test]
+    fn unmatched_closing_delimiters_are_literals() {
+        use SemanticElement::*;
+
+        assert_semantics(
+            "group) option] apply ->",
+            vec![Literal("group) option] apply ->".into())],
+        );
+
+        let lusk_pattern = "[flower] pot[ting)| manipulat(e|ing)] [of %-itemtype%]";
+        let parsed = parse(lusk_pattern).expect("registered Lusk pattern must parse");
+        assert_valid_spans(lusk_pattern, &parsed.elements, None);
+    }
+
+    #[test]
     fn parse_errors_have_precise_byte_spans() {
         let input = "[unclosed";
         assert_error(
@@ -934,21 +901,6 @@ mod tests {
             Span::new(input.len(), input.len()),
         );
 
-        assert_error(
-            "group)",
-            ParseErrorKind::UnexpectedClosingParenthesis,
-            Span::new(5, 6),
-        );
-        assert_error(
-            "option]",
-            ParseErrorKind::UnexpectedClosingBracket,
-            Span::new(6, 7),
-        );
-        assert_error(
-            "regex>",
-            ParseErrorKind::UnexpectedClosingRegexDelimiter,
-            Span::new(5, 6),
-        );
         assert_error(
             "%-*~object@invalid%",
             ParseErrorKind::IncorrectTimeState,
@@ -982,13 +934,13 @@ mod tests {
         assert_error("¦value", ParseErrorKind::InvalidParseMark, Span::new(0, 0));
         assert_error(
             "[(group]",
-            ParseErrorKind::UnexpectedClosingParenthesis,
-            Span::new(7, 8),
+            ParseErrorKind::UnclosedParenthesis,
+            Span::new(8, 8),
         );
         assert_error(
             "([option)",
             ParseErrorKind::UnclosedBracket,
-            Span::new(8, 9),
+            Span::new(9, 9),
         );
 
         let error = parse("%string@invalid%").unwrap_err();
@@ -1019,11 +971,7 @@ mod tests {
         assert_eq!(parsed.elements[2].span.slice(input), Some("終了"));
 
         let closing = "日本語]";
-        assert_error(
-            closing,
-            ParseErrorKind::UnexpectedClosingBracket,
-            Span::new("日本語".len(), closing.len()),
-        );
+        assert_semantics(closing, vec![SemanticElement::Literal(closing.into())]);
     }
 
     #[test]
