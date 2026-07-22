@@ -48,7 +48,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut unclosed_type_delimiter: Vec<_> = Vec::new();
     let mut unclosed_regex_delimiter: Vec<_> = Vec::new();
     let mut unexpected_closing_regex_delimiter: Vec<_> = Vec::new();
-    let mut unexpected_pipe_outside_group: Vec<_> = Vec::new();
     let mut incorrect_time_state: Vec<_> = Vec::new();
 
     let mut invalid_function_name_unexpected_first_character: Vec<_> = Vec::new();
@@ -85,9 +84,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ParseErrorKind::UnexpectedClosingRegexDelimiter => {
                     unexpected_closing_regex_delimiter.push(syntax);
-                }
-                ParseErrorKind::UnexpectedPipeOutsideGroup => {
-                    unexpected_pipe_outside_group.push(syntax);
                 }
                 ParseErrorKind::IncorrectTimeState => {
                     incorrect_time_state.push(syntax);
@@ -137,10 +133,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     dump_patterns(
         "unexpected_closing_regex_delimiter",
         unexpected_closing_regex_delimiter,
-    );
-    dump_patterns(
-        "unexpected_pipe_outside_group",
-        unexpected_pipe_outside_group,
     );
     dump_patterns("incorrect_time_state", incorrect_time_state);
 

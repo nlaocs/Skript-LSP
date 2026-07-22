@@ -102,10 +102,6 @@ pub enum ParseErrorKind {
         "Unexpected closing regex bracket '>'. Escape it if you want to match a literal bracket: '\\>'"
     )]
     UnexpectedClosingRegexDelimiter,
-    #[error(
-        "Cannot use the pipe character '|' outside of groups. Escape it if you want to match a literal pipe: '\\|'"
-    )]
-    UnexpectedPipeOutsideGroup,
     #[error("Incorrect time state in type expression. It must be either @1 or @-1.")]
     IncorrectTimeState,
 }
@@ -321,13 +317,10 @@ fn parse_sequence<I: Iterator<Item = (usize, char)> + Clone>(
                 }
             }
             '|' => {
-                handle_scope_close!(
-                    scope,
-                    Scope::Group,
-                    buffer,
-                    elements,
-                    ParseErrorKind::UnexpectedPipeOutsideGroup
-                );
+                if !buffer.is_empty() {
+                    elements.push(PatternElement::Literal(std::mem::take(&mut buffer)));
+                }
+                break;
             }
             '\\' => {
                 chars.next(); // consume '\'
@@ -724,6 +717,37 @@ mod tests {
                     })
                 );
             }
+
+            #[test]
+            fn global_choice_empty_branches() {
+                assert_eq!(
+                    parse("a|"),
+                    Ok(ParseResult {
+                        elements: vec![Choice(vec![vec![Literal("a".to_string())], vec![Empty],])],
+                        warnings: vec![],
+                    })
+                );
+
+                assert_eq!(
+                    parse("|b"),
+                    Ok(ParseResult {
+                        elements: vec![Choice(vec![vec![Empty], vec![Literal("b".to_string())],])],
+                        warnings: vec![],
+                    })
+                );
+
+                assert_eq!(
+                    parse("a||b"),
+                    Ok(ParseResult {
+                        elements: vec![Choice(vec![
+                            vec![Literal("a".to_string())],
+                            vec![Empty],
+                            vec![Literal("b".to_string())],
+                        ])],
+                        warnings: vec![],
+                    })
+                );
+            }
         }
     }
 
@@ -790,16 +814,45 @@ mod tests {
         let syntax = parse("folder|dir|box");
         assert_eq!(
             syntax,
-            Err(ParseError {
-                kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+            Ok(ParseResult {
+                elements: vec![Choice(vec![
+                    vec![Literal("folder".to_string())],
+                    vec![Literal("dir".to_string())],
+                    vec![Literal("box".to_string())],
+                ])],
+                warnings: vec![],
+            })
+        );
+
+        let syntax = parse("[foo|bar]");
+        assert_eq!(
+            syntax,
+            Ok(ParseResult {
+                elements: vec![Option(vec![Choice(vec![
+                    vec![Literal("foo".to_string())],
+                    vec![Literal("bar".to_string())],
+                ])])],
+                warnings: vec![],
             })
         );
 
         let syntax = parse("active[ |-](group|model)[s]");
         assert_eq!(
             syntax,
-            Err(ParseError {
-                kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
+            Ok(ParseResult {
+                elements: vec![
+                    Literal("active".to_string()),
+                    Option(vec![Choice(vec![
+                        vec![Literal(" ".to_string())],
+                        vec![Literal("-".to_string())],
+                    ])]),
+                    Group(vec![Choice(vec![
+                        vec![Literal("group".to_string())],
+                        vec![Literal("model".to_string())],
+                    ])]),
+                    Option(vec![Literal("s".to_string())]),
+                ],
+                warnings: vec![],
             })
         );
     }
@@ -954,17 +1007,6 @@ mod tests {
                 pattern,
                 Err(ParseError {
                     kind: ParseErrorKind::UnexpectedClosingRegexDelimiter,
-                })
-            );
-        }
-
-        #[test]
-        fn unexpected_pipe_in_global() {
-            let pattern = parse("no|group");
-            assert_eq!(
-                pattern,
-                Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedPipeOutsideGroup,
                 })
             );
         }
