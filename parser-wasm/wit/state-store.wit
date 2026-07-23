@@ -1,0 +1,51 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+interface state-store {
+    use types.{
+        state-encoding,
+        state-entry,
+        state-error,
+        state-namespace-visibility,
+        state-scope,
+        state-value,
+    };
+
+    get: func(
+        scope: state-scope,
+        visibility: state-namespace-visibility,
+        namespace: string,
+        key: string,
+    ) -> result<option<state-value>, state-error>;
+
+    scan-prefix: func(
+        scope: state-scope,
+        visibility: state-namespace-visibility,
+        namespace: string,
+        prefix: string,
+        limit: u32,
+    ) -> result<list<state-entry>, state-error>;
+
+    put: func(
+        scope: state-scope,
+        visibility: state-namespace-visibility,
+        namespace: string,
+        key: string,
+        value: state-value,
+    ) -> result<_, state-error>;
+
+    delete: func(
+        scope: state-scope,
+        visibility: state-namespace-visibility,
+        namespace: string,
+        key: string,
+    ) -> result<bool, state-error>;
+
+    compare-and-swap: func(
+        scope: state-scope,
+        visibility: state-namespace-visibility,
+        namespace: string,
+        key: string,
+        expected: option<state-value>,
+        replacement: option<state-value>,
+    ) -> result<bool, state-error>;
+}

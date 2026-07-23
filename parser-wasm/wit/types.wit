@@ -17,6 +17,20 @@ interface types {
         required: bool,
     }
 
+    enum state-namespace-visibility {
+        private,
+        shared,
+    }
+
+    record state-namespace-declaration {
+        name: string,
+        visibility: state-namespace-visibility,
+        schema-id: string,
+        schema-version: u32,
+        readers: list<string>,
+        writers: list<string>,
+    }
+
     record host-profile {
         abi: abi-version,
         capabilities: list<capability>,
@@ -75,6 +89,7 @@ interface types {
         abi: abi-version,
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
+        state-namespaces: list<state-namespace-declaration>,
     }
 
     enum compatibility-error-kind {
@@ -87,6 +102,49 @@ interface types {
     record compatibility-error {
         kind: compatibility-error-kind,
         subject: string,
+        message: string,
+    }
+
+    enum state-scope {
+        invocation,
+        parse,
+        document,
+        project,
+        persistent-project,
+    }
+
+    enum state-encoding {
+        raw,
+        cbor,
+        json,
+    }
+
+    record state-value {
+        schema-id: string,
+        encoding: state-encoding,
+        bytes: list<u8>,
+    }
+
+    record state-entry {
+        key: string,
+        value: state-value,
+    }
+
+    enum state-error-kind {
+        no-active-transaction,
+        invalid-input,
+        unknown-namespace,
+        access-denied,
+        schema-mismatch,
+        quota-exceeded,
+        stale-document-revision,
+        transaction-conflict,
+        persistence,
+        internal,
+    }
+
+    record state-error {
+        kind: state-error-kind,
         message: string,
     }
 

@@ -81,6 +81,40 @@ fn dispatches_the_core_health_subscription() {
 }
 
 #[test]
+fn dispatches_multiple_phases_inside_an_explicit_parse_transaction() {
+    let mut host =
+        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///test.sk", 1)
+        .expect("parse transaction must begin");
+    let result = host
+        .dispatch_in_parse(&transaction, document_request(HookPhase::Document))
+        .expect("document hook must dispatch inside the transaction");
+    assert_eq!(result.calls.len(), 1);
+    let result = host
+        .dispatch_in_parse(&transaction, document_request(HookPhase::Ast))
+        .expect("later phases may share the transaction");
+    assert!(result.calls.is_empty());
+    transaction.commit().expect("full parse must commit");
+}
+
+#[test]
+fn rejects_a_dispatch_for_a_different_document_revision() {
+    let mut host =
+        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///test.sk", 2)
+        .expect("parse transaction must begin");
+    let error = host
+        .dispatch_in_parse(&transaction, document_request(HookPhase::Document))
+        .expect_err("revision 1 request must not use revision 2 transaction");
+    assert!(matches!(error, HostError::StateStore(_)));
+    transaction
+        .cancel()
+        .expect("mismatched parse may be cancelled");
+}
+
+#[test]
 fn rejects_zero_resource_limits_before_starting_wasmtime() {
     let config = HostConfig {
         fuel_per_call: 0,

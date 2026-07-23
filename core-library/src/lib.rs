@@ -47,6 +47,7 @@ impl addon::Guest for CoreLibrary {
                 mode: HookMode::Observe,
                 capability_id: CAPABILITY_HOOKS.to_owned(),
             }],
+            state_namespaces: Vec::new(),
         }
     }
 

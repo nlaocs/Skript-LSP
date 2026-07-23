@@ -9,14 +9,24 @@ use std::{
     time::Duration,
 };
 
-use wasmtime::component::{Component, Linker};
+use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::bindings::ParserAddon;
+use crate::bindings::nlaocs::skript_parser_addon::state_store as wit_state_store;
+use crate::bindings::nlaocs::skript_parser_addon::types::{
+    StateEncoding as WitStateEncoding, StateEntry as WitStateEntry, StateError as WitStateError,
+    StateErrorKind as WitStateErrorKind, StateNamespaceVisibility as WitNamespaceVisibility,
+    StateScope as WitStateScope, StateValue as WitStateValue,
+};
+use crate::state::{
+    InvocationTransaction, NamespaceDeclaration, NamespaceVisibility, ParseTransaction,
+    StateEncoding, StateError, StateScope, StateStore, StateStoreConfig, StateValue,
+};
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_HOOKS, Capability, CapabilityRequirement, CompatibilityError,
-    validate_compatibility,
+    CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, Capability, CapabilityRequirement,
+    CompatibilityError, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -40,6 +50,7 @@ pub struct HostConfig {
     pub max_memories_per_component: usize,
     pub max_calls_per_dispatch: usize,
     pub max_generated_output_bytes: usize,
+    pub state_store: StateStoreConfig,
 }
 
 impl Default for HostConfig {
@@ -55,6 +66,7 @@ impl Default for HostConfig {
             max_memories_per_component: 32,
             max_calls_per_dispatch: 1_024,
             max_generated_output_bytes: 8 * 1024 * 1024,
+            state_store: StateStoreConfig::default(),
         }
     }
 }
@@ -105,6 +117,8 @@ pub enum HostError {
     },
     #[error("component manifest is invalid: {message}")]
     InvalidManifest { message: String },
+    #[error("StateStore operation failed: {0}")]
+    StateStore(#[from] StateError),
     #[error("component {component_id} is already loaded")]
     DuplicateComponent { component_id: String },
     #[error("the mandatory component must be {expected}, found {actual}")]
@@ -290,6 +304,124 @@ impl ResourceLimiter for HostResourceLimiter {
 
 struct StoreData {
     limits: HostResourceLimiter,
+    invocation: Option<InvocationTransaction>,
+}
+
+impl crate::bindings::nlaocs::skript_parser_addon::types::Host for StoreData {}
+
+impl wit_state_store::Host for StoreData {
+    fn get(
+        &mut self,
+        scope: WitStateScope,
+        visibility: WitNamespaceVisibility,
+        namespace: String,
+        key: String,
+    ) -> Result<Option<WitStateValue>, WitStateError> {
+        self.invocation()?
+            .get(
+                state_scope(scope),
+                namespace_visibility(visibility),
+                &namespace,
+                &key,
+            )
+            .map(|value| value.map(wit_state_value))
+            .map_err(wit_state_error)
+    }
+
+    fn scan_prefix(
+        &mut self,
+        scope: WitStateScope,
+        visibility: WitNamespaceVisibility,
+        namespace: String,
+        prefix: String,
+        limit: u32,
+    ) -> Result<Vec<WitStateEntry>, WitStateError> {
+        self.invocation()?
+            .scan_prefix(
+                state_scope(scope),
+                namespace_visibility(visibility),
+                &namespace,
+                &prefix,
+                limit as usize,
+            )
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .map(|entry| WitStateEntry {
+                        key: entry.key,
+                        value: wit_state_value(entry.value),
+                    })
+                    .collect()
+            })
+            .map_err(wit_state_error)
+    }
+
+    fn put(
+        &mut self,
+        scope: WitStateScope,
+        visibility: WitNamespaceVisibility,
+        namespace: String,
+        key: String,
+        value: WitStateValue,
+    ) -> Result<(), WitStateError> {
+        self.invocation()?
+            .put(
+                state_scope(scope),
+                namespace_visibility(visibility),
+                &namespace,
+                &key,
+                state_value(value),
+            )
+            .map_err(wit_state_error)
+    }
+
+    fn delete(
+        &mut self,
+        scope: WitStateScope,
+        visibility: WitNamespaceVisibility,
+        namespace: String,
+        key: String,
+    ) -> Result<bool, WitStateError> {
+        self.invocation()?
+            .delete(
+                state_scope(scope),
+                namespace_visibility(visibility),
+                &namespace,
+                &key,
+            )
+            .map_err(wit_state_error)
+    }
+
+    fn compare_and_swap(
+        &mut self,
+        scope: WitStateScope,
+        visibility: WitNamespaceVisibility,
+        namespace: String,
+        key: String,
+        expected: Option<WitStateValue>,
+        replacement: Option<WitStateValue>,
+    ) -> Result<bool, WitStateError> {
+        let expected = expected.map(state_value);
+        let replacement = replacement.map(state_value);
+        self.invocation()?
+            .compare_and_swap(
+                state_scope(scope),
+                namespace_visibility(visibility),
+                &namespace,
+                &key,
+                expected.as_ref(),
+                replacement,
+            )
+            .map_err(wit_state_error)
+    }
+}
+
+impl StoreData {
+    fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
+        self.invocation
+            .as_mut()
+            .ok_or_else(|| wit_state_error(StateError::NoActiveTransaction))
+    }
 }
 
 struct ComponentEntry {
@@ -416,6 +548,7 @@ pub struct ParserHost {
     engine: Engine,
     linker: Linker<StoreData>,
     config: HostConfig,
+    state_store: StateStore,
     capabilities: Vec<Capability>,
     components: Vec<ComponentEntry>,
     registry: SubscriptionRegistry,
@@ -428,6 +561,7 @@ impl ParserHost {
             return Err(HostError::CoreLibraryMissing);
         }
         config.validate()?;
+        let state_store = StateStore::new(config.state_store.clone())?;
 
         let mut wasmtime_config = Config::new();
         wasmtime_config.wasm_component_model(true);
@@ -437,12 +571,17 @@ impl ParserHost {
             message: error.to_string(),
         })?;
         let ticker = EpochTicker::start(engine.clone(), config.epoch_tick)?;
-        let linker = Linker::new(&engine);
+        let mut linker = Linker::new(&engine);
+        ParserAddon::add_to_linker::<_, HasSelf<_>>(&mut linker, |data: &mut StoreData| data)
+            .map_err(|error| HostError::Engine {
+                message: format!("failed to register parser addon host imports: {error}"),
+            })?;
         let capabilities = host_capabilities();
         let mut host = Self {
             engine,
             linker,
             config,
+            state_store,
             capabilities,
             components: Vec::new(),
             registry: SubscriptionRegistry::default(),
@@ -450,6 +589,17 @@ impl ParserHost {
         };
         host.load_component(core_library, true)?;
         Ok(host)
+    }
+
+    pub fn begin_parse(
+        &self,
+        project_uri: &str,
+        document_id: &str,
+        document_revision: u64,
+    ) -> Result<ParseTransaction, HostError> {
+        Ok(self
+            .state_store
+            .begin_parse(project_uri, document_id, document_revision)?)
     }
 
     pub fn load_addon(&mut self, component: &[u8]) -> Result<ComponentInfo, HostError> {
@@ -469,6 +619,70 @@ impl ParserHost {
     }
 
     pub fn dispatch(&mut self, request: DispatchRequest) -> Result<DispatchResult, HostError> {
+        let project_uri = request.context.document_id.clone();
+        let transaction = self.begin_parse(
+            &project_uri,
+            &request.context.document_id,
+            request.context.document_revision,
+        )?;
+        match self.dispatch_in_parse(&transaction, request) {
+            Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
+                transaction.cancel()?;
+                Ok(result)
+            }
+            Ok(result) => {
+                transaction.commit()?;
+                Ok(result)
+            }
+            Err(error) => {
+                let _ = transaction.cancel();
+                Err(error)
+            }
+        }
+    }
+
+    pub fn dispatch_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: DispatchRequest,
+    ) -> Result<DispatchResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != request.context.document_id
+            || document_revision != request.context.document_revision
+        {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "dispatch context {}@{} does not match parse transaction {}@{}",
+                    request.context.document_id,
+                    request.context.document_revision,
+                    document_id,
+                    document_revision
+                ),
+            }
+            .into());
+        }
+
+        let savepoint = transaction.savepoint()?;
+        let result = self.dispatch_with_transaction(transaction, request);
+        match result {
+            Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
+                transaction.rollback_to(&savepoint)?;
+                Ok(result)
+            }
+            Ok(result) => Ok(result),
+            Err(error) => {
+                transaction.rollback_to(&savepoint)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn dispatch_with_transaction(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: DispatchRequest,
+    ) -> Result<DispatchResult, HostError> {
         let candidates = self.registry.matching(&request.target, request.phase);
         let mut payload = request.payload;
         let mut effects = empty_effects();
@@ -505,24 +719,52 @@ impl ParserHost {
                 component_id: component_id.clone(),
                 subscription_id: subscription_id.clone(),
             });
-            let call = {
-                let entry = &mut self.components[candidate.component_index];
-                prepare_store(
-                    &mut entry.store,
-                    self.config.fuel_per_call,
-                    self.config.deadline_ticks(),
-                    &component_id,
-                    "hook",
-                )?;
-                entry
-                    .bindings
-                    .nlaocs_skript_parser_addon_hooks()
-                    .call_invoke(&mut entry.store, &invocation)
-            };
+            let state_invocation = transaction.begin_invocation(component_id.clone())?;
+            let call =
+                {
+                    let entry = &mut self.components[candidate.component_index];
+                    if entry.store.data().invocation.is_some() {
+                        return Err(StateError::Internal {
+                            message: format!(
+                                "component {component_id} already has an active invocation"
+                            ),
+                        }
+                        .into());
+                    }
+                    entry.store.data_mut().invocation = Some(state_invocation);
+                    let prepared = prepare_store(
+                        &mut entry.store,
+                        self.config.fuel_per_call,
+                        self.config.deadline_ticks(),
+                        &component_id,
+                        "hook",
+                    );
+                    if let Err(error) = prepared {
+                        entry
+                            .store
+                            .data_mut()
+                            .invocation
+                            .take()
+                            .expect("the invocation was just installed")
+                            .rollback();
+                        return Err(error);
+                    }
+                    let call = entry
+                        .bindings
+                        .nlaocs_skript_parser_addon_hooks()
+                        .call_invoke(&mut entry.store, &invocation);
+                    let state_invocation =
+                        entry.store.data_mut().invocation.take().expect(
+                            "the invocation remains installed for the duration of the call",
+                        );
+                    (call, state_invocation)
+                };
 
+            let (call, state_invocation) = call;
             let output = match call {
                 Ok(Ok(output)) => output,
                 Ok(Err(addon_error)) => {
+                    state_invocation.rollback();
                     effects.diagnostics.extend(addon_error.diagnostics);
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
@@ -535,6 +777,7 @@ impl ParserHost {
                     continue;
                 }
                 Err(error) => {
+                    state_invocation.rollback();
                     let error = classify_wasmtime_error(component_id.clone(), "hook", error);
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
@@ -550,6 +793,7 @@ impl ParserHost {
 
             generated_output = generated_output.saturating_add(hook_output_size(&output));
             if generated_output > self.config.max_generated_output_bytes {
+                state_invocation.rollback();
                 return Err(HostError::GeneratedOutputQuotaExceeded {
                     limit: self.config.max_generated_output_bytes,
                 });
@@ -557,6 +801,11 @@ impl ParserHost {
 
             match apply_hook_output(candidate.subscription.mode, output, payload.clone()) {
                 Ok(applied) => {
+                    if matches!(applied.decision, Some(HookDecision::Reject(_))) {
+                        state_invocation.rollback();
+                    } else {
+                        state_invocation.commit()?;
+                    }
                     payload = applied.payload;
                     merge_effects(&mut effects, applied.effects);
                     if let Some(final_decision) = applied.decision {
@@ -567,6 +816,7 @@ impl ParserHost {
                     }
                 }
                 Err(message) => {
+                    state_invocation.rollback();
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
@@ -668,6 +918,15 @@ impl ParserHost {
                 });
             }
         }
+        let namespaces = namespace_declarations(&manifest);
+        self.state_store
+            .register_component(&manifest.component_id, &namespaces)
+            .map_err(|error| HostError::InvalidManifest {
+                message: format!(
+                    "{} has invalid StateStore namespaces: {error}",
+                    manifest.component_id
+                ),
+            })?;
 
         let component_index = self.components.len();
         let load_order = component_index;
@@ -690,9 +949,87 @@ impl ParserHost {
     }
 }
 
+fn namespace_declarations(manifest: &ComponentManifest) -> Vec<NamespaceDeclaration> {
+    manifest
+        .state_namespaces
+        .iter()
+        .map(|namespace| NamespaceDeclaration {
+            name: namespace.name.clone(),
+            visibility: namespace_visibility(namespace.visibility),
+            schema_id: namespace.schema_id.clone(),
+            schema_version: namespace.schema_version,
+            readers: namespace.readers.iter().cloned().collect(),
+            writers: namespace.writers.iter().cloned().collect(),
+        })
+        .collect()
+}
+
+fn state_scope(scope: WitStateScope) -> StateScope {
+    match scope {
+        WitStateScope::Invocation => StateScope::Invocation,
+        WitStateScope::Parse => StateScope::Parse,
+        WitStateScope::Document => StateScope::Document,
+        WitStateScope::Project => StateScope::Project,
+        WitStateScope::PersistentProject => StateScope::PersistentProject,
+    }
+}
+
+fn namespace_visibility(visibility: WitNamespaceVisibility) -> NamespaceVisibility {
+    match visibility {
+        WitNamespaceVisibility::Private => NamespaceVisibility::Private,
+        WitNamespaceVisibility::Shared => NamespaceVisibility::Shared,
+    }
+}
+
+fn state_value(value: WitStateValue) -> StateValue {
+    StateValue::new(
+        value.schema_id,
+        match value.encoding {
+            WitStateEncoding::Raw => StateEncoding::Raw,
+            WitStateEncoding::Cbor => StateEncoding::Cbor,
+            WitStateEncoding::Json => StateEncoding::Json,
+        },
+        value.bytes,
+    )
+}
+
+fn wit_state_value(value: StateValue) -> WitStateValue {
+    WitStateValue {
+        schema_id: value.schema_id,
+        encoding: match value.encoding {
+            StateEncoding::Raw => WitStateEncoding::Raw,
+            StateEncoding::Cbor => WitStateEncoding::Cbor,
+            StateEncoding::Json => WitStateEncoding::Json,
+        },
+        bytes: value.bytes,
+    }
+}
+
+fn wit_state_error(error: StateError) -> WitStateError {
+    let kind = match &error {
+        StateError::NoActiveTransaction => WitStateErrorKind::NoActiveTransaction,
+        StateError::InvalidInput { .. } => WitStateErrorKind::InvalidInput,
+        StateError::UnknownNamespace { .. } => WitStateErrorKind::UnknownNamespace,
+        StateError::AccessDenied { .. } => WitStateErrorKind::AccessDenied,
+        StateError::SchemaMismatch { .. } => WitStateErrorKind::SchemaMismatch,
+        StateError::QuotaExceeded { .. } => WitStateErrorKind::QuotaExceeded,
+        StateError::StaleDocumentRevision { .. } => WitStateErrorKind::StaleDocumentRevision,
+        StateError::TransactionConflict { .. } => WitStateErrorKind::TransactionConflict,
+        StateError::Persistence { .. } => WitStateErrorKind::Persistence,
+        StateError::TransactionClosed
+        | StateError::ForeignSavepoint
+        | StateError::Internal { .. } => WitStateErrorKind::Internal,
+    };
+    WitStateError {
+        kind,
+        message: error.to_string(),
+    }
+}
+
 pub fn host_capabilities() -> Vec<Capability> {
     [
         CAPABILITY_HOOKS,
+        CAPABILITY_STATE_STORE,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
     ]
@@ -824,6 +1161,7 @@ fn create_store(engine: &Engine, config: &HostConfig) -> Store<StoreData> {
                 tables: config.max_tables_per_component,
                 memories: config.max_memories_per_component,
             },
+            invocation: None,
         },
     );
     store.limiter(|data| &mut data.limits);
@@ -1270,6 +1608,7 @@ mod tests {
             ids,
             [
                 CAPABILITY_HOOKS,
+                CAPABILITY_STATE_STORE,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
             ]
@@ -1286,6 +1625,7 @@ mod tests {
             abi: WitAbiVersion { major: 2, minor: 0 },
             capabilities: Vec::new(),
             subscriptions: Vec::new(),
+            state_namespaces: Vec::new(),
         };
         let error = validate_manifest(&manifest, &host_capabilities()).unwrap_err();
         assert!(matches!(

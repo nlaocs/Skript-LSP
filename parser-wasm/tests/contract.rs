@@ -30,6 +30,15 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
         .get("parser-addon")
         .map(|id| &resolve.worlds[*id])
         .expect("parser-addon world must exist");
+    let imports = world
+        .imports
+        .values()
+        .filter_map(|item| match item {
+            wit_parser::WorldItem::Interface { id, .. } => resolve.interfaces[*id].name.as_deref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(imports, ["types", "state-store"]);
     let exports = world
         .exports
         .values()
@@ -69,6 +78,7 @@ fn host_bindings_expose_typed_hook_contract() {
             required: true,
         }],
         subscriptions: vec![subscription],
+        state_namespaces: Vec::new(),
     };
 
     assert_eq!(manifest.component_id, "test.component");
