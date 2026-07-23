@@ -4,13 +4,18 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod bindings;
 #[cfg(feature = "host")]
 pub mod host;
+#[cfg(feature = "host")]
+pub mod state;
 
 #[cfg(feature = "host")]
 pub use host::{HostConfig, HostError, ParserHost};
+#[cfg(feature = "host")]
+pub use state::{ParseTransaction, StateError, StateStore};
 
 pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 0);
 
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
+pub const CAPABILITY_STATE_STORE: &str = "parser.state-store";
 pub const CAPABILITY_TEXT_MACRO: &str = "parser.macro.text";
 pub const CAPABILITY_TREE_MACRO: &str = "parser.macro.tree";
 pub const CAPABILITY_AST_MACRO: &str = "parser.macro.ast";

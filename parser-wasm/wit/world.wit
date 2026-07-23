@@ -1,6 +1,8 @@
 package nlaocs:skript-parser-addon@0.1.0;
 
 world parser-addon {
+    import state-store;
+
     export addon;
     export hooks;
     export text-macro;
