@@ -99,6 +99,10 @@ impl Catalog {
         &self.parts.syntaxes
     }
 
+    pub fn syntax_at(&self, index: usize) -> Option<&Syntax> {
+        self.parts.syntaxes.get(index)
+    }
+
     pub fn syntax_by_registration_id(&self, id: &str) -> Vec<&Syntax> {
         self.index
             .syntaxes_by_registration_id

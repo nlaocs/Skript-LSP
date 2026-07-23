@@ -304,7 +304,7 @@ pub enum Syntax {
     Structure(Structure),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SyntaxKind {
     Event,
     Condition,
@@ -340,6 +340,47 @@ impl Syntax {
             Self::Function(value) => &value.registration_id,
             Self::Section(value) => &value.common.registration_id,
             Self::Structure(value) => &value.common.registration_id,
+        }
+    }
+
+    pub fn definition_id(&self) -> &DefinitionId {
+        match self {
+            Self::Event(value) => &value.common.definition_id,
+            Self::Condition(value) => &value.common.definition_id,
+            Self::Effect(value) => &value.common.definition_id,
+            Self::Expression(value) => &value.common.definition_id,
+            Self::Type(value) => &value.definition_id,
+            Self::Function(value) => &value.definition_id,
+            Self::Section(value) => &value.common.definition_id,
+            Self::Structure(value) => &value.common.definition_id,
+        }
+    }
+
+    pub fn registration_order(&self) -> usize {
+        match self {
+            Self::Event(value) => value.common.registration_order,
+            Self::Condition(value) => value.common.registration_order,
+            Self::Effect(value) => value.common.registration_order,
+            Self::Expression(value) => value.common.registration_order,
+            Self::Type(value) => value.type_parse_order,
+            Self::Function(value) => value.registration_order,
+            Self::Section(value) => value.common.registration_order,
+            Self::Structure(value) => value.common.registration_order,
+        }
+    }
+}
+
+impl SyntaxKind {
+    pub const fn order(self) -> u8 {
+        match self {
+            Self::Event => 0,
+            Self::Condition => 1,
+            Self::Effect => 2,
+            Self::Expression => 3,
+            Self::Type => 4,
+            Self::Function => 5,
+            Self::Section => 6,
+            Self::Structure => 7,
         }
     }
 }

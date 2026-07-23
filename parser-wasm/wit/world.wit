@@ -2,6 +2,7 @@ package nlaocs:skript-parser-addon@0.1.0;
 
 world parser-addon {
     import state-store;
+    import dynamic-syntax-registry;
 
     export addon;
     export hooks;

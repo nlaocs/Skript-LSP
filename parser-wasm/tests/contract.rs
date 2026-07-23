@@ -38,7 +38,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(imports, ["types", "state-store"]);
+    assert_eq!(imports, ["types", "state-store", "dynamic-syntax-registry"]);
     let exports = world
         .exports
         .values()
@@ -86,6 +86,42 @@ fn host_bindings_expose_typed_hook_contract() {
     assert_eq!(manifest.subscriptions[0].id, "observe-expressions");
     assert_eq!(manifest.subscriptions[0].priority, -20);
     assert_eq!(manifest.abi.major, 1);
+}
+
+#[test]
+fn bindings_expose_typed_dynamic_syntax_registration() {
+    use host::nlaocs::skript_parser_addon::types::{
+        DynamicMultiplicity, DynamicSyntaxDefinition, DynamicSyntaxId, DynamicSyntaxReference,
+        MetadataEntry, SyntaxKind,
+    };
+
+    let definition = DynamicSyntaxDefinition {
+        local_id: "fixture-effect".to_owned(),
+        kind: SyntaxKind::Effect,
+        patterns: vec!["fixture %string%".to_owned()],
+        priority: -10,
+        before: vec![DynamicSyntaxReference::RegistrationId(
+            "effect:fixture".to_owned(),
+        )],
+        after: vec![DynamicSyntaxReference::Dynamic(DynamicSyntaxId {
+            component_id: None,
+            local_id: "other-effect".to_owned(),
+        })],
+        return_type: Some("java.lang.String".to_owned()),
+        return_multiplicity: Some(DynamicMultiplicity::Single),
+        handler: "fixture.handle".to_owned(),
+        metadata: vec![MetadataEntry {
+            key: "origin".to_owned(),
+            value: "contract-test".to_owned(),
+        }],
+    };
+
+    assert_eq!(definition.kind, SyntaxKind::Effect);
+    assert_eq!(definition.patterns, ["fixture %string%"]);
+    assert!(matches!(
+        definition.return_multiplicity,
+        Some(DynamicMultiplicity::Single)
+    ));
 }
 
 #[test]
