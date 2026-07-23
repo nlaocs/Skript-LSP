@@ -7,6 +7,7 @@ edition = "2024"
 members = ["core-library", "parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "utilities/*", "xtask"]
 
 [dependencies]
+parser-wasm = { path = "parser-wasm" }
 syntax-pattern-parser = { path = "syntax-pattern-parser" }
 
 [dev-dependencies]

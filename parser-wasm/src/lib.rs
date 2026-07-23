@@ -1,5 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(feature = "host")]
+pub mod bindings;
+#[cfg(feature = "host")]
+pub mod host;
+
+#[cfg(feature = "host")]
+pub use host::{HostConfig, HostError, ParserHost};
+
 pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 0);
 
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
