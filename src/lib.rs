@@ -11,6 +11,13 @@ pub fn core_library_component() -> &'static [u8] {
     CORE_LIBRARY_COMPONENT
 }
 
+/// Creates the parser host with the mandatory bundled CoreLibrary loaded.
+pub fn new_parser_host(
+    config: parser_wasm::HostConfig,
+) -> Result<parser_wasm::ParserHost, parser_wasm::HostError> {
+    parser_wasm::ParserHost::new(CORE_LIBRARY_COMPONENT, config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -24,5 +31,14 @@ mod tests {
         };
         let world = &resolve.worlds[world_id];
         assert_eq!(world.exports.len(), 5);
+    }
+
+    #[test]
+    fn bundled_core_library_initializes_the_parser_host() {
+        let host = new_parser_host(parser_wasm::HostConfig::default())
+            .expect("bundled CoreLibrary must initialize");
+        let components = host.components();
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0].component_id, "nlaocs.core-library");
     }
 }

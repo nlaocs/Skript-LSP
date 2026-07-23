@@ -849,6 +849,7 @@ name = "parser-wasm"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "wasm-encoder 0.245.1",
  "wasmtime",
  "wit-bindgen 0.59.0",
  "wit-parser 0.253.0",
@@ -1238,6 +1239,7 @@ checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 name = "skript-lsp"
 version = "0.1.0"
 dependencies = [
+ "parser-wasm",
  "syntax-pattern-parser",
  "wit-component",
 ]
