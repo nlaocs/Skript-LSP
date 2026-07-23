@@ -1,0 +1,21 @@
+package nlaocs:skript-parser-addon@0.1.0;
+
+interface dynamic-syntax-registry {
+    use types.{
+        dynamic-registry-error,
+        dynamic-syntax-definition,
+        dynamic-syntax-override,
+    };
+
+    register: func(
+        definition: dynamic-syntax-definition,
+    ) -> result<_, dynamic-registry-error>;
+
+    register-override: func(
+        syntax-override: dynamic-syntax-override,
+    ) -> result<_, dynamic-registry-error>;
+
+    remove: func(
+        local-id: string,
+    ) -> result<bool, dynamic-registry-error>;
+}

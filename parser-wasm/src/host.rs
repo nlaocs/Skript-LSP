@@ -9,15 +9,28 @@ use std::{
     time::Duration,
 };
 
+use syntaxes::{
+    Catalog, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
+    DynamicSyntaxInput, DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot,
+    DynamicSyntaxUpdate, RegistrationId, SyntaxKind as CatalogSyntaxKind, SyntaxOverrideTarget,
+    SyntaxReference,
+};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::bindings::ParserAddon;
+use crate::bindings::nlaocs::skript_parser_addon::dynamic_syntax_registry as wit_dynamic_registry;
 use crate::bindings::nlaocs::skript_parser_addon::state_store as wit_state_store;
 use crate::bindings::nlaocs::skript_parser_addon::types::{
-    StateEncoding as WitStateEncoding, StateEntry as WitStateEntry, StateError as WitStateError,
-    StateErrorKind as WitStateErrorKind, StateNamespaceVisibility as WitNamespaceVisibility,
-    StateScope as WitStateScope, StateValue as WitStateValue,
+    DynamicMultiplicity as WitDynamicMultiplicity, DynamicRegistryError as WitDynamicRegistryError,
+    DynamicRegistryErrorKind as WitDynamicRegistryErrorKind,
+    DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
+    DynamicSyntaxOverride as WitDynamicSyntaxOverride,
+    DynamicSyntaxOverrideTarget as WitDynamicSyntaxOverrideTarget,
+    DynamicSyntaxReference as WitDynamicSyntaxReference, StateEncoding as WitStateEncoding,
+    StateEntry as WitStateEntry, StateError as WitStateError, StateErrorKind as WitStateErrorKind,
+    StateNamespaceVisibility as WitNamespaceVisibility, StateScope as WitStateScope,
+    StateValue as WitStateValue,
 };
 use crate::state::{
     InvocationTransaction, NamespaceDeclaration, NamespaceVisibility, ParseTransaction,
@@ -25,8 +38,8 @@ use crate::state::{
 };
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, Capability, CapabilityRequirement,
-    CompatibilityError, validate_compatibility,
+    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, Capability,
+    CapabilityRequirement, CompatibilityError, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -51,6 +64,7 @@ pub struct HostConfig {
     pub max_calls_per_dispatch: usize,
     pub max_generated_output_bytes: usize,
     pub state_store: StateStoreConfig,
+    pub syntax_catalog: Option<Arc<Catalog>>,
 }
 
 impl Default for HostConfig {
@@ -67,6 +81,7 @@ impl Default for HostConfig {
             max_calls_per_dispatch: 1_024,
             max_generated_output_bytes: 8 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
+            syntax_catalog: None,
         }
     }
 }
@@ -119,6 +134,10 @@ pub enum HostError {
     InvalidManifest { message: String },
     #[error("StateStore operation failed: {0}")]
     StateStore(#[from] StateError),
+    #[error("dynamic syntax registry is unavailable without an SSG Catalog")]
+    DynamicSyntaxUnavailable,
+    #[error("dynamic syntax registry operation failed: {0}")]
+    DynamicSyntax(#[from] DynamicRegistryError),
     #[error("component {component_id} is already loaded")]
     DuplicateComponent { component_id: String },
     #[error("the mandatory component must be {expected}, found {actual}")]
@@ -177,6 +196,8 @@ pub enum HostError {
     CallQuotaExceeded { limit: usize },
     #[error("dispatch exceeded the generated output quota of {limit} bytes")]
     GeneratedOutputQuotaExceeded { limit: usize },
+    #[error("the mandatory CoreLibrary component cannot be unloaded")]
+    CannotUnloadCoreLibrary,
 }
 
 impl HostError {
@@ -305,6 +326,8 @@ impl ResourceLimiter for HostResourceLimiter {
 struct StoreData {
     limits: HostResourceLimiter,
     invocation: Option<InvocationTransaction>,
+    dynamic_syntax_update: Option<DynamicSyntaxUpdate>,
+    dynamic_syntax_available: bool,
 }
 
 impl crate::bindings::nlaocs::skript_parser_addon::types::Host for StoreData {}
@@ -416,11 +439,169 @@ impl wit_state_store::Host for StoreData {
     }
 }
 
+impl wit_dynamic_registry::Host for StoreData {
+    fn register(
+        &mut self,
+        definition: WitDynamicSyntaxDefinition,
+    ) -> Result<(), WitDynamicRegistryError> {
+        let component_id = self.dynamic_update()?.component_id().to_owned();
+        let metadata = dynamic_metadata(definition.metadata)?;
+        let before = definition
+            .before
+            .into_iter()
+            .map(|reference| dynamic_reference(reference, &component_id))
+            .collect();
+        let after = definition
+            .after
+            .into_iter()
+            .map(|reference| dynamic_reference(reference, &component_id))
+            .collect();
+        let input = DynamicSyntaxInput {
+            local_id: definition.local_id,
+            kind: catalog_syntax_kind(definition.kind),
+            patterns: definition.patterns,
+            priority: definition.priority,
+            before,
+            after,
+            return_type: definition.return_type,
+            return_multiplicity: definition.return_multiplicity.map(|value| match value {
+                WitDynamicMultiplicity::Single => DynamicMultiplicity::Single,
+                WitDynamicMultiplicity::Multiple => DynamicMultiplicity::Multiple,
+                WitDynamicMultiplicity::Both => DynamicMultiplicity::Both,
+            }),
+            handler: definition.handler,
+            metadata,
+        };
+        self.dynamic_update()?
+            .register(input)
+            .map_err(wit_dynamic_registry_error)
+    }
+
+    fn register_override(
+        &mut self,
+        syntax_override: WitDynamicSyntaxOverride,
+    ) -> Result<(), WitDynamicRegistryError> {
+        let metadata = dynamic_metadata(syntax_override.metadata)?;
+        let target = match syntax_override.target {
+            WitDynamicSyntaxOverrideTarget::DefinitionId(value) => {
+                SyntaxOverrideTarget::Definition(DefinitionId(value))
+            }
+            WitDynamicSyntaxOverrideTarget::RegistrationId(value) => {
+                SyntaxOverrideTarget::Registration(RegistrationId(value))
+            }
+        };
+        self.dynamic_update()?
+            .register_override(DynamicSyntaxOverrideInput {
+                local_id: syntax_override.local_id,
+                target,
+                priority: syntax_override.priority,
+                handler: syntax_override.handler,
+                metadata,
+            })
+            .map_err(wit_dynamic_registry_error)
+    }
+
+    fn remove(&mut self, local_id: String) -> Result<bool, WitDynamicRegistryError> {
+        self.dynamic_update()?
+            .remove(&local_id)
+            .map_err(wit_dynamic_registry_error)
+    }
+}
+
+fn dynamic_metadata(
+    entries: Vec<crate::bindings::nlaocs::skript_parser_addon::types::MetadataEntry>,
+) -> Result<BTreeMap<String, String>, WitDynamicRegistryError> {
+    let mut metadata = BTreeMap::new();
+    for entry in entries {
+        if metadata.insert(entry.key.clone(), entry.value).is_some() {
+            return Err(WitDynamicRegistryError {
+                kind: WitDynamicRegistryErrorKind::InvalidInput,
+                message: format!(
+                    "dynamic syntax metadata key {} is declared twice",
+                    entry.key
+                ),
+            });
+        }
+    }
+    Ok(metadata)
+}
+
+fn dynamic_reference(
+    reference: WitDynamicSyntaxReference,
+    own_component_id: &str,
+) -> SyntaxReference {
+    match reference {
+        WitDynamicSyntaxReference::Dynamic(id) => SyntaxReference::Dynamic(DynamicSyntaxId::new(
+            id.component_id
+                .unwrap_or_else(|| own_component_id.to_owned()),
+            id.local_id,
+        )),
+        WitDynamicSyntaxReference::DefinitionId(value) => {
+            SyntaxReference::Definition(DefinitionId(value))
+        }
+        WitDynamicSyntaxReference::RegistrationId(value) => {
+            SyntaxReference::Registration(RegistrationId(value))
+        }
+    }
+}
+
+fn catalog_syntax_kind(kind: SyntaxKind) -> CatalogSyntaxKind {
+    match kind {
+        SyntaxKind::Event => CatalogSyntaxKind::Event,
+        SyntaxKind::Condition => CatalogSyntaxKind::Condition,
+        SyntaxKind::Effect => CatalogSyntaxKind::Effect,
+        SyntaxKind::Expression => CatalogSyntaxKind::Expression,
+        SyntaxKind::Type => CatalogSyntaxKind::Type,
+        SyntaxKind::Function => CatalogSyntaxKind::Function,
+        SyntaxKind::Section => CatalogSyntaxKind::Section,
+        SyntaxKind::Structure => CatalogSyntaxKind::Structure,
+    }
+}
+
+fn wit_dynamic_registry_error(error: DynamicRegistryError) -> WitDynamicRegistryError {
+    let kind = match error {
+        DynamicRegistryError::InvalidInput { .. } => WitDynamicRegistryErrorKind::InvalidInput,
+        DynamicRegistryError::DuplicateId { .. } => WitDynamicRegistryErrorKind::DuplicateId,
+        DynamicRegistryError::UnknownId { .. } => WitDynamicRegistryErrorKind::UnknownId,
+        DynamicRegistryError::InvalidPattern { .. } => WitDynamicRegistryErrorKind::InvalidPattern,
+        DynamicRegistryError::UnknownDocument { .. } => WitDynamicRegistryErrorKind::NoActiveUpdate,
+        DynamicRegistryError::StaleDocumentRevision { .. } => {
+            WitDynamicRegistryErrorKind::StaleDocumentRevision
+        }
+        DynamicRegistryError::Frozen { .. } => WitDynamicRegistryErrorKind::Frozen,
+        DynamicRegistryError::UnknownReference { .. }
+        | DynamicRegistryError::CrossKindReference { .. } => {
+            WitDynamicRegistryErrorKind::UnknownReference
+        }
+        DynamicRegistryError::PriorityCycle { .. } => WitDynamicRegistryErrorKind::PriorityCycle,
+        DynamicRegistryError::Internal { .. } => WitDynamicRegistryErrorKind::Internal,
+    };
+    WitDynamicRegistryError {
+        kind,
+        message: error.to_string(),
+    }
+}
+
 impl StoreData {
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
         self.invocation
             .as_mut()
             .ok_or_else(|| wit_state_error(StateError::NoActiveTransaction))
+    }
+
+    fn dynamic_update(&mut self) -> Result<&mut DynamicSyntaxUpdate, WitDynamicRegistryError> {
+        if !self.dynamic_syntax_available {
+            return Err(WitDynamicRegistryError {
+                kind: WitDynamicRegistryErrorKind::Unavailable,
+                message: "dynamic syntax registry requires an SSG Catalog".to_owned(),
+            });
+        }
+        self.dynamic_syntax_update
+            .as_mut()
+            .ok_or_else(|| WitDynamicRegistryError {
+                kind: WitDynamicRegistryErrorKind::NoActiveUpdate,
+                message: "dynamic syntax updates are only available during initialization and document prepass hooks".to_owned(),
+            })
     }
 }
 
@@ -430,6 +611,7 @@ struct ComponentEntry {
     bindings: ParserAddon,
     load_order: usize,
     disabled: bool,
+    unloaded: bool,
 }
 
 #[derive(Clone)]
@@ -549,6 +731,7 @@ pub struct ParserHost {
     linker: Linker<StoreData>,
     config: HostConfig,
     state_store: StateStore,
+    dynamic_syntax_registry: Option<DynamicSyntaxRegistry>,
     capabilities: Vec<Capability>,
     components: Vec<ComponentEntry>,
     registry: SubscriptionRegistry,
@@ -562,6 +745,10 @@ impl ParserHost {
         }
         config.validate()?;
         let state_store = StateStore::new(config.state_store.clone())?;
+        let dynamic_syntax_registry = config
+            .syntax_catalog
+            .clone()
+            .map(DynamicSyntaxRegistry::new);
 
         let mut wasmtime_config = Config::new();
         wasmtime_config.wasm_component_model(true);
@@ -576,12 +763,13 @@ impl ParserHost {
             .map_err(|error| HostError::Engine {
                 message: format!("failed to register parser addon host imports: {error}"),
             })?;
-        let capabilities = host_capabilities();
+        let capabilities = configured_host_capabilities(dynamic_syntax_registry.is_some());
         let mut host = Self {
             engine,
             linker,
             config,
             state_store,
+            dynamic_syntax_registry,
             capabilities,
             components: Vec::new(),
             registry: SubscriptionRegistry::default(),
@@ -597,9 +785,16 @@ impl ParserHost {
         document_id: &str,
         document_revision: u64,
     ) -> Result<ParseTransaction, HostError> {
-        Ok(self
-            .state_store
-            .begin_parse(project_uri, document_id, document_revision)?)
+        let transaction =
+            self.state_store
+                .begin_parse(project_uri, document_id, document_revision)?;
+        if let Some(registry) = &self.dynamic_syntax_registry
+            && let Err(error) = registry.begin_document(document_id, document_revision)
+        {
+            let _ = transaction.cancel();
+            return Err(error.into());
+        }
+        Ok(transaction)
     }
 
     pub fn load_addon(&mut self, component: &[u8]) -> Result<ComponentInfo, HostError> {
@@ -613,9 +808,41 @@ impl ParserHost {
                 component_id: entry.manifest.component_id.clone(),
                 component_version: entry.manifest.component_version.clone(),
                 load_order: entry.load_order,
-                disabled: entry.disabled,
+                disabled: entry.disabled || entry.unloaded,
             })
             .collect()
+    }
+
+    pub fn dynamic_syntax_snapshot(
+        &self,
+        transaction: &ParseTransaction,
+    ) -> Result<DynamicSyntaxSnapshot, HostError> {
+        let registry = self
+            .dynamic_syntax_registry
+            .as_ref()
+            .ok_or(HostError::DynamicSyntaxUnavailable)?;
+        Ok(registry.freeze(
+            &transaction.document_id()?,
+            transaction.document_revision()?,
+        )?)
+    }
+
+    pub fn unload_addon(&mut self, component_id: &str) -> Result<bool, HostError> {
+        if component_id == CORE_LIBRARY_COMPONENT_ID {
+            return Err(HostError::CannotUnloadCoreLibrary);
+        }
+        let Some(entry) = self
+            .components
+            .iter_mut()
+            .find(|entry| entry.manifest.component_id == component_id && !entry.unloaded)
+        else {
+            return Ok(false);
+        };
+        entry.unloaded = true;
+        if let Some(registry) = &self.dynamic_syntax_registry {
+            registry.remove_component(component_id)?;
+        }
+        Ok(true)
     }
 
     pub fn dispatch(&mut self, request: DispatchRequest) -> Result<DispatchResult, HostError> {
@@ -631,6 +858,12 @@ impl ParserHost {
                 Ok(result)
             }
             Ok(result) => {
+                if self.dynamic_syntax_registry.is_some()
+                    && let Err(error) = self.dynamic_syntax_snapshot(&transaction)
+                {
+                    let _ = transaction.cancel();
+                    return Err(error);
+                }
                 transaction.commit()?;
                 Ok(result)
             }
@@ -663,16 +896,37 @@ impl ParserHost {
             .into());
         }
 
-        let savepoint = transaction.savepoint()?;
+        let state_savepoint = transaction.savepoint()?;
+        let dynamic_savepoint = if is_dynamic_prepass_phase(request.phase) {
+            self.dynamic_syntax_registry
+                .as_ref()
+                .map(|registry| registry.savepoint(&document_id, document_revision))
+                .transpose()?
+        } else {
+            if let Some(registry) = &self.dynamic_syntax_registry {
+                registry.freeze(&document_id, document_revision)?;
+            }
+            None
+        };
         let result = self.dispatch_with_transaction(transaction, request);
         match result {
             Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
-                transaction.rollback_to(&savepoint)?;
+                transaction.rollback_to(&state_savepoint)?;
+                if let (Some(registry), Some(savepoint)) =
+                    (&self.dynamic_syntax_registry, &dynamic_savepoint)
+                {
+                    registry.rollback_to(savepoint)?;
+                }
                 Ok(result)
             }
             Ok(result) => Ok(result),
             Err(error) => {
-                transaction.rollback_to(&savepoint)?;
+                transaction.rollback_to(&state_savepoint)?;
+                if let (Some(registry), Some(savepoint)) =
+                    (&self.dynamic_syntax_registry, &dynamic_savepoint)
+                {
+                    registry.rollback_to(savepoint)?;
+                }
                 Err(error)
             }
         }
@@ -684,6 +938,8 @@ impl ParserHost {
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
         let candidates = self.registry.matching(&request.target, request.phase);
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
         let mut payload = request.payload;
         let mut effects = empty_effects();
         let mut calls = Vec::new();
@@ -692,7 +948,9 @@ impl ParserHost {
         let mut decision = HookDecision::ContinueProcessing;
 
         for candidate in candidates {
-            if self.components[candidate.component_index].disabled {
+            if self.components[candidate.component_index].disabled
+                || self.components[candidate.component_index].unloaded
+            {
                 continue;
             }
             if calls.len() >= self.config.max_calls_per_dispatch {
@@ -720,18 +978,36 @@ impl ParserHost {
                 subscription_id: subscription_id.clone(),
             });
             let state_invocation = transaction.begin_invocation(component_id.clone())?;
+            let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
+                self.dynamic_syntax_registry
+                    .as_ref()
+                    .map(|registry| {
+                        registry.begin_document_update(
+                            component_id.clone(),
+                            self.components[candidate.component_index].load_order,
+                            &document_id,
+                            document_revision,
+                        )
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
             let call =
                 {
                     let entry = &mut self.components[candidate.component_index];
-                    if entry.store.data().invocation.is_some() {
+                    if entry.store.data().invocation.is_some()
+                        || entry.store.data().dynamic_syntax_update.is_some()
+                    {
                         return Err(StateError::Internal {
                             message: format!(
-                                "component {component_id} already has an active invocation"
+                                "component {component_id} already has an active host transaction"
                             ),
                         }
                         .into());
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
+                    entry.store.data_mut().dynamic_syntax_update = dynamic_update;
                     let prepared = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -747,6 +1023,7 @@ impl ParserHost {
                             .take()
                             .expect("the invocation was just installed")
                             .rollback();
+                        entry.store.data_mut().dynamic_syntax_update.take();
                         return Err(error);
                     }
                     let call = entry
@@ -757,14 +1034,16 @@ impl ParserHost {
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",
                         );
-                    (call, state_invocation)
+                    let dynamic_update = entry.store.data_mut().dynamic_syntax_update.take();
+                    (call, state_invocation, dynamic_update)
                 };
 
-            let (call, state_invocation) = call;
+            let (call, state_invocation, dynamic_update) = call;
             let output = match call {
                 Ok(Ok(output)) => output,
                 Ok(Err(addon_error)) => {
                     state_invocation.rollback();
+                    drop(dynamic_update);
                     effects.diagnostics.extend(addon_error.diagnostics);
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
@@ -778,9 +1057,13 @@ impl ParserHost {
                 }
                 Err(error) => {
                     state_invocation.rollback();
+                    drop(dynamic_update);
                     let error = classify_wasmtime_error(component_id.clone(), "hook", error);
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
+                        if let Some(registry) = &self.dynamic_syntax_registry {
+                            registry.remove_component(&component_id)?;
+                        }
                     }
                     failures.push(ComponentFailure {
                         component_id,
@@ -794,6 +1077,7 @@ impl ParserHost {
             generated_output = generated_output.saturating_add(hook_output_size(&output));
             if generated_output > self.config.max_generated_output_bytes {
                 state_invocation.rollback();
+                drop(dynamic_update);
                 return Err(HostError::GeneratedOutputQuotaExceeded {
                     limit: self.config.max_generated_output_bytes,
                 });
@@ -803,8 +1087,12 @@ impl ParserHost {
                 Ok(applied) => {
                     if matches!(applied.decision, Some(HookDecision::Reject(_))) {
                         state_invocation.rollback();
+                        drop(dynamic_update);
                     } else {
                         state_invocation.commit()?;
+                        if let Some(update) = dynamic_update {
+                            update.commit()?;
+                        }
                     }
                     payload = applied.payload;
                     merge_effects(&mut effects, applied.effects);
@@ -817,6 +1105,7 @@ impl ParserHost {
                 }
                 Err(message) => {
                     state_invocation.rollback();
+                    drop(dynamic_update);
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
@@ -903,15 +1192,26 @@ impl ParserHost {
             &manifest.component_id,
             "initialize",
         )?;
+        let load_order = self.components.len();
+        store.data_mut().dynamic_syntax_update = self
+            .dynamic_syntax_registry
+            .as_ref()
+            .map(|registry| {
+                registry.begin_initial_update(manifest.component_id.clone(), load_order)
+            })
+            .transpose()?;
         let profile = host_profile(&self.capabilities);
-        match bindings
+        let initialization = bindings
             .nlaocs_skript_parser_addon_addon()
             .call_initialize(&mut store, &profile)
             .map_err(|error| {
                 classify_wasmtime_error(manifest.component_id.clone(), "initialize", error)
-            })? {
+            });
+        let dynamic_update = store.data_mut().dynamic_syntax_update.take();
+        match initialization? {
             Ok(()) => {}
             Err(error) => {
+                drop(dynamic_update);
                 return Err(HostError::InitializationRejected {
                     component_id: manifest.component_id,
                     message: error.message,
@@ -927,9 +1227,11 @@ impl ParserHost {
                     manifest.component_id
                 ),
             })?;
+        if let Some(update) = dynamic_update {
+            update.commit()?;
+        }
 
         let component_index = self.components.len();
-        let load_order = component_index;
         let info = ComponentInfo {
             component_id: manifest.component_id.clone(),
             component_version: manifest.component_version.clone(),
@@ -944,9 +1246,14 @@ impl ParserHost {
             bindings,
             load_order,
             disabled: false,
+            unloaded: false,
         });
         Ok(info)
     }
+}
+
+fn is_dynamic_prepass_phase(phase: HookPhase) -> bool {
+    matches!(phase, HookPhase::Document | HookPhase::Preprocess)
 }
 
 fn namespace_declarations(manifest: &ComponentManifest) -> Vec<NamespaceDeclaration> {
@@ -1035,6 +1342,14 @@ pub fn host_capabilities() -> Vec<Capability> {
     ]
     .map(|id| Capability::new(id, 1))
     .to_vec()
+}
+
+fn configured_host_capabilities(dynamic_syntax_available: bool) -> Vec<Capability> {
+    let mut capabilities = host_capabilities();
+    if dynamic_syntax_available {
+        capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
+    }
+    capabilities
 }
 
 fn host_profile(
@@ -1162,6 +1477,8 @@ fn create_store(engine: &Engine, config: &HostConfig) -> Store<StoreData> {
                 memories: config.max_memories_per_component,
             },
             invocation: None,
+            dynamic_syntax_update: None,
+            dynamic_syntax_available: config.syntax_catalog.is_some(),
         },
     );
     store.limiter(|data| &mut data.limits);

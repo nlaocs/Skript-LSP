@@ -8,19 +8,50 @@ use wit_component::{ComponentEncoder, DecodedWasm};
 
 const TARGET: &str = "wasm32-unknown-unknown";
 const PROFILE: &str = "core-library";
-const ARTIFACT_NAME: &str = "core-library.wasm";
+
+struct ComponentSpec {
+    package: &'static str,
+    module_name: &'static str,
+    artifact_name: &'static str,
+    display_name: &'static str,
+}
+
+const CORE_LIBRARY: ComponentSpec = ComponentSpec {
+    package: "core-library",
+    module_name: "core_library.wasm",
+    artifact_name: "core-library.wasm",
+    display_name: "CoreLibrary",
+};
+
+const DYNAMIC_SYNTAX_ADDON: ComponentSpec = ComponentSpec {
+    package: "dynamic-syntax-addon",
+    module_name: "dynamic_syntax_addon.wasm",
+    artifact_name: "dynamic-syntax-addon.wasm",
+    display_name: "dynamic syntax test addon",
+};
 
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("build-core-library") => build_core_library(),
+        Some("build-test-components") => build_test_components(),
         Some(command) => bail!("unknown xtask command {command:?}"),
-        None => bail!("usage: cargo run -p xtask -- build-core-library"),
+        None => bail!("usage: cargo run -p xtask -- <build-core-library|build-test-components>"),
     }
 }
 
 fn build_core_library() -> Result<()> {
+    build_component(&CORE_LIBRARY)
+}
+
+fn build_test_components() -> Result<()> {
+    build_component(&DYNAMIC_SYNTAX_ADDON)
+}
+
+fn build_component(spec: &ComponentSpec) -> Result<()> {
     let root = workspace_root()?;
-    let target_dir = root.join("target").join("core-library-component");
+    let target_dir = root
+        .join("target")
+        .join(format!("{}-component", spec.package));
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
     let status = Command::new(cargo)
         .current_dir(&root)
@@ -28,7 +59,7 @@ fn build_core_library() -> Result<()> {
             "build",
             "--locked",
             "--package",
-            "core-library",
+            spec.package,
             "--target",
             TARGET,
             "--profile",
@@ -37,40 +68,46 @@ fn build_core_library() -> Result<()> {
         ])
         .arg(&target_dir)
         .status()
-        .context("failed to start Cargo for CoreLibrary")?;
+        .with_context(|| format!("failed to start Cargo for {}", spec.display_name))?;
     if !status.success() {
-        bail!("CoreLibrary core Wasm build failed with {status}");
+        bail!("{} core Wasm build failed with {status}", spec.display_name);
     }
 
-    let module_path = target_dir
-        .join(TARGET)
-        .join(PROFILE)
-        .join("core_library.wasm");
+    let module_path = target_dir.join(TARGET).join(PROFILE).join(spec.module_name);
     let module = fs::read(&module_path).with_context(|| {
         format!(
-            "CoreLibrary core Wasm is missing: {}",
+            "{} core Wasm is missing: {}",
+            spec.display_name,
             module_path.display()
         )
     })?;
     let component = ComponentEncoder::default()
         .module(&module)
-        .context("CoreLibrary module has invalid component metadata")?
+        .with_context(|| {
+            format!(
+                "{} module has invalid component metadata",
+                spec.display_name
+            )
+        })?
         .validate(true)
         .encode()
-        .context("failed to encode CoreLibrary component")?;
-    validate_component(&component)?;
+        .with_context(|| format!("failed to encode {} component", spec.display_name))?;
+    validate_component(&component, spec.display_name)?;
 
     let artifact_dir = root.join("artifacts");
     fs::create_dir_all(&artifact_dir).context("failed to create artifact directory")?;
-    let artifact = artifact_dir.join(ARTIFACT_NAME);
-    let temporary = artifact_dir.join(format!("{ARTIFACT_NAME}.tmp"));
-    fs::write(&temporary, component).context("failed to write temporary CoreLibrary artifact")?;
+    let artifact = artifact_dir.join(spec.artifact_name);
+    let temporary = artifact_dir.join(format!("{}.tmp", spec.artifact_name));
+    fs::write(&temporary, component)
+        .with_context(|| format!("failed to write temporary {} artifact", spec.display_name))?;
     if artifact.exists() {
-        fs::remove_file(&artifact).context("failed to replace old CoreLibrary artifact")?;
+        fs::remove_file(&artifact)
+            .with_context(|| format!("failed to replace old {} artifact", spec.display_name))?;
     }
-    fs::rename(&temporary, &artifact).context("failed to publish CoreLibrary artifact")?;
+    fs::rename(&temporary, &artifact)
+        .with_context(|| format!("failed to publish {} artifact", spec.display_name))?;
 
-    println!("CoreLibrary component: {}", artifact.display());
+    println!("{} component: {}", spec.display_name, artifact.display());
     Ok(())
 }
 
@@ -81,11 +118,11 @@ fn workspace_root() -> Result<PathBuf> {
         .context("xtask must be located directly under the workspace root")
 }
 
-fn validate_component(component: &[u8]) -> Result<()> {
+fn validate_component(component: &[u8], display_name: &str) -> Result<()> {
     let DecodedWasm::Component(resolve, world_id) =
         wit_component::decode(component).context("generated artifact is not valid Wasm")?
     else {
-        bail!("generated CoreLibrary artifact is not a Component");
+        bail!("generated {display_name} artifact is not a Component");
     };
     let world = &resolve.worlds[world_id];
     let exports = world
@@ -98,7 +135,7 @@ fn validate_component(component: &[u8]) -> Result<()> {
         .collect::<BTreeSet<_>>();
     let expected = BTreeSet::from(["addon", "hooks", "text-macro", "tree-macro", "ast-macro"]);
     if exports != expected {
-        bail!("CoreLibrary exports {exports:?}, expected {expected:?}");
+        bail!("{display_name} exports {exports:?}, expected {expected:?}");
     }
     Ok(())
 }

@@ -47,6 +47,73 @@ interface types {
         structure,
     }
 
+    enum dynamic-multiplicity {
+        single,
+        multiple,
+        both,
+    }
+
+    record dynamic-syntax-id {
+        component-id: option<string>,
+        local-id: string,
+    }
+
+    variant dynamic-syntax-reference {
+        dynamic(dynamic-syntax-id),
+        definition-id(string),
+        registration-id(string),
+    }
+
+    record metadata-entry {
+        key: string,
+        value: string,
+    }
+
+    record dynamic-syntax-definition {
+        local-id: string,
+        kind: syntax-kind,
+        patterns: list<string>,
+        priority: s32,
+        before: list<dynamic-syntax-reference>,
+        after: list<dynamic-syntax-reference>,
+        return-type: option<string>,
+        return-multiplicity: option<dynamic-multiplicity>,
+        handler: string,
+        metadata: list<metadata-entry>,
+    }
+
+    variant dynamic-syntax-override-target {
+        definition-id(string),
+        registration-id(string),
+    }
+
+    record dynamic-syntax-override {
+        local-id: string,
+        target: dynamic-syntax-override-target,
+        priority: s32,
+        handler: string,
+        metadata: list<metadata-entry>,
+    }
+
+    enum dynamic-registry-error-kind {
+        unavailable,
+        no-active-update,
+        frozen,
+        duplicate-id,
+        unknown-id,
+        invalid-input,
+        invalid-pattern,
+        unknown-reference,
+        priority-cycle,
+        stale-document-revision,
+        internal,
+    }
+
+    record dynamic-registry-error {
+        kind: dynamic-registry-error-kind,
+        message: string,
+    }
+
     variant hook-target {
         syntax-definition(syntax-kind),
         exact-registration(string),
