@@ -3,8 +3,8 @@
 [English](README.md)
 
 `skript-parser`は、実際の`.sk` documentを解析するためのsource-level primitiveを所有します。
-現在はUTF-8 range、virtual source mapping、macro展開の出典、syntax contextに重点を置いて
-実装されています。
+現在はUTF-8 range、virtual source mapping、検証済みText editの適用、macro展開の出典、
+syntax contextに重点を置いて実装されています。
 
 crate名とは異なり、現時点ではSkriptのtokenize、indentation treeの構築、登録構文との照合、
 完全なSkript ASTの生成は行いません。今後の解析stageは、ここで定義したinvariantの上に
@@ -50,6 +50,19 @@ send "hello" to player
 所有します。`map_range`は関連するすべてのoriginを持つ`MappedSpan`を返し、生成sourceの
 情報も保持します。
 
+### Text edit
+
+`TextEdit`は半開byte rangeを置換し、生成textを明示的なoriginal anchorへ結び付けることも
+できます。`MappedSource::apply_text_edits`はmacroが返したeditをsortし、batch全体を検証して
+atomicに適用し、合成済みSourceMapとExpansionGraph entryを持つ新しいsourceを返します。
+
+変更されないtextは既存originを維持します。置換には`Replaced`、zero-width insertには
+`Anchored`を使い、連続するmacroでは親expansionへのlinkを維持します。空のedit listは
+成功するno-opとして扱い、replacementも空のzero-width editは拒否します。
+
+`TextEditApplication::generated_bytes`はbatchが追加したreplacementのbyte数です。WASM hostは
+この値をpipeline quotaの検証に使います。
+
 ### 展開の出典
 
 `Expansion`は次を記録します。
@@ -70,6 +83,8 @@ constructorは次の入力を拒否します。
 - source length外、またはUTF-8 code point途中のrange
 - overlapしている、または不足のあるSourceMap segment
 - original sourceに収まらないmapping
+- overlapするedit、同じ位置への曖昧なinsert、不正なanchor
+- replacementも空のzero-width edit
 - 未知のexpansion参照
 - cycleを持つexpansion chain
 
@@ -93,4 +108,5 @@ cargo test -p skript-parser --locked
 ```
 
 test suiteには、multibyte UTF-8 mapping、生成text、replacement range、空source、expansion
-backtrace、不正なsegment配置、identity mappingのproperty testが含まれます。
+backtrace、明示anchor、不正なsegment配置、identity mappingと任意UTF-8 Text edit適用の
+property testが含まれます。

@@ -4,7 +4,8 @@
 
 `skript-parser` owns source-level primitives for parsing actual `.sk`
 documents. Its current implementation focuses on UTF-8 ranges, virtual source
-mapping, macro expansion provenance, and syntax contexts.
+mapping, validated Text edit application, macro expansion provenance, and
+syntax contexts.
 
 Despite the crate name, it does not yet tokenize Skript, build indentation
 trees, match registered syntax, or produce a complete Skript AST. Those stages
@@ -51,6 +52,21 @@ origins. `OriginKind` records how the mapping was produced:
 and an ExpansionGraph. `map_range` returns a `MappedSpan` with every relevant
 origin and preserves generated-source information.
 
+### Text edits
+
+`TextEdit` replaces a half-open byte range and may attach generated text to an
+explicit original anchor. `MappedSource::apply_text_edits` sorts a macro's
+edits, validates the whole batch, applies it atomically, and returns a new
+source with a composed SourceMap and ExpansionGraph entry.
+
+Unchanged text preserves its existing origin. Replacements use `Replaced`,
+zero-width insertions use `Anchored`, and sequential macros retain parent
+expansion links. An empty edit list is a successful no-op, while a zero-width
+edit with an empty replacement is rejected.
+
+`TextEditApplication::generated_bytes` counts replacement bytes introduced by
+the batch; the WASM host uses it to enforce pipeline quotas.
+
 ### Expansion provenance
 
 `Expansion` records:
@@ -69,6 +85,8 @@ cycles. Its `backtrace` returns expansions from the innermost call to the root.
 Constructors reject:
 
 - ranges outside source length or inside a UTF-8 code point
+- overlapping edits, ambiguous same-position insertions, and invalid anchors
+- zero-width edits with an empty replacement
 - overlapping or incomplete SourceMap segments
 - mappings whose original ranges do not fit the original source
 - unknown expansion references
@@ -94,5 +112,6 @@ cargo test -p skript-parser --locked
 ```
 
 The test suite includes multibyte UTF-8 mapping, generated text, replacement
-ranges, empty sources, expansion backtraces, invalid segment layouts, and
-property tests for identity mappings.
+ranges, empty sources, chained expansion backtraces, explicit anchors, invalid
+segment layouts, and property tests for identity mappings and arbitrary UTF-8
+Text edit application.
