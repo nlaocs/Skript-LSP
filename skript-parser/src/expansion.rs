@@ -197,6 +197,24 @@ impl ExpansionGraph {
         self.expansions.is_empty()
     }
 
+    pub fn next_id(&self) -> Result<ExpansionId, ExpansionGraphError> {
+        let next = self
+            .expansions
+            .last_key_value()
+            .map_or(1, |(id, _)| id.get().checked_add(1).unwrap_or(0));
+        if next == 0 {
+            Err(ExpansionGraphError::IdExhausted)
+        } else {
+            Ok(ExpansionId::new(next))
+        }
+    }
+
+    pub fn with_expansion(&self, expansion: Expansion) -> Result<Self, ExpansionGraphError> {
+        let mut expansions = self.expansions.values().cloned().collect::<Vec<_>>();
+        expansions.push(expansion);
+        Self::new(expansions)
+    }
+
     /// Returns the innermost expansion first and the root expansion last.
     pub fn backtrace(&self, id: ExpansionId) -> Option<Vec<&Expansion>> {
         let mut result = Vec::new();
@@ -226,6 +244,8 @@ pub enum ExpansionGraphError {
     },
     #[error("expansion graph contains a cycle at expansion {id}")]
     Cycle { id: ExpansionId },
+    #[error("no more expansion IDs are available")]
+    IdExhausted,
 }
 
 #[cfg(test)]
@@ -295,5 +315,24 @@ mod tests {
             ExpansionGraph::new([blank]),
             Err(ExpansionGraphError::BlankComponent { .. })
         ));
+    }
+
+    #[test]
+    fn allocates_the_next_stable_id_and_extends_immutably() {
+        let graph = ExpansionGraph::new([expansion(2, None)]).unwrap();
+        assert_eq!(graph.next_id().unwrap(), ExpansionId::new(3));
+
+        let extended = graph.with_expansion(expansion(3, Some(2))).unwrap();
+        assert_eq!(graph.len(), 1);
+        assert_eq!(extended.len(), 2);
+        assert_eq!(
+            extended
+                .backtrace(ExpansionId::new(3))
+                .unwrap()
+                .into_iter()
+                .map(|item| item.id.get())
+                .collect::<Vec<_>>(),
+            [3, 2]
+        );
     }
 }
