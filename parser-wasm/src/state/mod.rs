@@ -795,6 +795,19 @@ impl InvocationTransaction {
         Ok(true)
     }
 
+    pub fn read_write_set(&self) -> StateReadWriteSet {
+        let namespace_revisions = self
+            .observed_revisions
+            .iter()
+            .map(|(key, revision)| (key.public(), *revision))
+            .collect();
+        StateReadWriteSet {
+            reads: self.reads.clone(),
+            writes: self.write_set.clone(),
+            namespace_revisions,
+        }
+    }
+
     pub fn commit(self) -> Result<(), StateError> {
         let mut parse = self.parse.lock().map_err(|_| StateError::Internal {
             message: "parse transaction mutex was poisoned".to_owned(),

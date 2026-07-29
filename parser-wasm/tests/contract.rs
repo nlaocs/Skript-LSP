@@ -24,6 +24,15 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
 
     assert_eq!(package.name.namespace, "nlaocs");
     assert_eq!(package.name.name, "skript-parser-addon");
+    assert_eq!(
+        package
+            .name
+            .version
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("0.2.0")
+    );
 
     let world = package
         .worlds
@@ -127,7 +136,8 @@ fn bindings_expose_typed_dynamic_syntax_registration() {
 #[test]
 fn guest_bindings_expose_typed_macro_payloads() {
     use guest::nlaocs::skript_parser_addon::types::{
-        AstMacroInput, AstTree, HookDecision, HookEffects, InvocationContext, TextMacroOutput,
+        AstMacroInput, AstTree, HookDecision, HookEffects, InvocationContext, TextEdit,
+        TextMacroOutput, TextRange,
     };
 
     let context = InvocationContext {
@@ -147,7 +157,11 @@ fn guest_bindings_expose_typed_macro_payloads() {
     };
     let output = TextMacroOutput {
         decision: HookDecision::ContinueProcessing,
-        edits: Vec::new(),
+        edits: vec![TextEdit {
+            range: TextRange { start: 0, end: 0 },
+            replacement: "generated".to_owned(),
+            anchor: Some(0),
+        }],
         effects: HookEffects {
             diagnostics: Vec::new(),
             context_updates: Vec::new(),
@@ -157,7 +171,8 @@ fn guest_bindings_expose_typed_macro_payloads() {
 
     assert_eq!(input.context.invocation_id, 7);
     assert!(input.tree.nodes.is_empty());
-    assert!(output.edits.is_empty());
+    assert_eq!(output.edits[0].replacement, "generated");
+    assert_eq!(output.edits[0].anchor, Some(0));
 }
 
 #[test]
