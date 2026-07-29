@@ -32,9 +32,10 @@ test専用guest componentをbuildします。現在の出力は次のとおり�
 
 ```text
 artifacts/dynamic-syntax-addon.wasm
+artifacts/text-macro-addon.wasm
 ```
 
-parser hostのintegration testがこのartifactを埋め込みます。
+parser hostのintegration testがこれらのartifactを埋め込みます。
 
 ## Component build pipeline
 

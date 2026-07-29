@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.1.0;
+package nlaocs:skript-parser-addon@0.2.0;
 
 interface types {
     record abi-version {
@@ -443,6 +443,7 @@ interface types {
     record text-edit {
         range: text-range,
         replacement: string,
+        anchor: option<u64>,
     }
 
     record text-macro-input {

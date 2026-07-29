@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.1.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.2.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -52,8 +52,9 @@ node ID arenaを使い、Component Model上で再帰しない値として表現�
 
 各manifestはdiagnostic用のcomponent IDとcomponent versionを公開します。
 
-package versionはWITのshapeを示します。manifestの`abi` fieldはruntime handshakeで、
-現在は`major.minor`の完全一致が必要です。
+package versionはWITのshapeを示します。Text editのanchor追加により、packageは
+0.1.0から0.2.0へ変わりました。manifestの現在の`abi`値は1.1で、runtime handshakeとして
+`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。
@@ -64,9 +65,40 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
 - hostとguestは同じnegotiation ruleを使います。hostがcomponent manifestを検証したあと、
   guestが`addon.initialize`でhost profileを検証します。
 
-WIT contractにはtext、tree、AST macro capabilityが定義されていますが、現在のhostは
-これらのmacro pipelineをadvertiseも実行もしません。ABIを段階的に実装してもcapability
-IDが変わらないよう、定数だけ先に定義されています。
+hostはText macroをadvertiseし、実行します。Tree macroとAST macroはcontractだけが存在し、
+まだadvertiseされません。
+
+## Text macro
+
+Text macroは`Preprocess` phaseの`ParseStage`へ`Transform` modeでsubscribeします。一致した
+subscriptionは決定的なpriority順で実行され、その時点のvirtual UTF-8 sourceを受け取ります。
+
+各outputはbyte rangeのeditを返します。hostはeditをsortし、overlap、不正なUTF-8 boundary、
+曖昧な同位置insert、不正なanchorを拒否してから、output全体をatomicに適用します。置換textは
+既定で置換対象のcall-siteへ対応し、任意の`anchor`を指定すると生成textを明示的なzero-width
+位置へ対応付けます。複数macroのoutputではSourceMapを順次合成し、親子関係を持つText
+expansionをExpansionGraphへ追加します。
+
+effects、Reject、addon errorのdiagnosticとparse requestのspanは、そのmacroへ入力された
+virtual sourceに対するrangeとして解釈します。hostはguestが指定したoriginsを信用せず、
+primary spanとrelated spanの両方を現在のMappedSourceから再構築します。これにより、後段
+macroのeffectもそれ以前のすべての展開を辿ってoriginal documentへ対応します。不正な
+diagnosticまたはparse requestのbyte rangeは、そのcallの不正出力として扱い、textとstate
+変更をrollbackします。
+
+pipeline全体をRejectした場合は、すべてのcallを未採用へ変更し、callのexpansion IDと、
+復元後source graphに存在しないdiagnosticのexpansion参照を削除します。context updateと
+parse requestも、Rejectされた変換と一緒に破棄します。Reject diagnosticの
+`virtual-range`はRejectしたmacroの入力snapshotを指し続け、再構築したoriginがoriginal
+document上の位置を示します。editor diagnosticにはoriginを使用してください。これにより、
+返却metadataがrollback済みexpansionを参照することはありません。
+
+各callにはStateStore invocation transactionがあります。addon error、trap、不正edit、
+pipelineのRejectでは、対応するtextとstate変更を破棄します。成功したcallはread/write setを
+公開し、将来のincremental parseがstate dependencyを追跡できるようにします。
+
+`HostConfig`はexpansion数、生成replacement byte数、virtual source全体のbyte数を制限します。
+pipeline全体のquotaを超えた場合は、元sourceとStateStore savepointへ戻します。
 
 ## Hook rule
 
@@ -95,7 +127,7 @@ overrideがhandledを返すと、後続の一致するhookを停止します。a
 
 ## StateStore
 
-StateStoreはhookと将来のmacro呼び出しから使えるhost importです。
+StateStoreはhookとmacro呼び出しから使えるhost importです。
 
 | Scope | Lifetime |
 | --- | --- |
@@ -140,11 +172,13 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `load_addon` / `unload_addon`: component lifecycleを管理する
 - `begin_parse`: multi-phase parse transactionを作る
 - `dispatch_in_parse`: 一致するhook subscriptionを呼ぶ
+- `expand_text_in_parse`: 既存parse transaction内でText macroを実行する
+- `expand_text`: 1 pipeline分のparse transactionを作るconvenience API
 - `dynamic_syntax_snapshot`: 候補をfreezeし、順位付きsnapshotを取得する
 - `dispatch`: 1回のdispatch transaction用convenience API
 
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch
-output quota、StateStore設定、任意のsyntax Catalogを管理します。
+output quota、Text macro quota、StateStore設定、任意のsyntax Catalogを管理します。
 
 ## Source構成
 
@@ -159,6 +193,7 @@ output quota、StateStore設定、任意のsyntax Catalogを管理します。
 | `tests/host.rs` | CoreLibrary lifecycleとWasmtime動作 |
 | `tests/state.rs` | scope、permission、conflict、quota、persistence |
 | `tests/dynamic_syntax.rs` | SSG fixtureに対する実WASM dynamic registration |
+| `tests/text_macro.rs` | 順序付き実WASM展開、diagnostic mapping、rollback、quota、trap |
 
 ## テスト
 

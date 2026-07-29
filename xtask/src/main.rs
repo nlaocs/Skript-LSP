@@ -30,6 +30,13 @@ const DYNAMIC_SYNTAX_ADDON: ComponentSpec = ComponentSpec {
     display_name: "dynamic syntax test addon",
 };
 
+const TEXT_MACRO_ADDON: ComponentSpec = ComponentSpec {
+    package: "text-macro-addon",
+    module_name: "text_macro_addon.wasm",
+    artifact_name: "text-macro-addon.wasm",
+    display_name: "text macro test addon",
+};
+
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("build-core-library") => build_core_library(),
@@ -44,7 +51,10 @@ fn build_core_library() -> Result<()> {
 }
 
 fn build_test_components() -> Result<()> {
-    build_component(&DYNAMIC_SYNTAX_ADDON)
+    for component in [&DYNAMIC_SYNTAX_ADDON, &TEXT_MACRO_ADDON] {
+        build_component(component)?;
+    }
+    Ok(())
 }
 
 fn build_component(spec: &ComponentSpec) -> Result<()> {

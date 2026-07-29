@@ -1,4 +1,7 @@
-use crate::{ExpansionGraph, ExpansionId, TextRange};
+use crate::{
+    ComponentId, Expansion, ExpansionGraph, ExpansionGraphError, ExpansionId, ExpansionKind,
+    ExpansionSite, HookId, SyntaxContextId, TextRange,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -300,6 +303,55 @@ impl MappedSpan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub range: TextRange,
+    pub replacement: String,
+    pub anchor: Option<usize>,
+}
+
+impl TextEdit {
+    pub fn new(range: TextRange, replacement: impl Into<String>) -> Self {
+        Self {
+            range,
+            replacement: replacement.into(),
+            anchor: None,
+        }
+    }
+
+    pub fn anchored(range: TextRange, replacement: impl Into<String>, anchor: usize) -> Self {
+        Self {
+            range,
+            replacement: replacement.into(),
+            anchor: Some(anchor),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextExpansion {
+    pub component: ComponentId,
+    pub hook: HookId,
+    pub definition_site: Option<ExpansionSite>,
+}
+
+impl TextExpansion {
+    pub fn new(component: impl Into<String>, hook: impl Into<String>) -> Self {
+        Self {
+            component: ComponentId::new(component),
+            hook: HookId::new(hook),
+            definition_site: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEditApplication {
+    pub source: MappedSource,
+    pub expansion: Option<ExpansionId>,
+    pub generated_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedSource {
     original: Arc<str>,
     virtual_source: Arc<str>,
@@ -396,6 +448,216 @@ impl MappedSource {
     pub fn expansion_backtrace(&self, id: ExpansionId) -> Option<Vec<&crate::Expansion>> {
         self.expansions.backtrace(id)
     }
+
+    pub fn apply_text_edits(
+        &self,
+        edits: impl IntoIterator<Item = TextEdit>,
+        metadata: TextExpansion,
+    ) -> Result<TextEditApplication, TextEditError> {
+        let mut edits = edits.into_iter().collect::<Vec<_>>();
+        if edits.is_empty() {
+            return Ok(TextEditApplication {
+                source: self.clone(),
+                expansion: None,
+                generated_bytes: 0,
+            });
+        }
+
+        edits.sort_by(|left, right| {
+            left.range
+                .start
+                .cmp(&right.range.start)
+                .then_with(|| left.range.end.cmp(&right.range.end))
+        });
+        self.validate_text_edits(&edits)?;
+
+        let first = &edits[0];
+        let call_site_span = if let Some(anchor) = first.anchor {
+            self.map_range(TextRange::empty(anchor))?
+        } else {
+            self.map_range(first.range)?
+        };
+        let call_site_origin = call_site_span
+            .primary_origin()
+            .expect("a validated source map always returns an origin");
+        let expansion_id = self.expansions.next_id()?;
+        let expansion = Expansion {
+            id: expansion_id,
+            kind: ExpansionKind::Text,
+            component: metadata.component,
+            hook: metadata.hook,
+            call_site: ExpansionSite {
+                original_range: call_site_origin.original_range,
+                expansion: call_site_origin.expansion,
+            },
+            definition_site: metadata.definition_site,
+            syntax_context: SyntaxContextId::new(expansion_id.get()),
+        };
+        let expansions = self.expansions.with_expansion(expansion)?;
+
+        let generated_bytes = edits.iter().fold(0usize, |total, edit| {
+            total.saturating_add(edit.replacement.len())
+        });
+        let removed_bytes = edits
+            .iter()
+            .fold(0usize, |total, edit| total.saturating_add(edit.range.len()));
+        let mut virtual_source = String::with_capacity(
+            self.virtual_source
+                .len()
+                .saturating_sub(removed_bytes)
+                .saturating_add(generated_bytes),
+        );
+        let mut segments = Vec::new();
+        let mut cursor = 0usize;
+
+        for edit in &edits {
+            self.append_preserved_range(
+                TextRange::new(cursor, edit.range.start),
+                &mut virtual_source,
+                &mut segments,
+            );
+
+            let replacement_start = virtual_source.len();
+            virtual_source.push_str(&edit.replacement);
+            let replacement_end = virtual_source.len();
+            if replacement_start != replacement_end {
+                segments.push(SourceMapSegment::new(
+                    TextRange::new(replacement_start, replacement_end),
+                    self.generated_origin(edit, expansion_id)?,
+                ));
+            }
+            cursor = edit.range.end;
+        }
+        self.append_preserved_range(
+            TextRange::new(cursor, self.virtual_source.len()),
+            &mut virtual_source,
+            &mut segments,
+        );
+
+        if virtual_source.is_empty() {
+            segments.push(SourceMapSegment::new(
+                TextRange::empty(0),
+                self.generated_origin(&edits[0], expansion_id)?,
+            ));
+        }
+
+        let source = MappedSource::new(
+            Arc::clone(&self.original),
+            Arc::<str>::from(virtual_source),
+            expansions,
+            segments,
+        )?;
+        Ok(TextEditApplication {
+            source,
+            expansion: Some(expansion_id),
+            generated_bytes,
+        })
+    }
+
+    fn validate_text_edits(&self, edits: &[TextEdit]) -> Result<(), TextEditError> {
+        for (index, edit) in edits.iter().enumerate() {
+            if !edit.range.is_valid_for(&self.virtual_source) {
+                return Err(TextEditError::InvalidRange {
+                    index,
+                    range: edit.range,
+                });
+            }
+            if edit.range.is_empty() && edit.replacement.is_empty() {
+                return Err(TextEditError::NoOpEdit { index });
+            }
+            if let Some(anchor) = edit.anchor
+                && (anchor > self.virtual_source.len()
+                    || !self.virtual_source.is_char_boundary(anchor))
+            {
+                return Err(TextEditError::InvalidAnchor { index, anchor });
+            }
+        }
+
+        for index in 1..edits.len() {
+            let previous = &edits[index - 1];
+            let current = &edits[index];
+            let overlaps = current.range.start < previous.range.end
+                || (current.range.start == previous.range.start
+                    && (current.range.is_empty() || previous.range.is_empty()));
+            if overlaps {
+                return Err(TextEditError::OverlappingEdits {
+                    first: index - 1,
+                    second: index,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn append_preserved_range(
+        &self,
+        range: TextRange,
+        output: &mut String,
+        segments: &mut Vec<SourceMapSegment>,
+    ) {
+        if range.is_empty() {
+            return;
+        }
+        output.push_str(
+            range
+                .slice(&self.virtual_source)
+                .expect("text edit ranges were validated"),
+        );
+        let mut output_start = output.len() - range.len();
+        for segment in &self.source_map.segments {
+            let Some(overlap) = segment.virtual_range.intersection(range) else {
+                continue;
+            };
+            let output_end = output_start + overlap.len();
+            segments.push(SourceMapSegment::new(
+                TextRange::new(output_start, output_end),
+                SourceMap::map_overlap(*segment, overlap),
+            ));
+            output_start = output_end;
+        }
+    }
+
+    fn generated_origin(
+        &self,
+        edit: &TextEdit,
+        expansion: ExpansionId,
+    ) -> Result<SourceOrigin, SourceMapError> {
+        let mapped = if let Some(anchor) = edit.anchor {
+            self.map_range(TextRange::empty(anchor))?
+        } else {
+            self.map_range(edit.range)?
+        };
+        let origin = mapped
+            .primary_origin()
+            .expect("a validated source map always returns an origin");
+        if origin.original_range.is_empty() {
+            Ok(SourceOrigin::anchored(
+                origin.original_range.start,
+                expansion,
+            ))
+        } else {
+            Ok(SourceOrigin::replaced(
+                origin.original_range,
+                Some(expansion),
+            ))
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum TextEditError {
+    #[error("text edit {index} has invalid UTF-8 byte range {range}")]
+    InvalidRange { index: usize, range: TextRange },
+    #[error("text edit {index} has invalid UTF-8 anchor byte {anchor}")]
+    InvalidAnchor { index: usize, anchor: usize },
+    #[error("text edit {index} does not change the source")]
+    NoOpEdit { index: usize },
+    #[error("text edits {first} and {second} overlap or have an ambiguous insertion order")]
+    OverlappingEdits { first: usize, second: usize },
+    #[error(transparent)]
+    Expansion(#[from] ExpansionGraphError),
+    #[error(transparent)]
+    SourceMap(#[from] SourceMapError),
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -641,6 +903,207 @@ mod tests {
                         Some(SourceOrigin::exact(range, None))
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn applies_sorted_edits_and_preserves_unmodified_origins() {
+        let source = MappedSource::identity("alpha beta");
+        let applied = source
+            .apply_text_edits(
+                [
+                    TextEdit::new(TextRange::new(6, 10), "二"),
+                    TextEdit::new(TextRange::new(0, 5), "one"),
+                ],
+                TextExpansion::new("test.component", "sorted"),
+            )
+            .unwrap();
+
+        assert_eq!(applied.source.virtual_source(), "one 二");
+        assert_eq!(applied.generated_bytes, "one二".len());
+        let space = applied
+            .source
+            .map_range(TextRange::new(3, 4))
+            .unwrap()
+            .primary_origin();
+        assert_eq!(space, Some(SourceOrigin::exact(TextRange::new(5, 6), None)));
+        let replacement = applied
+            .source
+            .map_range(TextRange::new(4, 7))
+            .unwrap()
+            .primary_origin()
+            .unwrap();
+        assert_eq!(replacement.original_range, TextRange::new(6, 10));
+        assert_eq!(replacement.kind, OriginKind::Replaced);
+        assert_eq!(replacement.expansion, applied.expansion);
+    }
+
+    #[test]
+    fn rejects_overlapping_ambiguous_and_invalid_utf8_edits() {
+        let source = MappedSource::identity("日abc");
+        let ascii = MappedSource::identity("abcdef");
+        assert!(matches!(
+            ascii.apply_text_edits(
+                [
+                    TextEdit::new(TextRange::new(0, 3), "x"),
+                    TextEdit::new(TextRange::new(2, 4), "y"),
+                ],
+                TextExpansion::new("test.component", "overlap"),
+            ),
+            Err(TextEditError::OverlappingEdits { .. })
+        ));
+        assert!(matches!(
+            source.apply_text_edits(
+                [
+                    TextEdit::new(TextRange::new(0, 3), "x"),
+                    TextEdit::new(TextRange::new(2, 4), "y"),
+                ],
+                TextExpansion::new("test.component", "overlap"),
+            ),
+            Err(TextEditError::InvalidRange { index: 1, .. })
+        ));
+        assert!(matches!(
+            source.apply_text_edits(
+                [
+                    TextEdit::new(TextRange::empty(3), "x"),
+                    TextEdit::new(TextRange::empty(3), "y"),
+                ],
+                TextExpansion::new("test.component", "ambiguous"),
+            ),
+            Err(TextEditError::OverlappingEdits { .. })
+        ));
+        assert!(matches!(
+            source.apply_text_edits(
+                [TextEdit::anchored(TextRange::new(3, 4), "x", 1)],
+                TextExpansion::new("test.component", "anchor"),
+            ),
+            Err(TextEditError::InvalidAnchor { .. })
+        ));
+    }
+
+    #[test]
+    fn preserves_empty_batches_and_maps_full_deletions() {
+        let source = MappedSource::identity("delete me");
+        let unchanged = source
+            .apply_text_edits([], TextExpansion::new("test.component", "empty-batch"))
+            .unwrap();
+        assert_eq!(unchanged.source, source);
+        assert_eq!(unchanged.expansion, None);
+        assert_eq!(unchanged.generated_bytes, 0);
+
+        let deleted = source
+            .apply_text_edits(
+                [TextEdit::new(TextRange::new(0, "delete me".len()), "")],
+                TextExpansion::new("test.component", "delete-all"),
+            )
+            .unwrap();
+        let expansion = deleted.expansion.expect("deletion is an expansion");
+        assert_eq!(deleted.source.virtual_source(), "");
+        assert_eq!(deleted.source.source_map().segments().len(), 1);
+        let origin = deleted
+            .source
+            .map_range(TextRange::empty(0))
+            .unwrap()
+            .primary_origin()
+            .expect("empty result keeps its deletion origin");
+        assert_eq!(origin.original_range, TextRange::new(0, "delete me".len()));
+        assert_eq!(origin.kind, OriginKind::Replaced);
+        assert_eq!(origin.expansion, Some(expansion));
+    }
+
+    #[test]
+    fn chained_edits_keep_the_expansion_backtrace() {
+        let first = MappedSource::identity("alpha")
+            .apply_text_edits(
+                [TextEdit::new(TextRange::new(0, 5), "日本")],
+                TextExpansion::new("first.component", "first"),
+            )
+            .unwrap();
+        let first_id = first.expansion.unwrap();
+        let second = first
+            .source
+            .apply_text_edits(
+                [TextEdit::new(TextRange::new(0, "日本".len()), "done")],
+                TextExpansion::new("second.component", "second"),
+            )
+            .unwrap();
+        let second_id = second.expansion.unwrap();
+
+        assert_eq!(second.source.virtual_source(), "done");
+        assert_eq!(
+            second
+                .source
+                .expansion_backtrace(second_id)
+                .unwrap()
+                .into_iter()
+                .map(|item| item.id)
+                .collect::<Vec<_>>(),
+            [second_id, first_id]
+        );
+        assert_eq!(
+            second
+                .source
+                .map_range(TextRange::new(0, 4))
+                .unwrap()
+                .primary_origin()
+                .unwrap()
+                .original_range,
+            TextRange::new(0, 5)
+        );
+    }
+
+    #[test]
+    fn explicit_anchor_controls_generated_insertions() {
+        let source = MappedSource::identity("left right");
+        let applied = source
+            .apply_text_edits(
+                [TextEdit::anchored(TextRange::empty(0), "generated ", 5)],
+                TextExpansion::new("test.component", "anchor"),
+            )
+            .unwrap();
+        let generated = applied
+            .source
+            .map_range(TextRange::new(0, 9))
+            .unwrap()
+            .primary_origin()
+            .unwrap();
+        assert_eq!(generated.original_range, TextRange::empty(5));
+        assert_eq!(generated.kind, OriginKind::Anchored);
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_utf8_replacements_produce_valid_source_maps(
+            chars in proptest::collection::vec(any::<char>(), 1..40),
+            replacement_chars in proptest::collection::vec(any::<char>(), 0..20),
+            first in any::<usize>(),
+            second in any::<usize>(),
+        ) {
+            let source = chars.into_iter().collect::<String>();
+            let replacement = replacement_chars.into_iter().collect::<String>();
+            let boundaries = source
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain(std::iter::once(source.len()))
+                .collect::<Vec<_>>();
+            let left = first % boundaries.len();
+            let right = second % boundaries.len();
+            let start = boundaries[left.min(right)];
+            let end = boundaries[left.max(right)];
+            if start == end && replacement.is_empty() {
+                return Ok(());
+            }
+
+            let applied = MappedSource::identity(source.clone())
+                .apply_text_edits(
+                    [TextEdit::new(TextRange::new(start, end), replacement)],
+                    TextExpansion::new("proptest.component", "replace"),
+                )
+                .unwrap();
+            for segment in applied.source.source_map().segments() {
+                prop_assert!(segment.virtual_range.is_valid_for(applied.source.virtual_source()));
+                prop_assert!(segment.origin.original_range.is_valid_for(&source));
             }
         }
     }

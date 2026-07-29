@@ -10,7 +10,8 @@ WebAssembly addon systemを中心に構成されています。
 ## 現在の状態
 
 構文データモデル、構文pattern parser、source mappingの基礎、WASM ABI、Wasmtime host、
-transactional StateStore、dynamic syntax registryは実装済みで、テストされています。
+transactional StateStore、dynamic syntax registry、Text macro preprocessing pipelineは
+実装済みで、テストされています。
 
 実行ファイルはまだscaffoldです。必須のCoreLibraryを埋め込んで初期化しますが、LSPの
 transportは公開しておらず、完全な`.sk` documentのparseもまだ行いません。各crateの
@@ -28,7 +29,9 @@ flowchart LR
     Core["core-library WASM"] --> Host
     Addons["addon WASM components"] --> Host
     Host --> Dynamic["dynamic syntax snapshot"]
-    Source[".sk source"] --> Parser["skript-parser"]
+    Source[".sk source"] --> Host
+    Host --> Expanded["macro展開後source + SourceMap"]
+    Expanded --> Parser["skript-parser"]
     Parser --> LSP["skript-lsp integration"]
     Dynamic --> Parser
     Patterns --> Parser
@@ -40,9 +43,10 @@ flowchart LR
    snapshotを生成する。
 2. `ssg`がsnapshotを検証し、保存形式に依存しない`syntaxes::Catalog`へ変換する。
 3. `parser-wasm`が必須のCoreLibraryと任意のaddon componentを読み込む。componentは
-   初期化時とdocument prepass時に、構文を追加または上書きできる。
+   初期化時とdocument prepass時に構文を追加または上書きでき、Text macro componentは
+   document sourceをpreprocessできる。
 4. `syntax-pattern-parser`がSkriptの登録patternを表現し、`skript-parser`が元sourceと
-   macro展開後sourceの位置関係を追跡する。
+   Text editを検証し、合成したSourceMapでmacro展開後sourceとの位置関係を追跡する。
 5. ルートの`skript-lsp` crateが、最終的にこれらをdocument解析とLSP機能へ統合する。
 
 ## Workspaceのcrate
@@ -57,6 +61,7 @@ flowchart LR
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、StateStore、dynamic syntax bridgeを実装します。 |
 | [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装するための必須parser addonです。現在はABI negotiationとhealth hookを提供します。 |
 | [`skripthub`](./skripthub/README.ja.md) | legacy library | 旧SkriptHub APIとflattenされたfunction文字列の互換readerです。新しい構文データには`ssg`と`syntaxes`を使用します。 |
+| [`text-macro-addon`](./test-components/text-macro-addon/README.ja.md) | test WASM component | 順序付きText macro展開、UTF-8 edit、anchor、StateStore rollback、trapを検証します。 |
 | [`dynamic-syntax-addon`](./test-components/dynamic-syntax-addon/README.ja.md) | test WASM component | dynamic registration、override、prepass、rollback、freeze、unloadを検証します。 |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/README.ja.md) | developer utility | SkriptHubデータを取得し、parserが拒否したpatternを分類します。 |
 | [`xtask`](./xtask/README.ja.md) | build utility | core Wasm moduleのbuild、Component変換、export検証、local artifactの配置を行います。 |
@@ -103,7 +108,8 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 `xtask`は`artifacts/core-library.wasm`と
-`artifacts/dynamic-syntax-addon.wasm`を生成します。生成artifactはcommitしません。
+`artifacts/dynamic-syntax-addon.wasm`、`artifacts/text-macro-addon.wasm`を生成します。
+生成artifactはcommitしません。
 CoreLibraryが存在しない場合は意図的にcompile errorになります。CoreLibraryなしのparserは
 support対象外だからです。
 

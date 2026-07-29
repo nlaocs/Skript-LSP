@@ -9,6 +9,10 @@ use std::{
     time::Duration,
 };
 
+use skript_parser::{
+    ExpansionId, MappedSource, OriginKind as ParserOriginKind, TextEdit as ParserTextEdit,
+    TextExpansion, TextRange as ParserTextRange,
+};
 use syntaxes::{
     Catalog, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
     DynamicSyntaxInput, DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot,
@@ -27,26 +31,28 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
     DynamicSyntaxOverride as WitDynamicSyntaxOverride,
     DynamicSyntaxOverrideTarget as WitDynamicSyntaxOverrideTarget,
-    DynamicSyntaxReference as WitDynamicSyntaxReference, StateEncoding as WitStateEncoding,
+    DynamicSyntaxReference as WitDynamicSyntaxReference, OriginKind as WitOriginKind,
+    SourceOrigin as WitSourceOrigin, StateEncoding as WitStateEncoding,
     StateEntry as WitStateEntry, StateError as WitStateError, StateErrorKind as WitStateErrorKind,
     StateNamespaceVisibility as WitNamespaceVisibility, StateScope as WitStateScope,
-    StateValue as WitStateValue,
+    StateValue as WitStateValue, TextEdit as WitTextEdit, TextRange as WitTextRange,
 };
 use crate::state::{
     InvocationTransaction, NamespaceDeclaration, NamespaceVisibility, ParseTransaction,
-    StateEncoding, StateError, StateScope, StateStore, StateStoreConfig, StateValue,
+    StateEncoding, StateError, StateReadWriteSet, StateScope, StateStore, StateStoreConfig,
+    StateValue,
 };
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, Capability,
-    CapabilityRequirement, CompatibilityError, validate_compatibility,
+    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
+    Capability, CapabilityRequirement, CompatibilityError, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     AstNode, AstTree, Capture, CaptureValue, ComponentManifest, ContextUpdate, Diagnostic,
     HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
     HookTarget, InvocationContext, MappedSpan, ParseRequest, RawTree, RawTreeNode, Rejection,
-    SyntaxKind,
+    SyntaxKind, TextMacroInput, TextMacroOutput,
 };
 
 pub const CORE_LIBRARY_COMPONENT_ID: &str = "nlaocs.core-library";
@@ -63,6 +69,9 @@ pub struct HostConfig {
     pub max_memories_per_component: usize,
     pub max_calls_per_dispatch: usize,
     pub max_generated_output_bytes: usize,
+    pub max_text_macro_expansions: usize,
+    pub max_text_macro_generated_bytes: usize,
+    pub max_virtual_source_bytes: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
 }
@@ -80,6 +89,9 @@ impl Default for HostConfig {
             max_memories_per_component: 32,
             max_calls_per_dispatch: 1_024,
             max_generated_output_bytes: 8 * 1024 * 1024,
+            max_text_macro_expansions: 256,
+            max_text_macro_generated_bytes: 8 * 1024 * 1024,
+            max_virtual_source_bytes: 16 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
         }
@@ -97,7 +109,10 @@ impl HostConfig {
             || self.max_tables_per_component == 0
             || self.max_memories_per_component == 0
             || self.max_calls_per_dispatch == 0
-            || self.max_generated_output_bytes == 0;
+            || self.max_generated_output_bytes == 0
+            || self.max_text_macro_expansions == 0
+            || self.max_text_macro_generated_bytes == 0
+            || self.max_virtual_source_bytes == 0;
         if invalid {
             Err(HostError::InvalidConfiguration)
         } else {
@@ -196,6 +211,20 @@ pub enum HostError {
     CallQuotaExceeded { limit: usize },
     #[error("dispatch exceeded the generated output quota of {limit} bytes")]
     GeneratedOutputQuotaExceeded { limit: usize },
+    #[error("text macro pipeline exceeded the expansion quota of {limit}")]
+    TextMacroExpansionQuotaExceeded { limit: usize },
+    #[error("text macro pipeline exceeded the generated text quota of {limit} bytes")]
+    TextMacroGeneratedBytesQuotaExceeded { limit: usize },
+    #[error("text macro pipeline exceeded the virtual source quota of {limit} bytes")]
+    VirtualSourceQuotaExceeded { limit: usize },
+    #[error(
+        "component {component_id} returned invalid text macro output for {subscription_id}: {message}"
+    )]
+    InvalidTextMacroOutput {
+        component_id: String,
+        subscription_id: String,
+        message: String,
+    },
     #[error("the mandatory CoreLibrary component cannot be unloaded")]
     CannotUnloadCoreLibrary,
 }
@@ -256,6 +285,29 @@ pub struct DispatchResult {
     pub payload: HookPayload,
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
+
+pub struct TextMacroRequest {
+    pub context: InvocationContext,
+    pub source: MappedSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextMacroCall {
+    pub component_id: String,
+    pub subscription_id: String,
+    pub accepted: bool,
+    pub expansion: Option<ExpansionId>,
+    pub state_accesses: StateReadWriteSet,
+}
+
+#[derive(Debug)]
+pub struct TextMacroResult {
+    pub decision: HookDecision,
+    pub source: MappedSource,
+    pub effects: HookEffects,
+    pub calls: Vec<TextMacroCall>,
     pub failures: Vec<ComponentFailure>,
 }
 
@@ -667,6 +719,18 @@ impl SubscriptionRegistry {
         });
         matching.into_iter().map(|(_, entry)| entry).collect()
     }
+
+    fn matching_capability(
+        &self,
+        target: &DispatchTarget,
+        phase: HookPhase,
+        capability_id: &str,
+    ) -> Vec<RegisteredSubscription> {
+        self.matching(target, phase)
+            .into_iter()
+            .filter(|entry| entry.subscription.capability_id == capability_id)
+            .collect()
+    }
 }
 
 fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> Option<u8> {
@@ -932,12 +996,437 @@ impl ParserHost {
         }
     }
 
+    pub fn expand_text(&mut self, request: TextMacroRequest) -> Result<TextMacroResult, HostError> {
+        let project_uri = request.context.document_id.clone();
+        let transaction = self.begin_parse(
+            &project_uri,
+            &request.context.document_id,
+            request.context.document_revision,
+        )?;
+        match self.expand_text_in_parse(&transaction, request) {
+            Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
+                transaction.cancel()?;
+                Ok(result)
+            }
+            Ok(result) => {
+                if self.dynamic_syntax_registry.is_some()
+                    && let Err(error) = self.dynamic_syntax_snapshot(&transaction)
+                {
+                    let _ = transaction.cancel();
+                    return Err(error);
+                }
+                transaction.commit()?;
+                Ok(result)
+            }
+            Err(error) => {
+                let _ = transaction.cancel();
+                Err(error)
+            }
+        }
+    }
+
+    pub fn expand_text_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: TextMacroRequest,
+    ) -> Result<TextMacroResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != request.context.document_id
+            || document_revision != request.context.document_revision
+        {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "text macro context {}@{} does not match parse transaction {}@{}",
+                    request.context.document_id,
+                    request.context.document_revision,
+                    document_id,
+                    document_revision
+                ),
+            }
+            .into());
+        }
+        if request.source.virtual_source().len() > self.config.max_virtual_source_bytes {
+            return Err(HostError::VirtualSourceQuotaExceeded {
+                limit: self.config.max_virtual_source_bytes,
+            });
+        }
+
+        let original_source = request.source.clone();
+        let state_savepoint = transaction.savepoint()?;
+        let dynamic_savepoint = self
+            .dynamic_syntax_registry
+            .as_ref()
+            .map(|registry| registry.savepoint(&document_id, document_revision))
+            .transpose()?;
+        let result = self.expand_text_with_transaction(transaction, request);
+        match result {
+            Ok(mut result) if matches!(result.decision, HookDecision::Reject(_)) => {
+                transaction.rollback_to(&state_savepoint)?;
+                if let (Some(registry), Some(savepoint)) =
+                    (&self.dynamic_syntax_registry, &dynamic_savepoint)
+                {
+                    registry.rollback_to(savepoint)?;
+                }
+                mark_text_macro_result_rolled_back(&original_source, &mut result);
+                result.source = original_source;
+                Ok(result)
+            }
+            Ok(result) => Ok(result),
+            Err(error) => {
+                transaction.rollback_to(&state_savepoint)?;
+                if let (Some(registry), Some(savepoint)) =
+                    (&self.dynamic_syntax_registry, &dynamic_savepoint)
+                {
+                    registry.rollback_to(savepoint)?;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn expand_text_with_transaction(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: TextMacroRequest,
+    ) -> Result<TextMacroResult, HostError> {
+        let candidates = self.registry.matching_capability(
+            &DispatchTarget::ParseStage,
+            HookPhase::Preprocess,
+            CAPABILITY_TEXT_MACRO,
+        );
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        let mut source = request.source;
+        let mut effects = empty_effects();
+        let mut calls = Vec::new();
+        let mut failures = Vec::new();
+        let mut output_bytes = 0usize;
+        let mut generated_bytes = 0usize;
+        let mut expansions = 0usize;
+        let mut decision = HookDecision::ContinueProcessing;
+
+        for candidate in candidates {
+            if self.components[candidate.component_index].disabled
+                || self.components[candidate.component_index].unloaded
+            {
+                continue;
+            }
+            if calls.len() >= self.config.max_calls_per_dispatch {
+                return Err(HostError::CallQuotaExceeded {
+                    limit: self.config.max_calls_per_dispatch,
+                });
+            }
+
+            let component_id = self.components[candidate.component_index]
+                .manifest
+                .component_id
+                .clone();
+            let subscription_id = candidate.subscription.id.clone();
+            let mapped = source
+                .map_range(ParserTextRange::new(0, source.virtual_source().len()))
+                .expect("the complete virtual source range is always valid");
+            let parent = mapped.primary_origin().and_then(|origin| origin.expansion);
+            let syntax_context = parent
+                .and_then(|id| source.expansions().get(id))
+                .map_or(0, |expansion| u64::from(expansion.syntax_context.get()));
+            let mut context = request.context.clone();
+            context.subscription_id = subscription_id.clone();
+            context.expansion = parent.map(|id| u64::from(id.get()));
+            context.syntax_context = syntax_context;
+            let input = TextMacroInput {
+                context,
+                text: source.virtual_source().to_owned(),
+                span: mapped_span_to_wit(mapped),
+            };
+
+            let state_invocation = transaction.begin_invocation(component_id.clone())?;
+            let dynamic_update = self
+                .dynamic_syntax_registry
+                .as_ref()
+                .map(|registry| {
+                    registry.begin_document_update(
+                        component_id.clone(),
+                        self.components[candidate.component_index].load_order,
+                        &document_id,
+                        document_revision,
+                    )
+                })
+                .transpose()?;
+            let call =
+                {
+                    let entry = &mut self.components[candidate.component_index];
+                    if entry.store.data().invocation.is_some()
+                        || entry.store.data().dynamic_syntax_update.is_some()
+                    {
+                        return Err(StateError::Internal {
+                            message: format!(
+                                "component {component_id} already has an active host transaction"
+                            ),
+                        }
+                        .into());
+                    }
+                    entry.store.data_mut().invocation = Some(state_invocation);
+                    entry.store.data_mut().dynamic_syntax_update = dynamic_update;
+                    if let Err(error) = prepare_store(
+                        &mut entry.store,
+                        self.config.fuel_per_call,
+                        self.config.deadline_ticks(),
+                        &component_id,
+                        "text macro",
+                    ) {
+                        entry
+                            .store
+                            .data_mut()
+                            .invocation
+                            .take()
+                            .expect("the invocation was just installed")
+                            .rollback();
+                        entry.store.data_mut().dynamic_syntax_update.take();
+                        return Err(error);
+                    }
+                    let call = entry
+                        .bindings
+                        .nlaocs_skript_parser_addon_text_macro()
+                        .call_expand(&mut entry.store, &input);
+                    let state_invocation =
+                        entry.store.data_mut().invocation.take().expect(
+                            "the invocation remains installed for the duration of the call",
+                        );
+                    let dynamic_update = entry.store.data_mut().dynamic_syntax_update.take();
+                    (call, state_invocation, dynamic_update)
+                };
+
+            let (call, state_invocation, dynamic_update) = call;
+            let accesses = state_invocation.read_write_set();
+            let mut output = match call {
+                Ok(Ok(output)) => output,
+                Ok(Err(mut addon_error)) => {
+                    let diagnostic_error = normalize_text_macro_diagnostics(
+                        &source,
+                        &mut addon_error.diagnostics,
+                        "addon-error.diagnostics",
+                    );
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    calls.push(TextMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    let error = match diagnostic_error {
+                        Ok(()) => {
+                            effects.diagnostics.extend(addon_error.diagnostics);
+                            HostError::AddonFailure {
+                                component_id: component_id.clone(),
+                                message: addon_error.message,
+                            }
+                        }
+                        Err(message) => HostError::InvalidTextMacroOutput {
+                            component_id: component_id.clone(),
+                            subscription_id: subscription_id.clone(),
+                            message,
+                        },
+                    };
+                    failures.push(ComponentFailure {
+                        component_id,
+                        subscription_id,
+                        error,
+                    });
+                    continue;
+                }
+                Err(error) => {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    let error = classify_wasmtime_error(component_id.clone(), "text macro", error);
+                    if error.disables_component() {
+                        self.components[candidate.component_index].disabled = true;
+                        if let Some(registry) = &self.dynamic_syntax_registry {
+                            registry.remove_component(&component_id)?;
+                        }
+                    }
+                    calls.push(TextMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    failures.push(ComponentFailure {
+                        component_id,
+                        subscription_id,
+                        error,
+                    });
+                    continue;
+                }
+            };
+
+            output_bytes = output_bytes.saturating_add(text_macro_output_size(&output));
+            if output_bytes > self.config.max_generated_output_bytes {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                return Err(HostError::GeneratedOutputQuotaExceeded {
+                    limit: self.config.max_generated_output_bytes,
+                });
+            }
+
+            if let Err(message) = normalize_text_macro_output_spans(&source, &mut output) {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                calls.push(TextMacroCall {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                failures.push(ComponentFailure {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                    error: HostError::InvalidTextMacroOutput {
+                        component_id,
+                        subscription_id,
+                        message,
+                    },
+                });
+                continue;
+            }
+
+            let TextMacroOutput {
+                decision: macro_decision,
+                edits,
+                effects: macro_effects,
+            } = output;
+            if matches!(macro_decision, HookDecision::Reject(_)) {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                calls.push(TextMacroCall {
+                    component_id,
+                    subscription_id,
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                merge_effects(&mut effects, macro_effects);
+                decision = macro_decision;
+                break;
+            }
+
+            let parser_edits = match parser_text_edits(edits) {
+                Ok(edits) => edits,
+                Err(message) => {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    calls.push(TextMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    failures.push(ComponentFailure {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        error: HostError::InvalidTextMacroOutput {
+                            component_id,
+                            subscription_id,
+                            message,
+                        },
+                    });
+                    continue;
+                }
+            };
+            let application = match source.apply_text_edits(
+                parser_edits,
+                TextExpansion::new(component_id.clone(), subscription_id.clone()),
+            ) {
+                Ok(application) => application,
+                Err(error) => {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    calls.push(TextMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    failures.push(ComponentFailure {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        error: HostError::InvalidTextMacroOutput {
+                            component_id,
+                            subscription_id,
+                            message: error.to_string(),
+                        },
+                    });
+                    continue;
+                }
+            };
+            let next_expansions = expansions + usize::from(application.expansion.is_some());
+            if next_expansions > self.config.max_text_macro_expansions {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                return Err(HostError::TextMacroExpansionQuotaExceeded {
+                    limit: self.config.max_text_macro_expansions,
+                });
+            }
+            let next_generated = generated_bytes.saturating_add(application.generated_bytes);
+            if next_generated > self.config.max_text_macro_generated_bytes {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                return Err(HostError::TextMacroGeneratedBytesQuotaExceeded {
+                    limit: self.config.max_text_macro_generated_bytes,
+                });
+            }
+            if application.source.virtual_source().len() > self.config.max_virtual_source_bytes {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                return Err(HostError::VirtualSourceQuotaExceeded {
+                    limit: self.config.max_virtual_source_bytes,
+                });
+            }
+
+            state_invocation.commit()?;
+            if let Some(update) = dynamic_update {
+                update.commit()?;
+            }
+            expansions = next_expansions;
+            generated_bytes = next_generated;
+            source = application.source;
+            calls.push(TextMacroCall {
+                component_id,
+                subscription_id,
+                accepted: true,
+                expansion: application.expansion,
+                state_accesses: accesses,
+            });
+            merge_effects(&mut effects, macro_effects);
+            if matches!(macro_decision, HookDecision::Handled) {
+                decision = macro_decision;
+                break;
+            }
+        }
+
+        Ok(TextMacroResult {
+            decision,
+            source,
+            effects,
+            calls,
+            failures,
+        })
+    }
+
     fn dispatch_with_transaction(
         &mut self,
         transaction: &ParseTransaction,
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
-        let candidates = self.registry.matching(&request.target, request.phase);
+        let candidates =
+            self.registry
+                .matching_capability(&request.target, request.phase, CAPABILITY_HOOKS);
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
         let mut payload = request.payload;
@@ -1337,6 +1826,7 @@ pub fn host_capabilities() -> Vec<Capability> {
     [
         CAPABILITY_HOOKS,
         CAPABILITY_STATE_STORE,
+        CAPABILITY_TEXT_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
     ]
@@ -1448,6 +1938,18 @@ fn validate_manifest(
                 message: format!(
                     "subscription {} uses unavailable capability {} version {}",
                     subscription.id, subscription.capability_id, minimum
+                ),
+            });
+        }
+        if subscription.capability_id == CAPABILITY_TEXT_MACRO
+            && (!matches!(subscription.target, HookTarget::ParseStage)
+                || !matches!(subscription.phase, HookPhase::Preprocess)
+                || !matches!(subscription.mode, HookMode::Transform))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "text macro subscription {} must target parse-stage in the preprocess phase with transform mode",
+                    subscription.id
                 ),
             });
         }
@@ -1641,6 +2143,164 @@ fn apply_hook_output(
     }
 }
 
+fn parser_text_edits(edits: Vec<WitTextEdit>) -> Result<Vec<ParserTextEdit>, String> {
+    edits
+        .into_iter()
+        .enumerate()
+        .map(|(index, edit)| {
+            let start = usize::try_from(edit.range.start)
+                .map_err(|_| format!("text edit {index} start does not fit usize"))?;
+            let end = usize::try_from(edit.range.end)
+                .map_err(|_| format!("text edit {index} end does not fit usize"))?;
+            let anchor = edit
+                .anchor
+                .map(usize::try_from)
+                .transpose()
+                .map_err(|_| format!("text edit {index} anchor does not fit usize"))?;
+            Ok(ParserTextEdit {
+                range: ParserTextRange::new(start, end),
+                replacement: edit.replacement,
+                anchor,
+            })
+        })
+        .collect()
+}
+
+fn mapped_span_to_wit(span: skript_parser::MappedSpan) -> MappedSpan {
+    MappedSpan {
+        virtual_range: WitTextRange {
+            start: span.virtual_range.start as u64,
+            end: span.virtual_range.end as u64,
+        },
+        origins: span
+            .origins
+            .into_iter()
+            .map(|origin| WitSourceOrigin {
+                original_range: WitTextRange {
+                    start: origin.original_range.start as u64,
+                    end: origin.original_range.end as u64,
+                },
+                kind: match origin.kind {
+                    ParserOriginKind::Exact => WitOriginKind::Exact,
+                    ParserOriginKind::Replaced => WitOriginKind::Replaced,
+                    ParserOriginKind::Anchored => WitOriginKind::Anchored,
+                },
+                expansion: origin.expansion.map(|id| u64::from(id.get())),
+            })
+            .collect(),
+    }
+}
+
+fn normalize_text_macro_output_spans(
+    source: &MappedSource,
+    output: &mut TextMacroOutput,
+) -> Result<(), String> {
+    normalize_text_macro_effects(source, &mut output.effects, "effects")?;
+    if let HookDecision::Reject(rejection) = &mut output.decision {
+        normalize_text_macro_diagnostics(
+            source,
+            &mut rejection.diagnostics,
+            "rejection.diagnostics",
+        )?;
+    }
+    Ok(())
+}
+
+fn normalize_text_macro_effects(
+    source: &MappedSource,
+    effects: &mut HookEffects,
+    path: &str,
+) -> Result<(), String> {
+    normalize_text_macro_diagnostics(
+        source,
+        &mut effects.diagnostics,
+        &format!("{path}.diagnostics"),
+    )?;
+    for (request_index, request) in effects.parse_requests.iter_mut().enumerate() {
+        request.span = normalize_text_macro_span(
+            source,
+            &request.span,
+            &format!("{path}.parse-requests[{request_index}].span"),
+        )?;
+    }
+    Ok(())
+}
+
+fn normalize_text_macro_diagnostics(
+    source: &MappedSource,
+    diagnostics: &mut [Diagnostic],
+    path: &str,
+) -> Result<(), String> {
+    for (diagnostic_index, diagnostic) in diagnostics.iter_mut().enumerate() {
+        diagnostic.span = normalize_text_macro_span(
+            source,
+            &diagnostic.span,
+            &format!("{path}[{diagnostic_index}].span"),
+        )?;
+        for (related_index, related) in diagnostic.related.iter_mut().enumerate() {
+            related.span = normalize_text_macro_span(
+                source,
+                &related.span,
+                &format!("{path}[{diagnostic_index}].related[{related_index}].span"),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn normalize_text_macro_span(
+    source: &MappedSource,
+    span: &MappedSpan,
+    path: &str,
+) -> Result<MappedSpan, String> {
+    let start = usize::try_from(span.virtual_range.start)
+        .map_err(|_| format!("{path} start does not fit usize"))?;
+    let end = usize::try_from(span.virtual_range.end)
+        .map_err(|_| format!("{path} end does not fit usize"))?;
+    source
+        .map_range(ParserTextRange::new(start, end))
+        .map(mapped_span_to_wit)
+        .map_err(|error| format!("{path}: {error}"))
+}
+
+fn mark_text_macro_result_rolled_back(
+    original_source: &MappedSource,
+    result: &mut TextMacroResult,
+) {
+    for call in &mut result.calls {
+        call.accepted = false;
+        call.expansion = None;
+    }
+    result.effects.context_updates.clear();
+    result.effects.parse_requests.clear();
+    retain_known_diagnostic_expansions(original_source, &mut result.effects.diagnostics);
+    if let HookDecision::Reject(rejection) = &mut result.decision {
+        retain_known_diagnostic_expansions(original_source, &mut rejection.diagnostics);
+    }
+}
+
+fn retain_known_diagnostic_expansions(source: &MappedSource, diagnostics: &mut [Diagnostic]) {
+    for diagnostic in diagnostics {
+        retain_known_span_expansions(source, &mut diagnostic.span);
+        for related in &mut diagnostic.related {
+            retain_known_span_expansions(source, &mut related.span);
+        }
+    }
+}
+
+fn retain_known_span_expansions(source: &MappedSource, span: &mut MappedSpan) {
+    for origin in &mut span.origins {
+        let known = origin
+            .expansion
+            .and_then(|id| u32::try_from(id).ok())
+            .map(ExpansionId::new)
+            .is_some_and(|id| source.expansions().contains(id));
+        if !known {
+            origin.expansion = None;
+        }
+    }
+}
+
 fn empty_effects() -> HookEffects {
     HookEffects {
         diagnostics: Vec::new(),
@@ -1660,6 +2320,19 @@ fn hook_output_size(output: &HookOutput) -> usize {
         .replacement
         .as_ref()
         .map_or(0, hook_payload_size)
+        .saturating_add(hook_effects_size(&output.effects))
+        .saturating_add(match &output.decision {
+            HookDecision::Reject(rejection) => rejection_size(rejection),
+            HookDecision::ContinueProcessing | HookDecision::Handled => 0,
+        })
+}
+
+fn text_macro_output_size(output: &TextMacroOutput) -> usize {
+    output
+        .edits
+        .iter()
+        .map(|edit| edit.replacement.len())
+        .fold(0usize, usize::saturating_add)
         .saturating_add(hook_effects_size(&output.effects))
         .saturating_add(match &output.decision {
             HookDecision::Reject(rejection) => rejection_size(rejection),
@@ -1926,11 +2599,11 @@ mod tests {
             [
                 CAPABILITY_HOOKS,
                 CAPABILITY_STATE_STORE,
+                CAPABILITY_TEXT_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
             ]
         );
-        assert!(!ids.contains(&crate::CAPABILITY_TEXT_MACRO.to_owned()));
     }
 
     #[test]
@@ -1952,6 +2625,60 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn text_macro_subscriptions_use_the_dedicated_pipeline_shape() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
+        };
+
+        let subscription = HookSubscription {
+            id: "text.expand".to_owned(),
+            target: HookTarget::ParseStage,
+            phase: HookPhase::Preprocess,
+            priority: 0,
+            mode: HookMode::Transform,
+            capability_id: CAPABILITY_TEXT_MACRO.to_owned(),
+        };
+        let manifest = |subscription| ComponentManifest {
+            component_id: "test.text-macro-contract".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![WitCapabilityRequirement {
+                id: CAPABILITY_TEXT_MACRO.to_owned(),
+                minimum_version: 1,
+                required: true,
+            }],
+            subscriptions: vec![subscription],
+            state_namespaces: Vec::new(),
+        };
+
+        validate_manifest(&manifest(subscription.clone()), &host_capabilities())
+            .expect("the dedicated Text macro pipeline shape must be accepted");
+
+        let mut invalid_target = subscription.clone();
+        invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
+        let mut invalid_phase = subscription.clone();
+        invalid_phase.phase = HookPhase::Document;
+        let mut invalid_mode = subscription;
+        invalid_mode.mode = HookMode::Observe;
+
+        for (name, invalid) in [
+            ("target", invalid_target),
+            ("phase", invalid_phase),
+            ("mode", invalid_mode),
+        ] {
+            let error = validate_manifest(&manifest(invalid), &host_capabilities())
+                .expect_err("an invalid Text macro subscription must be rejected");
+            assert!(
+                matches!(error, HostError::InvalidManifest { .. }),
+                "unexpected {name} validation error: {error}"
+            );
+        }
     }
 
     #[test]

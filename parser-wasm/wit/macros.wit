@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.1.0;
+package nlaocs:skript-parser-addon@0.2.0;
 
 interface text-macro {
     use types.{

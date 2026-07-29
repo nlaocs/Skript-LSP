@@ -33,9 +33,10 @@ Builds test-only guest components, currently:
 
 ```text
 artifacts/dynamic-syntax-addon.wasm
+artifacts/text-macro-addon.wasm
 ```
 
-Parser host integration tests embed this artifact.
+Parser host integration tests embed these artifacts.
 
 ## Component Build Pipeline
 

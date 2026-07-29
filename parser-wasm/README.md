@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.1.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.2.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -54,8 +54,9 @@ Component Model values.
 
 Every manifest exposes a component ID and component version for diagnostics.
 
-The package version identifies the WIT shape. The manifest's `abi` field is a
-runtime handshake and currently requires an exact `major.minor` match.
+The package version identifies the WIT shape. Text edit anchors changed the
+package from 0.1.0 to 0.2.0. The manifest's current `abi` value is 1.1 and is a
+runtime handshake that requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an
@@ -68,9 +69,46 @@ older host without failing while lifting its manifest.
   component manifest, then the guest validates the host profile in
   `addon.initialize`.
 
-The WIT contract defines text, tree, and AST macro capabilities, but the current
-host does not advertise or execute those macro pipelines yet. Constants exist
-so the ABI can be implemented incrementally without changing capability IDs.
+The host advertises and executes Text macros. Tree and AST macro capabilities
+remain contract-only and are not advertised yet.
+
+## Text Macros
+
+A Text macro subscribes to `ParseStage` during `Preprocess` with `Transform`
+mode. Matching subscriptions run in deterministic priority order and receive
+the current virtual UTF-8 source.
+
+Each output contains byte-range edits. The host sorts edits, rejects overlap,
+invalid UTF-8 boundaries, ambiguous insertions, and invalid anchors, then
+applies the complete output atomically. Replacement text maps to its replaced
+call-site by default; an optional `anchor` maps generated text to an explicit
+zero-width location. Sequential macro outputs compose the SourceMap and append
+parent-linked Text entries to the ExpansionGraph.
+
+Diagnostics in effects, rejections, and addon errors, and parse-request spans
+are interpreted against the macro's input virtual source. The host ignores
+guest-provided origins and rebuilds both primary and related spans from its
+current MappedSource. This maps effects from later macros through every earlier
+expansion to the original document. An invalid diagnostic or parse-request byte
+range makes that call invalid and rolls back its text and state changes.
+
+A whole-pipeline rejection marks every call as unaccepted, clears call
+expansion IDs, and removes diagnostic expansion references that are absent
+from the restored source graph. Context updates and parse requests are
+discarded with the rejected transformation. A rejection diagnostic's
+`virtual-range` still identifies the rejecting macro's input snapshot, while
+its rebuilt origins identify locations in the original document; consumers
+should use those origins for editor diagnostics. Returned metadata therefore
+cannot refer to an expansion that was rolled back.
+
+Every call receives a StateStore invocation transaction. Addon errors, traps,
+invalid edits, and rejected pipelines discard the corresponding text and state
+changes. Successful calls expose their read/write set so future incremental
+parsing can track state dependencies.
+
+`HostConfig` limits expansion count, generated replacement bytes, and total
+virtual source bytes. Exceeding a pipeline-wide quota restores the original
+source and StateStore savepoint.
 
 ## Hook rules
 
@@ -98,7 +136,7 @@ violations disable the component.
 
 ## StateStore
 
-StateStore is a host import available to hooks and future macro calls.
+StateStore is a host import available to hooks and macro calls.
 
 | Scope | Lifetime |
 | --- | --- |
@@ -147,12 +185,14 @@ The main entry points are:
 - `load_addon` and `unload_addon`: manage component lifecycles
 - `begin_parse`: create a multi-phase parse transaction
 - `dispatch_in_parse`: invoke matching hook subscriptions
+- `expand_text_in_parse`: run Text macros in an existing parse transaction
+- `expand_text`: convenience API for a one-pipeline parse transaction
 - `dynamic_syntax_snapshot`: freeze and retrieve ranked syntax candidates
 - `dispatch`: convenience API for a one-dispatch transaction
 
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
-limits, dispatch output quotas, StateStore configuration, and the optional
-syntax Catalog.
+limits, dispatch and Text macro quotas, StateStore configuration, and the
+optional syntax Catalog.
 
 ## Source Layout
 
@@ -167,6 +207,7 @@ syntax Catalog.
 | `tests/host.rs` | CoreLibrary lifecycle and Wasmtime behavior |
 | `tests/state.rs` | scopes, permissions, conflicts, quotas, and persistence |
 | `tests/dynamic_syntax.rs` | real WASM dynamic registration against an SSG fixture |
+| `tests/text_macro.rs` | ordered real-WASM expansion, diagnostic mapping, rollback, quotas, and traps |
 
 ## Testing
 
