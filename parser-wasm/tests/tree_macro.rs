@@ -318,16 +318,17 @@ fn malformed_input_tree_returns_an_error_and_rolls_back_prior_calls() {
     assert!(written_keys(&transaction).is_empty());
     transaction.cancel().expect("test parse may be cancelled");
 }
+
 #[test]
-fn depth_node_and_call_quotas_rollback_the_complete_pipeline() {
+fn expansion_node_and_call_quotas_rollback_the_complete_pipeline() {
     let cases = [
         (
             HostConfig {
-                max_tree_macro_depth: 1,
+                max_tree_macro_expansion_depth: 1,
                 ..HostConfig::default()
             },
             "step-0",
-            "depth",
+            "expansion-depth",
         ),
         (
             HostConfig {
@@ -358,9 +359,9 @@ fn depth_node_and_call_quotas_rollback_the_complete_pipeline() {
             .expect_err("quota must abort the pipeline");
 
         match quota {
-            "depth" => assert!(matches!(
+            "expansion-depth" => assert!(matches!(
                 error,
-                HostError::TreeMacroDepthQuotaExceeded { limit: 1 }
+                HostError::TreeMacroExpansionDepthQuotaExceeded { limit: 1 }
             )),
             "nodes" => assert!(matches!(
                 error,
@@ -375,13 +376,16 @@ fn depth_node_and_call_quotas_rollback_the_complete_pipeline() {
         assert!(written_keys(&transaction).is_empty());
         transaction.cancel().expect("test parse may be cancelled");
     }
+}
 
+#[test]
+fn raw_tree_depth_quota_rejects_input_and_generated_nesting() {
     for (revision, text) in [
         (20, "outer:\n    middle:\n        leaf"),
         (21, "deep-generated"),
     ] {
         let mut host = host(HostConfig {
-            max_tree_macro_depth: 2,
+            max_raw_tree_depth: 2,
             ..HostConfig::default()
         });
         let transaction = host
@@ -393,9 +397,47 @@ fn depth_node_and_call_quotas_rollback_the_complete_pipeline() {
 
         assert!(matches!(
             error,
-            HostError::TreeMacroDepthQuotaExceeded { limit: 2 }
+            HostError::RawTreeDepthQuotaExceeded { limit: 2 }
         ));
         assert!(written_keys(&transaction).is_empty());
+        transaction.cancel().expect("test parse may be cancelled");
+    }
+}
+
+#[test]
+fn raw_tree_and_macro_expansion_depth_quotas_are_independent() {
+    {
+        let mut host = host(HostConfig {
+            max_raw_tree_depth: 3,
+            max_tree_macro_expansion_depth: 1,
+            ..HostConfig::default()
+        });
+        let transaction = host
+            .begin_parse("file:///workspace", "file:///workspace/test.sk", 30)
+            .expect("parse must begin");
+        let result = host
+            .expand_tree_in_parse(
+                &transaction,
+                request(30, "outer:\n    middle:\n        leaf"),
+            )
+            .expect("structural nesting must not consume macro expansion depth");
+        assert_eq!(result.tree.nodes.len(), 3);
+        transaction.cancel().expect("test parse may be cancelled");
+    }
+
+    {
+        let mut host = host(HostConfig {
+            max_raw_tree_depth: 1,
+            max_tree_macro_expansion_depth: 2,
+            ..HostConfig::default()
+        });
+        let transaction = host
+            .begin_parse("file:///workspace", "file:///workspace/test.sk", 31)
+            .expect("parse must begin");
+        let result = host
+            .expand_tree_in_parse(&transaction, request(31, "step-0"))
+            .expect("macro re-entry must not consume structural tree depth");
+        assert_eq!(root_texts(&result.tree), ["step-2"]);
         transaction.cancel().expect("test parse may be cancelled");
     }
 }
