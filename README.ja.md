@@ -10,8 +10,8 @@ WebAssembly addon systemを中心に構成されています。
 ## 現在の状態
 
 構文データモデル、構文pattern parser、source mappingの基礎、WASM ABI、Wasmtime host、
-transactional StateStore、dynamic syntax registry、Text macro preprocessing pipelineは
-実装済みで、テストされています。
+transactional StateStore、dynamic syntax registry、Text macro preprocessing pipeline、
+losslessなcomment/indentation RawTreeは実装済みで、テストされています。
 
 実行ファイルはまだscaffoldです。必須のCoreLibraryを埋め込んで初期化しますが、LSPの
 transportは公開しておらず、完全な`.sk` documentのparseもまだ行いません。各crateの
@@ -45,8 +45,9 @@ flowchart LR
 3. `parser-wasm`が必須のCoreLibraryと任意のaddon componentを読み込む。componentは
    初期化時とdocument prepass時に構文を追加または上書きでき、Text macro componentは
    document sourceをpreprocessできる。
-4. `syntax-pattern-parser`がSkriptの登録patternを表現し、`skript-parser`が元sourceと
-   Text editを検証し、合成したSourceMapでmacro展開後sourceとの位置関係を追跡する。
+4. `syntax-pattern-parser`がSkriptの登録patternを表現し、`skript-parser`がText editを検証し、
+   合成したSourceMapでmacro展開後sourceとの位置関係を追跡して、commentとindentationから
+   losslessなRawTreeを構築する。
 5. ルートの`skript-lsp` crateが、最終的にこれらをdocument解析とLSP機能へ統合する。
 
 ## Workspaceのcrate
@@ -57,7 +58,7 @@ flowchart LR
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
 | [`ssg`](./ssg/README.ja.md) | library | SSG schema 3 snapshot directoryを読み込み、完全性を検証してruntime modelへ変換します。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
-| [`skript-parser`](./skript-parser/README.ja.md) | library | 将来の`.sk` parserで使用するUTF-8 range、SourceMap、macro展開の出典、syntax contextを所有します。 |
+| [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、syntax context、lossless RawTreeを所有します。 |
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、StateStore、dynamic syntax bridgeを実装します。 |
 | [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装するための必須parser addonです。現在はABI negotiationとhealth hookを提供します。 |
 | [`skripthub`](./skripthub/README.ja.md) | legacy library | 旧SkriptHub APIとflattenされたfunction文字列の互換readerです。新しい構文データには`ssg`と`syntaxes`を使用します。 |
