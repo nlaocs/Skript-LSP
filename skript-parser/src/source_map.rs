@@ -47,17 +47,27 @@ impl SourceOrigin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceMapSegment {
     pub virtual_range: TextRange,
-    pub origin: SourceOrigin,
+    pub origins: Vec<SourceOrigin>,
 }
 
 impl SourceMapSegment {
-    pub const fn new(virtual_range: TextRange, origin: SourceOrigin) -> Self {
+    pub fn new(virtual_range: TextRange, origin: SourceOrigin) -> Self {
         Self {
             virtual_range,
-            origin,
+            origins: vec![origin],
+        }
+    }
+
+    pub fn with_origins(
+        virtual_range: TextRange,
+        origins: impl IntoIterator<Item = SourceOrigin>,
+    ) -> Self {
+        Self {
+            virtual_range,
+            origins: origins.into_iter().collect(),
         }
     }
 }
@@ -106,7 +116,7 @@ impl SourceMap {
             if segments.len() != 1 || segments[0].virtual_range != TextRange::empty(0) {
                 return Err(SourceMapError::EmptyVirtualSourceMapping);
             }
-            return Self::validate_segment(original, virtual_source, segments[0], expansions);
+            return Self::validate_segment(original, virtual_source, &segments[0], expansions);
         }
 
         let mut expected_start = 0;
@@ -128,7 +138,7 @@ impl SourceMap {
                     actual_start: segment.virtual_range.start,
                 });
             }
-            Self::validate_segment(original, virtual_source, *segment, expansions)?;
+            Self::validate_segment(original, virtual_source, segment, expansions)?;
             expected_start = segment.virtual_range.end;
         }
         if expected_start != virtual_source.len() {
@@ -143,7 +153,7 @@ impl SourceMap {
     fn validate_segment(
         original: &str,
         virtual_source: &str,
-        segment: SourceMapSegment,
+        segment: &SourceMapSegment,
         expansions: &ExpansionGraph,
     ) -> Result<(), SourceMapError> {
         if !segment.virtual_range.is_valid_for(virtual_source) {
@@ -152,44 +162,62 @@ impl SourceMap {
                 range: segment.virtual_range,
             });
         }
-        if !segment.origin.original_range.is_valid_for(original) {
-            return Err(SourceMapError::InvalidRange {
-                input: "original source",
-                range: segment.origin.original_range,
+        if segment.origins.is_empty() {
+            return Err(SourceMapError::MissingOrigins {
+                range: segment.virtual_range,
             });
         }
-        if let Some(expansion) = segment.origin.expansion
-            && !expansions.contains(expansion)
+        if segment.origins.len() > 1
+            && segment
+                .origins
+                .iter()
+                .any(|origin| matches!(origin.kind, OriginKind::Exact))
         {
-            return Err(SourceMapError::UnknownExpansion { expansion });
+            return Err(SourceMapError::MultipleExactOrigins {
+                range: segment.virtual_range,
+            });
         }
 
-        match segment.origin.kind {
-            OriginKind::Exact => {
-                if segment.virtual_range.len() != segment.origin.original_range.len() {
-                    return Err(SourceMapError::ExactLengthMismatch {
-                        virtual_range: segment.virtual_range,
-                        original_range: segment.origin.original_range,
-                    });
-                }
-                if segment.virtual_range.slice(virtual_source)
-                    != segment.origin.original_range.slice(original)
-                {
-                    return Err(SourceMapError::ExactTextMismatch {
-                        virtual_range: segment.virtual_range,
-                        original_range: segment.origin.original_range,
-                    });
-                }
+        for origin in &segment.origins {
+            if !origin.original_range.is_valid_for(original) {
+                return Err(SourceMapError::InvalidRange {
+                    input: "original source",
+                    range: origin.original_range,
+                });
             }
-            OriginKind::Replaced => {}
-            OriginKind::Anchored => {
-                if !segment.origin.original_range.is_empty() {
-                    return Err(SourceMapError::NonEmptyAnchor {
-                        range: segment.origin.original_range,
-                    });
+            if let Some(expansion) = origin.expansion
+                && !expansions.contains(expansion)
+            {
+                return Err(SourceMapError::UnknownExpansion { expansion });
+            }
+
+            match origin.kind {
+                OriginKind::Exact => {
+                    if segment.virtual_range.len() != origin.original_range.len() {
+                        return Err(SourceMapError::ExactLengthMismatch {
+                            virtual_range: segment.virtual_range,
+                            original_range: origin.original_range,
+                        });
+                    }
+                    if segment.virtual_range.slice(virtual_source)
+                        != origin.original_range.slice(original)
+                    {
+                        return Err(SourceMapError::ExactTextMismatch {
+                            virtual_range: segment.virtual_range,
+                            original_range: origin.original_range,
+                        });
+                    }
                 }
-                if segment.origin.expansion.is_none() {
-                    return Err(SourceMapError::AnchorWithoutExpansion);
+                OriginKind::Replaced => {}
+                OriginKind::Anchored => {
+                    if !origin.original_range.is_empty() {
+                        return Err(SourceMapError::NonEmptyAnchor {
+                            range: origin.original_range,
+                        });
+                    }
+                    if origin.expansion.is_none() {
+                        return Err(SourceMapError::AnchorWithoutExpansion);
+                    }
                 }
             }
         }
@@ -205,16 +233,17 @@ impl SourceMap {
         }
 
         let origins = if range.is_empty() {
-            vec![self.map_point(range.start)]
+            self.map_point(range.start)
         } else {
             let mut origins = Vec::new();
             for segment in &self.segments {
                 let Some(overlap) = segment.virtual_range.intersection(range) else {
                     continue;
                 };
-                let mapped = Self::map_overlap(*segment, overlap);
-                if origins.last() != Some(&mapped) {
-                    origins.push(mapped);
+                for mapped in Self::map_overlap(segment, overlap) {
+                    if !origins.contains(&mapped) {
+                        origins.push(mapped);
+                    }
                 }
             }
             origins
@@ -226,7 +255,7 @@ impl SourceMap {
         })
     }
 
-    fn map_point(&self, offset: usize) -> SourceOrigin {
+    fn map_point(&self, offset: usize) -> Vec<SourceOrigin> {
         let segment = if self.virtual_len == 0 {
             &self.segments[0]
         } else if offset == self.virtual_len {
@@ -242,33 +271,41 @@ impl SourceMap {
                 .expect("validated source map covers virtual source")
         };
 
-        match segment.origin.kind {
-            OriginKind::Exact => {
-                let delta = offset.saturating_sub(segment.virtual_range.start);
-                SourceOrigin::exact(
-                    TextRange::empty(segment.origin.original_range.start + delta),
-                    segment.origin.expansion,
-                )
-            }
-            OriginKind::Replaced | OriginKind::Anchored => segment.origin,
-        }
+        segment
+            .origins
+            .iter()
+            .map(|origin| match origin.kind {
+                OriginKind::Exact => {
+                    let delta = offset.saturating_sub(segment.virtual_range.start);
+                    SourceOrigin::exact(
+                        TextRange::empty(origin.original_range.start + delta),
+                        origin.expansion,
+                    )
+                }
+                OriginKind::Replaced | OriginKind::Anchored => *origin,
+            })
+            .collect()
     }
 
-    fn map_overlap(segment: SourceMapSegment, overlap: TextRange) -> SourceOrigin {
-        match segment.origin.kind {
-            OriginKind::Exact => {
-                let start_delta = overlap.start - segment.virtual_range.start;
-                let end_delta = overlap.end - segment.virtual_range.start;
-                SourceOrigin::exact(
-                    TextRange::new(
-                        segment.origin.original_range.start + start_delta,
-                        segment.origin.original_range.start + end_delta,
-                    ),
-                    segment.origin.expansion,
-                )
-            }
-            OriginKind::Replaced | OriginKind::Anchored => segment.origin,
-        }
+    fn map_overlap(segment: &SourceMapSegment, overlap: TextRange) -> Vec<SourceOrigin> {
+        segment
+            .origins
+            .iter()
+            .map(|origin| match origin.kind {
+                OriginKind::Exact => {
+                    let start_delta = overlap.start - segment.virtual_range.start;
+                    let end_delta = overlap.end - segment.virtual_range.start;
+                    SourceOrigin::exact(
+                        TextRange::new(
+                            origin.original_range.start + start_delta,
+                            origin.original_range.start + end_delta,
+                        ),
+                        origin.expansion,
+                    )
+                }
+                OriginKind::Replaced | OriginKind::Anchored => *origin,
+            })
+            .collect()
     }
 
     pub fn original_len(&self) -> usize {
@@ -379,12 +416,14 @@ impl MappedSource {
         let original = original.into();
         let virtual_source = virtual_source.into();
         for expansion in expansions.iter() {
-            Self::validate_expansion_site(
-                &original,
-                expansion.id,
-                "call site",
-                expansion.call_site.original_range,
-            )?;
+            for call_site in &expansion.call_sites {
+                Self::validate_expansion_site(
+                    &original,
+                    expansion.id,
+                    "call site",
+                    call_site.original_range,
+                )?;
+            }
             if let Some(definition_site) = expansion.definition_site {
                 Self::validate_expansion_site(
                     &original,
@@ -449,6 +488,10 @@ impl MappedSource {
         self.expansions.backtrace(id)
     }
 
+    pub fn expansion_backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&crate::Expansion>>> {
+        self.expansions.backtraces(id)
+    }
+
     pub fn apply_text_edits(
         &self,
         edits: impl IntoIterator<Item = TextEdit>,
@@ -471,25 +514,13 @@ impl MappedSource {
         });
         self.validate_text_edits(&edits)?;
 
-        let first = &edits[0];
-        let call_site_span = if let Some(anchor) = first.anchor {
-            self.map_range(TextRange::empty(anchor))?
-        } else {
-            self.map_range(first.range)?
-        };
-        let call_site_origin = call_site_span
-            .primary_origin()
-            .expect("a validated source map always returns an origin");
         let expansion_id = self.expansions.next_id()?;
         let expansion = Expansion {
             id: expansion_id,
             kind: ExpansionKind::Text,
             component: metadata.component,
             hook: metadata.hook,
-            call_site: ExpansionSite {
-                original_range: call_site_origin.original_range,
-                expansion: call_site_origin.expansion,
-            },
+            call_sites: self.text_edit_call_sites(&edits)?,
             definition_site: metadata.definition_site,
             syntax_context: SyntaxContextId::new(expansion_id.get()),
         };
@@ -521,9 +552,9 @@ impl MappedSource {
             virtual_source.push_str(&edit.replacement);
             let replacement_end = virtual_source.len();
             if replacement_start != replacement_end {
-                segments.push(SourceMapSegment::new(
+                segments.push(SourceMapSegment::with_origins(
                     TextRange::new(replacement_start, replacement_end),
-                    self.generated_origin(edit, expansion_id)?,
+                    self.generated_origins(edit, expansion_id)?,
                 ));
             }
             cursor = edit.range.end;
@@ -535,9 +566,9 @@ impl MappedSource {
         );
 
         if virtual_source.is_empty() {
-            segments.push(SourceMapSegment::new(
+            segments.push(SourceMapSegment::with_origins(
                 TextRange::empty(0),
-                self.generated_origin(&edits[0], expansion_id)?,
+                self.generated_origins_for_edits(&edits, expansion_id)?,
             ));
         }
 
@@ -552,6 +583,49 @@ impl MappedSource {
             expansion: Some(expansion_id),
             generated_bytes,
         })
+    }
+
+    fn mapped_edit_span(&self, edit: &TextEdit) -> Result<MappedSpan, SourceMapError> {
+        if let Some(anchor) = edit.anchor {
+            self.map_range(TextRange::empty(anchor))
+        } else {
+            self.map_range(edit.range)
+        }
+    }
+
+    fn text_edit_call_sites(
+        &self,
+        edits: &[TextEdit],
+    ) -> Result<Vec<ExpansionSite>, SourceMapError> {
+        let mut call_sites = Vec::new();
+        for edit in edits {
+            for origin in self.mapped_edit_span(edit)?.origins {
+                let call_site = ExpansionSite {
+                    original_range: origin.original_range,
+                    expansion: origin.expansion,
+                };
+                if !call_sites.contains(&call_site) {
+                    call_sites.push(call_site);
+                }
+            }
+        }
+        Ok(call_sites)
+    }
+
+    fn generated_origins_for_edits(
+        &self,
+        edits: &[TextEdit],
+        expansion: ExpansionId,
+    ) -> Result<Vec<SourceOrigin>, SourceMapError> {
+        let mut origins = Vec::new();
+        for edit in edits {
+            for origin in self.generated_origins(edit, expansion)? {
+                if !origins.contains(&origin) {
+                    origins.push(origin);
+                }
+            }
+        }
+        Ok(origins)
     }
 
     fn validate_text_edits(&self, edits: &[TextEdit]) -> Result<(), TextEditError> {
@@ -609,38 +683,31 @@ impl MappedSource {
                 continue;
             };
             let output_end = output_start + overlap.len();
-            segments.push(SourceMapSegment::new(
+            segments.push(SourceMapSegment::with_origins(
                 TextRange::new(output_start, output_end),
-                SourceMap::map_overlap(*segment, overlap),
+                SourceMap::map_overlap(segment, overlap),
             ));
             output_start = output_end;
         }
     }
 
-    fn generated_origin(
+    fn generated_origins(
         &self,
         edit: &TextEdit,
         expansion: ExpansionId,
-    ) -> Result<SourceOrigin, SourceMapError> {
-        let mapped = if let Some(anchor) = edit.anchor {
-            self.map_range(TextRange::empty(anchor))?
-        } else {
-            self.map_range(edit.range)?
-        };
-        let origin = mapped
-            .primary_origin()
-            .expect("a validated source map always returns an origin");
-        if origin.original_range.is_empty() {
-            Ok(SourceOrigin::anchored(
-                origin.original_range.start,
-                expansion,
-            ))
-        } else {
-            Ok(SourceOrigin::replaced(
-                origin.original_range,
-                Some(expansion),
-            ))
+    ) -> Result<Vec<SourceOrigin>, SourceMapError> {
+        let mut origins = Vec::new();
+        for origin in self.mapped_edit_span(edit)?.origins {
+            let generated = if origin.original_range.is_empty() {
+                SourceOrigin::anchored(origin.original_range.start, expansion)
+            } else {
+                SourceOrigin::replaced(origin.original_range, Some(expansion))
+            };
+            if !origins.contains(&generated) {
+                origins.push(generated);
+            }
         }
+        Ok(origins)
     }
 }
 
@@ -667,6 +734,10 @@ pub enum SourceMapError {
         input: &'static str,
         range: TextRange,
     },
+    #[error("source map segment {range} has no origins")]
+    MissingOrigins { range: TextRange },
+    #[error("exact source map segment {range} must have exactly one origin")]
+    MultipleExactOrigins { range: TextRange },
     #[error("empty virtual source must have exactly one zero-width mapping at byte 0")]
     EmptyVirtualSourceMapping,
     #[error("non-empty virtual source has an empty mapping segment at {range}")]
@@ -730,10 +801,10 @@ mod tests {
             kind: ExpansionKind::Text,
             component: ComponentId::from("test-macro"),
             hook: HookId::from("expand"),
-            call_site: ExpansionSite {
+            call_sites: vec![ExpansionSite {
                 original_range: range,
                 expansion: parent.map(ExpansionId::new),
-            },
+            }],
             definition_site: None,
             syntax_context: SyntaxContextId::new(id),
         }
@@ -851,6 +922,38 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(mismatch, SourceMapError::ExactTextMismatch { .. }));
+
+        let missing = MappedSource::new(
+            "a",
+            "x",
+            ExpansionGraph::default(),
+            vec![SourceMapSegment::with_origins(TextRange::new(0, 1), [])],
+        )
+        .unwrap_err();
+        assert_eq!(
+            missing,
+            SourceMapError::MissingOrigins {
+                range: TextRange::new(0, 1)
+            }
+        );
+
+        let multiple_exact = MappedSource::new(
+            "a",
+            "a",
+            ExpansionGraph::default(),
+            vec![SourceMapSegment::with_origins(
+                TextRange::new(0, 1),
+                [
+                    SourceOrigin::exact(TextRange::new(0, 1), None),
+                    SourceOrigin::exact(TextRange::new(0, 1), None),
+                ],
+            )],
+        )
+        .unwrap_err();
+        assert!(matches!(
+            multiple_exact,
+            SourceMapError::MultipleExactOrigins { .. }
+        ));
     }
 
     #[test]
@@ -1010,6 +1113,29 @@ mod tests {
         assert_eq!(origin.original_range, TextRange::new(0, "delete me".len()));
         assert_eq!(origin.kind, OriginKind::Replaced);
         assert_eq!(origin.expansion, Some(expansion));
+
+        let split_deletion = MappedSource::identity("ab")
+            .apply_text_edits(
+                [
+                    TextEdit::new(TextRange::new(0, 1), ""),
+                    TextEdit::new(TextRange::new(1, 2), ""),
+                ],
+                TextExpansion::new("test.component", "split-delete-all"),
+            )
+            .unwrap();
+        let expansion = split_deletion.expansion.unwrap();
+        assert_eq!(split_deletion.source.virtual_source(), "");
+        assert_eq!(
+            split_deletion
+                .source
+                .map_range(TextRange::empty(0))
+                .unwrap()
+                .origins,
+            [
+                SourceOrigin::replaced(TextRange::new(0, 1), Some(expansion)),
+                SourceOrigin::replaced(TextRange::new(1, 2), Some(expansion)),
+            ]
+        );
     }
 
     #[test]
@@ -1050,6 +1176,73 @@ mod tests {
                 .unwrap()
                 .original_range,
             TextRange::new(0, 5)
+        );
+    }
+
+    #[test]
+    fn chained_multi_edit_expansions_retain_every_origin_and_parent_path() {
+        let first = MappedSource::identity("abc")
+            .apply_text_edits(
+                [
+                    TextEdit::new(TextRange::new(0, 1), "A"),
+                    TextEdit::new(TextRange::new(2, 3), "C"),
+                ],
+                TextExpansion::new("first.component", "outer-characters"),
+            )
+            .unwrap();
+        let first_id = first.expansion.unwrap();
+        assert_eq!(first.source.virtual_source(), "AbC");
+        assert_eq!(
+            first.source.expansions().get(first_id).unwrap().call_sites,
+            [
+                ExpansionSite::original(TextRange::new(0, 1)),
+                ExpansionSite::original(TextRange::new(2, 3)),
+            ]
+        );
+
+        let second = first
+            .source
+            .apply_text_edits(
+                [TextEdit::new(TextRange::new(0, 3), "X")],
+                TextExpansion::new("second.component", "merge"),
+            )
+            .unwrap();
+        let second_id = second.expansion.unwrap();
+        assert_eq!(second.source.virtual_source(), "X");
+        assert_eq!(
+            second
+                .source
+                .map_range(TextRange::new(0, 1))
+                .unwrap()
+                .origins,
+            [
+                SourceOrigin::replaced(TextRange::new(0, 1), Some(second_id)),
+                SourceOrigin::replaced(TextRange::new(1, 2), Some(second_id)),
+                SourceOrigin::replaced(TextRange::new(2, 3), Some(second_id)),
+            ]
+        );
+        assert_eq!(
+            second
+                .source
+                .expansions()
+                .get(second_id)
+                .unwrap()
+                .call_sites,
+            [
+                ExpansionSite::expanded(TextRange::new(0, 1), first_id),
+                ExpansionSite::original(TextRange::new(1, 2)),
+                ExpansionSite::expanded(TextRange::new(2, 3), first_id),
+            ]
+        );
+        assert_eq!(
+            second
+                .source
+                .expansion_backtraces(second_id)
+                .unwrap()
+                .into_iter()
+                .map(|path| path.into_iter().map(|item| item.id).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            [vec![second_id, first_id], vec![second_id]]
         );
     }
 
@@ -1103,7 +1296,9 @@ mod tests {
                 .unwrap();
             for segment in applied.source.source_map().segments() {
                 prop_assert!(segment.virtual_range.is_valid_for(applied.source.virtual_source()));
-                prop_assert!(segment.origin.original_range.is_valid_for(&source));
+                for origin in &segment.origins {
+                    prop_assert!(origin.original_range.is_valid_for(&source));
+                }
             }
         }
     }

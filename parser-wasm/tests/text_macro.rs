@@ -77,10 +77,10 @@ fn composes_macros_by_priority_and_maps_nested_expansions() {
     );
     assert_eq!(backtrace[0].component.as_str(), COMPONENT_ID);
     assert_eq!(backtrace[0].hook.as_str(), "text.second");
-    assert_eq!(backtrace[0].call_site.expansion, Some(first));
+    assert_eq!(backtrace[0].call_sites[0].expansion, Some(first));
     assert_eq!(backtrace[1].component.as_str(), COMPONENT_ID);
     assert_eq!(backtrace[1].hook.as_str(), "text.first");
-    assert_eq!(backtrace[1].call_site.expansion, None);
+    assert_eq!(backtrace[1].call_sites[0].expansion, None);
     for call in &result.calls {
         assert!(call.state_accesses.reads.is_empty());
         assert_eq!(

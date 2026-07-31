@@ -110,7 +110,7 @@ pub struct Expansion {
     pub kind: ExpansionKind,
     pub component: ComponentId,
     pub hook: HookId,
-    pub call_site: ExpansionSite,
+    pub call_sites: Vec<ExpansionSite>,
     pub definition_site: Option<ExpansionSite>,
     pub syntax_context: SyntaxContextId,
 }
@@ -139,21 +139,21 @@ impl ExpansionGraph {
         }
 
         for expansion in by_id.values() {
-            Self::validate_reference(&by_id, expansion.id, "call site", expansion.call_site)?;
+            if expansion.call_sites.is_empty() {
+                return Err(ExpansionGraphError::MissingCallSite { id: expansion.id });
+            }
+            for call_site in &expansion.call_sites {
+                Self::validate_reference(&by_id, expansion.id, "call site", *call_site)?;
+            }
             if let Some(definition_site) = expansion.definition_site {
                 Self::validate_reference(&by_id, expansion.id, "definition site", definition_site)?;
             }
         }
 
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
         for start in by_id.keys().copied() {
-            let mut seen = BTreeSet::new();
-            let mut current = Some(start);
-            while let Some(id) = current {
-                if !seen.insert(id) {
-                    return Err(ExpansionGraphError::Cycle { id });
-                }
-                current = by_id.get(&id).and_then(|item| item.call_site.expansion);
-            }
+            Self::validate_acyclic(&by_id, start, &mut visiting, &mut visited)?;
         }
 
         Ok(Self { expansions: by_id })
@@ -174,6 +174,33 @@ impl ExpansionGraph {
                 referenced,
             });
         }
+        Ok(())
+    }
+
+    fn validate_acyclic(
+        expansions: &BTreeMap<ExpansionId, Expansion>,
+        id: ExpansionId,
+        visiting: &mut BTreeSet<ExpansionId>,
+        visited: &mut BTreeSet<ExpansionId>,
+    ) -> Result<(), ExpansionGraphError> {
+        if visited.contains(&id) {
+            return Ok(());
+        }
+        if !visiting.insert(id) {
+            return Err(ExpansionGraphError::Cycle { id });
+        }
+        let expansion = expansions
+            .get(&id)
+            .expect("all call-site references were validated");
+        for parent in expansion
+            .call_sites
+            .iter()
+            .filter_map(|site| site.expansion)
+        {
+            Self::validate_acyclic(expansions, parent, visiting, visited)?;
+        }
+        visiting.remove(&id);
+        visited.insert(id);
         Ok(())
     }
 
@@ -215,16 +242,47 @@ impl ExpansionGraph {
         Self::new(expansions)
     }
 
-    /// Returns the innermost expansion first and the root expansion last.
+    /// Returns the primary call-site path, from the innermost expansion to the root.
     pub fn backtrace(&self, id: ExpansionId) -> Option<Vec<&Expansion>> {
         let mut result = Vec::new();
         let mut current = Some(id);
         while let Some(current_id) = current {
             let expansion = self.expansions.get(&current_id)?;
             result.push(expansion);
-            current = expansion.call_site.expansion;
+            current = expansion.call_sites.first().and_then(|site| site.expansion);
         }
         Some(result)
+    }
+
+    /// Returns every distinct call-site path, each ordered innermost to root.
+    pub fn backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&Expansion>>> {
+        self.collect_backtraces(id)
+    }
+
+    fn collect_backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&Expansion>>> {
+        let expansion = self.expansions.get(&id)?;
+        let mut parents = Vec::new();
+        for call_site in &expansion.call_sites {
+            if !parents.contains(&call_site.expansion) {
+                parents.push(call_site.expansion);
+            }
+        }
+
+        let mut paths = Vec::new();
+        for parent in parents {
+            match parent {
+                Some(parent) => {
+                    for mut tail in self.collect_backtraces(parent)? {
+                        let mut path = Vec::with_capacity(tail.len() + 1);
+                        path.push(expansion);
+                        path.append(&mut tail);
+                        paths.push(path);
+                    }
+                }
+                None => paths.push(vec![expansion]),
+            }
+        }
+        Some(paths)
     }
 }
 
@@ -232,6 +290,8 @@ impl ExpansionGraph {
 pub enum ExpansionGraphError {
     #[error("duplicate expansion ID {id}")]
     DuplicateId { id: ExpansionId },
+    #[error("expansion {id} has no call site")]
+    MissingCallSite { id: ExpansionId },
     #[error("expansion {id} has a blank component ID")]
     BlankComponent { id: ExpansionId },
     #[error("expansion {id} has a blank hook ID")]
@@ -258,10 +318,10 @@ mod tests {
             kind: ExpansionKind::Text,
             component: ComponentId::from("test"),
             hook: HookId::from("expand"),
-            call_site: ExpansionSite {
+            call_sites: vec![ExpansionSite {
                 original_range: TextRange::new(0, 3),
                 expansion: parent.map(ExpansionId::new),
-            },
+            }],
             definition_site: None,
             syntax_context: SyntaxContextId::new(id),
         }
@@ -315,6 +375,50 @@ mod tests {
             ExpansionGraph::new([blank]),
             Err(ExpansionGraphError::BlankComponent { .. })
         ));
+    }
+
+    #[test]
+    fn returns_every_path_for_multi_origin_expansions() {
+        let mut merged = expansion(3, None);
+        merged.call_sites = vec![
+            ExpansionSite::expanded(TextRange::new(0, 1), ExpansionId::new(1)),
+            ExpansionSite::original(TextRange::new(1, 2)),
+            ExpansionSite::expanded(TextRange::new(2, 3), ExpansionId::new(2)),
+        ];
+        let graph = ExpansionGraph::new([expansion(1, None), expansion(2, None), merged]).unwrap();
+
+        let paths = graph
+            .backtraces(ExpansionId::new(3))
+            .unwrap()
+            .into_iter()
+            .map(|path| {
+                path.into_iter()
+                    .map(|item| item.id.get())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(paths, [vec![3, 1], vec![3], vec![3, 2]]);
+        assert_eq!(
+            graph
+                .backtrace(ExpansionId::new(3))
+                .unwrap()
+                .into_iter()
+                .map(|item| item.id.get())
+                .collect::<Vec<_>>(),
+            [3, 1]
+        );
+    }
+
+    #[test]
+    fn rejects_expansions_without_call_sites() {
+        let mut missing = expansion(1, None);
+        missing.call_sites.clear();
+        assert_eq!(
+            ExpansionGraph::new([missing]).unwrap_err(),
+            ExpansionGraphError::MissingCallSite {
+                id: ExpansionId::new(1)
+            }
+        );
     }
 
     #[test]

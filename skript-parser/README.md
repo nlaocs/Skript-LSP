@@ -49,8 +49,10 @@ origins. `OriginKind` records how the mapping was produced:
 - `Anchored`: generated text is attached to an original zero-width location
 
 `MappedSource` owns original text, current virtual text, a validated SourceMap,
-and an ExpansionGraph. `map_range` returns a `MappedSpan` with every relevant
-origin and preserves generated-source information.
+and an ExpansionGraph. A generated segment may retain multiple original
+origins when it combines text from multiple source ranges or prior expansions.
+Exact segments remain one-to-one. `map_range` returns a `MappedSpan` with every
+relevant origin and preserves generated-source information.
 
 ### Text edits
 
@@ -62,7 +64,10 @@ source with a composed SourceMap and ExpansionGraph entry.
 Unchanged text preserves its existing origin. Replacements use `Replaced`,
 zero-width insertions use `Anchored`, and sequential macros retain parent
 expansion links. An empty edit list is a successful no-op, while a zero-width
-edit with an empty replacement is rejected.
+edit with an empty replacement is rejected. A multi-edit batch records the
+origins of every edit as call sites. Replacing text that already combines
+several origins carries all of them forward instead of selecting only the
+first one.
 
 `TextEditApplication::generated_bytes` counts replacement bytes introduced by
 the batch; the WASM host uses it to enforce pipeline quotas.
@@ -74,11 +79,13 @@ the batch; the WASM host uses it to enforce pipeline quotas.
 - a stable `ExpansionId`
 - Text, Tree, or AST expansion kind
 - owning WASM component and hook
-- call site and optional definition site
+- one or more call sites and an optional definition site
 - `SyntaxContextId` used for macro hygiene
 
 `ExpansionGraph` validates duplicate IDs, blank owners, unknown references, and
-cycles. Its `backtrace` returns expansions from the innermost call to the root.
+cycles across the resulting directed acyclic graph. `backtrace` returns the
+primary path from the innermost call to the root for simple consumers, while
+`backtraces` returns every distinct parent-expansion path.
 
 ## Invariants
 
@@ -89,6 +96,8 @@ Constructors reject:
 - zero-width edits with an empty replacement
 - overlapping or incomplete SourceMap segments
 - mappings whose original ranges do not fit the original source
+- SourceMap segments with no origins
+- multi-origin segments containing an `Exact` origin
 - unknown expansion references
 - cyclic expansion chains
 
@@ -112,6 +121,6 @@ cargo test -p skript-parser --locked
 ```
 
 The test suite includes multibyte UTF-8 mapping, generated text, replacement
-ranges, empty sources, chained expansion backtraces, explicit anchors, invalid
-segment layouts, and property tests for identity mappings and arbitrary UTF-8
-Text edit application.
+ranges, empty sources, chained and multi-origin expansion backtraces, explicit
+anchors, invalid segment layouts, and property tests for identity mappings and
+arbitrary UTF-8 Text edit application.
