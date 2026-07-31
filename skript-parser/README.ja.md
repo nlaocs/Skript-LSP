@@ -82,8 +82,9 @@ atomicに適用し、合成済みSourceMapとExpansionGraph entryを持つ新し
 
 ### Lossless RawTree
 
-`parse_raw_tree`は`MappedSource`をarena形式の`RawTree`へ変換します。nodeはsource順の
-`RawNodeId`を使い、次の種類に分類されます。
+`parse_raw_tree`は`MappedSource`をarena形式の`RawTree`へ変換します。呼び出し側は通常
+`RawTreeOptions::for_skript_version`で作成した`RawTreeOptions`を必ず渡し、version依存の字句規則を
+明示的に選択します。nodeはsource順の`RawNodeId`を使い、次の種類に分類されます。
 
 - `Blank`
 - `Comment`
@@ -106,6 +107,13 @@ comment分離はSkriptの`Node.splitLine`に合わせています。
 - variableと`%...%`はSkriptのstate machineと同じ遷移を使う
 - trim後に`###`と完全一致するlineだけがblock commentを開閉する
 - blank/comment lineは現在openしているSectionに所属し続ける
+
+triple-hash multiline commentは
+[Skript 2.9](https://github.com/SkriptLang/Skript/commit/adac6e1984b54924583ce13dea6eb319bc61982c)
+で導入されました。そのため`RawTreeOptions::for_skript_version(2, 8)`では各`###` lineを通常の
+single-line commentとして扱い、2.9以降でのみblock comment stateを有効にします。line途中の
+`###`はいずれのversionでもstateを切り替えず、通常の`##` escapeと`#` line-comment規則に
+従います。
 
 Skript runtime loaderと異なり、編集中のdocumentでも後続解析を続ける必要があります。そのため、
 space/tabの混在、indent unitの途中までのindent、過剰indentはlineを捨てず、`Invalid` nodeと

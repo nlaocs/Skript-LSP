@@ -91,7 +91,10 @@ primary path from the innermost call to the root for simple consumers, while
 ### Lossless RawTree
 
 `parse_raw_tree` converts a `MappedSource` into an arena-backed `RawTree`.
-Nodes use source-order `RawNodeId` values and are classified as:
+Callers must pass `RawTreeOptions`, normally created with
+`RawTreeOptions::for_skript_version`, so version-dependent lexical behavior is
+selected explicitly. Nodes use source-order `RawNodeId` values and are
+classified as:
 
 - `Blank`
 - `Comment`
@@ -116,6 +119,13 @@ Comment splitting follows Skript's `Node.splitLine` behavior:
 - variable and `%...%` state transitions follow Skript's state machine
 - only a trimmed line equal to `###` opens or closes a block comment
 - blank and comment lines remain attached to the currently open Section
+
+Triple-hash multiline comments were introduced in
+[Skript 2.9](https://github.com/SkriptLang/Skript/commit/adac6e1984b54924583ce13dea6eb319bc61982c).
+`RawTreeOptions::for_skript_version(2, 8)` therefore treats each `###` line as
+an ordinary single-line comment, while version 2.9 and later enable block
+comment state. Triple hashes in the middle of a line never toggle that state and
+continue to follow the ordinary `##` escape and `#` line-comment rules.
 
 Unlike Skript's runtime loader, the parser must remain useful while a document
 is being edited. Mixed indentation, partial indentation units, and excessive
