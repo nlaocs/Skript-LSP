@@ -12,8 +12,9 @@ of the LSP binary.
 ## Current Status
 
 The syntax data, syntax-pattern parser, source mapping primitives, WASM ABI,
-Wasmtime host, transactional StateStore, dynamic syntax registry, and Text
-macro preprocessing pipeline are implemented and tested.
+Wasmtime host, transactional StateStore, dynamic syntax registry, Text macro
+preprocessing pipeline, and lossless comment/indentation RawTree are
+implemented and tested.
 
 The executable is still a scaffold. It embeds and initializes CoreLibrary, but
 it does not yet expose an LSP transport or parse complete `.sk` documents.
@@ -49,8 +50,9 @@ The intended data flow is:
    Components may add or override syntax during initialization and document
    prepass, and Text macro components may preprocess document source.
 4. `syntax-pattern-parser` represents Skript registration patterns, while
-   `skript-parser` validates Text edits and tracks original and macro-expanded
-   source ranges through composed SourceMaps.
+   `skript-parser` validates Text edits, tracks original and macro-expanded
+   ranges through composed SourceMaps, and builds a lossless RawTree from
+   comments and indentation.
 5. The root `skript-lsp` crate will compose these pieces into document parsing
    and LSP features.
 
@@ -62,7 +64,7 @@ The intended data flow is:
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
 | [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 snapshot directories. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |
-| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMap data, macro expansion provenance, and syntax contexts for the future `.sk` parser. |
+| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, syntax contexts, and the lossless RawTree for `.sk` documents. |
 | [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, StateStore, and dynamic syntax bridge. |
 | [`core-library`](./core-library/) | WASM component | Mandatory parser addon component reserved for Skript's built-in parsing behavior. It currently supplies ABI negotiation and a health hook. |
 | [`skripthub`](./skripthub/) | legacy library | Compatibility reader for the old SkriptHub API and its flattened function strings. New syntax data should use `ssg` and `syntaxes`. |

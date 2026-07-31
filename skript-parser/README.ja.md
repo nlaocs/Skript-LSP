@@ -3,12 +3,12 @@
 [English](README.md)
 
 `skript-parser`は、実際の`.sk` documentを解析するためのsource-level primitiveを所有します。
-現在はUTF-8 range、virtual source mapping、検証済みText editの適用、macro展開の出典、
-syntax contextに重点を置いて実装されています。
+現在はUTF-8 range、virtual source mapping、検証済みText editの適用、macro展開の出典、syntax
+context、losslessなindentation-based RawTreeを実装しています。
 
-crate名とは異なり、現時点ではSkriptのtokenize、indentation treeの構築、登録構文との照合、
-完全なSkript ASTの生成は行いません。今後の解析stageは、ここで定義したinvariantの上に
-追加します。
+preprocess後sourceのphysical line分割とcomment/indentation構造の構築までは実装済みです。
+登録構文との照合と完全なSkript ASTの生成はまだ行いません。今後の解析stageは、ここで
+定義したinvariantの上に追加します。
 
 ## syntax-pattern-parserと分かれている理由
 
@@ -80,6 +80,40 @@ atomicに適用し、合成済みSourceMapとExpansionGraph entryを持つ新し
 `backtrace`は単純なconsumer向けに最も内側の展開からrootまでの主経路を返し、`backtraces`は
 異なる親expansion経路をすべて返します。
 
+### Lossless RawTree
+
+`parse_raw_tree`は`MappedSource`をarena形式の`RawTree`へ変換します。nodeはsource順の
+`RawNodeId`を使い、次の種類に分類されます。
+
+- `Blank`
+- `Comment`
+- `Simple`
+- `Section`
+- `Invalid`
+
+各nodeはphysical `RawLine`、raw text、Skript規則でdecodeしたtext、indentation、末尾空白、
+comment、line endingのtriviaを保持します。rangeはすべて`MappedSpan`なので、Text macroが
+生成したlineでもoriginal source originとexpansion provenanceを失いません。
+
+Section nodeはheader、body、subtree全体のspanを個別に公開します。空bodyはheader line直後の
+zero-width spanです。treeはparent/child関係と、検出したspaceまたはtabのindentation unitも
+保持します。
+
+comment分離はSkriptの`Node.splitLine`に合わせています。
+
+- quoted string外の`##`はliteral `#` 1個になる
+- quoted string内の`#`はcommentにならない
+- variableと`%...%`はSkriptのstate machineと同じ遷移を使う
+- trim後に`###`と完全一致するlineだけがblock commentを開閉する
+- blank/comment lineは現在openしているSectionに所属し続ける
+
+Skript runtime loaderと異なり、編集中のdocumentでも後続解析を続ける必要があります。そのため、
+space/tabの混在、indent unitの途中までのindent、過剰indentはlineを捨てず、`Invalid` nodeと
+diagnosticへ変換します。空Sectionはwarningとなり、未閉鎖block commentはopening markerと
+EOFの両方を示します。
+
+WIT wire modelへの変換と再帰的なTree macro適用は、次のTree macro pipeline stageで実装します。
+
 ## Invariant
 
 constructorは次の入力を拒否します。
@@ -104,6 +138,7 @@ constructorは次の入力を拒否します。
 | `text` | `TextRange`とUTF-8 range操作 |
 | `source_map` | origin、segment、mapped source、mapped span |
 | `expansion` | expansion graph、component/hook ownership、syntax context |
+| `raw_tree` | physical line、comment分離、indentation回復、RawTree |
 
 公開itemはcrate rootからre-exportされます。
 
@@ -115,4 +150,6 @@ cargo test -p skript-parser --locked
 
 test suiteには、multibyte UTF-8 mapping、生成text、replacement range、空source、expansion
 backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
-UTF-8 Text edit適用のproperty testが含まれます。
+UTF-8 Text edit適用のproperty testが含まれます。RawTreeについてはSkript公式comment case、
+LF/CRLF/最終改行なし、space/tab、nested Section、回復可能な不正indent、空Section、block
+comment、macro origin、任意UTF-8入力のlossless性を検証します。

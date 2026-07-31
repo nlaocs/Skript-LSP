@@ -4,12 +4,13 @@
 
 `skript-parser` owns source-level primitives for parsing actual `.sk`
 documents. Its current implementation focuses on UTF-8 ranges, virtual source
-mapping, validated Text edit application, macro expansion provenance, and
-syntax contexts.
+mapping, validated Text edit application, macro expansion provenance, syntax
+contexts, and a lossless indentation-based RawTree.
 
-Despite the crate name, it does not yet tokenize Skript, build indentation
-trees, match registered syntax, or produce a complete Skript AST. Those stages
-will be added on top of the invariants defined here.
+The crate now splits preprocessed source into physical lines and builds its
+comment/indentation structure. It does not yet match registered syntax or
+produce a complete Skript AST. Those stages will be added on top of the
+invariants defined here.
 
 ## Why This Is Separate from syntax-pattern-parser
 
@@ -87,6 +88,44 @@ cycles across the resulting directed acyclic graph. `backtrace` returns the
 primary path from the innermost call to the root for simple consumers, while
 `backtraces` returns every distinct parent-expansion path.
 
+### Lossless RawTree
+
+`parse_raw_tree` converts a `MappedSource` into an arena-backed `RawTree`.
+Nodes use source-order `RawNodeId` values and are classified as:
+
+- `Blank`
+- `Comment`
+- `Simple`
+- `Section`
+- `Invalid`
+
+Every node retains its physical `RawLine`, raw text, decoded Skript text,
+indentation, trailing whitespace, comment, and line-ending trivia. All ranges
+are `MappedSpan` values, so lines produced by Text macros keep their original
+source origins and expansion provenance.
+
+Section nodes expose separate spans for the header, body, and complete
+subtree. An empty body uses a zero-width span immediately after the header
+line. The tree also preserves parent/child relationships and the detected
+space or tab indentation unit.
+
+Comment splitting follows Skript's `Node.splitLine` behavior:
+
+- `##` becomes one literal `#` outside quoted strings
+- `#` inside a quoted string is not a comment
+- variable and `%...%` state transitions follow Skript's state machine
+- only a trimmed line equal to `###` opens or closes a block comment
+- blank and comment lines remain attached to the currently open Section
+
+Unlike Skript's runtime loader, the parser must remain useful while a document
+is being edited. Mixed indentation, partial indentation units, and excessive
+indentation therefore produce `Invalid` nodes and diagnostics without dropping
+later lines. Empty Sections produce warnings, and unclosed block comments point
+to both the opening marker and EOF.
+
+The WIT conversion and recursive Tree macro application are intentionally left
+to the following Tree macro pipeline stage.
+
 ## Invariants
 
 Constructors reject:
@@ -111,6 +150,7 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `text` | `TextRange` and UTF-8 range operations |
 | `source_map` | origins, segments, mapped source, and mapped spans |
 | `expansion` | expansion graph, component/hook ownership, and syntax contexts |
+| `raw_tree` | physical lines, comment splitting, indentation recovery, and RawTree |
 
 All public items are re-exported from the crate root.
 
@@ -123,4 +163,7 @@ cargo test -p skript-parser --locked
 The test suite includes multibyte UTF-8 mapping, generated text, replacement
 ranges, empty sources, chained and multi-origin expansion backtraces, explicit
 anchors, invalid segment layouts, and property tests for identity mappings and
-arbitrary UTF-8 Text edit application.
+arbitrary UTF-8 Text edit application. RawTree tests cover Skript's comment
+cases, LF/CRLF/no-final-newline inputs, spaces and tabs, nested Sections,
+recoverable invalid indentation, empty Sections, block comments, macro origins,
+and lossless arbitrary UTF-8 input.
