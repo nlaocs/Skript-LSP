@@ -47,8 +47,9 @@ send "hello" to player
 - `Anchored`: 生成textがoriginalのzero-width位置へ結び付く
 
 `MappedSource`はoriginal text、現在のvirtual text、検証済みSourceMap、ExpansionGraphを
-所有します。`map_range`は関連するすべてのoriginを持つ`MappedSpan`を返し、生成sourceの
-情報も保持します。
+所有します。複数のsource rangeや過去のexpansionを結合した生成segmentは、複数のoriginal
+originを保持できます。`Exact` segmentは一対一のままです。`map_range`は関連するすべての
+originを持つ`MappedSpan`を返し、生成sourceの情報も保持します。
 
 ### Text edit
 
@@ -58,7 +59,9 @@ atomicに適用し、合成済みSourceMapとExpansionGraph entryを持つ新し
 
 変更されないtextは既存originを維持します。置換には`Replaced`、zero-width insertには
 `Anchored`を使い、連続するmacroでは親expansionへのlinkを維持します。空のedit listは
-成功するno-opとして扱い、replacementも空のzero-width editは拒否します。
+成功するno-opとして扱い、replacementも空のzero-width editは拒否します。複数editのbatchは
+全editのoriginをcall siteとして記録します。すでに複数originを結合したtextを置換する場合も、
+最初の1件だけを選ばず、すべてのoriginを次のmappingへ引き継ぎます。
 
 `TextEditApplication::generated_bytes`はbatchが追加したreplacementのbyte数です。WASM hostは
 この値をpipeline quotaの検証に使います。
@@ -70,11 +73,12 @@ atomicに適用し、合成済みSourceMapとExpansionGraph entryを持つ新し
 - 安定した`ExpansionId`
 - Text、Tree、ASTの展開種別
 - 所有するWASM componentとhook
-- call siteと任意のdefinition site
+- 1件以上のcall siteと任意のdefinition site
 - macro hygiene用の`SyntaxContextId`
 
-`ExpansionGraph`はID重複、空のowner、未知の参照、cycleを検証します。`backtrace`は最も
-内側の展開からrootまでを返します。
+`ExpansionGraph`は、有向非巡回graph全体のID重複、空のowner、未知の参照、cycleを検証します。
+`backtrace`は単純なconsumer向けに最も内側の展開からrootまでの主経路を返し、`backtraces`は
+異なる親expansion経路をすべて返します。
 
 ## Invariant
 
@@ -83,6 +87,8 @@ constructorは次の入力を拒否します。
 - source length外、またはUTF-8 code point途中のrange
 - overlapしている、または不足のあるSourceMap segment
 - original sourceに収まらないmapping
+- originを持たないSourceMap segment
+- `Exact` originを含むmulti-origin segment
 - overlapするedit、同じ位置への曖昧なinsert、不正なanchor
 - replacementも空のzero-width edit
 - 未知のexpansion参照
@@ -108,5 +114,5 @@ cargo test -p skript-parser --locked
 ```
 
 test suiteには、multibyte UTF-8 mapping、生成text、replacement range、空source、expansion
-backtrace、明示anchor、不正なsegment配置、identity mappingと任意UTF-8 Text edit適用の
-property testが含まれます。
+backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
+UTF-8 Text edit適用のproperty testが含まれます。

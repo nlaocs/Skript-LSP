@@ -77,7 +77,8 @@ subscriptionは決定的なpriority順で実行され、その時点のvirtual U
 曖昧な同位置insert、不正なanchorを拒否してから、output全体をatomicに適用します。置換textは
 既定で置換対象のcall-siteへ対応し、任意の`anchor`を指定すると生成textを明示的なzero-width
 位置へ対応付けます。複数macroのoutputではSourceMapを順次合成し、親子関係を持つText
-expansionをExpansionGraphへ追加します。
+expansionをExpansionGraphへ追加します。複数editのoutputや、過去の複数mappingをまたぐ置換は
+全originを保持し、最初のcall-site以外を捨てずにexpansion DAGを構築します。
 
 effects、Reject、addon errorのdiagnosticとparse requestのspanは、そのmacroへ入力された
 virtual sourceに対するrangeとして解釈します。hostはguestが指定したoriginsを信用せず、

@@ -83,7 +83,9 @@ invalid UTF-8 boundaries, ambiguous insertions, and invalid anchors, then
 applies the complete output atomically. Replacement text maps to its replaced
 call-site by default; an optional `anchor` maps generated text to an explicit
 zero-width location. Sequential macro outputs compose the SourceMap and append
-parent-linked Text entries to the ExpansionGraph.
+parent-linked Text entries to the ExpansionGraph. Multi-edit outputs and
+replacements spanning several earlier mappings preserve every origin and form
+an expansion DAG rather than discarding all but the first call-site.
 
 Diagnostics in effects, rejections, and addon errors, and parse-request spans
 are interpreted against the macro's input virtual source. The host ignores
