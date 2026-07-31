@@ -169,6 +169,35 @@ pub struct RawDiagnostic {
     pub related: Vec<RawRelatedSpan>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MultilineCommentSupport {
+    Unsupported,
+    TripleHash,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RawTreeOptions {
+    pub multiline_comments: MultilineCommentSupport,
+}
+
+impl RawTreeOptions {
+    pub const fn new(multiline_comments: MultilineCommentSupport) -> Self {
+        Self { multiline_comments }
+    }
+
+    /// Selects language features for a Skript release.
+    ///
+    /// Triple-hash multiline comments were introduced in Skript 2.9.
+    pub const fn for_skript_version(major: u32, minor: u32) -> Self {
+        let multiline_comments = if major > 2 || (major == 2 && minor >= 9) {
+            MultilineCommentSupport::TripleHash
+        } else {
+            MultilineCommentSupport::Unsupported
+        };
+        Self::new(multiline_comments)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RawTree {
     pub roots: Vec<RawNodeId>,
@@ -190,12 +219,13 @@ impl RawTree {
     }
 }
 
-pub fn parse_raw_tree(source: &MappedSource) -> RawTree {
-    RawTreeParser::new(source).parse()
+pub fn parse_raw_tree(source: &MappedSource, options: RawTreeOptions) -> RawTree {
+    RawTreeParser::new(source, options).parse()
 }
 
 struct RawTreeParser<'a> {
     source: &'a MappedSource,
+    options: RawTreeOptions,
     tree: RawTree,
     sections: Vec<OpenSection>,
     in_block_comment: bool,
@@ -209,9 +239,10 @@ struct OpenSection {
 }
 
 impl<'a> RawTreeParser<'a> {
-    fn new(source: &'a MappedSource) -> Self {
+    fn new(source: &'a MappedSource, options: RawTreeOptions) -> Self {
         Self {
             source,
+            options,
             tree: RawTree::default(),
             sections: Vec::new(),
             in_block_comment: false,
@@ -255,7 +286,12 @@ impl<'a> RawTreeParser<'a> {
             .slice(self.source.virtual_source())
             .expect("physical lines are split at UTF-8 boundaries");
         let indentation_end = leading_whitespace_end(content);
-        let split = split_line(content, self.in_block_comment, indentation_end);
+        let split = split_line(
+            content,
+            self.in_block_comment,
+            indentation_end,
+            self.options.multiline_comments,
+        );
 
         match split.block_action {
             Some(BlockAction::Open(delimiter)) => {
@@ -695,7 +731,12 @@ struct LineSplit {
     block_action: Option<BlockAction>,
 }
 
-fn split_line(line: &str, in_block_comment: bool, indentation_end: usize) -> LineSplit {
+fn split_line(
+    line: &str,
+    in_block_comment: bool,
+    indentation_end: usize,
+    multiline_comments: MultilineCommentSupport,
+) -> LineSplit {
     let trim_start = leading_whitespace_end(line);
     let trim_end = trim_end_whitespace(line);
     let trimmed = if trim_start < trim_end {
@@ -704,7 +745,7 @@ fn split_line(line: &str, in_block_comment: bool, indentation_end: usize) -> Lin
         ""
     };
 
-    if trimmed == "###" {
+    if multiline_comments == MultilineCommentSupport::TripleHash && trimmed == "###" {
         return LineSplit {
             value: String::new(),
             comment: Some(CommentSplit {
@@ -854,7 +895,14 @@ mod tests {
     use proptest::prelude::*;
 
     fn parse(source: &str) -> RawTree {
-        parse_raw_tree(&MappedSource::identity(source))
+        parse_version(source, 2, 9)
+    }
+
+    fn parse_version(source: &str, major: u32, minor: u32) -> RawTree {
+        parse_raw_tree(
+            &MappedSource::identity(source),
+            RawTreeOptions::for_skript_version(major, minor),
+        )
     }
 
     fn node(tree: &RawTree, id: RawNodeId) -> &RawNode {
@@ -919,7 +967,12 @@ mod tests {
         ];
 
         for (input, expected_value, expected_comment) in cases {
-            let split = split_line(input, false, leading_whitespace_end(input));
+            let split = split_line(
+                input,
+                false,
+                leading_whitespace_end(input),
+                MultilineCommentSupport::TripleHash,
+            );
             assert_eq!(split.value, expected_value, "{input:?}");
             assert_eq!(
                 split.comment.map(|comment| &input[comment.start..]),
@@ -966,6 +1019,64 @@ mod tests {
             ]
         );
         assert!(tree.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn selects_multiline_comment_support_from_the_skript_version() {
+        assert_eq!(
+            RawTreeOptions::for_skript_version(2, 8).multiline_comments,
+            MultilineCommentSupport::Unsupported
+        );
+        assert_eq!(
+            RawTreeOptions::for_skript_version(2, 9).multiline_comments,
+            MultilineCommentSupport::TripleHash
+        );
+        assert_eq!(
+            RawTreeOptions::for_skript_version(3, 0).multiline_comments,
+            MultilineCommentSupport::TripleHash
+        );
+    }
+
+    #[test]
+    fn triple_hash_lines_are_version_gated() {
+        let source = "before\n###\ninside\n###\nafter\n";
+        let legacy = parse_version(source, 2, 8);
+        let modern = parse_version(source, 2, 9);
+
+        assert_eq!(legacy.nodes[2].kind, RawNodeKind::Simple);
+        assert_eq!(legacy.nodes[2].text, "inside");
+        assert_eq!(
+            legacy.nodes[1].line.trailing_trivia[0].kind,
+            RawTriviaKind::LineComment
+        );
+        assert!(legacy.diagnostics.is_empty());
+
+        assert_eq!(modern.nodes[2].kind, RawNodeKind::Comment);
+        assert_eq!(
+            modern.nodes[1].line.trailing_trivia[0].kind,
+            RawTriviaKind::BlockComment
+        );
+        assert!(modern.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn triple_hashes_in_the_middle_of_a_line_never_toggle_block_comments() {
+        for version in [(2, 8), (2, 9)] {
+            let tree = parse_version("hello ### there\nnext\n", version.0, version.1);
+
+            assert_eq!(tree.nodes[0].kind, RawNodeKind::Simple);
+            assert_eq!(tree.nodes[0].text, "hello #");
+            assert_eq!(tree.nodes[1].kind, RawNodeKind::Simple);
+            assert_eq!(tree.nodes[1].text, "next");
+            assert!(
+                tree.nodes[0]
+                    .line
+                    .trailing_trivia
+                    .iter()
+                    .any(|trivia| trivia.kind == RawTriviaKind::LineComment)
+            );
+            assert!(tree.diagnostics.is_empty());
+        }
     }
 
     #[test]
@@ -1133,6 +1244,15 @@ mod tests {
     }
 
     #[test]
+    fn legacy_triple_hashes_do_not_open_an_unclosed_block_comment() {
+        let tree = parse_version("###\ncode\n", 2, 8);
+
+        assert_eq!(tree.nodes[0].kind, RawNodeKind::Comment);
+        assert_eq!(tree.nodes[1].kind, RawNodeKind::Simple);
+        assert!(tree.diagnostics.is_empty());
+    }
+
+    #[test]
     fn reports_unclosed_block_comments_at_the_opening_marker() {
         let source = "###\ncomment\n";
         let tree = parse(source);
@@ -1180,7 +1300,7 @@ mod tests {
                 crate::TextExpansion::new("test.component", "expand"),
             )
             .unwrap();
-        let tree = parse_raw_tree(&expanded.source);
+        let tree = parse_raw_tree(&expanded.source, RawTreeOptions::for_skript_version(2, 9));
 
         assert_eq!(tree.nodes.len(), 1);
         assert_eq!(tree.nodes[0].line.raw_text, "AbC");
@@ -1207,7 +1327,10 @@ mod tests {
         ) {
             let source = chars.into_iter().collect::<String>();
             let mapped = MappedSource::identity(source.clone());
-            let tree = parse_raw_tree(&mapped);
+            let tree = parse_raw_tree(
+                &mapped,
+                RawTreeOptions::for_skript_version(2, 9),
+            );
             let reconstructed = tree
                 .nodes
                 .iter()
