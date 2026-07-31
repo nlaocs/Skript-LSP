@@ -130,10 +130,13 @@ allocation of final RawNode IDs, ExpansionIds, call-site spans, and
 SyntaxContextIds.
 
 Generated roots and generated Section children re-enter the same Tree macro
-stage. Recursion is bounded by depth, total node, hook-call, and output-byte
-quotas. The host also detects direct and indirect cycles using macro identity,
-input origin, and subtree content. A cycle preserves the current node and
-produces a component failure plus a `tree-macro-cycle` diagnostic.
+stage. Structural nesting and macro re-entry are limited independently:
+`max_raw_tree_depth` defaults to 256, while
+`max_tree_macro_expansion_depth` defaults to 64. Total node, hook-call, and
+output-byte quotas provide separate pipeline bounds. The host also detects
+direct and indirect cycles using macro identity, input origin, and subtree
+content. A cycle preserves the current node and produces a component failure
+plus a `tree-macro-cycle` diagnostic.
 
 Each candidate runs in a StateStore invocation transaction. TreeEdit
 validation and state adoption are atomic: addon errors, traps, invalid edits,

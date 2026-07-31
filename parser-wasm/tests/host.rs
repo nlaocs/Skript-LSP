@@ -117,7 +117,7 @@ fn rejects_a_dispatch_for_a_different_document_revision() {
 #[test]
 fn rejects_zero_resource_limits_before_starting_wasmtime() {
     type InvalidConfig = (&'static str, fn(&mut HostConfig));
-    let cases: [InvalidConfig; 4] = [
+    let cases: [InvalidConfig; 6] = [
         ("fuel per call", |config| config.fuel_per_call = 0),
         ("text macro expansions", |config| {
             config.max_text_macro_expansions = 0
@@ -127,6 +127,10 @@ fn rejects_zero_resource_limits_before_starting_wasmtime() {
         }),
         ("virtual source bytes", |config| {
             config.max_virtual_source_bytes = 0
+        }),
+        ("raw tree depth", |config| config.max_raw_tree_depth = 0),
+        ("tree macro expansion depth", |config| {
+            config.max_tree_macro_expansion_depth = 0
         }),
     ];
 

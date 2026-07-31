@@ -90,7 +90,8 @@ pub struct HostConfig {
     pub max_text_macro_expansions: usize,
     pub max_text_macro_generated_bytes: usize,
     pub max_virtual_source_bytes: usize,
-    pub max_tree_macro_depth: usize,
+    pub max_raw_tree_depth: usize,
+    pub max_tree_macro_expansion_depth: usize,
     pub max_tree_macro_nodes: usize,
     pub max_tree_macro_calls: usize,
     pub state_store: StateStoreConfig,
@@ -113,7 +114,8 @@ impl Default for HostConfig {
             max_text_macro_expansions: 256,
             max_text_macro_generated_bytes: 8 * 1024 * 1024,
             max_virtual_source_bytes: 16 * 1024 * 1024,
-            max_tree_macro_depth: 64,
+            max_raw_tree_depth: 256,
+            max_tree_macro_expansion_depth: 64,
             max_tree_macro_nodes: 100_000,
             max_tree_macro_calls: 4_096,
             state_store: StateStoreConfig::default(),
@@ -137,7 +139,8 @@ impl HostConfig {
             || self.max_text_macro_expansions == 0
             || self.max_text_macro_generated_bytes == 0
             || self.max_virtual_source_bytes == 0
-            || self.max_tree_macro_depth == 0
+            || self.max_raw_tree_depth == 0
+            || self.max_tree_macro_expansion_depth == 0
             || self.max_tree_macro_nodes == 0
             || self.max_tree_macro_calls == 0;
         if invalid {
@@ -260,8 +263,10 @@ pub enum HostError {
         subscription_id: String,
         message: String,
     },
-    #[error("tree macro pipeline exceeded the recursion depth quota of {limit}")]
-    TreeMacroDepthQuotaExceeded { limit: usize },
+    #[error("raw tree exceeded the structural depth quota of {limit}")]
+    RawTreeDepthQuotaExceeded { limit: usize },
+    #[error("tree macro pipeline exceeded the expansion depth quota of {limit}")]
+    TreeMacroExpansionDepthQuotaExceeded { limit: usize },
     #[error("tree macro pipeline exceeded the node quota of {limit}")]
     TreeMacroNodeQuotaExceeded { limit: usize },
     #[error("tree macro pipeline exceeded the hook call quota of {limit}")]
@@ -1585,9 +1590,9 @@ impl ParserHost {
                 limit: self.config.max_tree_macro_nodes,
             });
         }
-        if raw_tree_depth(&request.tree) > self.config.max_tree_macro_depth {
-            return Err(HostError::TreeMacroDepthQuotaExceeded {
-                limit: self.config.max_tree_macro_depth,
+        if raw_tree_depth(&request.tree) > self.config.max_raw_tree_depth {
+            return Err(HostError::RawTreeDepthQuotaExceeded {
+                limit: self.config.max_raw_tree_depth,
             });
         }
 
@@ -1673,10 +1678,14 @@ impl ParserHost {
         depth: usize,
         pipeline: &mut TreeMacroPipeline,
     ) -> Result<TreeWalk, HostError> {
-        if depth > self.config.max_tree_macro_depth || path.len() > self.config.max_tree_macro_depth
-        {
-            return Err(HostError::TreeMacroDepthQuotaExceeded {
-                limit: self.config.max_tree_macro_depth,
+        if depth > self.config.max_tree_macro_expansion_depth {
+            return Err(HostError::TreeMacroExpansionDepthQuotaExceeded {
+                limit: self.config.max_tree_macro_expansion_depth,
+            });
+        }
+        if path.len() > self.config.max_raw_tree_depth {
+            return Err(HostError::RawTreeDepthQuotaExceeded {
+                limit: self.config.max_raw_tree_depth,
             });
         }
 
@@ -1960,11 +1969,11 @@ impl ParserHost {
                     path.len().saturating_add(wit_tree_edit_depth(&edit))
                 }
             };
-            if resulting_depth > self.config.max_tree_macro_depth {
+            if resulting_depth > self.config.max_raw_tree_depth {
                 state_invocation.rollback();
                 pipeline.active.pop();
-                return Err(HostError::TreeMacroDepthQuotaExceeded {
-                    limit: self.config.max_tree_macro_depth,
+                return Err(HostError::RawTreeDepthQuotaExceeded {
+                    limit: self.config.max_raw_tree_depth,
                 });
             }
             let parser_edit = parser_tree_edit(edit);

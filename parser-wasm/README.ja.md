@@ -114,10 +114,12 @@ bodyだけを置換する、元Sectionの子を生成Sectionの子の前後へ�
 親子関係を検証します。最終的なRawNode ID、ExpansionId、call-site span、SyntaxContextIdは
 hostだけが割り当てます。
 
-生成rootと生成Sectionの子は同じTree macro stageへ再投入されます。再帰はdepth、総node数、
-hook call数、output byte数のquotaで制限します。さらにmacro identity、入力origin、subtree
-内容を組み合わせ、直接・間接cycleを検出します。cycle時は現在のnodeを保持し、component
-failureと`tree-macro-cycle` diagnosticを返します。
+生成rootと生成Sectionの子は同じTree macro stageへ再投入されます。構造上のnestingとmacroの
+再投入は独立したquotaで制限し、`max_raw_tree_depth`の既定値は256、
+`max_tree_macro_expansion_depth`の既定値は64です。総node数、hook call数、output byte数にも
+別のpipeline quotaがあります。さらにmacro identity、入力origin、subtree内容を組み合わせ、
+直接・間接cycleを検出します。cycle時は現在のnodeを保持し、component failureと
+`tree-macro-cycle` diagnosticを返します。
 
 各候補はStateStore invocation transaction内で実行します。TreeEdit検証とstate採用はatomic
 です。addon error、trap、不正edit、cycleでは現在のnodeを保持し、その候補の書き込みを
