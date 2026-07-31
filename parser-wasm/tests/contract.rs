@@ -31,7 +31,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.2.0")
+        Some("0.3.0")
     );
 
     let world = package
@@ -175,6 +175,56 @@ fn guest_bindings_expose_typed_macro_payloads() {
     assert_eq!(output.edits[0].anchor, Some(0));
 }
 
+#[test]
+fn guest_bindings_expose_typed_tree_edits() {
+    use guest::nlaocs::skript_parser_addon::types::{
+        GeneratedRawNode, GeneratedRawNodeKind, GeneratedRawTree, HookDecision, HookEffects,
+        ReplaceNodeEdit, RetainedChildren, RetainedChildrenPlacement, TreeEdit, TreeMacroOutput,
+    };
+
+    let output = TreeMacroOutput {
+        decision: HookDecision::ContinueProcessing,
+        edit: Some(TreeEdit::ReplaceNode(ReplaceNodeEdit {
+            replacement: GeneratedRawTree {
+                roots: vec![10, 11],
+                nodes: vec![
+                    GeneratedRawNode {
+                        id: 10,
+                        kind: GeneratedRawNodeKind::Section,
+                        text: "generated".to_owned(),
+                        children: Vec::new(),
+                    },
+                    GeneratedRawNode {
+                        id: 11,
+                        kind: GeneratedRawNodeKind::Simple,
+                        text: "after generated".to_owned(),
+                        children: Vec::new(),
+                    },
+                ],
+            },
+            retained_children: Some(RetainedChildren {
+                target: 10,
+                placement: RetainedChildrenPlacement::Append,
+            }),
+        })),
+        effects: HookEffects {
+            diagnostics: Vec::new(),
+            context_updates: Vec::new(),
+            parse_requests: Vec::new(),
+        },
+    };
+
+    let Some(TreeEdit::ReplaceNode(edit)) = output.edit else {
+        panic!("typed replacement must survive binding generation");
+    };
+    assert_eq!(edit.replacement.roots, [10, 11]);
+    assert_eq!(
+        edit.retained_children
+            .expect("children are retained")
+            .target,
+        10
+    );
+}
 #[test]
 fn contract_defines_every_hook_phase_and_execution_mode() {
     use host::nlaocs::skript_parser_addon::types::{HookMode, HookPhase};

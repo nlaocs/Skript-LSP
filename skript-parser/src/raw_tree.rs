@@ -1,4 +1,4 @@
-use crate::{MappedSource, MappedSpan, TextRange};
+use crate::{MappedSource, MappedSpan, SyntaxContextId, TextRange};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -123,6 +123,7 @@ pub struct RawNode {
     pub body_span: Option<MappedSpan>,
     pub indent_level: Option<u32>,
     pub invalid_reason: Option<RawInvalidReason>,
+    pub syntax_context: SyntaxContextId,
     pub parent: Option<RawNodeId>,
     pub children: Vec<RawNodeId>,
 }
@@ -562,6 +563,7 @@ impl<'a> RawTreeParser<'a> {
             body_span: None,
             indent_level,
             invalid_reason,
+            syntax_context: SyntaxContextId::ROOT,
             parent,
             children: Vec::new(),
         };

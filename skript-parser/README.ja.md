@@ -120,7 +120,10 @@ space/tabの混在、indent unitの途中までのindent、過剰indentはline�
 diagnosticへ変換します。空Sectionはwarningとなり、未閉鎖block commentはopening markerと
 EOFの両方を示します。
 
-WIT wire modelへの変換と再帰的なTree macro適用は、次のTree macro pipeline stageで実装します。
+`apply_tree_edit`は生成local-ID fragmentを検証し、入力treeを変更せずに対象nodeまたは
+Section bodyへ適用します。新しいRawNode IDを割り当て、Tree expansionと生成syntax contextを
+登録し、すべての生成spanを置換対象nodeのcall-siteへ対応付けます。WIT変換と再帰的な
+pre-order dispatchは`parser-wasm` hostが担当します。
 
 ## Invariant
 

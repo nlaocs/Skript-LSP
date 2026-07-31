@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.2.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.3.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -37,7 +37,7 @@ Guest export:
 - `addon`: static manifestとhost profileのnegotiation
 - `hooks`: parser stageの観測、変換、override
 - `text-macro`: virtual UTF-8 source textに対するedit
-- `tree-macro`: indentation-based RawTreeの置換
+- `tree-macro`: losslessなindentation-based RawTreeに対する対象指定edit
 - `ast-macro`: parse済みAST arenaの置換
 
 Host import:
@@ -52,9 +52,9 @@ node ID arenaを使い、Component Model上で再帰しない値として表現�
 
 各manifestはdiagnostic用のcomponent IDとcomponent versionを公開します。
 
-package versionはWITのshapeを示します。Text editのanchor追加により、packageは
-0.1.0から0.2.0へ変わりました。manifestの現在の`abi`値は1.1で、runtime handshakeとして
-`major.minor`の完全一致が必要です。
+package versionはWITのshapeを示します。Text editのanchor追加で0.1.0から0.2.0へ、
+lossless RawTreeと対象指定TreeEditの追加で0.3.0へ変わりました。manifestの現在の`abi`値は
+1.2で、runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。
@@ -65,7 +65,7 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
 - hostとguestは同じnegotiation ruleを使います。hostがcomponent manifestを検証したあと、
   guestが`addon.initialize`でhost profileを検証します。
 
-hostはText macroをadvertiseし、実行します。Tree macroとAST macroはcontractだけが存在し、
+hostはText macroとTree macroをadvertiseし、実行します。AST macroはcontractだけが存在し、
 まだadvertiseされません。
 
 ## Text macro
@@ -100,6 +100,30 @@ pipelineのRejectでは、対応するtextとstate変更を破棄します。成
 
 `HostConfig`はexpansion数、生成replacement byte数、virtual source全体のbyte数を制限します。
 pipeline全体のquotaを超えた場合は、元sourceとStateStore savepointへ戻します。
+
+## Tree macro
+
+Tree macroは`Tree` phaseの`ParseStage`へ`Transform` modeでsubscribeします。hostはlossless
+RawTreeをpre-orderで走査します。各callには、その時点のtree全体、対象node ID、生成nodeの
+depthを渡します。raw line、trivia、invalid reason、diagnostic、indentation metadata、
+span、syntax contextもWIT payloadに含まれます。
+
+`TreeEdit`の対象は現在のnodeです。対象nodeを0個、1個、複数の生成nodeへ置換する、Sectionの
+bodyだけを置換する、元Sectionの子を生成Sectionの子の前後へ保持する、という操作ができます。
+生成fragmentはlocal IDを使い、hostがIDの一意性、到達可能性、cycle、node kind、text、
+親子関係を検証します。最終的なRawNode ID、ExpansionId、call-site span、SyntaxContextIdは
+hostだけが割り当てます。
+
+生成rootと生成Sectionの子は同じTree macro stageへ再投入されます。再帰はdepth、総node数、
+hook call数、output byte数のquotaで制限します。さらにmacro identity、入力origin、subtree
+内容を組み合わせ、直接・間接cycleを検出します。cycle時は現在のnodeを保持し、component
+failureと`tree-macro-cycle` diagnosticを返します。
+
+各候補はStateStore invocation transaction内で実行します。TreeEdit検証とstate採用はatomic
+です。addon error、trap、不正edit、cycleでは現在のnodeを保持し、その候補の書き込みを
+rollbackします。型付きRejectまたはpipeline quota errorでは、元tree、source provenance、
+parse StateStore savepointを復元します。成功したeditはExpansionGraphへTree entryを追加し、
+再帰的に生成されたnodeから完全なcall-site backtraceを辿れます。
 
 ## Hook rule
 
@@ -175,11 +199,13 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `dispatch_in_parse`: 一致するhook subscriptionを呼ぶ
 - `expand_text_in_parse`: 既存parse transaction内でText macroを実行する
 - `expand_text`: 1 pipeline分のparse transactionを作るconvenience API
+- `expand_tree_in_parse`: 既存parse transaction内でTree macroを再帰実行する
+- `expand_tree`: 1 tree pipeline分のparse transactionを作るconvenience API
 - `dynamic_syntax_snapshot`: 候補をfreezeし、順位付きsnapshotを取得する
 - `dispatch`: 1回のdispatch transaction用convenience API
 
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch
-output quota、Text macro quota、StateStore設定、任意のsyntax Catalogを管理します。
+output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax Catalogを管理します。
 
 ## Source構成
 

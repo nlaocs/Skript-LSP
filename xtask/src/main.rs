@@ -36,6 +36,12 @@ const TEXT_MACRO_ADDON: ComponentSpec = ComponentSpec {
     artifact_name: "text-macro-addon.wasm",
     display_name: "text macro test addon",
 };
+const TREE_MACRO_ADDON: ComponentSpec = ComponentSpec {
+    package: "tree-macro-addon",
+    module_name: "tree_macro_addon.wasm",
+    artifact_name: "tree-macro-addon.wasm",
+    display_name: "tree macro test addon",
+};
 
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
@@ -51,7 +57,7 @@ fn build_core_library() -> Result<()> {
 }
 
 fn build_test_components() -> Result<()> {
-    for component in [&DYNAMIC_SYNTAX_ADDON, &TEXT_MACRO_ADDON] {
+    for component in [&DYNAMIC_SYNTAX_ADDON, &TEXT_MACRO_ADDON, &TREE_MACRO_ADDON] {
         build_component(component)?;
     }
     Ok(())

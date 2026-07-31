@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.2.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.3.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -38,7 +38,7 @@ Guest exports:
 - `addon`: static manifest and host-profile negotiation
 - `hooks`: parser-stage observation, transformation, and override
 - `text-macro`: edits over virtual UTF-8 source text
-- `tree-macro`: replacement of the indentation-based RawTree
+- `tree-macro`: targeted edits over the indentation-based lossless RawTree
 - `ast-macro`: replacement of the parsed AST arena
 
 Host imports:
@@ -55,8 +55,9 @@ Component Model values.
 Every manifest exposes a component ID and component version for diagnostics.
 
 The package version identifies the WIT shape. Text edit anchors changed the
-package from 0.1.0 to 0.2.0. The manifest's current `abi` value is 1.1 and is a
-runtime handshake that requires an exact `major.minor` match.
+package from 0.1.0 to 0.2.0; the lossless RawTree and targeted TreeEdit model
+changed it to 0.3.0. The manifest's current `abi` value is 1.2 and is a runtime
+handshake that requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an
@@ -69,8 +70,8 @@ older host without failing while lifting its manifest.
   component manifest, then the guest validates the host profile in
   `addon.initialize`.
 
-The host advertises and executes Text macros. Tree and AST macro capabilities
-remain contract-only and are not advertised yet.
+The host advertises and executes Text and Tree macros. The AST macro capability
+remains contract-only and is not advertised yet.
 
 ## Text Macros
 
@@ -111,6 +112,36 @@ parsing can track state dependencies.
 `HostConfig` limits expansion count, generated replacement bytes, and total
 virtual source bytes. Exceeding a pipeline-wide quota restores the original
 source and StateStore savepoint.
+
+## Tree Macros
+
+A Tree macro subscribes to `ParseStage` during the `Tree` phase with
+`Transform` mode. The host walks the lossless RawTree in pre-order. Every call
+receives the current complete tree, the target node ID, and generated-node
+depth, including raw lines, trivia, invalid-node reasons, diagnostics,
+indentation metadata, spans, and syntax contexts.
+
+A `TreeEdit` targets the current node implicitly. It can replace that node with
+zero, one, or many generated nodes, replace only a Section body, or attach the
+original Section children to a generated Section before or after its generated
+children. Generated fragments use local IDs; the host validates uniqueness,
+reachability, acyclicity, node kinds, text, and child relationships, then owns
+allocation of final RawNode IDs, ExpansionIds, call-site spans, and
+SyntaxContextIds.
+
+Generated roots and generated Section children re-enter the same Tree macro
+stage. Recursion is bounded by depth, total node, hook-call, and output-byte
+quotas. The host also detects direct and indirect cycles using macro identity,
+input origin, and subtree content. A cycle preserves the current node and
+produces a component failure plus a `tree-macro-cycle` diagnostic.
+
+Each candidate runs in a StateStore invocation transaction. TreeEdit
+validation and state adoption are atomic: addon errors, traps, invalid edits,
+and cycles preserve the current node and roll back that candidate's writes. A
+typed rejection or a pipeline quota error restores the original tree, source
+provenance, and parse StateStore savepoint. Successful edits append Tree
+entries to the ExpansionGraph, so recursively generated nodes retain complete
+call-site backtraces.
 
 ## Hook rules
 
@@ -189,11 +220,13 @@ The main entry points are:
 - `dispatch_in_parse`: invoke matching hook subscriptions
 - `expand_text_in_parse`: run Text macros in an existing parse transaction
 - `expand_text`: convenience API for a one-pipeline parse transaction
+- `expand_tree_in_parse`: recursively run Tree macros in an existing parse transaction
+- `expand_tree`: convenience API for a one-tree-pipeline parse transaction
 - `dynamic_syntax_snapshot`: freeze and retrieve ranked syntax candidates
 - `dispatch`: convenience API for a one-dispatch transaction
 
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
-limits, dispatch and Text macro quotas, StateStore configuration, and the
+limits, dispatch, Text macro, and Tree macro quotas, StateStore configuration, and the
 optional syntax Catalog.
 
 ## Source Layout
@@ -210,6 +243,7 @@ optional syntax Catalog.
 | `tests/state.rs` | scopes, permissions, conflicts, quotas, and persistence |
 | `tests/dynamic_syntax.rs` | real WASM dynamic registration against an SSG fixture |
 | `tests/text_macro.rs` | ordered real-WASM expansion, diagnostic mapping, rollback, quotas, and traps |
+| `tests/tree_macro.rs` | real-WASM node/body edits, recursive provenance, cycles, rollback, quotas, and traps |
 
 ## Testing
 

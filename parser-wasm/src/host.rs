@@ -10,8 +10,18 @@ use std::{
 };
 
 use skript_parser::{
-    ExpansionId, MappedSource, OriginKind as ParserOriginKind, TextEdit as ParserTextEdit,
-    TextExpansion, TextRange as ParserTextRange,
+    ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
+    GeneratedRawNodeId as ParserGeneratedRawNodeId,
+    GeneratedRawNodeKind as ParserGeneratedRawNodeKind, GeneratedRawTree as ParserGeneratedRawTree,
+    IndentKind as ParserIndentKind, LineEnding as ParserLineEnding, MappedSource,
+    OriginKind as ParserOriginKind, RawDiagnosticCode as ParserRawDiagnosticCode,
+    RawDiagnosticSeverity as ParserRawDiagnosticSeverity,
+    RawInvalidReason as ParserRawInvalidReason, RawNodeId as ParserRawNodeId,
+    RawNodeKind as ParserRawNodeKind, RawTree as ParserRawTree,
+    RawTriviaKind as ParserRawTriviaKind, RetainedChildren as ParserRetainedChildren,
+    RetainedChildrenPlacement as ParserRetainedChildrenPlacement, TextEdit as ParserTextEdit,
+    TextExpansion, TextRange as ParserTextRange, TreeEdit as ParserTreeEdit, TreeEditMetadata,
+    apply_tree_edit,
 };
 use syntaxes::{
     Catalog, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
@@ -31,11 +41,17 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
     DynamicSyntaxOverride as WitDynamicSyntaxOverride,
     DynamicSyntaxOverrideTarget as WitDynamicSyntaxOverrideTarget,
-    DynamicSyntaxReference as WitDynamicSyntaxReference, OriginKind as WitOriginKind,
+    DynamicSyntaxReference as WitDynamicSyntaxReference,
+    GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
+    LineEnding as WitLineEnding, OriginKind as WitOriginKind,
+    RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
+    RawInvalidReason as WitRawInvalidReason, RawNodeKind as WitRawNodeKind,
+    RawTriviaKind as WitRawTriviaKind, RetainedChildrenPlacement as WitRetainedChildrenPlacement,
     SourceOrigin as WitSourceOrigin, StateEncoding as WitStateEncoding,
     StateEntry as WitStateEntry, StateError as WitStateError, StateErrorKind as WitStateErrorKind,
     StateNamespaceVisibility as WitNamespaceVisibility, StateScope as WitStateScope,
     StateValue as WitStateValue, TextEdit as WitTextEdit, TextRange as WitTextRange,
+    TreeEdit as WitTreeEdit,
 };
 use crate::state::{
     InvocationTransaction, NamespaceDeclaration, NamespaceVisibility, ParseTransaction,
@@ -45,14 +61,16 @@ use crate::state::{
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
     CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
-    Capability, CapabilityRequirement, CompatibilityError, validate_compatibility,
+    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
+    validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     AstNode, AstTree, Capture, CaptureValue, ComponentManifest, ContextUpdate, Diagnostic,
-    HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
-    HookTarget, InvocationContext, MappedSpan, ParseRequest, RawTree, RawTreeNode, Rejection,
-    SyntaxKind, TextMacroInput, TextMacroOutput,
+    DiagnosticSeverity, HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase,
+    HookSubscription, HookTarget, InvocationContext, MappedSpan, ParseRequest, RawTree,
+    RawTreeNode, Rejection, RelatedSpan, SyntaxKind, TextMacroInput, TextMacroOutput,
+    TreeMacroInput, TreeMacroOutput,
 };
 
 pub const CORE_LIBRARY_COMPONENT_ID: &str = "nlaocs.core-library";
@@ -72,6 +90,9 @@ pub struct HostConfig {
     pub max_text_macro_expansions: usize,
     pub max_text_macro_generated_bytes: usize,
     pub max_virtual_source_bytes: usize,
+    pub max_tree_macro_depth: usize,
+    pub max_tree_macro_nodes: usize,
+    pub max_tree_macro_calls: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
 }
@@ -92,6 +113,9 @@ impl Default for HostConfig {
             max_text_macro_expansions: 256,
             max_text_macro_generated_bytes: 8 * 1024 * 1024,
             max_virtual_source_bytes: 16 * 1024 * 1024,
+            max_tree_macro_depth: 64,
+            max_tree_macro_nodes: 100_000,
+            max_tree_macro_calls: 4_096,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
         }
@@ -112,7 +136,10 @@ impl HostConfig {
             || self.max_generated_output_bytes == 0
             || self.max_text_macro_expansions == 0
             || self.max_text_macro_generated_bytes == 0
-            || self.max_virtual_source_bytes == 0;
+            || self.max_virtual_source_bytes == 0
+            || self.max_tree_macro_depth == 0
+            || self.max_tree_macro_nodes == 0
+            || self.max_tree_macro_calls == 0;
         if invalid {
             Err(HostError::InvalidConfiguration)
         } else {
@@ -225,6 +252,25 @@ pub enum HostError {
         subscription_id: String,
         message: String,
     },
+    #[error(
+        "component {component_id} returned invalid tree macro output for {subscription_id}: {message}"
+    )]
+    InvalidTreeMacroOutput {
+        component_id: String,
+        subscription_id: String,
+        message: String,
+    },
+    #[error("tree macro pipeline exceeded the recursion depth quota of {limit}")]
+    TreeMacroDepthQuotaExceeded { limit: usize },
+    #[error("tree macro pipeline exceeded the node quota of {limit}")]
+    TreeMacroNodeQuotaExceeded { limit: usize },
+    #[error("tree macro pipeline exceeded the hook call quota of {limit}")]
+    TreeMacroCallQuotaExceeded { limit: usize },
+    #[error("tree macro expansion cycle detected in {component_id}:{subscription_id}")]
+    TreeMacroCycleDetected {
+        component_id: String,
+        subscription_id: String,
+    },
     #[error("the mandatory CoreLibrary component cannot be unloaded")]
     CannotUnloadCoreLibrary,
 }
@@ -311,6 +357,66 @@ pub struct TextMacroResult {
     pub failures: Vec<ComponentFailure>,
 }
 
+pub struct TreeMacroRequest {
+    pub context: InvocationContext,
+    pub source: MappedSource,
+    pub tree: ParserRawTree,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeMacroCall {
+    pub component_id: String,
+    pub subscription_id: String,
+    pub target: ParserRawNodeId,
+    pub accepted: bool,
+    pub expansion: Option<ExpansionId>,
+    pub state_accesses: StateReadWriteSet,
+}
+
+#[derive(Debug)]
+pub struct TreeMacroResult {
+    pub decision: HookDecision,
+    pub source: MappedSource,
+    pub tree: ParserRawTree,
+    pub effects: HookEffects,
+    pub calls: Vec<TreeMacroCall>,
+    pub failures: Vec<ComponentFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct TreeMacroCycleKey {
+    component_id: String,
+    subscription_id: String,
+    original_ranges: Vec<(usize, usize)>,
+    fingerprint: Vec<u8>,
+}
+
+struct TreeMacroPipeline {
+    effects: HookEffects,
+    calls: Vec<TreeMacroCall>,
+    failures: Vec<ComponentFailure>,
+    output_bytes: usize,
+    active: Vec<TreeMacroCycleKey>,
+    handled: bool,
+}
+
+impl TreeMacroPipeline {
+    fn new() -> Self {
+        Self {
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+            output_bytes: 0,
+            active: Vec::new(),
+            handled: false,
+        }
+    }
+}
+
+enum TreeWalk {
+    Continue { sibling_count: usize },
+    Reject(HookDecision),
+}
 #[derive(Debug, thiserror::Error)]
 #[error("{resource} request of {requested} exceeds the host limit of {limit}")]
 struct GuestResourceLimit {
@@ -1419,6 +1525,580 @@ impl ParserHost {
         })
     }
 
+    pub fn expand_tree(&mut self, request: TreeMacroRequest) -> Result<TreeMacroResult, HostError> {
+        let project_uri = request.context.document_id.clone();
+        let transaction = self.begin_parse(
+            &project_uri,
+            &request.context.document_id,
+            request.context.document_revision,
+        )?;
+        match self.expand_tree_in_parse(&transaction, request) {
+            Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
+                transaction.cancel()?;
+                Ok(result)
+            }
+            Ok(result) => {
+                if self.dynamic_syntax_registry.is_some()
+                    && let Err(error) = self.dynamic_syntax_snapshot(&transaction)
+                {
+                    let _ = transaction.cancel();
+                    return Err(error);
+                }
+                transaction.commit()?;
+                Ok(result)
+            }
+            Err(error) => {
+                let _ = transaction.cancel();
+                Err(error)
+            }
+        }
+    }
+
+    pub fn expand_tree_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: TreeMacroRequest,
+    ) -> Result<TreeMacroResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != request.context.document_id
+            || document_revision != request.context.document_revision
+        {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "tree macro context {}@{} does not match parse transaction {}@{}",
+                    request.context.document_id,
+                    request.context.document_revision,
+                    document_id,
+                    document_revision
+                ),
+            }
+            .into());
+        }
+        if request.source.virtual_source().len() > self.config.max_virtual_source_bytes {
+            return Err(HostError::VirtualSourceQuotaExceeded {
+                limit: self.config.max_virtual_source_bytes,
+            });
+        }
+        if request.tree.nodes.len() > self.config.max_tree_macro_nodes {
+            return Err(HostError::TreeMacroNodeQuotaExceeded {
+                limit: self.config.max_tree_macro_nodes,
+            });
+        }
+        if raw_tree_depth(&request.tree) > self.config.max_tree_macro_depth {
+            return Err(HostError::TreeMacroDepthQuotaExceeded {
+                limit: self.config.max_tree_macro_depth,
+            });
+        }
+
+        let original_source = request.source.clone();
+        let original_tree = request.tree.clone();
+        let state_savepoint = transaction.savepoint()?;
+        let result = self.expand_tree_with_transaction(transaction, request);
+        match result {
+            Ok(mut result) if matches!(result.decision, HookDecision::Reject(_)) => {
+                transaction.rollback_to(&state_savepoint)?;
+                mark_tree_macro_result_rolled_back(&original_source, &original_tree, &mut result);
+                Ok(result)
+            }
+            Ok(result) => Ok(result),
+            Err(error) => {
+                transaction.rollback_to(&state_savepoint)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn expand_tree_with_transaction(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: TreeMacroRequest,
+    ) -> Result<TreeMacroResult, HostError> {
+        let candidates = self.registry.matching_capability(
+            &DispatchTarget::ParseStage,
+            HookPhase::Tree,
+            CAPABILITY_TREE_MACRO,
+        );
+        let mut source = request.source;
+        let mut tree = request.tree;
+        let mut pipeline = TreeMacroPipeline::new();
+        let mut root_index = 0usize;
+        let mut decision = HookDecision::ContinueProcessing;
+
+        while root_index < tree.roots.len() {
+            let path = vec![root_index];
+            match self.expand_tree_node(
+                transaction,
+                &request.context,
+                &candidates,
+                &mut source,
+                &mut tree,
+                &path,
+                0,
+                &mut pipeline,
+            )? {
+                TreeWalk::Continue { sibling_count } => {
+                    root_index = root_index.saturating_add(sibling_count);
+                }
+                TreeWalk::Reject(rejection) => {
+                    decision = rejection;
+                    break;
+                }
+            }
+        }
+
+        if matches!(decision, HookDecision::ContinueProcessing) && pipeline.handled {
+            decision = HookDecision::Handled;
+        }
+
+        Ok(TreeMacroResult {
+            decision,
+            source,
+            tree,
+            effects: pipeline.effects,
+            calls: pipeline.calls,
+            failures: pipeline.failures,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn expand_tree_node(
+        &mut self,
+        transaction: &ParseTransaction,
+        request_context: &InvocationContext,
+        candidates: &[RegisteredSubscription],
+        source: &mut MappedSource,
+        tree: &mut ParserRawTree,
+        path: &[usize],
+        depth: usize,
+        pipeline: &mut TreeMacroPipeline,
+    ) -> Result<TreeWalk, HostError> {
+        if depth > self.config.max_tree_macro_depth || path.len() > self.config.max_tree_macro_depth
+        {
+            return Err(HostError::TreeMacroDepthQuotaExceeded {
+                limit: self.config.max_tree_macro_depth,
+            });
+        }
+
+        let Some(_) = raw_node_at_path(tree, path) else {
+            return Err(HostError::InvalidTreeMacroOutput {
+                component_id: "<host>".to_owned(),
+                subscription_id: "<tree-walk>".to_owned(),
+                message: format!("tree path {path:?} no longer resolves"),
+            });
+        };
+
+        let mut stop_current_node = false;
+        for candidate in candidates {
+            if stop_current_node {
+                break;
+            }
+            if self.components[candidate.component_index].disabled
+                || self.components[candidate.component_index].unloaded
+            {
+                continue;
+            }
+            if pipeline.calls.len() >= self.config.max_tree_macro_calls {
+                return Err(HostError::TreeMacroCallQuotaExceeded {
+                    limit: self.config.max_tree_macro_calls,
+                });
+            }
+
+            let component_id = self.components[candidate.component_index]
+                .manifest
+                .component_id
+                .clone();
+            let subscription_id = candidate.subscription.id.clone();
+            let current_target =
+                raw_node_at_path(tree, path).ok_or_else(|| HostError::InvalidTreeMacroOutput {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                    message: format!("tree path {path:?} disappeared before invocation"),
+                })?;
+            let node = tree
+                .get(current_target)
+                .expect("a resolved RawNodeId must exist")
+                .clone();
+            let cycle_key =
+                tree_macro_cycle_key(&component_id, &subscription_id, tree, current_target);
+            if pipeline.active.contains(&cycle_key) {
+                let error = HostError::TreeMacroCycleDetected {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                };
+                pipeline
+                    .effects
+                    .diagnostics
+                    .push(tree_macro_cycle_diagnostic(
+                        &node,
+                        &component_id,
+                        &subscription_id,
+                    ));
+                pipeline.calls.push(TreeMacroCall {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                    target: current_target,
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: StateReadWriteSet::default(),
+                });
+                pipeline.failures.push(ComponentFailure {
+                    component_id,
+                    subscription_id,
+                    error,
+                });
+                continue;
+            }
+            pipeline.active.push(cycle_key);
+
+            let parent = node
+                .span
+                .primary_origin()
+                .and_then(|origin| origin.expansion);
+            let mut context = request_context.clone();
+            context.subscription_id = subscription_id.clone();
+            context.expansion = parent.map(|id| u64::from(id.get()));
+            context.syntax_context = u64::from(node.syntax_context.get());
+            let input = TreeMacroInput {
+                context,
+                tree: parser_raw_tree_to_wit(tree),
+                target: current_target.get(),
+                depth: u32::try_from(depth).unwrap_or(u32::MAX),
+            };
+
+            let state_invocation = transaction.begin_invocation(component_id.clone())?;
+            let call =
+                {
+                    let entry = &mut self.components[candidate.component_index];
+                    if entry.store.data().invocation.is_some()
+                        || entry.store.data().dynamic_syntax_update.is_some()
+                    {
+                        pipeline.active.pop();
+                        return Err(StateError::Internal {
+                            message: format!(
+                                "component {component_id} already has an active host transaction"
+                            ),
+                        }
+                        .into());
+                    }
+                    entry.store.data_mut().invocation = Some(state_invocation);
+                    if let Err(error) = prepare_store(
+                        &mut entry.store,
+                        self.config.fuel_per_call,
+                        self.config.deadline_ticks(),
+                        &component_id,
+                        "tree macro",
+                    ) {
+                        entry
+                            .store
+                            .data_mut()
+                            .invocation
+                            .take()
+                            .expect("the invocation was just installed")
+                            .rollback();
+                        pipeline.active.pop();
+                        return Err(error);
+                    }
+                    let call = entry
+                        .bindings
+                        .nlaocs_skript_parser_addon_tree_macro()
+                        .call_expand(&mut entry.store, &input);
+                    let state_invocation =
+                        entry.store.data_mut().invocation.take().expect(
+                            "the invocation remains installed for the duration of the call",
+                        );
+                    (call, state_invocation)
+                };
+
+            let (call, state_invocation) = call;
+            let accesses = state_invocation.read_write_set();
+            let mut output = match call {
+                Ok(Ok(output)) => output,
+                Ok(Err(mut addon_error)) => {
+                    let diagnostic_error = normalize_text_macro_diagnostics(
+                        source,
+                        &mut addon_error.diagnostics,
+                        "addon-error.diagnostics",
+                    );
+                    state_invocation.rollback();
+                    pipeline.active.pop();
+                    pipeline.calls.push(TreeMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        target: current_target,
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    let error = match diagnostic_error {
+                        Ok(()) => {
+                            pipeline.effects.diagnostics.extend(addon_error.diagnostics);
+                            HostError::AddonFailure {
+                                component_id: component_id.clone(),
+                                message: addon_error.message,
+                            }
+                        }
+                        Err(message) => HostError::InvalidTreeMacroOutput {
+                            component_id: component_id.clone(),
+                            subscription_id: subscription_id.clone(),
+                            message,
+                        },
+                    };
+                    pipeline.failures.push(ComponentFailure {
+                        component_id,
+                        subscription_id,
+                        error,
+                    });
+                    continue;
+                }
+                Err(error) => {
+                    state_invocation.rollback();
+                    pipeline.active.pop();
+                    let error = classify_wasmtime_error(component_id.clone(), "tree macro", error);
+                    if error.disables_component() {
+                        self.components[candidate.component_index].disabled = true;
+                        if let Some(registry) = &self.dynamic_syntax_registry {
+                            registry.remove_component(&component_id)?;
+                        }
+                    }
+                    pipeline.calls.push(TreeMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        target: current_target,
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    pipeline.failures.push(ComponentFailure {
+                        component_id,
+                        subscription_id,
+                        error,
+                    });
+                    continue;
+                }
+            };
+
+            pipeline.output_bytes = pipeline
+                .output_bytes
+                .saturating_add(tree_macro_output_size(&output));
+            if pipeline.output_bytes > self.config.max_generated_output_bytes {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(HostError::GeneratedOutputQuotaExceeded {
+                    limit: self.config.max_generated_output_bytes,
+                });
+            }
+
+            if let Err(message) = normalize_tree_macro_output_spans(source, &mut output) {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                pipeline.calls.push(TreeMacroCall {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                    target: current_target,
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                pipeline.failures.push(ComponentFailure {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                    error: HostError::InvalidTreeMacroOutput {
+                        component_id,
+                        subscription_id,
+                        message,
+                    },
+                });
+                continue;
+            }
+
+            let TreeMacroOutput {
+                decision,
+                edit,
+                effects,
+            } = output;
+            if matches!(decision, HookDecision::Reject(_)) {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                pipeline.calls.push(TreeMacroCall {
+                    component_id,
+                    subscription_id,
+                    target: current_target,
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                merge_effects(&mut pipeline.effects, effects);
+                return Ok(TreeWalk::Reject(decision));
+            }
+
+            let Some(edit) = edit else {
+                state_invocation.commit()?;
+                pipeline.active.pop();
+                pipeline.calls.push(TreeMacroCall {
+                    component_id,
+                    subscription_id,
+                    target: current_target,
+                    accepted: true,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                merge_effects(&mut pipeline.effects, effects);
+                if matches!(decision, HookDecision::Handled) {
+                    pipeline.handled = true;
+                    stop_current_node = true;
+                }
+                continue;
+            };
+
+            let resulting_depth = match &edit {
+                WitTreeEdit::ReplaceNode(_) => path
+                    .len()
+                    .saturating_sub(1)
+                    .saturating_add(wit_tree_edit_depth(&edit)),
+                WitTreeEdit::ReplaceChildren(_) => {
+                    path.len().saturating_add(wit_tree_edit_depth(&edit))
+                }
+            };
+            if resulting_depth > self.config.max_tree_macro_depth {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(HostError::TreeMacroDepthQuotaExceeded {
+                    limit: self.config.max_tree_macro_depth,
+                });
+            }
+            let parser_edit = parser_tree_edit(edit);
+            let replaces_node = matches!(parser_edit, ParserTreeEdit::ReplaceNode { .. });
+            let application = match apply_tree_edit(
+                source,
+                tree,
+                current_target,
+                parser_edit,
+                TreeEditMetadata {
+                    component: component_id.clone(),
+                    hook: subscription_id.clone(),
+                },
+            ) {
+                Ok(application) => application,
+                Err(error) => {
+                    state_invocation.rollback();
+                    pipeline.active.pop();
+                    pipeline.calls.push(TreeMacroCall {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        target: current_target,
+                        accepted: false,
+                        expansion: None,
+                        state_accesses: accesses,
+                    });
+                    pipeline.failures.push(ComponentFailure {
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        error: HostError::InvalidTreeMacroOutput {
+                            component_id,
+                            subscription_id,
+                            message: error.to_string(),
+                        },
+                    });
+                    continue;
+                }
+            };
+            if application.tree.nodes.len() > self.config.max_tree_macro_nodes {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(HostError::TreeMacroNodeQuotaExceeded {
+                    limit: self.config.max_tree_macro_nodes,
+                });
+            }
+
+            state_invocation.commit()?;
+            let expansion = application.expansion;
+            let replacement_roots = application.replacement_roots;
+            *source = application.source;
+            *tree = application.tree;
+            pipeline.calls.push(TreeMacroCall {
+                component_id,
+                subscription_id,
+                target: current_target,
+                accepted: true,
+                expansion: Some(expansion),
+                state_accesses: accesses,
+            });
+            merge_effects(&mut pipeline.effects, effects);
+            if matches!(decision, HookDecision::Handled) {
+                pipeline.handled = true;
+                stop_current_node = true;
+            }
+
+            if replaces_node {
+                let base_index = *path
+                    .last()
+                    .expect("tree node paths always include a sibling index");
+                let mut final_count = 0usize;
+                for _ in 0..replacement_roots {
+                    let mut generated_path = path.to_vec();
+                    *generated_path
+                        .last_mut()
+                        .expect("tree node paths always include a sibling index") =
+                        base_index.saturating_add(final_count);
+                    match self.expand_tree_node(
+                        transaction,
+                        request_context,
+                        candidates,
+                        source,
+                        tree,
+                        &generated_path,
+                        depth.saturating_add(1),
+                        pipeline,
+                    )? {
+                        TreeWalk::Continue { sibling_count } => {
+                            final_count = final_count.saturating_add(sibling_count);
+                        }
+                        TreeWalk::Reject(rejection) => {
+                            pipeline.active.pop();
+                            return Ok(TreeWalk::Reject(rejection));
+                        }
+                    }
+                }
+                pipeline.active.pop();
+                return Ok(TreeWalk::Continue {
+                    sibling_count: final_count,
+                });
+            }
+
+            pipeline.active.pop();
+        }
+
+        let Some(current_target) = raw_node_at_path(tree, path) else {
+            return Ok(TreeWalk::Continue { sibling_count: 0 });
+        };
+        let mut child_index = 0usize;
+        while child_index
+            < tree
+                .get(current_target)
+                .map_or(0, |node| node.children.len())
+        {
+            let mut child_path = path.to_vec();
+            child_path.push(child_index);
+            match self.expand_tree_node(
+                transaction,
+                request_context,
+                candidates,
+                source,
+                tree,
+                &child_path,
+                depth,
+                pipeline,
+            )? {
+                TreeWalk::Continue { sibling_count } => {
+                    child_index = child_index.saturating_add(sibling_count);
+                }
+                TreeWalk::Reject(rejection) => return Ok(TreeWalk::Reject(rejection)),
+            }
+        }
+
+        Ok(TreeWalk::Continue { sibling_count: 1 })
+    }
     fn dispatch_with_transaction(
         &mut self,
         transaction: &ParseTransaction,
@@ -1827,6 +2507,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_HOOKS,
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,
+        CAPABILITY_TREE_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
     ]
@@ -1949,6 +2630,18 @@ fn validate_manifest(
             return Err(HostError::InvalidManifest {
                 message: format!(
                     "text macro subscription {} must target parse-stage in the preprocess phase with transform mode",
+                    subscription.id
+                ),
+            });
+        }
+        if subscription.capability_id == CAPABILITY_TREE_MACRO
+            && (!matches!(subscription.target, HookTarget::ParseStage)
+                || !matches!(subscription.phase, HookPhase::Tree)
+                || !matches!(subscription.mode, HookMode::Transform))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "tree macro subscription {} must target parse-stage in the tree phase with transform mode",
                     subscription.id
                 ),
             });
@@ -2143,6 +2836,387 @@ fn apply_hook_output(
     }
 }
 
+fn raw_node_at_path(tree: &ParserRawTree, path: &[usize]) -> Option<ParserRawNodeId> {
+    let mut siblings = &tree.roots;
+    let mut current = None;
+    for index in path {
+        let id = *siblings.get(*index)?;
+        current = Some(id);
+        siblings = &tree.get(id)?.children;
+    }
+    current
+}
+
+fn tree_macro_cycle_key(
+    component_id: &str,
+    subscription_id: &str,
+    tree: &ParserRawTree,
+    target: ParserRawNodeId,
+) -> TreeMacroCycleKey {
+    let node = tree
+        .get(target)
+        .expect("cycle keys are only built for resolved nodes");
+    let mut original_ranges = node
+        .span
+        .origins
+        .iter()
+        .map(|origin| (origin.original_range.start, origin.original_range.end))
+        .collect::<Vec<_>>();
+    original_ranges.sort_unstable();
+    original_ranges.dedup();
+
+    TreeMacroCycleKey {
+        component_id: component_id.to_owned(),
+        subscription_id: subscription_id.to_owned(),
+        original_ranges,
+        fingerprint: raw_subtree_fingerprint(tree, target),
+    }
+}
+
+fn raw_subtree_fingerprint(tree: &ParserRawTree, root: ParserRawNodeId) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut pending = vec![root];
+    let mut visited = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            bytes.push(u8::MAX);
+            continue;
+        }
+        let Some(node) = tree.get(id) else {
+            bytes.push(u8::MAX - 1);
+            bytes.extend_from_slice(&id.get().to_le_bytes());
+            continue;
+        };
+        bytes.push(match node.kind {
+            ParserRawNodeKind::Blank => 0,
+            ParserRawNodeKind::Comment => 1,
+            ParserRawNodeKind::Simple => 2,
+            ParserRawNodeKind::Section => 3,
+            ParserRawNodeKind::Invalid => 4,
+        });
+        bytes.extend_from_slice(&(node.text.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(node.text.as_bytes());
+        bytes.extend_from_slice(&(node.children.len() as u64).to_le_bytes());
+        pending.extend(node.children.iter().rev().copied());
+    }
+    bytes
+}
+
+fn raw_tree_depth(tree: &ParserRawTree) -> usize {
+    let mut maximum = 0usize;
+    let mut visited = BTreeSet::new();
+    let mut pending = tree
+        .roots
+        .iter()
+        .rev()
+        .map(|id| (*id, 1usize))
+        .collect::<Vec<_>>();
+    while let Some((id, depth)) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        maximum = maximum.max(depth);
+        if let Some(node) = tree.get(id) {
+            pending.extend(
+                node.children
+                    .iter()
+                    .rev()
+                    .map(|child| (*child, depth.saturating_add(1))),
+            );
+        }
+    }
+    maximum
+}
+
+fn tree_macro_cycle_diagnostic(
+    node: &skript_parser::RawNode,
+    component_id: &str,
+    subscription_id: &str,
+) -> Diagnostic {
+    Diagnostic {
+        code: "tree-macro-cycle".to_owned(),
+        message: format!(
+            "tree macro {component_id}:{subscription_id} generated an expansion cycle"
+        ),
+        severity: DiagnosticSeverity::Error,
+        span: mapped_span_to_wit(node.span.clone()),
+        related: Vec::new(),
+    }
+}
+
+fn parser_raw_tree_to_wit(tree: &ParserRawTree) -> RawTree {
+    use crate::bindings::nlaocs::skript_parser_addon::types::{
+        Indentation, RawDiagnostic, RawLine, RawRelatedSpan, RawTrivia, UnexpectedIndentation,
+    };
+
+    RawTree {
+        roots: tree.roots.iter().map(|id| id.get()).collect(),
+        nodes: tree
+            .nodes
+            .iter()
+            .map(|node| RawTreeNode {
+                id: node.id.get(),
+                kind: match node.kind {
+                    ParserRawNodeKind::Blank => WitRawNodeKind::Blank,
+                    ParserRawNodeKind::Comment => WitRawNodeKind::Comment,
+                    ParserRawNodeKind::Simple => WitRawNodeKind::Simple,
+                    ParserRawNodeKind::Section => WitRawNodeKind::Section,
+                    ParserRawNodeKind::Invalid => WitRawNodeKind::Invalid,
+                },
+                text: node.text.clone(),
+                span: mapped_span_to_wit(node.span.clone()),
+                line: RawLine {
+                    number: node.line.number as u64,
+                    raw_text: node.line.raw_text.clone(),
+                    line_ending: match node.line.line_ending {
+                        ParserLineEnding::None => WitLineEnding::None,
+                        ParserLineEnding::Lf => WitLineEnding::Lf,
+                        ParserLineEnding::CrLf => WitLineEnding::CrLf,
+                        ParserLineEnding::Cr => WitLineEnding::Cr,
+                    },
+                    span: mapped_span_to_wit(node.line.span.clone()),
+                    content_span: mapped_span_to_wit(node.line.content_span.clone()),
+                    line_ending_span: mapped_span_to_wit(node.line.line_ending_span.clone()),
+                    indentation: RawTrivia {
+                        kind: WitRawTriviaKind::Whitespace,
+                        text: node.line.indentation.text.clone(),
+                        span: mapped_span_to_wit(node.line.indentation.span.clone()),
+                    },
+                    trailing_trivia: node
+                        .line
+                        .trailing_trivia
+                        .iter()
+                        .map(|trivia| RawTrivia {
+                            kind: match trivia.kind {
+                                ParserRawTriviaKind::Whitespace => WitRawTriviaKind::Whitespace,
+                                ParserRawTriviaKind::LineComment => WitRawTriviaKind::LineComment,
+                                ParserRawTriviaKind::BlockComment => WitRawTriviaKind::BlockComment,
+                                ParserRawTriviaKind::LineEnding => WitRawTriviaKind::LineEnding,
+                            },
+                            text: trivia.text.clone(),
+                            span: mapped_span_to_wit(trivia.span.clone()),
+                        })
+                        .collect(),
+                },
+                code_span: node.code_span.clone().map(mapped_span_to_wit),
+                header_span: node.header_span.clone().map(mapped_span_to_wit),
+                body_span: node.body_span.clone().map(mapped_span_to_wit),
+                indent_level: node.indent_level,
+                invalid_reason: node.invalid_reason.as_ref().map(|reason| match reason {
+                    ParserRawInvalidReason::MixedIndentation => {
+                        WitRawInvalidReason::MixedIndentation
+                    }
+                    ParserRawInvalidReason::InvalidIndentation => {
+                        WitRawInvalidReason::InvalidIndentation
+                    }
+                    ParserRawInvalidReason::UnexpectedIndentation {
+                        expected_level,
+                        actual_level,
+                    } => WitRawInvalidReason::UnexpectedIndentation(UnexpectedIndentation {
+                        expected_level: *expected_level,
+                        actual_level: *actual_level,
+                    }),
+                }),
+                syntax_context: u64::from(node.syntax_context.get()),
+                parent: node.parent.map(|id| id.get()),
+                children: node.children.iter().map(|id| id.get()).collect(),
+            })
+            .collect(),
+        diagnostics: tree
+            .diagnostics
+            .iter()
+            .map(|diagnostic| RawDiagnostic {
+                code: match diagnostic.code {
+                    ParserRawDiagnosticCode::MixedIndentation => {
+                        WitRawDiagnosticCode::MixedIndentation
+                    }
+                    ParserRawDiagnosticCode::InvalidIndentation => {
+                        WitRawDiagnosticCode::InvalidIndentation
+                    }
+                    ParserRawDiagnosticCode::UnexpectedIndentation => {
+                        WitRawDiagnosticCode::UnexpectedIndentation
+                    }
+                    ParserRawDiagnosticCode::EmptySection => WitRawDiagnosticCode::EmptySection,
+                    ParserRawDiagnosticCode::UnclosedBlockComment => {
+                        WitRawDiagnosticCode::UnclosedBlockComment
+                    }
+                },
+                severity: match diagnostic.severity {
+                    ParserRawDiagnosticSeverity::Error => WitRawDiagnosticSeverity::Error,
+                    ParserRawDiagnosticSeverity::Warning => WitRawDiagnosticSeverity::Warning,
+                },
+                message: diagnostic.message.clone(),
+                span: mapped_span_to_wit(diagnostic.span.clone()),
+                related: diagnostic
+                    .related
+                    .iter()
+                    .map(|related| RawRelatedSpan {
+                        message: related.message.clone(),
+                        span: mapped_span_to_wit(related.span.clone()),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        indentation: tree.indentation.as_ref().map(|indentation| Indentation {
+            kind: match indentation.kind {
+                ParserIndentKind::Space => WitIndentKind::Space,
+                ParserIndentKind::Tab => WitIndentKind::Tab,
+            },
+            unit: indentation.unit.clone(),
+        }),
+    }
+}
+
+fn parser_tree_edit(edit: WitTreeEdit) -> ParserTreeEdit {
+    match edit {
+        WitTreeEdit::ReplaceNode(edit) => ParserTreeEdit::ReplaceNode {
+            replacement: parser_generated_raw_tree(edit.replacement),
+            retained_children: edit
+                .retained_children
+                .map(|retained| ParserRetainedChildren {
+                    parent: ParserGeneratedRawNodeId::new(retained.target),
+                    placement: match retained.placement {
+                        WitRetainedChildrenPlacement::Prepend => {
+                            ParserRetainedChildrenPlacement::Prepend
+                        }
+                        WitRetainedChildrenPlacement::Append => {
+                            ParserRetainedChildrenPlacement::Append
+                        }
+                    },
+                }),
+        },
+        WitTreeEdit::ReplaceChildren(replacement) => ParserTreeEdit::ReplaceChildren {
+            replacement: parser_generated_raw_tree(replacement),
+        },
+    }
+}
+
+fn parser_generated_raw_tree(
+    tree: crate::bindings::nlaocs::skript_parser_addon::types::GeneratedRawTree,
+) -> ParserGeneratedRawTree {
+    ParserGeneratedRawTree {
+        roots: tree
+            .roots
+            .into_iter()
+            .map(ParserGeneratedRawNodeId::new)
+            .collect(),
+        nodes: tree
+            .nodes
+            .into_iter()
+            .map(|node| ParserGeneratedRawNode {
+                id: ParserGeneratedRawNodeId::new(node.id),
+                kind: match node.kind {
+                    WitGeneratedRawNodeKind::Blank => ParserGeneratedRawNodeKind::Blank,
+                    WitGeneratedRawNodeKind::Comment => ParserGeneratedRawNodeKind::Comment,
+                    WitGeneratedRawNodeKind::Simple => ParserGeneratedRawNodeKind::Simple,
+                    WitGeneratedRawNodeKind::Section => ParserGeneratedRawNodeKind::Section,
+                },
+                text: node.text,
+                children: node
+                    .children
+                    .into_iter()
+                    .map(ParserGeneratedRawNodeId::new)
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn normalize_tree_macro_output_spans(
+    source: &MappedSource,
+    output: &mut TreeMacroOutput,
+) -> Result<(), String> {
+    normalize_text_macro_effects(source, &mut output.effects, "effects")?;
+    if let HookDecision::Reject(rejection) = &mut output.decision {
+        normalize_text_macro_diagnostics(
+            source,
+            &mut rejection.diagnostics,
+            "rejection.diagnostics",
+        )?;
+    }
+    Ok(())
+}
+
+fn mark_tree_macro_result_rolled_back(
+    original_source: &MappedSource,
+    original_tree: &ParserRawTree,
+    result: &mut TreeMacroResult,
+) {
+    for call in &mut result.calls {
+        call.accepted = false;
+        call.expansion = None;
+    }
+    result.source = original_source.clone();
+    result.tree = original_tree.clone();
+    result.effects.context_updates.clear();
+    result.effects.parse_requests.clear();
+    retain_known_diagnostic_expansions(original_source, &mut result.effects.diagnostics);
+    if let HookDecision::Reject(rejection) = &mut result.decision {
+        retain_known_diagnostic_expansions(original_source, &mut rejection.diagnostics);
+    }
+}
+
+fn tree_macro_output_size(output: &TreeMacroOutput) -> usize {
+    output
+        .edit
+        .as_ref()
+        .map_or(0, wit_tree_edit_size)
+        .saturating_add(hook_effects_size(&output.effects))
+        .saturating_add(match &output.decision {
+            HookDecision::Reject(rejection) => rejection_size(rejection),
+            HookDecision::ContinueProcessing | HookDecision::Handled => 0,
+        })
+}
+
+fn wit_tree_edit_depth(edit: &WitTreeEdit) -> usize {
+    let tree = match edit {
+        WitTreeEdit::ReplaceNode(edit) => &edit.replacement,
+        WitTreeEdit::ReplaceChildren(tree) => tree,
+    };
+    let by_id = tree
+        .nodes
+        .iter()
+        .map(|node| (node.id, node))
+        .collect::<BTreeMap<_, _>>();
+    let mut maximum = 0usize;
+    let mut visited = BTreeSet::new();
+    let mut pending = tree
+        .roots
+        .iter()
+        .rev()
+        .map(|id| (*id, 1usize))
+        .collect::<Vec<_>>();
+    while let Some((id, depth)) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        maximum = maximum.max(depth);
+        if let Some(node) = by_id.get(&id) {
+            pending.extend(
+                node.children
+                    .iter()
+                    .rev()
+                    .map(|child| (*child, depth.saturating_add(1))),
+            );
+        }
+    }
+    maximum
+}
+fn wit_tree_edit_size(edit: &WitTreeEdit) -> usize {
+    let tree = match edit {
+        WitTreeEdit::ReplaceNode(edit) => &edit.replacement,
+        WitTreeEdit::ReplaceChildren(tree) => tree,
+    };
+    tree.nodes
+        .iter()
+        .map(|node| {
+            node.text
+                .len()
+                .saturating_add(node.children.len().saturating_mul(mem::size_of::<u64>()))
+        })
+        .fold(0usize, usize::saturating_add)
+        .saturating_add(tree.roots.len().saturating_mul(mem::size_of::<u64>()))
+}
 fn parser_text_edits(edits: Vec<WitTextEdit>) -> Result<Vec<ParserTextEdit>, String> {
     edits
         .into_iter()
@@ -2600,6 +3674,7 @@ mod tests {
                 CAPABILITY_HOOKS,
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,
+                CAPABILITY_TREE_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
             ]
@@ -2681,6 +3756,59 @@ mod tests {
         }
     }
 
+    #[test]
+    fn tree_macro_subscriptions_use_the_dedicated_pipeline_shape() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
+        };
+
+        let subscription = HookSubscription {
+            id: "tree.expand".to_owned(),
+            target: HookTarget::ParseStage,
+            phase: HookPhase::Tree,
+            priority: 0,
+            mode: HookMode::Transform,
+            capability_id: CAPABILITY_TREE_MACRO.to_owned(),
+        };
+        let manifest = |subscription| ComponentManifest {
+            component_id: "test.tree-macro-contract".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![WitCapabilityRequirement {
+                id: CAPABILITY_TREE_MACRO.to_owned(),
+                minimum_version: 1,
+                required: true,
+            }],
+            subscriptions: vec![subscription],
+            state_namespaces: Vec::new(),
+        };
+
+        validate_manifest(&manifest(subscription.clone()), &host_capabilities())
+            .expect("the dedicated Tree macro pipeline shape must be accepted");
+
+        let mut invalid_target = subscription.clone();
+        invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Section);
+        let mut invalid_phase = subscription.clone();
+        invalid_phase.phase = HookPhase::Node;
+        let mut invalid_mode = subscription;
+        invalid_mode.mode = HookMode::Override;
+
+        for (name, invalid) in [
+            ("target", invalid_target),
+            ("phase", invalid_phase),
+            ("mode", invalid_mode),
+        ] {
+            let error = validate_manifest(&manifest(invalid), &host_capabilities())
+                .expect_err("an invalid Tree macro subscription must be rejected");
+            assert!(
+                matches!(error, HostError::InvalidManifest { .. }),
+                "unexpected {name} validation error: {error}"
+            );
+        }
+    }
     #[test]
     fn transform_hooks_compose_replacements() {
         let first = apply_hook_output(

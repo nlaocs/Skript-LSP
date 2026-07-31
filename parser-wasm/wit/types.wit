@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.2.0;
+package nlaocs:skript-parser-addon@0.3.0;
 
 interface types {
     record abi-version {
@@ -309,10 +309,90 @@ interface types {
         parse-requests: list<parse-request>,
     }
 
+    enum line-ending {
+        none,
+        lf,
+        cr-lf,
+        cr,
+    }
+
+    enum indent-kind {
+        space,
+        tab,
+    }
+
+    record indentation {
+        kind: indent-kind,
+        unit: string,
+    }
+
+    enum raw-trivia-kind {
+        whitespace,
+        line-comment,
+        block-comment,
+        line-ending,
+    }
+
+    record raw-trivia {
+        kind: raw-trivia-kind,
+        text: string,
+        span: mapped-span,
+    }
+
+    record raw-line {
+        number: u64,
+        raw-text: string,
+        line-ending: line-ending,
+        span: mapped-span,
+        content-span: mapped-span,
+        line-ending-span: mapped-span,
+        indentation: raw-trivia,
+        trailing-trivia: list<raw-trivia>,
+    }
+
     enum raw-node-kind {
-        line,
+        blank,
+        comment,
+        simple,
         section,
         invalid,
+    }
+
+    record unexpected-indentation {
+        expected-level: u32,
+        actual-level: u32,
+    }
+
+    variant raw-invalid-reason {
+        mixed-indentation,
+        invalid-indentation,
+        unexpected-indentation(unexpected-indentation),
+    }
+
+    enum raw-diagnostic-code {
+        mixed-indentation,
+        invalid-indentation,
+        unexpected-indentation,
+        empty-section,
+        unclosed-block-comment,
+    }
+
+    enum raw-diagnostic-severity {
+        error,
+        warning,
+    }
+
+    record raw-related-span {
+        message: string,
+        span: mapped-span,
+    }
+
+    record raw-diagnostic {
+        code: raw-diagnostic-code,
+        severity: raw-diagnostic-severity,
+        message: string,
+        span: mapped-span,
+        related: list<raw-related-span>,
     }
 
     record raw-tree-node {
@@ -320,6 +400,13 @@ interface types {
         kind: raw-node-kind,
         text: string,
         span: mapped-span,
+        line: raw-line,
+        code-span: option<mapped-span>,
+        header-span: option<mapped-span>,
+        body-span: option<mapped-span>,
+        indent-level: option<u32>,
+        invalid-reason: option<raw-invalid-reason>,
+        syntax-context: syntax-context-id,
         parent: option<node-id>,
         children: list<node-id>,
     }
@@ -327,8 +414,50 @@ interface types {
     record raw-tree {
         roots: list<node-id>,
         nodes: list<raw-tree-node>,
+        diagnostics: list<raw-diagnostic>,
+        indentation: option<indentation>,
     }
 
+    type generated-node-id = u64;
+
+    enum generated-raw-node-kind {
+        blank,
+        comment,
+        simple,
+        section,
+    }
+
+    record generated-raw-node {
+        id: generated-node-id,
+        kind: generated-raw-node-kind,
+        text: string,
+        children: list<generated-node-id>,
+    }
+
+    record generated-raw-tree {
+        roots: list<generated-node-id>,
+        nodes: list<generated-raw-node>,
+    }
+
+    enum retained-children-placement {
+        prepend,
+        append,
+    }
+
+    record retained-children {
+        target: generated-node-id,
+        placement: retained-children-placement,
+    }
+
+    record replace-node-edit {
+        replacement: generated-raw-tree,
+        retained-children: option<retained-children>,
+    }
+
+    variant tree-edit {
+        replace-node(replace-node-edit),
+        replace-children(generated-raw-tree),
+    }
     variant capture-value {
         text(string),
         node(node-id),
@@ -461,14 +590,15 @@ interface types {
     record tree-macro-input {
         context: invocation-context,
         tree: raw-tree,
+        target: node-id,
+        depth: u32,
     }
 
     record tree-macro-output {
         decision: hook-decision,
-        replacement: option<raw-tree>,
+        edit: option<tree-edit>,
         effects: hook-effects,
     }
-
     record ast-macro-input {
         context: invocation-context,
         tree: ast-tree,
