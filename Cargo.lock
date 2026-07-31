@@ -1523,6 +1523,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-macro-addon"
+version = "0.1.0"
+dependencies = [
+ "parser-wasm",
+ "wit-bindgen 0.59.0",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

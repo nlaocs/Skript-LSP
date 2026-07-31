@@ -13,8 +13,8 @@ of the LSP binary.
 
 The syntax data, syntax-pattern parser, source mapping primitives, WASM ABI,
 Wasmtime host, transactional StateStore, dynamic syntax registry, Text macro
-preprocessing pipeline, and lossless comment/indentation RawTree are
-implemented and tested.
+preprocessing pipeline, lossless comment/indentation RawTree, and recursive
+Tree macro editing pipeline are implemented and tested.
 
 The executable is still a scaffold. It embeds and initializes CoreLibrary, but
 it does not yet expose an LSP transport or parse complete `.sk` documents.
@@ -35,7 +35,9 @@ flowchart LR
     Source[".sk source"] --> Host
     Host --> Expanded["macro-expanded source + SourceMap"]
     Expanded --> Parser["skript-parser"]
-    Parser --> LSP["skript-lsp integration"]
+    Parser --> Tree["recursive Tree macro pipeline"]
+    Host --> Tree
+    Tree --> LSP["skript-lsp integration"]
     Dynamic --> Parser
     Patterns --> Parser
 ```
@@ -48,11 +50,12 @@ The intended data flow is:
    `syntaxes::Catalog`.
 3. `parser-wasm` loads mandatory CoreLibrary and optional addon components.
    Components may add or override syntax during initialization and document
-   prepass, and Text macro components may preprocess document source.
+   prepass. Text macros preprocess document source, and Tree macros transform
+   the lossless RawTree recursively.
 4. `syntax-pattern-parser` represents Skript registration patterns, while
-   `skript-parser` validates Text edits, tracks original and macro-expanded
-   ranges through composed SourceMaps, and builds a lossless RawTree from
-   comments and indentation.
+   `skript-parser` validates Text and Tree edits, tracks original and
+   macro-expanded ranges through composed SourceMaps, and builds a lossless
+   RawTree from comments and indentation.
 5. The root `skript-lsp` crate will compose these pieces into document parsing
    and LSP features.
 
@@ -69,6 +72,7 @@ The intended data flow is:
 | [`core-library`](./core-library/) | WASM component | Mandatory parser addon component reserved for Skript's built-in parsing behavior. It currently supplies ABI negotiation and a health hook. |
 | [`skripthub`](./skripthub/) | legacy library | Compatibility reader for the old SkriptHub API and its flattened function strings. New syntax data should use `ssg` and `syntaxes`. |
 | [`text-macro-addon`](./test-components/text-macro-addon/) | test WASM component | Exercises ordered Text macro expansion, UTF-8 edits, anchors, StateStore rollback, and traps. |
+| [`tree-macro-addon`](./test-components/tree-macro-addon/) | test WASM component | Exercises targeted TreeEdit operations, recursive expansion, provenance, cycles, StateStore rollback, quotas, and traps. |
 | [`dynamic-syntax-addon`](./test-components/dynamic-syntax-addon/) | test WASM component | Exercises dynamic registration, override, prepass, rollback, freeze, and unload behavior. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |
 | [`xtask`](./xtask/) | build utility | Builds core Wasm modules, converts them to Components, validates exports, and publishes local artifacts. |
@@ -116,7 +120,8 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 `xtask` writes `artifacts/core-library.wasm` and
-`artifacts/dynamic-syntax-addon.wasm` and `artifacts/text-macro-addon.wasm`.
+`artifacts/dynamic-syntax-addon.wasm`, `artifacts/text-macro-addon.wasm`, and
+`artifacts/tree-macro-addon.wasm`.
 Generated artifacts are not committed.
 A missing CoreLibrary artifact is intentionally a compile-time error because
 the parser is not supported without CoreLibrary.

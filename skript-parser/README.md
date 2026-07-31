@@ -133,8 +133,11 @@ indentation therefore produce `Invalid` nodes and diagnostics without dropping
 later lines. Empty Sections produce warnings, and unclosed block comments point
 to both the opening marker and EOF.
 
-The WIT conversion and recursive Tree macro application are intentionally left
-to the following Tree macro pipeline stage.
+`apply_tree_edit` validates generated local-ID fragments and applies targeted
+node or Section-body replacements without mutating the input tree. It allocates
+new RawNode IDs, registers a Tree expansion, assigns a generated syntax
+context, and maps every generated span back to the replaced node's call-site.
+The `parser-wasm` host owns WIT conversion and recursive pre-order dispatch.
 
 ## Invariants
 

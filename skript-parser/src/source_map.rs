@@ -382,6 +382,30 @@ impl TextExpansion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeExpansion {
+    pub component: ComponentId,
+    pub hook: HookId,
+    pub definition_site: Option<ExpansionSite>,
+}
+
+impl TreeExpansion {
+    pub fn new(component: impl Into<String>, hook: impl Into<String>) -> Self {
+        Self {
+            component: ComponentId::new(component),
+            hook: HookId::new(hook),
+            definition_site: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeExpansionApplication {
+    pub source: MappedSource,
+    pub expansion: ExpansionId,
+    pub syntax_context: SyntaxContextId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEditApplication {
     pub source: MappedSource,
     pub expansion: Option<ExpansionId>,
@@ -490,6 +514,61 @@ impl MappedSource {
 
     pub fn expansion_backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&crate::Expansion>>> {
         self.expansions.backtraces(id)
+    }
+
+    pub fn register_tree_expansion(
+        &self,
+        call_site: &MappedSpan,
+        metadata: TreeExpansion,
+    ) -> Result<TreeExpansionApplication, TreeExpansionError> {
+        if !call_site.virtual_range.is_valid_for(&self.virtual_source) {
+            return Err(TreeExpansionError::InvalidVirtualRange {
+                range: call_site.virtual_range,
+            });
+        }
+        if call_site.origins.is_empty() {
+            return Err(TreeExpansionError::MissingOrigins);
+        }
+
+        let mut call_sites = Vec::new();
+        for origin in &call_site.origins {
+            if !origin.original_range.is_valid_for(&self.original) {
+                return Err(TreeExpansionError::InvalidOriginalRange {
+                    range: origin.original_range,
+                });
+            }
+            if let Some(expansion) = origin.expansion
+                && !self.expansions.contains(expansion)
+            {
+                return Err(TreeExpansionError::UnknownExpansion { expansion });
+            }
+            let site = ExpansionSite {
+                original_range: origin.original_range,
+                expansion: origin.expansion,
+            };
+            if !call_sites.contains(&site) {
+                call_sites.push(site);
+            }
+        }
+
+        let expansion_id = self.expansions.next_id()?;
+        let syntax_context = SyntaxContextId::new(expansion_id.get());
+        let expansion = Expansion {
+            id: expansion_id,
+            kind: ExpansionKind::Tree,
+            component: metadata.component,
+            hook: metadata.hook,
+            call_sites,
+            definition_site: metadata.definition_site,
+            syntax_context,
+        };
+        let mut source = self.clone();
+        source.expansions = self.expansions.with_expansion(expansion)?;
+        Ok(TreeExpansionApplication {
+            source,
+            expansion: expansion_id,
+            syntax_context,
+        })
     }
 
     pub fn apply_text_edits(
@@ -709,6 +788,20 @@ impl MappedSource {
         }
         Ok(origins)
     }
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum TreeExpansionError {
+    #[error("tree macro call site has invalid virtual range {range}")]
+    InvalidVirtualRange { range: TextRange },
+    #[error("tree macro call site has no source origins")]
+    MissingOrigins,
+    #[error("tree macro call site has invalid original range {range}")]
+    InvalidOriginalRange { range: TextRange },
+    #[error("tree macro call site references unknown expansion {expansion}")]
+    UnknownExpansion { expansion: ExpansionId },
+    #[error(transparent)]
+    Expansion(#[from] ExpansionGraphError),
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
