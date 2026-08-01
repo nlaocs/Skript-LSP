@@ -1,3 +1,9 @@
+//! Immutable indexes and semantic queries over normalized syntax data.
+//!
+//! Indexes preserve generator registration order and provide cycle-safe traversal
+//! for Java assignability, converters, event values, functions, and aliases.
+#![allow(missing_docs)] // Public fields are described by their owning domain type.
+
 use crate::{
     AliasRegistry, Class, Comparator, Converter, Difference, EventValue, Function, Operation,
     Operator, Property, Syntax, Type,
@@ -6,6 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use syntax_pattern_parser::syntax::PluralRules;
 
 #[derive(Debug, Clone)]
+/// Explicit, unindexed inputs used to construct a `Catalog`.
 pub struct CatalogParts {
     pub syntaxes: Vec<Syntax>,
     pub converters: Vec<Converter>,
@@ -21,6 +28,7 @@ pub struct CatalogParts {
 }
 
 #[derive(Debug, Clone)]
+/// Immutable normalized registry with indexes for parser and LSP queries.
 pub struct Catalog {
     parts: CatalogParts,
     index: CatalogIndex,
@@ -38,6 +46,7 @@ struct CatalogIndex {
 }
 
 impl Catalog {
+    /// Builds all deterministic indexes from validated normalized parts.
     pub fn new(parts: CatalogParts) -> Self {
         let mut index = CatalogIndex::default();
 
@@ -95,14 +104,17 @@ impl Catalog {
         Self { parts, index }
     }
 
+    /// Returns every syntax in generator registration order.
     pub fn syntaxes(&self) -> &[Syntax] {
         &self.parts.syntaxes
     }
 
+    /// Looks up a syntax by its catalog position.
     pub fn syntax_at(&self, index: usize) -> Option<&Syntax> {
         self.parts.syntaxes.get(index)
     }
 
+    /// Returns every syntax carrying an exact registration ID.
     pub fn syntax_by_registration_id(&self, id: &str) -> Vec<&Syntax> {
         self.index
             .syntaxes_by_registration_id
@@ -113,6 +125,7 @@ impl Catalog {
             .collect()
     }
 
+    /// Iterates registered events in catalog order.
     pub fn events(&self) -> impl Iterator<Item = &crate::Event> {
         self.parts
             .syntaxes
@@ -123,6 +136,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered conditions in catalog order.
     pub fn conditions(&self) -> impl Iterator<Item = &crate::Condition> {
         self.parts
             .syntaxes
@@ -133,6 +147,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered effects in catalog order.
     pub fn effects(&self) -> impl Iterator<Item = &crate::Effect> {
         self.parts
             .syntaxes
@@ -143,6 +158,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered expressions in catalog order.
     pub fn expressions(&self) -> impl Iterator<Item = &crate::Expression> {
         self.parts
             .syntaxes
@@ -153,6 +169,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered Skript types in catalog order.
     pub fn types(&self) -> impl Iterator<Item = &Type> {
         self.parts
             .syntaxes
@@ -163,6 +180,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered functions in catalog order.
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
         self.parts
             .syntaxes
@@ -173,6 +191,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered sections in catalog order.
     pub fn sections(&self) -> impl Iterator<Item = &crate::Section> {
         self.parts
             .syntaxes
@@ -183,6 +202,7 @@ impl Catalog {
             })
     }
 
+    /// Iterates registered structures in catalog order.
     pub fn structures(&self) -> impl Iterator<Item = &crate::Structure> {
         self.parts
             .syntaxes
@@ -193,6 +213,7 @@ impl Catalog {
             })
     }
 
+    /// Looks up a type by its normalized Skript code name.
     pub fn type_by_code_name(&self, code_name: &str) -> Option<&Type> {
         let position = *self.index.types_by_code_name.get(code_name)?;
         match &self.parts.syntaxes[position] {
@@ -201,6 +222,7 @@ impl Catalog {
         }
     }
 
+    /// Returns overloads with the requested function name.
     pub fn functions_named(&self, name: &str) -> Vec<&Function> {
         self.index
             .functions_by_name
@@ -214,10 +236,12 @@ impl Catalog {
             .collect()
     }
 
+    /// Returns all generated event-value registrations.
     pub fn event_values(&self) -> &[EventValue] {
         &self.parts.event_values
     }
 
+    /// Resolves event values inherited by an event class, honoring exclusions and order.
     pub fn event_values_for(&self, event_class: &str) -> Vec<&EventValue> {
         let mut positions = self
             .class_lineage(event_class)
@@ -241,10 +265,12 @@ impl Catalog {
             .collect()
     }
 
+    /// Returns all registered converters.
     pub fn converters(&self) -> &[Converter] {
         &self.parts.converters
     }
 
+    /// Returns converters accepting the requested source class.
     pub fn converters_from(&self, class_name: &str) -> Vec<&Converter> {
         self.index
             .converters_by_from
@@ -255,6 +281,7 @@ impl Catalog {
             .collect()
     }
 
+    /// Returns converters producing the requested target class.
     pub fn converters_to(&self, class_name: &str) -> Vec<&Converter> {
         self.index
             .converters_by_to
@@ -265,6 +292,7 @@ impl Catalog {
             .collect()
     }
 
+    /// Looks up one generated Java class node.
     pub fn class(&self, class_name: &str) -> Option<&Class> {
         self.index
             .classes_by_name
@@ -293,6 +321,7 @@ impl Catalog {
         }
         result
     }
+    /// Tests generated Java assignability from `from` to `to` without loading classes.
     pub fn is_class_assignable(&self, from: &str, to: &str) -> bool {
         if from == to {
             return true;
@@ -322,6 +351,7 @@ impl Catalog {
         false
     }
 
+    /// Tests assignability between the Java classes represented by two Skript types.
     pub fn is_type_assignable(&self, from: &str, to: &str) -> bool {
         from == to
             || self.type_by_code_name(from).is_some_and(|source| {
@@ -332,6 +362,7 @@ impl Catalog {
             })
     }
 
+    /// Resolves an alias using Skript-compatible case-insensitive lookup.
     pub fn alias(&self, text: &str) -> Option<&crate::AliasTarget> {
         self.parts
             .aliases
@@ -340,30 +371,37 @@ impl Catalog {
             .and_then(|index| self.parts.aliases.targets.get(*index))
     }
 
+    /// Returns the complete normalized alias registry.
     pub fn aliases(&self) -> &AliasRegistry {
         &self.parts.aliases
     }
 
+    /// Returns all registered comparator handlers.
     pub fn comparators(&self) -> &[Comparator] {
         &self.parts.comparators
     }
 
+    /// Returns all registered properties.
     pub fn properties(&self) -> &[Property] {
         &self.parts.properties
     }
 
+    /// Returns all registered arithmetic operators.
     pub fn operators(&self) -> &[Operator] {
         &self.parts.operators
     }
 
+    /// Returns arithmetic operations grouped by operator ID.
     pub fn operations(&self) -> &BTreeMap<String, Vec<Operation>> {
         &self.parts.operations
     }
 
+    /// Returns all registered difference handlers.
     pub fn differences(&self) -> &[Difference] {
         &self.parts.differences
     }
 
+    /// Returns the exact server-specific plural conversion rules.
     pub fn plural_rules(&self) -> &PluralRules {
         &self.parts.plural_rules
     }

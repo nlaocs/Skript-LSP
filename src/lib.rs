@@ -1,3 +1,6 @@
+#![doc = include_str!("../README.md")]
+#![warn(rustdoc::broken_intra_doc_links)]
+
 /// The mandatory CoreLibrary component bundled into the LSP executable.
 ///
 /// A missing artifact is a compile-time error. Rebuild it with
@@ -7,6 +10,10 @@ pub static CORE_LIBRARY_COMPONENT: &[u8] = include_bytes!(concat!(
     "/artifacts/core-library.wasm"
 ));
 
+/// Returns the bytes of the mandatory CoreLibrary WebAssembly Component.
+///
+/// The returned slice is embedded into the executable at compile time and is
+/// therefore valid for the lifetime of the process.
 pub fn core_library_component() -> &'static [u8] {
     CORE_LIBRARY_COMPONENT
 }

@@ -1,3 +1,8 @@
+//! Workspace build orchestration for parser-addon WebAssembly Components.
+//!
+//! Commands compile guest crates, convert core modules to Component Model artifacts,
+//! validate exports, and place generated files in `artifacts/`.
+
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
 use std::ffi::OsString;

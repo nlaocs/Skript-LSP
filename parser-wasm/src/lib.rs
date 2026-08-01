@@ -1,10 +1,20 @@
+#![doc = include_str!("../README.md")]
+#![warn(rustdoc::broken_intra_doc_links)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(feature = "host")]
+/// Wasmtime-generated Component Model bindings.
+///
+/// This module is generated from the WIT package and is intentionally not a
+/// hand-authored API. Prefer the stable host types re-exported from this crate.
+#[allow(missing_docs)]
 pub mod bindings;
 #[cfg(feature = "host")]
+/// Native Wasmtime host, component registry, hook dispatch, and macro pipelines.
 pub mod host;
 #[cfg(feature = "host")]
+/// Transactional state shared by parser hooks and addon components.
 pub mod state;
 
 #[cfg(feature = "host")]
@@ -15,24 +25,37 @@ pub use host::{
 #[cfg(feature = "host")]
 pub use state::{ParseTransaction, StateError, StateStore};
 
+/// Exact host/guest handshake version implemented by this crate.
 pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 3);
 
+/// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
+/// Capability ID for transactional scoped addon state.
 pub const CAPABILITY_STATE_STORE: &str = "parser.state-store";
+/// Capability ID for runtime syntax registration and override.
 pub const CAPABILITY_DYNAMIC_SYNTAX: &str = "parser.dynamic-syntax";
+/// Capability ID for source-text preprocessing macros.
 pub const CAPABILITY_TEXT_MACRO: &str = "parser.macro.text";
+/// Capability ID for lossless RawTree transformation macros.
 pub const CAPABILITY_TREE_MACRO: &str = "parser.macro.tree";
+/// Reserved capability ID for hygienic parsed-AST macros.
 pub const CAPABILITY_AST_MACRO: &str = "parser.macro.ast";
+/// Capability ID for parser context updates emitted by hooks.
 pub const CAPABILITY_CONTEXT_UPDATES: &str = "parser.context-updates";
+/// Capability ID for addon-requested recursive parse work.
 pub const CAPABILITY_ADDITIONAL_PARSE: &str = "parser.additional-parse";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Major/minor ABI version compared exactly during component initialization.
 pub struct AbiVersion {
+    /// Breaking-contract generation.
     pub major: u16,
+    /// Compatible feature generation within the same major ABI.
     pub minor: u16,
 }
 
 impl AbiVersion {
+    /// Creates an ABI version pair.
     pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
@@ -45,12 +68,16 @@ impl std::fmt::Display for AbiVersion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Host capability and independently versioned feature contract.
 pub struct Capability {
+    /// Stable dotted capability identifier.
     pub id: String,
+    /// Feature contract version for this identifier.
     pub version: u32,
 }
 
 impl Capability {
+    /// Creates an advertised capability.
     pub fn new(id: impl Into<String>, version: u32) -> Self {
         Self {
             id: id.into(),
@@ -60,13 +87,18 @@ impl Capability {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Component requirement checked against the host profile.
 pub struct CapabilityRequirement {
+    /// Stable dotted capability identifier.
     pub id: String,
+    /// Lowest feature contract version understood by the component.
     pub minimum_version: u32,
+    /// Whether absence or an older version must reject initialization.
     pub required: bool,
 }
 
 impl CapabilityRequirement {
+    /// Creates a requirement that must be satisfied.
     pub fn required(id: impl Into<String>, minimum_version: u32) -> Self {
         Self {
             id: id.into(),
@@ -75,6 +107,7 @@ impl CapabilityRequirement {
         }
     }
 
+    /// Creates a requirement that may be absent or older.
     pub fn optional(id: impl Into<String>, minimum_version: u32) -> Self {
         Self {
             id: id.into(),
@@ -153,6 +186,8 @@ fn validate_capability_id(id: &str) -> Result<(), CompatibilityError> {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Failure to negotiate an ABI or capability profile.
+#[allow(missing_docs)] // Variant messages describe the exact handshake failure.
 pub enum CompatibilityError {
     #[error("ABI version mismatch: expected {expected}, found {actual}")]
     AbiVersionMismatch {

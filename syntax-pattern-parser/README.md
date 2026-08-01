@@ -80,10 +80,14 @@ addon plural overrides and registration order. The API exposes:
 The crate root exposes the `syntax` module:
 
 ```rust
-use syntax_pattern_parser::syntax::{parse, PluralRules};
+use syntax_pattern_parser::syntax::{parse, ParseResult, PluralRules};
 
-let rules = PluralRules::from_json(plural_rules_json)?;
-let parsed = parse("(send|message) %string%", &rules)?;
+fn parse_pattern(
+    plural_rules_json: &str,
+) -> Result<ParseResult, Box<dyn std::error::Error>> {
+    let rules = PluralRules::from_json(plural_rules_json)?;
+    Ok(parse("(send|message) %string%", &rules)?)
+}
 ```
 
 `ParseResult` contains top-level AST elements and warnings. Consumers should

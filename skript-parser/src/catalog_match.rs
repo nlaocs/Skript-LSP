@@ -1,8 +1,15 @@
+//! Adapters that turn static catalogs and frozen dynamic registries into candidates.
+//!
+//! This keeps catalog ownership out of the matcher and makes ordering decisions
+//! explicit at the boundary.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use crate::{MatchPattern, MatchSyntaxKind, PatternCandidate};
 use syntaxes::{
     Catalog, DynamicSyntaxSnapshot, Pattern, Syntax, SyntaxCandidateSource, SyntaxKind,
 };
 
+/// Borrows matcher candidates from an immutable static catalog in registration order.
 pub fn catalog_pattern_candidates(
     catalog: &Catalog,
     kind: SyntaxKind,
@@ -20,6 +27,7 @@ pub fn catalog_pattern_candidates(
 /// Supplying resolved_order prevents the matcher from discarding before/after
 /// constraints while the original priority and registration order remain
 /// available in diagnostics and match results.
+/// Borrows candidates from a frozen dynamic snapshot in resolved order.
 pub fn snapshot_pattern_candidates<'a>(
     catalog: &'a Catalog,
     snapshot: &'a DynamicSyntaxSnapshot,
@@ -92,6 +100,7 @@ fn syntax_patterns(syntax: &Syntax) -> Option<&[Pattern]> {
     }
 }
 
+/// Maps normalized syntax kinds to matcher hook kinds.
 pub const fn match_kind(kind: SyntaxKind) -> MatchSyntaxKind {
     match kind {
         SyntaxKind::Event => MatchSyntaxKind::Event,

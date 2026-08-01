@@ -1,3 +1,8 @@
+//! Grammar, AST, spans, and diagnostics for Skript registration patterns.
+//!
+//! The parser consumes one registered pattern, preserves UTF-8 byte ranges, and
+//! normalizes type alternatives with the supplied server-specific plural rules.
+
 use crate::plural::PluralRules;
 
 macro_rules! consume_until {
@@ -28,15 +33,19 @@ macro_rules! consume_until {
 /// Both offsets are guaranteed to be character boundaries for parser output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
+    /// Inclusive start byte offset.
     pub start: usize,
+    /// Exclusive end byte offset.
     pub end: usize,
 }
 
 impl Span {
+    /// Creates a half-open `start..end` range.
     pub const fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
 
+    /// Returns whether the range is ordered, in bounds, and on UTF-8 boundaries.
     pub fn is_valid_for(self, input: &str) -> bool {
         self.start <= self.end
             && self.end <= input.len()
@@ -44,6 +53,7 @@ impl Span {
             && input.is_char_boundary(self.end)
     }
 
+    /// Returns the covered substring, or `None` when the range is invalid.
     pub fn slice(self, input: &str) -> Option<&str> {
         input.get(self.start..self.end)
     }
@@ -52,57 +62,82 @@ impl Span {
 /// A parsed value paired with the source range that produced it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Spanned<T> {
+    /// Parsed value.
     pub value: T,
+    /// Range that produced `value`, including delimiters when applicable.
     pub span: Span,
 }
 
 impl<T> Spanned<T> {
+    /// Associates a parsed value with its source range.
     pub const fn new(value: T, span: Span) -> Self {
         Self { value, span }
     }
 
+    /// Transforms the value while preserving its source range.
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U> {
         Spanned::new(f(self.value), self.span)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One node in a parsed registration-pattern AST.
 pub enum PatternElement {
+    /// Literal text matched according to Skript's whitespace rules.
     Literal(String),
-    Choice(Vec<Vec<SpannedPatternElement>>), // stuff|otherstuff
-    Group(Vec<SpannedPatternElement>),       // (stuff)
-    Option(Vec<SpannedPatternElement>),      // [stuff]
-    Regex(String),                           // <[0-9]+>
-    TypeExpr(PatternTypeExpr),               // %stuff%
-    ParseTag(String),                        // tag:stuff
-    ParseMark(i32),                          // 1¦stuff
-    Empty,                                   // (a|) -> Choice([Literal("a"), Empty])
+    /// `|`-separated branches; each branch is a sequence of elements.
+    Choice(Vec<Vec<SpannedPatternElement>>),
+    /// Parenthesized sequence such as `(group)`.
+    Group(Vec<SpannedPatternElement>),
+    /// Optional bracketed sequence such as `[text]`.
+    Option(Vec<SpannedPatternElement>),
+    /// Regex body without its `<` and `>` delimiters.
+    Regex(String),
+    /// Typed expression placeholder such as `%strings%`.
+    TypeExpr(PatternTypeExpr),
+    /// Colon parse tag attached to the following element.
+    ParseTag(String),
+    /// Numeric parse mark attached with `¦`.
+    ParseMark(i32),
+    /// Explicitly empty choice branch, for example the second branch of `a|`.
+    Empty,
 } // todo display実装
 
 /// A syntax pattern AST element with its range in the original pattern.
 pub type SpannedPatternElement = Spanned<PatternElement>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Parsed contents of a `%...%` expression placeholder.
 pub struct PatternTypeExpr {
+    /// Slash-separated accepted types, normalized to singular names.
     pub alternatives: Vec<PatternTypeAlternative>,
+    /// Whether Skript's `-` flag permits a missing expression.
     pub nullable: bool,
+    /// Whether literal expressions are permitted (`~` disables them).
     pub allow_literals: bool,
+    /// Whether non-literal expressions are permitted (`*` disables them).
     pub allow_expressions: bool,
+    /// Skript time-state suffix; zero means the current state.
     pub time: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One normalized type name inside a type expression.
 pub struct PatternTypeAlternative {
+    /// Singular type code name.
     pub name: String,
+    /// Whether the source spelling was plural.
     pub plural: bool,
 }
 
+/// Display adapter that reconstructs a type expression with active plural rules.
 pub struct PatternTypeExprDisplay<'a> {
     type_expr: &'a PatternTypeExpr,
     plural_rules: &'a PluralRules,
 }
 
 impl PatternTypeExpr {
+    /// Returns a display adapter using `plural_rules` for plural alternatives.
     pub fn display_with<'a>(&'a self, plural_rules: &'a PluralRules) -> PatternTypeExprDisplay<'a> {
         PatternTypeExprDisplay {
             type_expr: self,
@@ -191,26 +226,33 @@ fn parse_pattern_type_expr(
 }
 
 #[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq, Hash)]
+/// Fatal registration-pattern parse failure.
 pub enum ParseErrorKind {
     #[error(
         "Missing closing group bracket ')'. Escape the '(' if you want to match a literal bracket: '\\('"
     )]
+    /// A group reached EOF without `)`.
     UnclosedParenthesis,
     #[error(
         "Missing closing optional bracket ']'. Escape the '[' if you want to match a literal bracket: '\\['"
     )]
+    /// An optional sequence reached EOF without `]`.
     UnclosedBracket,
     #[error(
         "Missing closing type delimiter '%'. Escape the '%' if you want to match a literal percent sign: '\\%'"
     )]
+    /// A type expression reached EOF without its second `%`.
     UnclosedTypeDelimiter,
     #[error(
         "Missing closing regex bracket '>'. Escape the '<' if you want to match a literal bracket: '\\<'"
     )]
+    /// A regex reached EOF without `>`.
     UnclosedRegexDelimiter,
     #[error("Incorrect time state in type expression. It must be a 32-bit signed integer.")]
+    /// A type-expression `@` suffix was not a signed 32-bit integer.
     IncorrectTimeState,
     #[error("Invalid parse mark. Text before '¦' must be a 32-bit signed integer.")]
+    /// Text before `¦` was not a signed 32-bit integer.
     InvalidParseMark,
 }
 
@@ -224,7 +266,9 @@ pub enum RelatedSpanKind {
 /// A secondary source range that provides context for a parse error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RelatedSpan {
+    /// Why the related location matters.
     pub kind: RelatedSpanKind,
+    /// Related range in the original registration pattern.
     pub span: Span,
 }
 
@@ -238,7 +282,9 @@ impl RelatedSpan {
 /// A syntax pattern error with a primary range and optional related ranges.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseError {
+    /// Stable error classification.
     pub kind: ParseErrorKind,
+    /// Primary range, often a zero-width EOF location for unclosed input.
     pub span: Span,
     /// Additional locations such as the opening delimiter of an unclosed construct.
     pub related_spans: Vec<RelatedSpan>,
@@ -272,24 +318,38 @@ impl ParseError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, derive_more::Display)]
+/// Non-fatal compatibility concern preserved alongside a successful AST.
 pub enum ParseWarningKind {
     #[display(
         "Label not supported. However, it may be supported in the future (this has no effect on end users)."
     )]
+    /// A label-like form was retained but has no parser meaning yet.
     LabelNotSupported,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-fatal parse warning with its source range.
 pub struct ParseWarning {
+    /// Stable warning classification.
     pub kind: ParseWarningKind,
+    /// Range that triggered the warning.
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Successfully parsed top-level sequence and non-fatal warnings.
 pub struct ParseResult {
+    /// Top-level AST elements in registration order.
     pub elements: Vec<SpannedPatternElement>,
+    /// Compatibility warnings discovered while parsing.
     pub warnings: Vec<ParseWarning>,
 }
 
+/// Parses one complete Skript registration pattern using server-specific plural rules.
+///
+/// # Errors
+///
+/// Returns a ranged [`ParseError`] for unclosed delimiters, invalid time states,
+/// or invalid parse marks.
 pub fn parse(input: &str, plural_rules: &PluralRules) -> Result<ParseResult, ParseError> {
     let mut chars = input.char_indices().peekable();
     parse_choice(&mut chars, Scope::Global, input, plural_rules)

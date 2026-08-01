@@ -1,7 +1,14 @@
+//! Lossless, indentation-based tree for preprocessed Skript source.
+//!
+//! Every physical line and trivia fragment is retained. Recoverable lexical and
+//! indentation failures become invalid nodes and diagnostics instead of disappearing.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use crate::{MappedSource, MappedSpan, SyntaxContextId, TextRange};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Stable arena identity of one physical RawTree node.
 pub struct RawNodeId(u64);
 
 impl RawNodeId {
@@ -25,6 +32,7 @@ impl fmt::Display for RawNodeId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Line terminator retained from the virtual source.
 pub enum LineEnding {
     None,
     Lf,
@@ -44,18 +52,21 @@ impl LineEnding {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Whitespace family used for one indentation prefix.
 pub enum IndentKind {
     Space,
     Tab,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Decoded indentation depth and exact source prefix.
 pub struct Indentation {
     pub kind: IndentKind,
     pub unit: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Kind of lexical trivia retained around line content.
 pub enum RawTriviaKind {
     Whitespace,
     LineComment,
@@ -64,6 +75,7 @@ pub enum RawTriviaKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One ranged whitespace or comment fragment.
 pub struct RawTrivia {
     pub kind: RawTriviaKind,
     pub text: String,
@@ -71,6 +83,7 @@ pub struct RawTrivia {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Lossless representation of one physical source line.
 pub struct RawLine {
     /// Zero-based physical line number.
     pub number: usize,
@@ -88,6 +101,7 @@ pub struct RawLine {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Structural classification assigned to a physical line.
 pub enum RawNodeKind {
     Blank,
     Comment,
@@ -97,6 +111,7 @@ pub enum RawNodeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Recoverable reason a physical line could not join the normal tree.
 pub enum RawInvalidReason {
     MixedIndentation,
     InvalidIndentation,
@@ -107,6 +122,7 @@ pub enum RawInvalidReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Arena node retaining a line, tree links, spans, and syntax context.
 pub struct RawNode {
     pub id: RawNodeId,
     pub kind: RawNodeKind,
@@ -129,6 +145,7 @@ pub struct RawNode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Stable machine-readable RawTree diagnostic identifier.
 pub enum RawDiagnosticCode {
     MixedIndentation,
     InvalidIndentation,
@@ -150,18 +167,21 @@ impl RawDiagnosticCode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Severity assigned to a recoverable RawTree diagnostic.
 pub enum RawDiagnosticSeverity {
     Error,
     Warning,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Secondary location attached to a RawTree diagnostic.
 pub struct RawRelatedSpan {
     pub message: String,
     pub span: MappedSpan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Editor-facing diagnostic produced while constructing the RawTree.
 pub struct RawDiagnostic {
     pub code: RawDiagnosticCode,
     pub severity: RawDiagnosticSeverity,
@@ -171,12 +191,14 @@ pub struct RawDiagnostic {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Version-selected support for line-delimited `###` comments.
 pub enum MultilineCommentSupport {
     Unsupported,
     TripleHash,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Explicit version-dependent lexical options for RawTree parsing.
 pub struct RawTreeOptions {
     pub multiline_comments: MultilineCommentSupport,
 }
@@ -189,6 +211,7 @@ impl RawTreeOptions {
     /// Selects language features for a Skript release.
     ///
     /// Triple-hash multiline comments were introduced in Skript 2.9.
+    /// Selects lexical compatibility from a Skript major/minor version.
     pub const fn for_skript_version(major: u32, minor: u32) -> Self {
         let multiline_comments = if major > 2 || (major == 2 && minor >= 9) {
             MultilineCommentSupport::TripleHash
@@ -200,6 +223,7 @@ impl RawTreeOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Arena-backed lossless tree plus roots, diagnostics, and indentation unit.
 pub struct RawTree {
     pub roots: Vec<RawNodeId>,
     pub nodes: Vec<RawNode>,
@@ -208,6 +232,7 @@ pub struct RawTree {
 }
 
 impl RawTree {
+    /// Looks up one node by arena ID.
     pub fn get(&self, id: RawNodeId) -> Option<&RawNode> {
         usize::try_from(id.get())
             .ok()
@@ -215,11 +240,13 @@ impl RawTree {
             .filter(|node| node.id == id)
     }
 
+    /// Iterates nodes in source/allocated order.
     pub fn iter(&self) -> impl Iterator<Item = &RawNode> {
         self.nodes.iter()
     }
 }
 
+/// Builds a lossless, recoverable indentation tree from mapped virtual source.
 pub fn parse_raw_tree(source: &MappedSource, options: RawTreeOptions) -> RawTree {
     RawTreeParser::new(source, options).parse()
 }

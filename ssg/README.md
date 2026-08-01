@@ -46,9 +46,13 @@ The result is a `Snapshot` that retains both the raw Manifest and normalized
 Catalog:
 
 ```rust
-let snapshot = ssg::load("path/to/SkriptSyntaxGenerator")?;
-println!("{}", snapshot.manifest().snapshot_id);
-let catalog = snapshot.into_catalog();
+fn load_catalog(
+    path: impl AsRef<std::path::Path>,
+) -> Result<syntaxes::Catalog, ssg::SnapshotError> {
+    let snapshot = ssg::load(path)?;
+    println!("{}", snapshot.manifest().snapshot_id);
+    Ok(snapshot.into_catalog())
+}
 ```
 
 ## Validation

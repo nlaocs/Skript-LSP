@@ -1,3 +1,5 @@
+//! Concrete legacy syntax entities produced from SkriptHub API records.
+
 mod condition;
 mod effect;
 mod event;

@@ -1,3 +1,9 @@
+//! Native Wasmtime host for CoreLibrary and parser addon Components.
+//!
+//! The host negotiates capabilities, orders hooks, enforces resource limits,
+//! coordinates macros and dynamic syntax, and commits only accepted side effects.
+#![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
@@ -80,9 +86,11 @@ pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     TreeMacroInput, TreeMacroOutput,
 };
 
+/// Reserved component ID required for the first host component.
 pub const CORE_LIBRARY_COMPONENT_ID: &str = "nlaocs.core-library";
 
 #[derive(Debug, Clone)]
+/// Execution, memory, pipeline, StateStore, and catalog configuration.
 pub struct HostConfig {
     pub fuel_per_call: u64,
     pub call_timeout: Duration,
@@ -165,6 +173,7 @@ impl HostConfig {
 }
 
 #[derive(Debug, thiserror::Error)]
+/// Host setup, component execution, output validation, or quota failure.
 pub enum HostError {
     #[error("CoreLibrary component is missing")]
     CoreLibraryMissing,
@@ -302,6 +311,7 @@ impl HostError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Observable identity and runtime status of a loaded component.
 pub struct ComponentInfo {
     pub component_id: String,
     pub component_version: String,
@@ -310,6 +320,7 @@ pub struct ComponentInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Registry scope selected for a generic hook dispatch.
 pub enum DispatchTarget {
     ParseStage,
     SyntaxDefinition(SyntaxKind),
@@ -319,6 +330,7 @@ pub enum DispatchTarget {
     },
 }
 
+/// Context, target, phase, and payload for one generic dispatch.
 pub struct DispatchRequest {
     pub context: InvocationContext,
     pub target: DispatchTarget,
@@ -327,12 +339,14 @@ pub struct DispatchRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Trace record for one attempted component subscription.
 pub struct HookCall {
     pub component_id: String,
     pub subscription_id: String,
 }
 
 #[derive(Debug)]
+/// Recoverable per-component failure retained in a pipeline result.
 pub struct ComponentFailure {
     pub component_id: String,
     pub subscription_id: String,
@@ -340,6 +354,7 @@ pub struct ComponentFailure {
 }
 
 #[derive(Debug)]
+/// Accepted decision, payload, effects, call trace, and recoverable failures.
 pub struct DispatchResult {
     pub decision: HookDecision,
     pub payload: HookPayload,
@@ -349,18 +364,21 @@ pub struct DispatchResult {
 }
 
 #[derive(Debug)]
+/// Native candidate results plus accepted matching-hook side effects.
 pub struct WasmPatternMatchResult {
     pub matches: CandidateMatches,
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
 }
+/// Invocation context and mapped input for a Text macro pipeline.
 pub struct TextMacroRequest {
     pub context: InvocationContext,
     pub source: MappedSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Per-subscription Text macro acceptance, provenance, and state dependencies.
 pub struct TextMacroCall {
     pub component_id: String,
     pub subscription_id: String,
@@ -370,6 +388,7 @@ pub struct TextMacroCall {
 }
 
 #[derive(Debug)]
+/// Final mapped source and transactional metadata from Text preprocessing.
 pub struct TextMacroResult {
     pub decision: HookDecision,
     pub source: MappedSource,
@@ -378,6 +397,7 @@ pub struct TextMacroResult {
     pub failures: Vec<ComponentFailure>,
 }
 
+/// Mapped source and lossless input tree for recursive Tree expansion.
 pub struct TreeMacroRequest {
     pub context: InvocationContext,
     pub source: MappedSource,
@@ -385,6 +405,7 @@ pub struct TreeMacroRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Per-node Tree macro acceptance, expansion identity, and state dependencies.
 pub struct TreeMacroCall {
     pub component_id: String,
     pub subscription_id: String,
@@ -395,6 +416,7 @@ pub struct TreeMacroCall {
 }
 
 #[derive(Debug)]
+/// Final tree/source provenance and transactional Tree macro metadata.
 pub struct TreeMacroResult {
     pub decision: HookDecision,
     pub source: MappedSource,
@@ -1210,6 +1232,7 @@ impl Drop for EpochTicker {
     }
 }
 
+/// Wasmtime component registry and orchestrator for all parser extension stages.
 pub struct ParserHost {
     engine: Engine,
     linker: Linker<StoreData>,
@@ -1223,6 +1246,7 @@ pub struct ParserHost {
 }
 
 impl ParserHost {
+    /// Creates a host and synchronously loads the mandatory CoreLibrary component.
     pub fn new(core_library: &[u8], config: HostConfig) -> Result<Self, HostError> {
         if core_library.is_empty() {
             return Err(HostError::CoreLibraryMissing);
@@ -1263,6 +1287,7 @@ impl ParserHost {
         Ok(host)
     }
 
+    /// Starts matching StateStore and dynamic-syntax overlays for a document revision.
     pub fn begin_parse(
         &self,
         project_uri: &str,
@@ -1281,10 +1306,12 @@ impl ParserHost {
         Ok(transaction)
     }
 
+    /// Compiles, negotiates, initializes, and registers an optional addon Component.
     pub fn load_addon(&mut self, component: &[u8]) -> Result<ComponentInfo, HostError> {
         self.load_component(component, false)
     }
 
+    /// Returns loaded components in deterministic load order, including disabled entries.
     pub fn components(&self) -> Vec<ComponentInfo> {
         self.components
             .iter()
@@ -1297,6 +1324,7 @@ impl ParserHost {
             .collect()
     }
 
+    /// Freezes the current revision into a deterministic immutable candidate snapshot.
     pub fn dynamic_syntax_snapshot(
         &self,
         transaction: &ParseTransaction,
@@ -1311,6 +1339,7 @@ impl ParserHost {
         )?)
     }
 
+    /// Runs native registered-pattern matching with transactional WASM hooks.
     pub fn match_patterns_in_parse<R: TypeExpressionResolver>(
         &mut self,
         transaction: &ParseTransaction,
@@ -1362,6 +1391,7 @@ impl ParserHost {
             }
         }
     }
+    /// Disables an addon and removes its baseline dynamic syntax.
     pub fn unload_addon(&mut self, component_id: &str) -> Result<bool, HostError> {
         if component_id == CORE_LIBRARY_COMPONENT_ID {
             return Err(HostError::CannotUnloadCoreLibrary);
@@ -1380,6 +1410,7 @@ impl ParserHost {
         Ok(true)
     }
 
+    /// Runs one generic dispatch in an automatically committed parse transaction.
     pub fn dispatch(&mut self, request: DispatchRequest) -> Result<DispatchResult, HostError> {
         let project_uri = request.context.document_id.clone();
         let transaction = self.begin_parse(
@@ -1409,6 +1440,7 @@ impl ParserHost {
         }
     }
 
+    /// Runs one generic dispatch inside a caller-owned parse transaction.
     pub fn dispatch_in_parse(
         &mut self,
         transaction: &ParseTransaction,
@@ -1467,6 +1499,7 @@ impl ParserHost {
         }
     }
 
+    /// Runs Text preprocessing in an automatically committed parse transaction.
     pub fn expand_text(&mut self, request: TextMacroRequest) -> Result<TextMacroResult, HostError> {
         let project_uri = request.context.document_id.clone();
         let transaction = self.begin_parse(
@@ -1496,6 +1529,7 @@ impl ParserHost {
         }
     }
 
+    /// Runs ordered Text macros inside a caller-owned parse transaction.
     pub fn expand_text_in_parse(
         &mut self,
         transaction: &ParseTransaction,
@@ -1890,6 +1924,7 @@ impl ParserHost {
         })
     }
 
+    /// Runs recursive Tree macros in an automatically committed parse transaction.
     pub fn expand_tree(&mut self, request: TreeMacroRequest) -> Result<TreeMacroResult, HostError> {
         let project_uri = request.context.document_id.clone();
         let transaction = self.begin_parse(
@@ -1919,6 +1954,7 @@ impl ParserHost {
         }
     }
 
+    /// Runs recursive pre-order Tree expansion inside a caller-owned transaction.
     pub fn expand_tree_in_parse(
         &mut self,
         transaction: &ParseTransaction,
@@ -2871,6 +2907,9 @@ fn wit_state_error(error: StateError) -> WitStateError {
     }
 }
 
+/// Returns the capabilities advertised by a host without a syntax catalog.
+///
+/// Dynamic syntax is advertised only by configured hosts that receive a Catalog.
 pub fn host_capabilities() -> Vec<Capability> {
     [
         CAPABILITY_HOOKS,

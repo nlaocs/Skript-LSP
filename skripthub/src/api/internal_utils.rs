@@ -1,3 +1,5 @@
+//! String interning helpers for the repetitive legacy API response.
+
 use std::sync::{Arc, LazyLock};
 
 pub(crate) fn intern_arc_str_with_empty<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>

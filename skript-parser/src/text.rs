@@ -1,3 +1,9 @@
+//! UTF-8 byte-range primitives used by source maps, trees, matching, and diagnostics.
+//!
+//! Ranges are half-open. Conversion to UTF-16 LSP positions is intentionally left
+//! to the protocol boundary.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use std::fmt;
 
 /// A half-open UTF-8 byte range in a source text.
@@ -8,22 +14,27 @@ pub struct TextRange {
 }
 
 impl TextRange {
+    /// Creates a half-open `start..end` byte range.
     pub const fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
 
+    /// Creates a zero-width range at `offset`.
     pub const fn empty(offset: usize) -> Self {
         Self::new(offset, offset)
     }
 
+    /// Returns the range length, saturating malformed reversed ranges to zero.
     pub const fn len(self) -> usize {
         self.end.saturating_sub(self.start)
     }
 
+    /// Returns whether both endpoints are equal.
     pub const fn is_empty(self) -> bool {
         self.start == self.end
     }
 
+    /// Checks ordering, bounds, and UTF-8 character boundaries.
     pub fn is_valid_for(self, source: &str) -> bool {
         self.start <= self.end
             && self.end <= source.len()
@@ -31,10 +42,12 @@ impl TextRange {
             && source.is_char_boundary(self.end)
     }
 
+    /// Returns the covered substring when the range is valid.
     pub fn slice(self, source: &str) -> Option<&str> {
         source.get(self.start..self.end)
     }
 
+    /// Returns whether this range fully contains `other`.
     pub const fn contains(self, other: Self) -> bool {
         self.start <= other.start && other.end <= self.end
     }

@@ -1,3 +1,5 @@
+//! Legacy SkriptHub condition entity.
+
 use crate::addon_syntax_list::entity::utils::define_syntax_struct;
 
 define_syntax_struct!(Condition {});

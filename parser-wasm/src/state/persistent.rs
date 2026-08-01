@@ -1,3 +1,8 @@
+//! Persistent-project backend implemented with `redb`.
+//!
+//! Databases live in the LSP data directory and are separated by canonical project
+//! identity; schema-version changes invalidate incompatible namespace contents.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,

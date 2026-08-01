@@ -1,5 +1,11 @@
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
+//! Test Component for registered-pattern matching hooks.
+//!
+//! Its subscriptions observe nested matcher scopes, override selected candidates,
+//! emit effects, and write state so host-side rollback can be asserted end to end.
+#![allow(missing_docs)] // `wit_bindgen` generates the exported guest API.
+
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
     world: "parser-addon",

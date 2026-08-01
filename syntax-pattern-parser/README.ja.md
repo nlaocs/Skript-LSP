@@ -18,8 +18,8 @@
 | `[a]` | `Option` | 任意group |
 | `<.+>` | `Regex` | inline regular expression |
 | `%string%` | `TypeExpr` | Skript expressionのplaceholder |
-| `:tag` | `ParseTag` | parse tag marker |
-| `¦1` | `ParseMark` | numeric parse mark |
+| `tag:value` | `ParseTag` | parse tag marker |
+| `1¦value` | `ParseMark` | numeric parse mark |
 | 空branch | `Empty` | `a|`などの明示的な空選択肢 |
 
 `|`はtop-levelを含むすべてのscopeでchoiceを作ります。`\|`はliteral pipeです。そのため
@@ -30,18 +30,18 @@ AST nodeは元patternのUTF-8 byte spanを保持します。parserはdelimiter�
 
 ## Type expression
 
-`%...%`内部は`TypeExpression`として構造化されます。1つのplaceholderに`/`区切りのtype
+`%...%`内部は`PatternTypeExpr`として構造化されます。1つのplaceholderに`/`区切りのtype
 alternativeを複数含められ、各typeは次のmodifierを持てます。
 
 | Modifier | 意味 |
 | --- | --- |
-| `-` | expressionを許可しない |
+| `-` | 値が存在しないnullable expressionを許可 |
 | `~` | literalを許可しない |
-| `*` | expressionを許可しない複数値形式 |
+| `*` | literal以外のexpressionを許可しない |
 
 `@` time stateも構造化されます。不正な位置や重複状態はtyped parse errorです。
 
-解析済みtype名は`TypePattern`と`PluralRules`を使って正規化します。plural ruleはSkriptと
+解析済みtype名は`PatternTypeExpr`と`PluralRules`を使って正規化します。plural ruleはSkriptと
 addonがruntime登録するため、callerは対象SSG snapshotの`PluralRules.json`を渡す必要が
 あります。
 
@@ -70,11 +70,11 @@ errorではありません。
 `PluralRules`は、Skript runtimeが登録した単数・複数overrideを表します。
 
 ```rust
-let rules = PluralRules::from_ssg_json(plural_rules_json)?;
+let rules = PluralRules::from_json(plural_rules_json)?;
 let parsed = parse("give %items% to %player%", &rules)?;
 ```
 
-`from_ssg_json`はSSGの`PluralRules.json`全体を受け取ります。`rules` fieldだけを渡すもの
+`from_json`はSSGの`PluralRules.json`全体を受け取ります。`rules` fieldだけを渡すもの
 ではありません。
 
 English fallback ruleはありません。対象serverに対応する生成ruleがない状態で推測すると、
@@ -90,7 +90,7 @@ test corpusは次を含みます。
 代表的な利用例:
 
 ```rust
-let rules = PluralRules::from_ssg_json(plural_rules_json)?;
+let rules = PluralRules::from_json(plural_rules_json)?;
 let parsed = parse("(send|message) %string%", &rules)?;
 ```
 

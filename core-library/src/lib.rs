@@ -1,4 +1,7 @@
 #![cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+#![doc = include_str!("../README.md")]
+#![warn(rustdoc::broken_intra_doc_links)]
+#![allow(missing_docs)] // `wit_bindgen` owns the generated guest surface.
 
 wit_bindgen::generate!({
     path: "../parser-wasm/wit",

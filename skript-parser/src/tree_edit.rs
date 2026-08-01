@@ -1,3 +1,9 @@
+//! Validated replacement operations over a lossless `RawTree`.
+//!
+//! Addon-provided fragments use local IDs. The host allocates stable node,
+//! expansion, and syntax-context identities only after the entire edit validates.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use crate::{
     ExpansionId, MappedSource, MappedSpan, OriginKind, RawLine, RawNode, RawNodeId, RawNodeKind,
     RawTree, RawTrivia, RawTriviaKind, SourceOrigin, SyntaxContextId, TextRange, TreeExpansion,
@@ -6,6 +12,7 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Addon-local identity used only while validating a generated fragment.
 pub struct GeneratedRawNodeId(u64);
 
 impl GeneratedRawNodeId {
@@ -25,6 +32,7 @@ impl std::fmt::Display for GeneratedRawNodeId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Allowed structural kind for an addon-generated raw node.
 pub enum GeneratedRawNodeKind {
     Blank,
     Comment,
@@ -33,6 +41,7 @@ pub enum GeneratedRawNodeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One node in an addon-provided replacement fragment.
 pub struct GeneratedRawNode {
     pub id: GeneratedRawNodeId,
     pub kind: GeneratedRawNodeKind,
@@ -41,24 +50,28 @@ pub struct GeneratedRawNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Validated-input arena and roots supplied by a Tree macro.
 pub struct GeneratedRawTree {
     pub roots: Vec<GeneratedRawNodeId>,
     pub nodes: Vec<GeneratedRawNode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Where original Section children are attached to generated content.
 pub enum RetainedChildrenPlacement {
     Prepend,
     Append,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Policy for preserving children of the replaced Section.
 pub struct RetainedChildren {
     pub parent: GeneratedRawNodeId,
     pub placement: RetainedChildrenPlacement,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Atomic structural operation targeting the current RawTree node.
 pub enum TreeEdit {
     ReplaceNode {
         replacement: GeneratedRawTree,
@@ -70,12 +83,14 @@ pub enum TreeEdit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Component and hook identity attached to generated tree provenance.
 pub struct TreeEditMetadata {
     pub component: String,
     pub hook: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Updated tree/source provenance and generated root identities.
 pub struct TreeEditApplication {
     pub source: MappedSource,
     pub tree: RawTree,
@@ -84,6 +99,7 @@ pub struct TreeEditApplication {
     pub replacement_roots: usize,
 }
 
+/// Validates and atomically applies one generated Tree macro operation.
 pub fn apply_tree_edit(
     source: &MappedSource,
     tree: &RawTree,
@@ -149,6 +165,7 @@ pub fn apply_tree_edit(
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Rejected generated tree, target, retained-child policy, or provenance operation.
 pub enum TreeEditError {
     #[error("RawTree references unknown node {id}")]
     UnknownInputNode { id: RawNodeId },

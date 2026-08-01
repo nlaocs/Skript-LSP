@@ -1,3 +1,9 @@
+//! Transactional key/value state shared with WASM parser addons.
+//!
+//! Invocation overlays roll back rejected candidates and traps. Parse transactions
+//! commit only after the current document revision completes, with scoped namespaces and quotas.
+#![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
+
 mod persistent;
 
 use std::{
@@ -13,6 +19,7 @@ use url::Url;
 use persistent::PersistentProject;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Lifetime and sharing boundary of one StateStore value.
 pub enum StateScope {
     Invocation,
     Parse,
@@ -22,12 +29,14 @@ pub enum StateScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Access-control mode declared for a state namespace.
 pub enum NamespaceVisibility {
     Private,
     Shared,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Guest-selected payload encoding; the host treats bytes as opaque.
 pub enum StateEncoding {
     Raw,
     Cbor,
@@ -35,6 +44,7 @@ pub enum StateEncoding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Schema-tagged opaque value stored by an addon.
 pub struct StateValue {
     pub schema_id: String,
     pub encoding: StateEncoding,
@@ -42,6 +52,7 @@ pub struct StateValue {
 }
 
 impl StateValue {
+    /// Creates an opaque value tagged with its schema and encoding.
     pub fn new(
         schema_id: impl Into<String>,
         encoding: StateEncoding,
@@ -63,12 +74,14 @@ impl StateValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Key/value pair returned by a deterministic prefix scan.
 pub struct StateEntry {
     pub key: String,
     pub value: StateValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Private or shared namespace schema and access-control declaration.
 pub struct NamespaceDeclaration {
     pub name: String,
     pub visibility: NamespaceVisibility,
@@ -79,6 +92,7 @@ pub struct NamespaceDeclaration {
 }
 
 impl NamespaceDeclaration {
+    /// Declares a namespace accessible only to its owning component.
     pub fn private(
         name: impl Into<String>,
         schema_id: impl Into<String>,
@@ -94,6 +108,7 @@ impl NamespaceDeclaration {
         }
     }
 
+    /// Declares a namespace with explicit component reader and writer sets.
     pub fn shared<R, W, RI, WI>(
         name: impl Into<String>,
         schema_id: impl Into<String>,
@@ -119,6 +134,7 @@ impl NamespaceDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Fully qualified record identity captured in a read/write set.
 pub struct StateRecordKey {
     pub scope: StateScope,
     pub visibility: NamespaceVisibility,
@@ -128,6 +144,7 @@ pub struct StateRecordKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Fully qualified namespace identity and revision dependency.
 pub struct StateNamespaceKey {
     pub scope: StateScope,
     pub visibility: NamespaceVisibility,
@@ -136,6 +153,7 @@ pub struct StateNamespaceKey {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Records and namespace revisions observed or changed by a transaction.
 pub struct StateReadWriteSet {
     pub reads: BTreeSet<StateRecordKey>,
     pub writes: BTreeSet<StateRecordKey>,
@@ -143,6 +161,7 @@ pub struct StateReadWriteSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Per-key, per-value, per-namespace, and scan resource limits.
 pub struct StateQuotas {
     pub max_key_bytes: usize,
     pub max_value_bytes: usize,
@@ -178,12 +197,15 @@ impl StateQuotas {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Persistent location override and quotas for a StateStore.
 pub struct StateStoreConfig {
     pub data_directory: Option<PathBuf>,
     pub quotas: StateQuotas,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Input, access, quota, revision, transaction, or persistence failure.
+#[allow(missing_docs)] // Variant messages describe the rejected state operation.
 pub enum StateError {
     #[error("no StateStore transaction is active for this WASM invocation")]
     NoActiveTransaction,
@@ -428,11 +450,13 @@ struct StateStoreInner {
 }
 
 #[derive(Clone)]
+/// Thread-safe namespace registry and transaction coordinator.
 pub struct StateStore {
     inner: Arc<Mutex<StateStoreInner>>,
 }
 
 impl StateStore {
+    /// Opens the transactional store and its optional persistent backend.
     pub fn new(config: StateStoreConfig) -> Result<Self, StateError> {
         config.quotas.validate()?;
         let data_directory = match config.data_directory {
@@ -451,6 +475,7 @@ impl StateStore {
         })
     }
 
+    /// Validates and registers every namespace declared by one component.
     pub fn register_component(
         &self,
         component_id: &str,
@@ -468,6 +493,7 @@ impl StateStore {
         Ok(())
     }
 
+    /// Starts an isolated overlay for one project/document revision.
     pub fn begin_parse(
         &self,
         project_uri: &str,
@@ -546,11 +572,13 @@ impl ParseTransactionInner {
 }
 
 #[derive(Clone)]
+/// Revision-bound parse overlay that owns invocation transactions and commit.
 pub struct ParseTransaction {
     inner: Arc<Mutex<ParseTransactionInner>>,
 }
 
 impl ParseTransaction {
+    /// Starts a speculative hook overlay owned by `component_id`.
     pub fn begin_invocation(
         &self,
         component_id: impl Into<String>,
@@ -568,6 +596,7 @@ impl ParseTransaction {
         })
     }
 
+    /// Captures a rollback point in the current parse overlay.
     pub fn savepoint(&self) -> Result<StateSavepoint, StateError> {
         let inner = self.lock()?;
         inner.ensure_open()?;
@@ -580,6 +609,7 @@ impl ParseTransaction {
         })
     }
 
+    /// Discards all parse-overlay changes after a compatible savepoint.
     pub fn rollback_to(&self, savepoint: &StateSavepoint) -> Result<(), StateError> {
         let mut inner = self.lock()?;
         inner.ensure_open()?;
@@ -595,10 +625,12 @@ impl ParseTransaction {
         Ok(())
     }
 
+    /// Returns dependencies accumulated by every accepted invocation so far.
     pub fn read_write_set(&self) -> Result<StateReadWriteSet, StateError> {
         Ok(self.lock()?.read_write_set.clone())
     }
 
+    /// Commits a current parse revision and durable scopes atomically.
     pub fn commit(&self) -> Result<CommitSummary, StateError> {
         let mut parse = self.lock()?;
         parse.ensure_open()?;
@@ -635,6 +667,7 @@ impl ParseTransaction {
         })
     }
 
+    /// Closes the parse transaction without publishing any writes.
     pub fn cancel(&self) -> Result<(), StateError> {
         let mut inner = self.lock()?;
         inner.ensure_open()?;
@@ -643,10 +676,12 @@ impl ParseTransaction {
         Ok(())
     }
 
+    /// Returns the document identity bound to this transaction.
     pub fn document_id(&self) -> Result<String, StateError> {
         Ok(self.lock()?.document_id.clone())
     }
 
+    /// Returns the document revision bound to this transaction.
     pub fn document_revision(&self) -> Result<u64, StateError> {
         Ok(self.lock()?.document_revision)
     }
@@ -659,6 +694,7 @@ impl ParseTransaction {
 }
 
 #[derive(Debug, Clone)]
+/// Opaque snapshot of a parse overlay used for candidate rollback.
 pub struct StateSavepoint {
     transaction_id: u64,
     writes: BTreeMap<Address, Option<StateValue>>,
@@ -668,11 +704,13 @@ pub struct StateSavepoint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Committed write count and complete parse read/write dependency set.
 pub struct CommitSummary {
     pub writes: usize,
     pub read_write_set: StateReadWriteSet,
 }
 
+/// Speculative hook overlay merged only when its candidate is accepted.
 pub struct InvocationTransaction {
     parse: Arc<Mutex<ParseTransactionInner>>,
     component_id: String,
@@ -683,6 +721,7 @@ pub struct InvocationTransaction {
 }
 
 impl InvocationTransaction {
+    /// Reads one value through the invocation overlay and records the dependency.
     pub fn get(
         &mut self,
         scope: StateScope,
@@ -709,6 +748,7 @@ impl InvocationTransaction {
         Ok(values.get(key).cloned())
     }
 
+    /// Returns ordered entries whose key begins with `prefix`, bounded by both quotas.
     pub fn scan_prefix(
         &mut self,
         scope: StateScope,
@@ -756,6 +796,7 @@ impl InvocationTransaction {
         Ok(entries)
     }
 
+    /// Stages one schema-compatible value in this invocation.
     pub fn put(
         &mut self,
         scope: StateScope,
@@ -768,6 +809,7 @@ impl InvocationTransaction {
             .map(|_| ())
     }
 
+    /// Stages deletion of one key and reports whether it was visible.
     pub fn delete(
         &mut self,
         scope: StateScope,
@@ -778,6 +820,7 @@ impl InvocationTransaction {
         self.write(scope, visibility, namespace, key, None)
     }
 
+    /// Conditionally replaces a value using schema ID, encoding, and bytes for equality.
     pub fn compare_and_swap(
         &mut self,
         scope: StateScope,
@@ -795,6 +838,7 @@ impl InvocationTransaction {
         Ok(true)
     }
 
+    /// Returns dependencies accumulated by this speculative invocation.
     pub fn read_write_set(&self) -> StateReadWriteSet {
         let namespace_revisions = self
             .observed_revisions
@@ -808,6 +852,7 @@ impl InvocationTransaction {
         }
     }
 
+    /// Merges invocation writes into the parent parse overlay.
     pub fn commit(self) -> Result<(), StateError> {
         let mut parse = self.parse.lock().map_err(|_| StateError::Internal {
             message: "parse transaction mutex was poisoned".to_owned(),
@@ -895,6 +940,7 @@ impl InvocationTransaction {
         Ok(())
     }
 
+    /// Explicitly discards every invocation write.
     pub fn rollback(self) {}
 
     fn write(

@@ -1,3 +1,8 @@
+//! Serde DTOs that mirror every JSON object emitted by SSG schema 3.
+//!
+//! These structures are a wire-format boundary, not the semantic parser model.
+//! Optional values and empty lists preserve the distinctions made by the generator.
+
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;

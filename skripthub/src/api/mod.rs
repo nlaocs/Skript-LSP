@@ -1,3 +1,5 @@
+//! Blocking client for the historical SkriptHub addon syntax list endpoint.
+
 mod internal_utils;
 pub mod types;
 

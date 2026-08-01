@@ -1,3 +1,8 @@
+//! Semantic validation for individual SSG files and cross-file references.
+//!
+//! Validation is deliberately separate from deserialization so malformed structure
+//! and inconsistent-but-valid JSON produce precise, stable errors.
+
 use crate::SnapshotError;
 use crate::raw::{self, EventValueApi, ResolutionState, SyntaxKind};
 use std::collections::{HashMap, HashSet};

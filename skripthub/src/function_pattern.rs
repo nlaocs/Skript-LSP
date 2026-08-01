@@ -2,28 +2,41 @@
 //! SSG `Functions.json` is already structured and must not pass through this parser.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Parsed legacy function wrapper retained for API compatibility.
 pub struct FnParseResult {
+    /// Parsed signature.
     pub inner: Function,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Parsed legacy function name and ordered arguments.
 pub struct Function {
+    /// Function identifier.
     pub name: String,
+    /// Arguments in declaration order.
     pub args: Vec<Arg>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One argument in a flattened SkriptHub function signature.
 pub struct Arg {
+    /// Parameter name.
     pub name: String,
+    /// Unparsed SkriptHub type string.
     pub arg_type: String,
+    /// Optional flattened default expression.
     pub default_expression: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
 #[error("{kind}")]
+/// Legacy function parse failure.
 pub struct FnParseError {
+    /// Stable failure category.
     pub kind: FnParseErrorKind,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Hash)]
+/// Failure category for the flattened compatibility grammar.
+#[allow(missing_docs)] // Variant messages are the user-facing explanation.
 pub enum FnParseErrorKind {
     #[error("Invalid function name: {0:?}")] // todo
     InvalidFunctionName(InvalidFunctionNameKind),
@@ -40,11 +53,17 @@ pub enum FnParseErrorKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Position category for an invalid legacy function-name character.
 pub enum InvalidFunctionNameKind {
+    /// The first character was neither alphabetic nor `_`.
     UnexpectedFirstCharacter,
+    /// A later character was neither alphanumeric nor `_`.
     UnexpectedCharacter,
 }
 
+/// Parses one flattened SkriptHub function signature.
+///
+/// This is a compatibility API. Structured SSG functions must bypass it.
 pub fn parse(input: &str) -> Result<FnParseResult, FnParseError> {
     let mut chars = input.char_indices().peekable();
 

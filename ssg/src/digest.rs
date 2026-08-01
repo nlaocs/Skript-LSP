@@ -1,3 +1,8 @@
+//! Java-compatible hashing for SSG content digests and snapshot identities.
+//!
+//! The byte order, file order, and manifest projection intentionally match the
+//! generator; changing them is a schema compatibility change.
+
 use crate::raw::{Capabilities, Manifest, Plugin, Server};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;

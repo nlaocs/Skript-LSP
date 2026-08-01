@@ -1,3 +1,8 @@
+//! Conversion from schema-specific raw DTOs into the normalized `syntaxes` model.
+//!
+//! Conversion runs only after validation, so this module may rely on cross-file IDs,
+//! resolution states, class names, and alias targets having been checked.
+
 use crate::{SnapshotError, raw};
 use std::collections::BTreeMap;
 use syntax_pattern_parser::syntax::PluralRules;
