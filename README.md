@@ -77,6 +77,7 @@ The intended data flow is:
 | [dynamic-syntax-addon](./test-components/dynamic-syntax-addon/) | test WASM component | Exercises dynamic registration, override, prepass, rollback, freeze, and unload behavior. |
 | [effect-addon](./test-components/effect-addon/) | test WASM component | Exercises Effect lifecycle replacement, rejection diagnostics, dynamic handlers, and selected-state rollback. |
 | [matching-addon](./test-components/matching-addon/) | test WASM component | Exercises typed matching overrides and selected-candidate StateStore rollback. |
+| [`effect-command-cli`](./utilities/effect-command-cli/) | analysis utility | Builds `effectcommandcli`, a standalone one-shot and REPL inspector for Effect patterns, captures, recursive Expressions, and resolved types from an SSG snapshot. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |
 | [`xtask`](./xtask/) | build utility | Builds core Wasm modules, converts them to Components, validates exports, and publishes local artifacts. |
 

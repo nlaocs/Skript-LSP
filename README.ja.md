@@ -70,6 +70,7 @@ flowchart LR
 | [dynamic-syntax-addon](./test-components/dynamic-syntax-addon/README.ja.md) | test WASM component | dynamic registration、override、prepass、rollback、freeze、unloadを検証します。 |
 | [effect-addon](./test-components/effect-addon/README.ja.md) | test WASM component | Effect lifecycleの置換、Reject diagnostic、dynamic handler、採用state rollbackを検証します。 |
 | [matching-addon](./test-components/matching-addon/README.ja.md) | test WASM component | 型付きmatching overrideと採用候補だけを残すStateStore rollbackを検証します。 |
+| [`effect-command-cli`](./utilities/effect-command-cli/README.ja.md) | 解析utility | SSG snapshotからEffect pattern、capture、再帰Expression、解決typeを単発・REPLで確認する独立実行ファイル`effectcommandcli`を構築します。 |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/README.ja.md) | developer utility | SkriptHubデータを取得し、parserが拒否したpatternを分類します。 |
 | [`xtask`](./xtask/README.ja.md) | build utility | core Wasm moduleのbuild、Component変換、export検証、local artifactの配置を行います。 |
 
