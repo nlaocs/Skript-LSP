@@ -67,13 +67,14 @@ The intended data flow is:
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
 | [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 snapshot directories. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |
-| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, syntax contexts, and the lossless RawTree for `.sk` documents. |
+| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, and registered-pattern matching for `.sk` documents. |
 | [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, StateStore, and dynamic syntax bridge. |
 | [`core-library`](./core-library/) | WASM component | Mandatory parser addon component reserved for Skript's built-in parsing behavior. It currently supplies ABI negotiation and a health hook. |
 | [`skripthub`](./skripthub/) | legacy library | Compatibility reader for the old SkriptHub API and its flattened function strings. New syntax data should use `ssg` and `syntaxes`. |
 | [`text-macro-addon`](./test-components/text-macro-addon/) | test WASM component | Exercises ordered Text macro expansion, UTF-8 edits, anchors, StateStore rollback, and traps. |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/) | test WASM component | Exercises targeted TreeEdit operations, recursive expansion, provenance, cycles, StateStore rollback, quotas, and traps. |
-| [`dynamic-syntax-addon`](./test-components/dynamic-syntax-addon/) | test WASM component | Exercises dynamic registration, override, prepass, rollback, freeze, and unload behavior. |
+| [dynamic-syntax-addon](./test-components/dynamic-syntax-addon/) | test WASM component | Exercises dynamic registration, override, prepass, rollback, freeze, and unload behavior. |
+| [matching-addon](./test-components/matching-addon/) | test WASM component | Exercises typed matching overrides and selected-candidate StateStore rollback. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |
 | [`xtask`](./xtask/) | build utility | Builds core Wasm modules, converts them to Components, validates exports, and publishes local artifacts. |
 
@@ -120,8 +121,8 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 `xtask` writes `artifacts/core-library.wasm` and
-`artifacts/dynamic-syntax-addon.wasm`, `artifacts/text-macro-addon.wasm`, and
-`artifacts/tree-macro-addon.wasm`.
+`artifacts/dynamic-syntax-addon.wasm`, `artifacts/matching-addon.wasm`,
+`artifacts/text-macro-addon.wasm`, and `artifacts/tree-macro-addon.wasm`.
 Generated artifacts are not committed.
 A missing CoreLibrary artifact is intentionally a compile-time error because
 the parser is not supported without CoreLibrary.

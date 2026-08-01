@@ -10,11 +10,12 @@ pub mod state;
 #[cfg(feature = "host")]
 pub use host::{
     HostConfig, HostError, ParserHost, TreeMacroCall, TreeMacroRequest, TreeMacroResult,
+    WasmPatternMatchResult,
 };
 #[cfg(feature = "host")]
 pub use state::{ParseTransaction, StateError, StateStore};
 
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 2);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 3);
 
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
 pub const CAPABILITY_STATE_STORE: &str = "parser.state-store";

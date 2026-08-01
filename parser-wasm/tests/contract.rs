@@ -31,7 +31,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.3.0")
+        Some("0.4.0")
     );
 
     let world = package
@@ -247,4 +247,44 @@ fn contract_defines_every_hook_phase_and_execution_mode() {
 
     assert_eq!(phases.len(), 12);
     assert_eq!(modes.len(), 3);
+}
+
+#[test]
+fn bindings_expose_typed_matching_payload() {
+    use host::nlaocs::skript_parser_addon::types::{
+        MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope, MatchingStatus,
+        MatchingTiming, OriginKind, SourceOrigin, TextRange,
+    };
+
+    let payload = MatchingPayload {
+        input: "send hello".to_owned(),
+        pattern: Some("send %string%".to_owned()),
+        definition_id: "effect:send".to_owned(),
+        registration_id: "effect:send#0".to_owned(),
+        pattern_index: Some(0),
+        element_path: vec![
+            MatchingPathSegment::Element(1),
+            MatchingPathSegment::Branch(0),
+        ],
+        pattern_span: Some(TextRange { start: 5, end: 13 }),
+        scope: MatchingScope::Element,
+        timing: MatchingTiming::Before,
+        input_range: TextRange { start: 5, end: 10 },
+        span: MappedSpan {
+            virtual_range: TextRange { start: 5, end: 10 },
+            origins: vec![SourceOrigin {
+                original_range: TextRange { start: 20, end: 25 },
+                kind: OriginKind::Exact,
+                expansion: None,
+            }],
+        },
+        status: MatchingStatus::Pending,
+        failure_reason: None,
+    };
+
+    assert_eq!(payload.definition_id, "effect:send");
+    assert_eq!(payload.registration_id, "effect:send#0");
+    assert_eq!(payload.pattern_index, Some(0));
+    assert_eq!(payload.element_path.len(), 2);
+    assert_eq!(payload.span.origins[0].original_range.start, 20);
 }

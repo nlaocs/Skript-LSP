@@ -6,9 +6,9 @@
 現在はUTF-8 range、virtual source mapping、検証済みText editの適用、macro展開の出典、syntax
 context、losslessなindentation-based RawTreeを実装しています。
 
-preprocess後sourceのphysical line分割とcomment/indentation構造の構築までは実装済みです。
-登録構文との照合と完全なSkript ASTの生成はまだ行いません。今後の解析stageは、ここで
-定義したinvariantの上に追加します。
+preprocess後sourceのphysical line分割、comment/indentation構造の構築、登録構文patternとの
+照合までを実装しています。完全なSkript ASTの生成はまだ行いません。後続stageは、ここで
+定義したrange、provenance、RawTree、capture、候補順序の上に追加します。
 
 ## syntax-pattern-parserと分かれている理由
 
@@ -125,6 +125,31 @@ Section bodyへ適用します。新しいRawNode IDを割り当て、Tree expan
 登録し、すべての生成spanを置換対象nodeのcall-siteへ対応付けます。WIT変換と再帰的な
 pre-order dispatchは`parser-wasm` hostが担当します。
 
+## 登録patternの照合
+
+`match_pattern_candidates`は`MatchInput`を解析済み登録patternへ照合します。literal、choice、
+group、optional、空branch、regular expression、type expression、parse tag、XOR parse markを
+処理します。Java whitespace規則でtrimした入力全体を消費した候補だけが成功します。
+
+regex captureはnumbered groupとUTF-8 byte単位で正確な`MatchSpan`を保持します。type
+expressionは`TypeExpressionResolver`へ委譲し、後続の再帰Expression parserがSkriptで有効な
+split位置から複数の型付き解決結果を返せます。local rangeは照合対象lineからの相対位置を
+維持し、各結果はeditor向けの`MappedSpan` provenanceも同時に持ちます。
+
+候補はdynamic registryのresolved orderがあればそれを使い、なければnumeric priority、
+registration順、declaration順で並びます。patternの登録indexも維持します。結果には採用候補、
+後続alternative、または全候補が失敗した場合の最遠failure diagnosticが含まれます。
+
+SSG由来dataでは、`catalog_pattern_candidates`がstatic Catalog registrationを、
+`snapshot_pattern_candidates`がfrozen済みstatic/dynamic混在snapshotをPattern ASTの
+再解析なしで変換します。後者はregistryのtopological sort済み順序をmatcherへ渡します。
+TypeとFunctionは専用parser経路を維持します。
+
+`PatternMatchHooks`はdefinition、registration、pattern、nested elementのbefore/afterを観測・
+overrideできます。element pathにはsequence位置とchoice branch位置の両方が含まれます。
+state数、backtrack数、regex実行数、評価byte数、regex engine backtrack数の上限により、曖昧または
+敵対的なpatternを制限します。transition memoizationは決定的なliteral/regex処理の再実行を
+避けます。
 ## Invariant
 
 constructorは次の入力を拒否します。
@@ -150,6 +175,8 @@ constructorは次の入力を拒否します。
 | `source_map` | origin、segment、mapped source、mapped span |
 | `expansion` | expansion graph、component/hook ownership、syntax context |
 | `raw_tree` | physical line、comment分離、indentation回復、RawTree |
+| `pattern_match` | 登録pattern照合、capture、候補順位、hook、quota |
+| `catalog_match` | static Catalogとfrozen dynamic snapshotの候補adapter |
 
 公開itemはcrate rootからre-exportされます。
 
@@ -163,4 +190,4 @@ test suiteには、multibyte UTF-8 mapping、生成text、replacement range、�
 backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
 UTF-8 Text edit適用のproperty testが含まれます。RawTreeについてはSkript公式comment case、
 LF/CRLF/最終改行なし、space/tab、nested Section、回復可能な不正indent、空Section、block
-comment、macro origin、任意UTF-8入力のlossless性を検証します。
+comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。

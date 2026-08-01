@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.3.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.4.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -53,8 +53,9 @@ node ID arenaを使い、Component Model上で再帰しない値として表現�
 各manifestはdiagnostic用のcomponent IDとcomponent versionを公開します。
 
 package versionはWITのshapeを示します。Text editのanchor追加で0.1.0から0.2.0へ、
-lossless RawTreeと対象指定TreeEditの追加で0.3.0へ変わりました。manifestの現在の`abi`値は
-1.2で、runtime handshakeとして`major.minor`の完全一致が必要です。
+lossless RawTreeと対象指定TreeEditの追加で0.3.0へ、型付きpattern matching scope、path、
+status、spanの追加で0.4.0へ変わりました。manifestの現在の`abi`値は
+1.3で、runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。
@@ -127,6 +128,21 @@ rollbackします。型付きRejectまたはpipeline quota errorでは、元tree
 parse StateStore savepointを復元します。成功したeditはExpansionGraphへTree entryを追加し、
 再帰的に生成されたnodeから完全なcall-site backtraceを辿れます。
 
+## Pattern matching hook
+
+`ParserHost::match_patterns_in_parse`は他のparser stageと同じparse transaction上でnative
+matcherを実行します。`MatchingPayload`は入力と任意pattern、definition/registration ID、
+pattern index、nested element/branch path、pattern source range、local input range、editor向け
+mapped span、scope、timing、status、failure reasonを公開します。
+
+matching hookはdefinition、registration、pattern、element scopeのbefore/afterで実行されます。
+handled overrideは`matched`または`failed`を返す必要があります。matched elementは検証済みprefixを
+消費でき、definition、registration、patternの広域matchはtrim済み入力全体を消費する必要が
+あります。hook replacementでidentityとprovenance fieldは変更できません。
+
+各syntax候補は同じparse StateStore savepointから開始します。失敗候補と非採用alternativeの
+書き込みはrollbackされ、採用候補のStateStore書き込みとHookEffectsだけがparse結果へ残ります。hook callと
+component failureはdiagnostic/tracing用に保持します。
 ## Hook rule
 
 subscriptionはtarget、phase、signed priority、modeを指定します。
@@ -204,6 +220,7 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `expand_tree_in_parse`: 既存parse transaction内でTree macroを再帰実行する
 - `expand_tree`: 1 tree pipeline分のparse transactionを作るconvenience API
 - `dynamic_syntax_snapshot`: 候補をfreezeし、順位付きsnapshotを取得する
+- `match_patterns_in_parse`: transactional WASM hook付きで順位済み候補を照合する
 - `dispatch`: 1回のdispatch transaction用convenience API
 
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch
@@ -223,6 +240,8 @@ output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax 
 | `tests/state.rs` | scope、permission、conflict、quota、persistence |
 | `tests/dynamic_syntax.rs` | SSG fixtureに対する実WASM dynamic registration |
 | `tests/text_macro.rs` | 順序付き実WASM展開、diagnostic mapping、rollback、quota、trap |
+| `tests/tree_macro.rs` | 実WASM node/body edit、再帰provenance、cycle、rollback、quota、trap |
+| `tests/pattern_match.rs` | 実WASM element overrideと採用候補だけを残すStateStore rollback |
 
 ## テスト
 

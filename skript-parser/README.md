@@ -7,10 +7,10 @@ documents. Its current implementation focuses on UTF-8 ranges, virtual source
 mapping, validated Text edit application, macro expansion provenance, syntax
 contexts, and a lossless indentation-based RawTree.
 
-The crate now splits preprocessed source into physical lines and builds its
-comment/indentation structure. It does not yet match registered syntax or
-produce a complete Skript AST. Those stages will be added on top of the
-invariants defined here.
+The crate splits preprocessed source into physical lines, builds its
+comment/indentation structure, and matches line text against registered syntax
+patterns. It does not yet produce a complete Skript AST; later stages build on
+the ranges, provenance, RawTree, captures, and candidate ordering defined here.
 
 ## Why This Is Separate from syntax-pattern-parser
 
@@ -139,6 +139,37 @@ new RawNode IDs, registers a Tree expansion, assigns a generated syntax
 context, and maps every generated span back to the replaced node's call-site.
 The `parser-wasm` host owns WIT conversion and recursive pre-order dispatch.
 
+## Registered Pattern Matching
+
+`match_pattern_candidates` matches a `MatchInput` against parsed registration
+patterns. It supports literals, choices, groups, optional elements, empty
+branches, regular expressions, type expressions, parse tags, and XOR parse
+marks. A candidate is successful only when it consumes the complete
+Java-whitespace-trimmed input.
+
+Regex captures include numbered groups and UTF-8 byte-accurate `MatchSpan`
+values. Type expressions are delegated to `TypeExpressionResolver`, which may
+run the recursive Expression parser and return one or more typed resolutions at
+legal Skript split points. Local ranges remain relative to the matched line,
+while every result also carries its editor-facing `MappedSpan` provenance.
+
+Candidates are ordered by a dynamic registry's resolved order when present,
+otherwise by numeric priority, registration order, and declaration order.
+Patterns retain their registration index. Results contain the selected match,
+all later alternatives, or a farthest-failure diagnostic when nothing matches.
+
+For SSG-backed data, `catalog_pattern_candidates` adapts static Catalog
+registrations and `snapshot_pattern_candidates` adapts a frozen mixed
+static/dynamic snapshot without reparsing its Pattern ASTs. The latter carries
+the registry's topologically resolved order into the matcher. Type and Function
+data keep their dedicated parser paths.
+
+`PatternMatchHooks` observes or overrides definition, registration, pattern,
+and nested element scopes before and after matching. Element paths include both
+sequence and choice-branch positions. Configurable state, backtrack, regex
+execution, evaluated-byte, and regex-engine limits bound ambiguous or hostile
+patterns. Transition memoization avoids repeating deterministic literal and
+regex work.
 ## Invariants
 
 Constructors reject:
@@ -164,6 +195,8 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `source_map` | origins, segments, mapped source, and mapped spans |
 | `expansion` | expansion graph, component/hook ownership, and syntax contexts |
 | `raw_tree` | physical lines, comment splitting, indentation recovery, and RawTree |
+| `pattern_match` | registered-pattern matching, captures, ranking, hooks, and limits |
+| `catalog_match` | adapters from static Catalogs and frozen dynamic snapshots |
 
 All public items are re-exported from the crate root.
 
@@ -179,4 +212,4 @@ anchors, invalid segment layouts, and property tests for identity mappings and
 arbitrary UTF-8 Text edit application. RawTree tests cover Skript's comment
 cases, LF/CRLF/no-final-newline inputs, spaces and tabs, nested Sections,
 recoverable invalid indentation, empty Sections, block comments, macro origins,
-and lossless arbitrary UTF-8 input.
+and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases.

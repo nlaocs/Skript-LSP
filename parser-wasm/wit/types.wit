@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.3.0;
+package nlaocs:skript-parser-addon@0.4.0;
 
 interface types {
     record abi-version {
@@ -515,10 +515,43 @@ interface types {
         node: raw-tree-node,
     }
 
+    enum matching-scope {
+        definition,
+        registration,
+        pattern,
+        element,
+    }
+
+    enum matching-timing {
+        before,
+        after,
+    }
+
+    enum matching-status {
+        pending,
+        matched,
+        failed,
+    }
+
+    variant matching-path-segment {
+        element(u32),
+        branch(u32),
+    }
+
     record matching-payload {
         input: string,
-        pattern: string,
+        pattern: option<string>,
+        definition-id: string,
+        registration-id: string,
+        pattern-index: option<u64>,
+        element-path: list<matching-path-segment>,
+        pattern-span: option<text-range>,
+        scope: matching-scope,
+        timing: matching-timing,
+        input-range: text-range,
         span: mapped-span,
+        status: matching-status,
+        failure-reason: option<string>,
     }
 
     record capture-payload {

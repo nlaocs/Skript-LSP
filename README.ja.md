@@ -61,13 +61,14 @@ flowchart LR
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
 | [`ssg`](./ssg/README.ja.md) | library | SSG schema 3 snapshot directoryを読み込み、完全性を検証してruntime modelへ変換します。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
-| [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、syntax context、lossless RawTreeを所有します。 |
+| [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、lossless RawTree、登録pattern照合を所有します。 |
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、StateStore、dynamic syntax bridgeを実装します。 |
 | [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装するための必須parser addonです。現在はABI negotiationとhealth hookを提供します。 |
 | [`skripthub`](./skripthub/README.ja.md) | legacy library | 旧SkriptHub APIとflattenされたfunction文字列の互換readerです。新しい構文データには`ssg`と`syntaxes`を使用します。 |
 | [`text-macro-addon`](./test-components/text-macro-addon/README.ja.md) | test WASM component | 順序付きText macro展開、UTF-8 edit、anchor、StateStore rollback、trapを検証します。 |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/README.ja.md) | test WASM component | 対象指定TreeEdit、再帰展開、provenance、cycle、StateStore rollback、quota、trapを検証します。 |
-| [`dynamic-syntax-addon`](./test-components/dynamic-syntax-addon/README.ja.md) | test WASM component | dynamic registration、override、prepass、rollback、freeze、unloadを検証します。 |
+| [dynamic-syntax-addon](./test-components/dynamic-syntax-addon/README.ja.md) | test WASM component | dynamic registration、override、prepass、rollback、freeze、unloadを検証します。 |
+| [matching-addon](./test-components/matching-addon/README.ja.md) | test WASM component | 型付きmatching overrideと採用候補だけを残すStateStore rollbackを検証します。 |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/README.ja.md) | developer utility | SkriptHubデータを取得し、parserが拒否したpatternを分類します。 |
 | [`xtask`](./xtask/README.ja.md) | build utility | core Wasm moduleのbuild、Component変換、export検証、local artifactの配置を行います。 |
 
@@ -113,8 +114,8 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 `xtask`は`artifacts/core-library.wasm`と
-`artifacts/dynamic-syntax-addon.wasm`、`artifacts/text-macro-addon.wasm`、
-`artifacts/tree-macro-addon.wasm`を生成します。
+`artifacts/dynamic-syntax-addon.wasm`、`artifacts/matching-addon.wasm`、
+`artifacts/text-macro-addon.wasm`、`artifacts/tree-macro-addon.wasm`を生成します。
 生成artifactはcommitしません。
 CoreLibraryが存在しない場合は意図的にcompile errorになります。CoreLibraryなしのparserは
 support対象外だからです。
