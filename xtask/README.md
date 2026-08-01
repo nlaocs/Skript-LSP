@@ -33,6 +33,7 @@ Builds test-only guest components, currently:
 
 ```text
 artifacts/dynamic-syntax-addon.wasm
+artifacts/effect-addon.wasm
 artifacts/matching-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm

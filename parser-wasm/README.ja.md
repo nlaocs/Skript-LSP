@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.5.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.6.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -54,8 +54,9 @@ node ID arenaを使い、Component Model上で再帰しない値として表現�
 
 package versionはWITのshapeを示します。Text editのanchor追加で0.1.0から0.2.0へ、
 lossless RawTreeと対象指定TreeEditの追加で0.3.0へ、型付きpattern matching scope、path、
-status、spanの追加で0.4.0、Expression leaf request/candidateの追加で0.5.0へ変わりました。
-manifestの現在の`abi`値は1.4で、runtime handshakeとして`major.minor`の完全一致が必要です。
+status、spanの追加で0.4.0、Expression leaf request/candidateの追加で0.5.0、型付きEffect
+lifecycle candidate/failureの追加で0.6.0へ変わりました。manifestの現在の`abi`値は1.5で、
+runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。
@@ -85,6 +86,22 @@ parser ID、return type/Multiplicity、metadataを検証します。nativeのran
 no-matchとparser failureでは開始時のStateStore savepointへ戻します。parse overlay revisionは
 native memo keyに含まれ、candidate rollback時にはrevision自体も復元されます。
 
+## Effect解析
+
+`ParserHost::parse_effect_in_parse`はlosslessな`RawNodeKind::Simple` nodeを受け取り、indentationと
+行末commentを除いた正確な`code_span`を照合します。static SSG Effectとfrozen dynamic登録は
+同じresolved orderを使います。`%type%` captureは再帰Expression sessionへ入り直すため、採用
+Effectと子Expressionのstateは1つのtransaction階層で管理されます。
+
+Effect subscriptionは`parser.effect` capabilityと`Effect` phaseを使います。native照合前はEffect
+category hook、照合後は採用exact registration、unknownの場合はEffect category hookを実行します。
+typed payloadはdefinition/registration ID、pattern index、capture span、parse tag、XOR mark、
+dynamic handler metadata、alternative、最遠failureを保持します。置換できるのは採用候補の
+handlerとmetadataだけで、registration identity、capture、alternative、spanはhostが固定します。
+
+unknown、Reject、不正output、host failureではEffect入口のStateStore savepointへ戻します。
+unknown nodeは正確なsource、mapped span、最遠failureを保持します。Reject hookのstateは破棄
+されますが、そのdiagnosticは結果に残ります。
 ## Text macro
 
 Text macroは`Preprocess` phaseの`ParseStage`へ`Transform` modeでsubscribeします。一致した

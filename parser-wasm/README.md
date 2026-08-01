@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.5.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.6.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -58,7 +58,8 @@ The package version identifies the WIT shape. Text edit anchors changed the
 package from 0.1.0 to 0.2.0; the lossless RawTree and targeted TreeEdit model
 changed it to 0.3.0; typed pattern-matching scopes, paths, status, and spans
 changed it to 0.4.0; Expression leaf requests and candidates changed it to
-0.5.0. The manifest's current `abi` value is 1.4 and is a runtime handshake that
+0.5.0; typed Effect lifecycle candidates and failures changed it to 0.6.0. The
+manifest's current `abi` value is 1.5 and is a runtime handshake that
 requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -96,6 +97,27 @@ state. No-match and parser failure restore the entry StateStore savepoint. The
 parse-overlay revision is part of native memo keys and is itself restored by
 candidate rollback.
 
+## Effect Parsing
+
+`ParserHost::parse_effect_in_parse` takes a lossless `RawNodeKind::Simple`
+node and matches its exact `code_span`, excluding indentation and trailing
+comments. Static SSG Effects and frozen dynamic registrations share the same
+resolved ordering. `%type%` captures re-enter the recursive Expression session,
+so selected Effect and child Expression state use one transaction hierarchy.
+
+Effect subscriptions declare `parser.effect` and run in the `Effect` phase.
+A category hook runs before native matching, then the selected exact
+registration, or the Effect category for an unknown node, runs afterward. The
+typed payload retains definition and registration IDs, pattern index, capture
+spans, parse tags, XOR marks, dynamic handler metadata, alternatives, and the
+farthest failure. A replacement may update only the selected handler and
+metadata; immutable registration identity, captures, alternatives, and spans
+are validated by the host.
+
+Unknown, rejected, invalid-output, and failed Effect pipelines restore their
+entry StateStore savepoint. The returned unknown node keeps its exact source,
+mapped span, and farthest failure. Reject diagnostics remain observable even
+though the rejecting hook's state is rolled back.
 ## Text Macros
 
 A Text macro subscribes to `ParseStage` during `Preprocess` with `Transform`

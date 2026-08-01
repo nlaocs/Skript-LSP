@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.5.0;
+package nlaocs:skript-parser-addon@0.6.0;
 
 interface types {
     record abi-version {
@@ -128,6 +128,7 @@ interface types {
         node,
         matching,
         expression,
+        effect,
         capture,
         syntax,
         candidate,
@@ -342,6 +343,78 @@ interface types {
         time: s32,
         depth: u32,
         candidates: list<expression-leaf-candidate>,
+    }
+
+    enum effect-timing {
+        before,
+        after,
+    }
+
+    record effect-regex-capture {
+        pattern-span: text-range,
+        value: string,
+        span: mapped-span,
+    }
+
+    record effect-expression-capture {
+        pattern-span: text-range,
+        expression: string,
+        value: string,
+        span: mapped-span,
+        alternative-index: option<u64>,
+        resolution-id: option<string>,
+    }
+
+    variant effect-capture {
+        regex(effect-regex-capture),
+        expression(effect-expression-capture),
+    }
+
+    record effect-tag {
+        value: string,
+        pattern-span: text-range,
+        input-span: mapped-span,
+        implicit: bool,
+    }
+
+    record effect-mark {
+        value: s32,
+        pattern-span: text-range,
+        input-span: mapped-span,
+        accumulated: s32,
+    }
+
+    record effect-candidate {
+        raw-node-id: node-id,
+        definition-id: string,
+        registration-id: string,
+        priority: s32,
+        registration-order: u64,
+        pattern-index: u64,
+        pattern: string,
+        span: mapped-span,
+        captures: list<effect-capture>,
+        tags: list<effect-tag>,
+        mark: s32,
+        marks: list<effect-mark>,
+        handler: option<string>,
+        metadata: list<metadata-entry>,
+    }
+
+    record effect-failure {
+        offset: u64,
+        span: mapped-span,
+        reasons: list<string>,
+    }
+
+    record effect-payload {
+        input: string,
+        raw-node-id: node-id,
+        span: mapped-span,
+        timing: effect-timing,
+        candidate: option<effect-candidate>,
+        alternatives: list<effect-candidate>,
+        failure: option<effect-failure>,
     }
 
     enum line-ending {
@@ -616,6 +689,7 @@ interface types {
         node(node-payload),
         matching(matching-payload),
         expression(expression-payload),
+        effect(effect-payload),
         capture(capture-payload),
         syntax(syntax-definition-payload),
         exact-registration(exact-registration-payload),

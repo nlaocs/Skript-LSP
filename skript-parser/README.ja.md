@@ -166,6 +166,18 @@ ASTから先頭・末尾literal制約を保守的に抽出し、depth、candidat
 敵対的な再帰を制限します。memo keyにはsource range、expected type/context、StateStore revision、
 dynamic registry revisionが含まれます。
 
+## Effect解析
+
+`parse_effect`はlosslessな`RawNodeKind::Simple` nodeを1件受け取ります。nodeの正確なcode spanを
+static SSG Effect登録へ照合し、採用`EffectCandidate`、決定的なalternative、または
+`UnknownEffectNode`を返します。unknownは元の`RawNodeId`、正確なcode text、mapped source span、
+統合済み最遠`PatternFailure`を保持するため、LSPの後続回復で未認識lineを失いません。
+
+`parse_effect_with_snapshot`はstatic/dynamic登録をfrozen registry順で統合し、dynamic候補のopaque
+handlerとmetadataも保持します。型付きcaptureは内部`ExpressionSession`を共有し、recursion limit、
+memo、matcher hook、候補transaction境界を再利用しながら子`ExpressionNode`を接続します。
+placeholderを持たないpatternではExpression経路を起動しません。
+
 ## Invariant
 
 constructorは次の入力を拒否します。
@@ -192,7 +204,8 @@ constructorは次の入力を拒否します。
 | `expansion` | expansion graph、component/hook ownership、syntax context |
 | `raw_tree` | physical line、comment分離、indentation回復、RawTree |
 | pattern_match | 登録pattern照合、capture、候補順位、hook、quota |
-| Expression | 再帰Expression AST、型filter、left recursion、memo、leaf parser統合 |
+| `expression` | 再帰Expression AST、型filter、left recursion、memo、leaf parser統合 |
+| `effect` | Simple nodeのEffect候補、dynamic metadata、nested Expression、unknown回復 |
 | `catalog_match` | static Catalogとfrozen dynamic snapshotの候補adapter |
 
 公開itemはcrate rootからre-exportされます。
@@ -207,4 +220,4 @@ test suiteには、multibyte UTF-8 mapping、生成text、replacement range、�
 backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
 UTF-8 Text edit適用のproperty testが含まれます。RawTreeについてはSkript公式comment case、
 LF/CRLF/最終改行なし、space/tab、nested Section、回復可能な不正indent、空Section、block
-comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、multi-addon Catalog全体を検証します。
+comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、multi-addon Catalog全体を検証します。Effect testでは実schema 3 DummyAddon登録を使い、placeholderなし、型付き、dynamic、unknown lineを検証します。

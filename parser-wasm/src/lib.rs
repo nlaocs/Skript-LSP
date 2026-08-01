@@ -20,13 +20,13 @@ pub mod state;
 #[cfg(feature = "host")]
 pub use host::{
     HostConfig, HostError, ParserHost, TreeMacroCall, TreeMacroRequest, TreeMacroResult,
-    WasmExpressionParseResult, WasmPatternMatchResult,
+    WasmEffectParseResult, WasmExpressionParseResult, WasmPatternMatchResult,
 };
 #[cfg(feature = "host")]
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 4);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 5);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -46,6 +46,8 @@ pub const CAPABILITY_CONTEXT_UPDATES: &str = "parser.context-updates";
 pub const CAPABILITY_ADDITIONAL_PARSE: &str = "parser.additional-parse";
 /// Capability ID for CoreLibrary and addon Expression leaf parsers.
 pub const CAPABILITY_EXPRESSION_PARSER: &str = "parser.expression";
+/// Capability ID for Effect lifecycle hooks and candidate replacement.
+pub const CAPABILITY_EFFECT_PARSER: &str = "parser.effect";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Major/minor ABI version compared exactly during component initialization.
@@ -141,14 +143,14 @@ impl CapabilityRequirement {
 /// ];
 ///
 /// validate_compatibility(
-///     AbiVersion::new(1, 4),
-///     AbiVersion::new(1, 4),
+///     AbiVersion::new(1, 5),
+///     AbiVersion::new(1, 5),
 ///     &requirements,
 ///     &available,
 /// )?;
 ///
 /// let error = validate_compatibility(
-///     AbiVersion::new(1, 4),
+///     AbiVersion::new(1, 5),
 ///     AbiVersion::new(2, 0),
 ///     &[],
 ///     &available,
