@@ -91,6 +91,28 @@ pub const CORE_LIBRARY_COMPONENT_ID: &str = "nlaocs.core-library";
 
 #[derive(Debug, Clone)]
 /// Execution, memory, pipeline, StateStore, and catalog configuration.
+///
+/// Defaults are intentionally bounded for untrusted addon components. Callers
+/// may tune individual budgets and attach an SSG [Catalog] to enable dynamic
+/// syntax registration, while zero-valued quotas and durations are rejected.
+///
+/// # Examples
+///
+/// ~~~
+/// use std::{sync::Arc, time::Duration};
+/// use parser_wasm::HostConfig;
+/// use syntaxes::Catalog;
+///
+/// fn project_config(catalog: Arc<Catalog>) -> HostConfig {
+///     HostConfig {
+///         call_timeout: Duration::from_millis(50),
+///         max_memory_bytes: 32 * 1024 * 1024,
+///         syntax_catalog: Some(catalog),
+///         ..HostConfig::default()
+///     }
+/// }
+/// # let _ = project_config;
+/// ~~~
 pub struct HostConfig {
     pub fuel_per_call: u64,
     pub call_timeout: Duration,
@@ -1233,6 +1255,31 @@ impl Drop for EpochTicker {
 }
 
 /// Wasmtime component registry and orchestrator for all parser extension stages.
+///
+/// Construction loads and negotiates the mandatory CoreLibrary first. Optional
+/// addon components are then registered in deterministic load order. Parsing
+/// work may use convenience methods that commit automatically or a caller-owned
+/// [ParseTransaction] that spans Text macros, Tree macros, dynamic syntax, and
+/// matching as one atomic document revision.
+///
+/// # Examples
+///
+/// Library code can accept the bundled CoreLibrary bytes from the executable
+/// crate and inspect the mandatory first component:
+///
+/// ~~~no_run
+/// use parser_wasm::{HostConfig, HostError, ParserHost};
+///
+/// fn create_host(core_library: &[u8]) -> Result<ParserHost, HostError> {
+///     let host = ParserHost::new(core_library, HostConfig::default())?;
+///     let components = host.components();
+///
+///     assert_eq!(components[0].component_id, "nlaocs.core-library");
+///     assert!(!components[0].disabled);
+///     Ok(host)
+/// }
+/// # let _ = create_host;
+/// ~~~
 pub struct ParserHost {
     engine: Engine,
     linker: Linker<StoreData>,

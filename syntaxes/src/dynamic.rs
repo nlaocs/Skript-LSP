@@ -226,6 +226,54 @@ struct RegistryInner {
 
 #[derive(Clone)]
 /// Thread-safe dynamic overlay rooted in an immutable static catalog.
+///
+/// Components first stage registrations or overrides in a
+/// [DynamicSyntaxUpdate]. Committing the update changes the mutable baseline or
+/// document layer; [DynamicSyntaxRegistry::freeze] then validates ordering
+/// references and returns an immutable candidate list for one document revision.
+///
+/// # Examples
+///
+/// This example installs one addon-provided effect into the initialization
+/// baseline and freezes it together with the static catalog:
+///
+/// ~~~
+/// use std::{collections::BTreeMap, sync::Arc};
+/// use syntaxes::{
+///     Catalog, DynamicRegistryError, DynamicSyntaxInput,
+///     DynamicSyntaxRegistry, SyntaxKind,
+/// };
+///
+/// fn install(
+///     catalog: Arc<Catalog>,
+/// ) -> Result<usize, DynamicRegistryError> {
+///     let registry = DynamicSyntaxRegistry::new(catalog);
+///     let mut update = registry.begin_initial_update("example.addon", 1)?;
+///
+///     update.register(DynamicSyntaxInput {
+///         local_id: "announce".to_owned(),
+///         kind: SyntaxKind::Effect,
+///         patterns: vec!["announce %string%".to_owned()],
+///         priority: 0,
+///         before: Vec::new(),
+///         after: Vec::new(),
+///         return_type: None,
+///         return_multiplicity: None,
+///         handler: "handle-announce".to_owned(),
+///         metadata: BTreeMap::new(),
+///     })?;
+///     update.commit()?;
+///
+///     registry.begin_document("file:///workspace/main.sk", 7)?;
+///     let snapshot = registry.freeze("file:///workspace/main.sk", 7)?;
+///     assert!(snapshot
+///         .definitions
+///         .keys()
+///         .any(|id| id.qualified() == "dynamic:example.addon/announce"));
+///     Ok(snapshot.candidates.len())
+/// }
+/// # let _ = install;
+/// ~~~
 pub struct DynamicSyntaxRegistry {
     catalog: Arc<Catalog>,
     inner: Arc<Mutex<RegistryInner>>,

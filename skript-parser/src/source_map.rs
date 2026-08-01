@@ -439,6 +439,37 @@ pub struct TextEditApplication {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Original text, current virtual text, composed source map, and expansion graph.
+///
+/// Text macros operate on the virtual source while editor-facing diagnostics
+/// must point into the immutable original document. This type keeps those two
+/// views together and composes provenance across successive macro expansions.
+///
+/// # Examples
+///
+/// Replacing text records both the macro identity and the original source range:
+///
+/// ~~~
+/// use skript_parser::{
+///     MappedSource, OriginKind, TextEdit, TextExpansion, TextRange,
+/// };
+///
+/// let source = MappedSource::identity("print value");
+/// let applied = source.apply_text_edits(
+///     [TextEdit::new(TextRange::new(6, 11), "42")],
+///     TextExpansion::new("example.addon", "replace-value"),
+/// )?;
+///
+/// assert_eq!(applied.source.original(), "print value");
+/// assert_eq!(applied.source.virtual_source(), "print 42");
+///
+/// let generated = applied.source.map_range(TextRange::new(6, 8))?;
+/// let origin = generated.primary_origin().expect("generated text has an origin");
+/// assert_eq!(origin.original_range, TextRange::new(6, 11));
+/// assert_eq!(origin.kind, OriginKind::Replaced);
+/// assert_eq!(origin.expansion, applied.expansion);
+/// assert!(generated.is_generated());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ~~~
 pub struct MappedSource {
     original: Arc<str>,
     virtual_source: Arc<str>,
@@ -608,6 +639,17 @@ impl MappedSource {
     }
 
     /// Validates and atomically applies one Text macro edit batch.
+    ///
+    /// Edits may be supplied in any order, but their ranges must not overlap.
+    /// Empty batches return an unchanged clone without allocating an expansion
+    /// ID. Inserted text can use [TextEdit::anchored] when its diagnostic origin
+    /// should be a specific zero-width call site.
+    ///
+    /// # Errors
+    ///
+    /// Returns [TextEditError] when a range is invalid, edits overlap, an anchor
+    /// is outside the replaced range, or the composed source map would violate
+    /// its coverage and provenance invariants. No partial edit is applied.
     pub fn apply_text_edits(
         &self,
         edits: impl IntoIterator<Item = TextEdit>,

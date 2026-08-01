@@ -451,6 +451,77 @@ struct StateStoreInner {
 
 #[derive(Clone)]
 /// Thread-safe namespace registry and transaction coordinator.
+///
+/// State is isolated by project, scope, namespace visibility, and schema. A
+/// component writes inside an [InvocationTransaction]; accepted invocation
+/// writes are merged into a [ParseTransaction], and only a current completed
+/// document revision publishes durable scopes. Dropping or rolling back the
+/// invocation leaves the parent parse unchanged.
+///
+/// # Examples
+///
+/// The following stores a variable type in a private project namespace, commits
+/// it, and reads it from the next document revision:
+///
+/// ~~~
+/// use parser_wasm::state::{
+///     NamespaceDeclaration, NamespaceVisibility, StateEncoding, StateScope,
+///     StateStore, StateStoreConfig, StateValue,
+/// };
+///
+/// let directory = tempfile::tempdir()?;
+/// let store = StateStore::new(StateStoreConfig {
+///     data_directory: Some(directory.path().to_owned()),
+///     ..StateStoreConfig::default()
+/// })?;
+/// store.register_component(
+///     "example.types",
+///     &[NamespaceDeclaration::private(
+///         "variables",
+///         "example.variable-type",
+///         1,
+///     )],
+/// )?;
+///
+/// let parse = store.begin_parse(
+///     "file:///workspace",
+///     "file:///workspace/main.sk",
+///     1,
+/// )?;
+/// let mut invocation = parse.begin_invocation("example.types")?;
+/// invocation.put(
+///     StateScope::Project,
+///     NamespaceVisibility::Private,
+///     "variables",
+///     "player-name",
+///     StateValue::new(
+///         "example.variable-type",
+///         StateEncoding::Json,
+///         br#"{"type":"string"}"#,
+///     ),
+/// )?;
+/// invocation.commit()?;
+///
+/// let committed = parse.commit()?;
+/// assert_eq!(committed.writes, 1);
+///
+/// let next_parse = store.begin_parse(
+///     "file:///workspace",
+///     "file:///workspace/main.sk",
+///     2,
+/// )?;
+/// let mut reader = next_parse.begin_invocation("example.types")?;
+/// let value = reader.get(
+///     StateScope::Project,
+///     NamespaceVisibility::Private,
+///     "variables",
+///     "player-name",
+/// )?.expect("committed project value exists");
+/// assert_eq!(value.bytes, br#"{"type":"string"}"#);
+/// reader.rollback();
+/// next_parse.cancel()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ~~~
 pub struct StateStore {
     inner: Arc<Mutex<StateStoreInner>>,
 }

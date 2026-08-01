@@ -29,6 +29,40 @@ pub struct CatalogParts {
 
 #[derive(Debug, Clone)]
 /// Immutable normalized registry with indexes for parser and LSP queries.
+///
+/// A catalog is the semantic view of one complete server snapshot. It keeps
+/// generator registration order while adding indexes for syntax IDs, type code
+/// names, functions, converters, event values, aliases, and Java class
+/// relationships. Parser code should share a single catalog rather than copy
+/// individual JSON arrays.
+///
+/// # Examples
+///
+/// Functions can accept a catalog without depending on the SSG file format:
+///
+/// ~~~
+/// use syntaxes::{Catalog, SyntaxKind};
+///
+/// fn summarize(catalog: &Catalog) -> (usize, usize, bool) {
+///     let effect_count = catalog
+///         .syntaxes()
+///         .iter()
+///         .filter(|syntax| syntax.kind() == SyntaxKind::Effect)
+///         .count();
+///     let function_count = catalog.functions().count();
+///     let strings_are_objects = catalog
+///         .type_by_code_name("string")
+///         .is_some_and(|ty| {
+///             catalog.is_class_assignable(
+///                 ty.original_class.as_str(),
+///                 "java.lang.Object",
+///             )
+///         });
+///
+///     (effect_count, function_count, strings_are_objects)
+/// }
+/// # let _ = summarize;
+/// ~~~
 pub struct Catalog {
     parts: CatalogParts,
     index: CatalogIndex,
@@ -322,6 +356,21 @@ impl Catalog {
         result
     }
     /// Tests generated Java assignability from `from` to `to` without loading classes.
+    ///
+    /// The traversal follows the generated superclass and interface graph and
+    /// is cycle-safe. Unknown classes are not assumed assignable, except that a
+    /// class is always assignable to itself.
+    ///
+    /// # Examples
+    ///
+    /// ~~~
+    /// use syntaxes::Catalog;
+    ///
+    /// fn accepts_event(catalog: &Catalog, class_name: &str) -> bool {
+    ///     catalog.is_class_assignable(class_name, "org.bukkit.event.Event")
+    /// }
+    /// # let _ = accepts_event;
+    /// ~~~
     pub fn is_class_assignable(&self, from: &str, to: &str) -> bool {
         if from == to {
             return true;

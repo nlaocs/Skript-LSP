@@ -31,6 +31,23 @@ macro_rules! consume_until {
 /// A half-open UTF-8 byte range in the original syntax pattern.
 ///
 /// Both offsets are guaranteed to be character boundaries for parser output.
+/// Offsets count bytes rather than Unicode scalar values, matching Rust string
+/// slicing and the Language Server Protocol's source-mapping layer.
+///
+/// # Examples
+///
+/// ~~~
+/// use syntax_pattern_parser::syntax::Span;
+///
+/// let source = "send 日本語";
+/// let japanese = Span::new(5, source.len());
+///
+/// assert!(japanese.is_valid_for(source));
+/// assert_eq!(japanese.slice(source), Some("日本語"));
+///
+/// // Byte 6 lies inside the three-byte encoding of 日.
+/// assert!(!Span::new(5, 6).is_valid_for(source));
+/// ~~~
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     /// Inclusive start byte offset.
@@ -345,6 +362,75 @@ pub struct ParseResult {
 }
 
 /// Parses one complete Skript registration pattern using server-specific plural rules.
+///
+/// The returned tree retains every element's UTF-8 byte span. Type names are
+/// normalized with the exact plural rules captured from the target server, so
+/// callers should not substitute a hardcoded English singularization table.
+///
+/// # Examples
+///
+/// This example inspects a typed placeholder and a grouped choice:
+///
+/// ~~~
+/// use syntax_pattern_parser::syntax::{
+///     parse, PatternElement, PluralRules,
+/// };
+///
+/// # fn rules() -> PluralRules {
+/// #     PluralRules::from_json(r#"{
+/// #         "algorithm": "singular-aware",
+/// #         "pluralOverrideSupported": false,
+/// #         "rules": [{
+/// #             "ruleOrder": 0,
+/// #             "singular": "",
+/// #             "plural": "s",
+/// #             "completeWord": false,
+/// #             "origin": "built-in",
+/// #             "addon": { "name": "Skript", "version": "example" }
+/// #         }]
+/// #     }"#).expect("example plural rules are valid")
+/// # }
+/// let source = "send %strings% to (console|player)";
+/// let parsed = parse(source, &rules())?;
+///
+/// let PatternElement::TypeExpr(expression) = &parsed.elements[1].value else {
+///     panic!("the second element must be a type expression");
+/// };
+/// assert_eq!(expression.alternatives[0].name, "string");
+/// assert!(expression.alternatives[0].plural);
+/// assert_eq!(parsed.elements[1].span.slice(source), Some("%strings%"));
+///
+/// let PatternElement::Group(group) = &parsed.elements[3].value else {
+///     panic!("the fourth element must be a group");
+/// };
+/// assert!(matches!(group[0].value, PatternElement::Choice(_)));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ~~~
+///
+/// Unclosed constructs point at EOF and retain the opening delimiter as a
+/// related span, allowing an editor to render both locations:
+///
+/// ~~~
+/// use syntax_pattern_parser::syntax::{
+///     parse, ParseErrorKind, PluralRules, RelatedSpanKind, Span,
+/// };
+///
+/// # let rules = PluralRules::from_json(r#"{
+/// #     "algorithm": "singular-aware",
+/// #     "pluralOverrideSupported": false,
+/// #     "rules": [{
+/// #         "ruleOrder": 0, "singular": "", "plural": "s",
+/// #         "completeWord": false, "origin": "built-in",
+/// #         "addon": { "name": "Skript", "version": "example" }
+/// #     }]
+/// # }"#).unwrap();
+/// let error = parse("[(group]", &rules).unwrap_err();
+///
+/// assert_eq!(error.kind, ParseErrorKind::UnclosedParenthesis);
+/// assert_eq!(error.span, Span::new(8, 8));
+/// assert_eq!(error.related_spans[0].kind, RelatedSpanKind::OpeningDelimiter);
+/// assert_eq!(error.related_spans[0].span, Span::new(1, 2));
+/// ~~~
 ///
 /// # Errors
 ///

@@ -7,6 +7,24 @@
 use std::fmt;
 
 /// A half-open UTF-8 byte range in a source text.
+///
+/// Parser ranges count bytes and therefore can be used directly with Rust
+/// string slices. Protocol adapters are responsible for converting these
+/// offsets to UTF-16 line/column positions when publishing LSP diagnostics.
+///
+/// # Examples
+///
+/// ~~~
+/// use skript_parser::TextRange;
+///
+/// let source = "set {_message} to \"日本語\"";
+/// let start = source.find("日本語").unwrap();
+/// let japanese = TextRange::new(start, start + "日本語".len());
+///
+/// assert!(japanese.is_valid_for(source));
+/// assert_eq!(japanese.slice(source), Some("日本語"));
+/// assert!(TextRange::new(0, source.len()).contains(japanese));
+/// ~~~
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextRange {
     pub start: usize,

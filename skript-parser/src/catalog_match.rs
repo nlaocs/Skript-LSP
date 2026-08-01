@@ -10,6 +10,25 @@ use syntaxes::{
 };
 
 /// Borrows matcher candidates from an immutable static catalog in registration order.
+///
+/// Types and functions are intentionally omitted because they are not complete
+/// registration-pattern syntaxes. Returned candidates borrow parsed pattern
+/// ASTs from the catalog, so no reparsing or cloning is required.
+///
+/// # Examples
+///
+/// ~~~
+/// use skript_parser::catalog_pattern_candidates;
+/// use syntaxes::{Catalog, SyntaxKind};
+///
+/// fn effect_registration_ids(catalog: &Catalog) -> Vec<String> {
+///     catalog_pattern_candidates(catalog, SyntaxKind::Effect)
+///         .into_iter()
+///         .map(|candidate| candidate.registration_id)
+///         .collect()
+/// }
+/// # let _ = effect_registration_ids;
+/// ~~~
 pub fn catalog_pattern_candidates(
     catalog: &Catalog,
     kind: SyntaxKind,
