@@ -190,6 +190,21 @@ Pattern AST before matching, while depth, candidate, matcher, and memo limits
 bound hostile recursion. Memo keys include source range, expected type/context,
 StateStore revision, and dynamic registry revision.
 
+## Effect Parsing
+
+`parse_effect` consumes one lossless `RawNodeKind::Simple` node. It matches the
+node's exact code span against static SSG Effect registrations and returns the
+selected `EffectCandidate`, deterministic alternatives, or an
+`UnknownEffectNode`. The unknown form retains the original `RawNodeId`, exact
+code text, mapped source span, and merged farthest `PatternFailure` so later
+LSP recovery does not discard an unrecognized line.
+
+`parse_effect_with_snapshot` combines static and dynamic registrations in the
+frozen registry order. Dynamic candidates retain their opaque handler and
+metadata. Typed captures share an internal `ExpressionSession`, attaching child
+`ExpressionNode` values while reusing recursion limits, memoization, matcher
+hooks, and candidate transaction boundaries. Patterns without placeholders do
+not instantiate an Expression path.
 ## Invariants
 
 Constructors reject:
@@ -216,7 +231,8 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `expansion` | expansion graph, component/hook ownership, and syntax contexts |
 | `raw_tree` | physical lines, comment splitting, indentation recovery, and RawTree |
 | pattern_match | registered-pattern matching, captures, ranking, hooks, and limits |
-| Expression | recursive Expression AST, type filtering, left recursion, memoization, and leaf parser integration |
+| `expression` | recursive Expression AST, type filtering, left recursion, memoization, and leaf parser integration |
+| `effect` | Simple-node Effect candidates, dynamic metadata, nested Expressions, and unknown recovery |
 | `catalog_match` | adapters from static Catalogs and frozen dynamic snapshots |
 
 All public items are re-exported from the crate root.
@@ -233,4 +249,4 @@ anchors, invalid segment layouts, and property tests for identity mappings and
 arbitrary UTF-8 Text edit application. RawTree tests cover Skript's comment
 cases, LF/CRLF/no-final-newline inputs, spaces and tabs, nested Sections,
 recoverable invalid indentation, empty Sections, block comments, macro origins,
-and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, and the full multi-addon Catalog.
+and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, and the full multi-addon Catalog. Effect tests use real schema 3 DummyAddon registrations for plain, typed, dynamic, and unknown lines.

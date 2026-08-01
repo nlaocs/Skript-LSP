@@ -31,7 +31,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.5.0")
+        Some("0.6.0")
     );
 
     let world = package
@@ -237,6 +237,7 @@ fn contract_defines_every_hook_phase_and_execution_mode() {
         HookPhase::Node,
         HookPhase::Matching,
         HookPhase::Expression,
+        HookPhase::Effect,
         HookPhase::Capture,
         HookPhase::Syntax,
         HookPhase::Candidate,
@@ -246,7 +247,7 @@ fn contract_defines_every_hook_phase_and_execution_mode() {
     ];
     let modes = [HookMode::Observe, HookMode::Transform, HookMode::Override];
 
-    assert_eq!(phases.len(), 13);
+    assert_eq!(phases.len(), 14);
     assert_eq!(modes.len(), 3);
 }
 

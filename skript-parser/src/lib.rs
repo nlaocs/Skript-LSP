@@ -2,6 +2,7 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 
 mod catalog_match;
+mod effect;
 mod expansion;
 mod expression;
 mod pattern_match;
@@ -12,6 +13,8 @@ mod tree_edit;
 
 /// Adapters from static and dynamic syntax catalogs to matcher candidates.
 pub use catalog_match::*;
+/// Effect parsing over lossless Simple nodes and recursive Expressions.
+pub use effect::*;
 /// Macro expansion identities, syntax contexts, and provenance graph.
 pub use expansion::*;
 /// Recursive Expression parsing over SSG registrations and parser extensions.

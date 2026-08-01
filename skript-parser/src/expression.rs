@@ -246,7 +246,7 @@ struct RegistrationMetadata {
     metadata: BTreeMap<String, String>,
 }
 
-struct ExpressionSession<'a, E> {
+pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
     registrations: HashMap<String, RegistrationMetadata>,
@@ -329,23 +329,14 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
 
     let expected_types = request.expected_types;
 
-    let registrations = registration_metadata_index(catalog, dynamic_snapshot);
-    let mut session = ExpressionSession {
+    let mut session = ExpressionSession::new(
         catalog,
         dynamic_snapshot,
-        registrations,
-        source: request.source,
+        request.source,
         environment,
-        context: request.context,
+        request.context,
         config,
-        memo: HashMap::new(),
-        active: HashSet::new(),
-        resolved_nodes: HashMap::new(),
-        frame_starts: Vec::new(),
-        frame_depths: Vec::new(),
-        next_resolution_id: 0,
-        candidates_seen: 0,
-    };
+    );
     let candidates = session.parse_prefixes(
         request.range,
         &[request.range.end],
@@ -376,6 +367,55 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
 }
 
 impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
+    pub(crate) fn new<'a>(
+        catalog: &'a Catalog,
+        dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
+        source: &'a MappedSource,
+        environment: &'a mut E,
+        context: ExpressionParseContext,
+        config: ExpressionParserConfig,
+    ) -> ExpressionSession<'a, E> {
+        ExpressionSession {
+            catalog,
+            dynamic_snapshot,
+            registrations: registration_metadata_index(catalog, dynamic_snapshot),
+            source,
+            environment,
+            context,
+            config,
+            memo: HashMap::new(),
+            active: HashSet::new(),
+            resolved_nodes: HashMap::new(),
+            frame_starts: Vec::new(),
+            frame_depths: Vec::new(),
+            next_resolution_id: 0,
+            candidates_seen: 0,
+        }
+    }
+
+    pub(crate) fn match_candidates(
+        &mut self,
+        range: TextRange,
+        candidates: &[PatternCandidate<'_>],
+    ) -> Result<crate::CandidateMatches, ExpressionParseError> {
+        if !range.is_valid_for(self.source.virtual_source()) {
+            return Err(ExpressionParseError::InvalidInputRange { range });
+        }
+        let input = MatchInput::from_source(self.source, range)?;
+        self.frame_starts.push(range.start);
+        self.frame_depths.push(0);
+        let matcher_config = self.config.matcher.clone();
+        let matched =
+            match_pattern_candidates_with_environment(input, candidates, self, matcher_config);
+        self.frame_depths.pop();
+        self.frame_starts.pop();
+        Ok(matched?)
+    }
+
+    pub(crate) fn resolved_node(&self, id: &str) -> Option<&ExpressionNode> {
+        self.resolved_nodes.get(id)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn parse_prefixes(
         &mut self,

@@ -32,6 +32,7 @@ test専用guest componentをbuildします。現在の出力は次のとおり�
 
 ```text
 artifacts/dynamic-syntax-addon.wasm
+artifacts/effect-addon.wasm
 artifacts/matching-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm

@@ -13,8 +13,9 @@ of the LSP binary.
 
 The syntax data, syntax-pattern parser, source mapping primitives, WASM ABI,
 Wasmtime host, transactional StateStore, dynamic syntax registry, Text macro
-preprocessing pipeline, lossless comment/indentation RawTree, and recursive
-Tree macro editing pipeline are implemented and tested.
+preprocessing pipeline, lossless comment/indentation RawTree, recursive Tree
+macro editing, recursive Expression parsing, and transactional Effect parsing
+are implemented and tested.
 
 The executable is still a scaffold. It embeds and initializes CoreLibrary, but
 it does not yet expose an LSP transport or parse complete `.sk` documents.
@@ -67,13 +68,14 @@ The intended data flow is:
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
 | [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 snapshot directories. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |
-| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, registered-pattern matching, and recursive Expression ASTs for `.sk` documents. |
-| [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, transactional Expression leaf pipeline, StateStore, and dynamic syntax bridge. |
+| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, registered-pattern matching, recursive Expression ASTs, and source-preserving Effect candidates for `.sk` documents. |
+| [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, transactional Expression/Effect pipeline, StateStore, and dynamic syntax bridge. |
 | [`core-library`](./core-library/) | WASM component | Mandatory parser addon component for Skript built-ins. It supplies ABI negotiation, a health hook, and variable/string/number Expression leaves. |
 | [`skripthub`](./skripthub/) | legacy library | Compatibility reader for the old SkriptHub API and its flattened function strings. New syntax data should use `ssg` and `syntaxes`. |
 | [`text-macro-addon`](./test-components/text-macro-addon/) | test WASM component | Exercises ordered Text macro expansion, UTF-8 edits, anchors, StateStore rollback, and traps. |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/) | test WASM component | Exercises targeted TreeEdit operations, recursive expansion, provenance, cycles, StateStore rollback, quotas, and traps. |
 | [dynamic-syntax-addon](./test-components/dynamic-syntax-addon/) | test WASM component | Exercises dynamic registration, override, prepass, rollback, freeze, and unload behavior. |
+| [effect-addon](./test-components/effect-addon/) | test WASM component | Exercises Effect lifecycle replacement, rejection diagnostics, dynamic handlers, and selected-state rollback. |
 | [matching-addon](./test-components/matching-addon/) | test WASM component | Exercises typed matching overrides and selected-candidate StateStore rollback. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |
 | [`xtask`](./xtask/) | build utility | Builds core Wasm modules, converts them to Components, validates exports, and publishes local artifacts. |
@@ -121,7 +123,8 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 `xtask` writes `artifacts/core-library.wasm` and
-`artifacts/dynamic-syntax-addon.wasm`, `artifacts/matching-addon.wasm`,
+`artifacts/dynamic-syntax-addon.wasm`, `artifacts/effect-addon.wasm`,
+`artifacts/matching-addon.wasm`,
 `artifacts/text-macro-addon.wasm`, and `artifacts/tree-macro-addon.wasm`.
 Generated artifacts are not committed.
 A missing CoreLibrary artifact is intentionally a compile-time error because

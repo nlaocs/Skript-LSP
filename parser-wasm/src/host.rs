@@ -16,13 +16,16 @@ use std::{
 };
 
 use skript_parser::{
-    CandidateMatches, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
+    CandidateMatches, EffectCandidate, EffectMatches, EffectParseError, EffectParseRequest,
+    EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
     ExpressionMatches, ExpressionParseEnvironment, ExpressionParseError, ExpressionParseRequest,
-    ExpressionParserConfig, MatchInput, MatchSyntaxKind, PatternCandidate, PatternHookControl,
-    PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
-    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatcherConfig,
-    PatternPathSegment, TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver,
+    ExpressionParserConfig, MatchInput, MatchSpan, MatchSyntaxKind, PatternCandidate,
+    PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
+    PatternHookOutcome, PatternHookScope, PatternHookTiming, PatternMatchEnvironment,
+    PatternMatchError, PatternMatchHooks, PatternMatcherConfig, PatternPathSegment,
+    TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver, UnknownEffectNode,
     match_pattern_candidates as run_pattern_matcher,
+    parse_effect_with_snapshot as run_effect_parser,
     parse_expression_with_snapshot as run_expression_parser,
 };
 use skript_parser::{
@@ -57,12 +60,16 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
     DynamicSyntaxOverride as WitDynamicSyntaxOverride,
     DynamicSyntaxOverrideTarget as WitDynamicSyntaxOverrideTarget,
-    DynamicSyntaxReference as WitDynamicSyntaxReference,
+    DynamicSyntaxReference as WitDynamicSyntaxReference, EffectCandidate as WitEffectCandidate,
+    EffectCapture as WitEffectCapture, EffectExpressionCapture as WitEffectExpressionCapture,
+    EffectFailure as WitEffectFailure, EffectMark as WitEffectMark,
+    EffectPayload as WitEffectPayload, EffectRegexCapture as WitEffectRegexCapture,
+    EffectTag as WitEffectTag, EffectTiming as WitEffectTiming,
     ExpressionExpectedType as WitExpressionExpectedType,
     ExpressionLeafCandidate as WitExpressionLeafCandidate,
     ExpressionLeafKind as WitExpressionLeafKind, ExpressionPayload as WitExpressionPayload,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
-    LineEnding as WitLineEnding, OriginKind as WitOriginKind,
+    LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry, OriginKind as WitOriginKind,
     RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
     RawInvalidReason as WitRawInvalidReason, RawNodeKind as WitRawNodeKind,
     RawTriviaKind as WitRawTriviaKind, RetainedChildrenPlacement as WitRetainedChildrenPlacement,
@@ -79,9 +86,9 @@ use crate::state::{
 };
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS,
-    CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
-    CapabilityRequirement, CompatibilityError, validate_compatibility,
+    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
+    CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO,
+    Capability, CapabilityRequirement, CompatibilityError, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -228,6 +235,8 @@ pub enum HostError {
     PatternMatcher(#[from] PatternMatchError),
     #[error("Expression parsing failed: {0}")]
     ExpressionParser(#[from] ExpressionParseError),
+    #[error("Effect parsing failed: {0}")]
+    EffectParser(#[from] EffectParseError),
     #[error("Expression parsing requires an SSG syntax Catalog")]
     SyntaxCatalogUnavailable,
     #[error("dynamic syntax registry is unavailable without an SSG Catalog")]
@@ -282,6 +291,8 @@ pub enum HostError {
         operation: &'static str,
         message: String,
     },
+    #[error("Effect hook returned invalid output: {message}")]
+    InvalidEffectHookOutput { message: String },
     #[error("component {component_id} returned invalid output for {subscription_id}: {message}")]
     InvalidHookOutput {
         component_id: String,
@@ -409,6 +420,13 @@ pub struct WasmPatternMatchResult {
 /// Recursive Expression results plus accepted WASM side effects and trace data.
 pub struct WasmExpressionParseResult {
     pub matches: ExpressionMatches,
+    pub effects: HookEffects,
+    pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
+/// Effect results plus accepted matching/Expression/Effect hook side effects.
+pub struct WasmEffectParseResult {
+    pub matches: EffectMatches,
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
@@ -1380,6 +1398,343 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 }
 
+struct EffectHookPayloadView<'a> {
+    input: &'a str,
+    raw_node_id: ParserRawNodeId,
+    span: &'a skript_parser::MappedSpan,
+    timing: WitEffectTiming,
+    candidate: Option<&'a EffectCandidate>,
+    alternatives: &'a [EffectCandidate],
+    failure: Option<&'a PatternFailure>,
+    catalog: &'a Catalog,
+}
+
+fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
+    WitEffectPayload {
+        input: view.input.to_owned(),
+        raw_node_id: view.raw_node_id.get(),
+        span: mapped_span_to_wit(view.span.clone()),
+        timing: view.timing,
+        candidate: view
+            .candidate
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog)),
+        alternatives: view
+            .alternatives
+            .iter()
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog))
+            .collect(),
+        failure: view.failure.map(effect_failure_to_wit),
+    }
+}
+
+fn effect_candidate_to_wit(candidate: &EffectCandidate, catalog: &Catalog) -> WitEffectCandidate {
+    WitEffectCandidate {
+        raw_node_id: candidate.raw_node_id.get(),
+        definition_id: candidate.matched.definition_id.clone(),
+        registration_id: candidate.matched.registration_id.clone(),
+        priority: candidate.matched.priority,
+        registration_order: u64::try_from(candidate.matched.registration_order).unwrap_or(u64::MAX),
+        pattern_index: u64::try_from(candidate.matched.pattern_index).unwrap_or(u64::MAX),
+        pattern: candidate.matched.pattern.clone(),
+        span: mapped_span_to_wit(candidate.matched.matched.span.mapped.clone()),
+        captures: candidate
+            .matched
+            .matched
+            .captures
+            .iter()
+            .map(|capture| match capture {
+                PatternCapture::Regex {
+                    pattern_span,
+                    value,
+                    span,
+                    ..
+                } => WitEffectCapture::Regex(WitEffectRegexCapture {
+                    pattern_span: WitTextRange {
+                        start: pattern_span.start as u64,
+                        end: pattern_span.end as u64,
+                    },
+                    value: value.clone(),
+                    span: mapped_span_to_wit(span.mapped.clone()),
+                }),
+                PatternCapture::TypeExpression {
+                    pattern_span,
+                    expression,
+                    value,
+                    span,
+                    alternative_index,
+                    resolution_id,
+                } => WitEffectCapture::Expression(WitEffectExpressionCapture {
+                    pattern_span: WitTextRange {
+                        start: pattern_span.start as u64,
+                        end: pattern_span.end as u64,
+                    },
+                    expression: expression.display_with(catalog.plural_rules()).to_string(),
+                    value: value.clone(),
+                    span: mapped_span_to_wit(span.mapped.clone()),
+                    alternative_index: alternative_index.map(|index| index as u64),
+                    resolution_id: resolution_id.clone(),
+                }),
+            })
+            .collect(),
+        tags: candidate
+            .matched
+            .matched
+            .tags
+            .iter()
+            .map(|tag| WitEffectTag {
+                value: tag.value.clone(),
+                pattern_span: WitTextRange {
+                    start: tag.pattern_span.start as u64,
+                    end: tag.pattern_span.end as u64,
+                },
+                input_span: mapped_span_to_wit(tag.input_span.mapped.clone()),
+                implicit: tag.implicit,
+            })
+            .collect(),
+        mark: candidate.matched.matched.mark,
+        marks: candidate
+            .matched
+            .matched
+            .marks
+            .iter()
+            .map(|mark| WitEffectMark {
+                value: mark.value,
+                pattern_span: WitTextRange {
+                    start: mark.pattern_span.start as u64,
+                    end: mark.pattern_span.end as u64,
+                },
+                input_span: mapped_span_to_wit(mark.input_span.mapped.clone()),
+                accumulated: mark.accumulated,
+            })
+            .collect(),
+        handler: candidate.handler.clone(),
+        metadata: candidate
+            .metadata
+            .iter()
+            .map(|(key, value)| WitMetadataEntry {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn effect_failure_to_wit(failure: &PatternFailure) -> WitEffectFailure {
+    WitEffectFailure {
+        offset: failure.offset as u64,
+        span: mapped_span_to_wit(failure.span.mapped.clone()),
+        reasons: failure.reasons.iter().map(effect_failure_reason).collect(),
+    }
+}
+
+fn effect_failure_reason(reason: &PatternFailureReason) -> String {
+    match reason {
+        PatternFailureReason::Literal { expected } => format!("literal:{expected}"),
+        PatternFailureReason::Regex { pattern } => format!("regex:{pattern}"),
+        PatternFailureReason::TypeExpression { expected } => {
+            format!("expression:{}", expected.join("/"))
+        }
+        PatternFailureReason::TrailingInput => "trailing-input".to_owned(),
+        PatternFailureReason::HookRejected { reason } => format!("hook-rejected:{reason}"),
+    }
+}
+
+fn validate_effect_payload_identity(
+    original: &WitEffectPayload,
+    output: &WitEffectPayload,
+    allow_candidate_replacement: bool,
+) -> Result<(), HostError> {
+    if output.input != original.input
+        || output.raw_node_id != original.raw_node_id
+        || !same_mapped_span(&output.span, &original.span)
+        || output.timing != original.timing
+        || !same_effect_candidates(&output.alternatives, &original.alternatives)
+        || !same_effect_failure(output.failure.as_ref(), original.failure.as_ref())
+    {
+        return Err(HostError::InvalidEffectHookOutput {
+            message: "hook changed immutable Effect input, alternatives, or failure fields"
+                .to_owned(),
+        });
+    }
+    match (&original.candidate, &output.candidate) {
+        (None, None) => Ok(()),
+        (Some(original), Some(output)) if allow_candidate_replacement => {
+            if same_effect_candidate_identity(original, output) {
+                Ok(())
+            } else {
+                Err(HostError::InvalidEffectHookOutput {
+                    message: "hook changed immutable Effect candidate identity or captures"
+                        .to_owned(),
+                })
+            }
+        }
+        (Some(original), Some(output)) if same_effect_candidate_full(original, output) => Ok(()),
+        (Some(_), Some(_)) | (Some(_), None) | (None, Some(_)) => {
+            Err(HostError::InvalidEffectHookOutput {
+                message: "hook added, removed, or illegally replaced the Effect candidate"
+                    .to_owned(),
+            })
+        }
+    }
+}
+
+fn same_effect_candidate_identity(
+    original: &WitEffectCandidate,
+    output: &WitEffectCandidate,
+) -> bool {
+    output.raw_node_id == original.raw_node_id
+        && output.definition_id == original.definition_id
+        && output.registration_id == original.registration_id
+        && output.priority == original.priority
+        && output.registration_order == original.registration_order
+        && output.pattern_index == original.pattern_index
+        && output.pattern == original.pattern
+        && same_mapped_span(&output.span, &original.span)
+        && same_effect_captures(&output.captures, &original.captures)
+        && same_effect_tags(&output.tags, &original.tags)
+        && output.mark == original.mark
+        && same_effect_marks(&output.marks, &original.marks)
+}
+
+fn same_effect_candidate_full(left: &WitEffectCandidate, right: &WitEffectCandidate) -> bool {
+    same_effect_candidate_identity(left, right)
+        && left.handler == right.handler
+        && same_metadata_entries(&left.metadata, &right.metadata)
+}
+
+fn same_effect_candidates(left: &[WitEffectCandidate], right: &[WitEffectCandidate]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| same_effect_candidate_full(left, right))
+}
+
+fn same_effect_failure(left: Option<&WitEffectFailure>, right: Option<&WitEffectFailure>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.offset == right.offset
+                && same_mapped_span(&left.span, &right.span)
+                && left.reasons == right.reasons
+        }
+        (None, Some(_)) | (Some(_), None) => false,
+    }
+}
+
+fn same_effect_captures(left: &[WitEffectCapture], right: &[WitEffectCapture]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| match (left, right) {
+                (WitEffectCapture::Regex(left), WitEffectCapture::Regex(right)) => {
+                    same_wit_range(&left.pattern_span, &right.pattern_span)
+                        && left.value == right.value
+                        && same_mapped_span(&left.span, &right.span)
+                }
+                (WitEffectCapture::Expression(left), WitEffectCapture::Expression(right)) => {
+                    same_wit_range(&left.pattern_span, &right.pattern_span)
+                        && left.expression == right.expression
+                        && left.value == right.value
+                        && same_mapped_span(&left.span, &right.span)
+                        && left.alternative_index == right.alternative_index
+                        && left.resolution_id == right.resolution_id
+                }
+                (WitEffectCapture::Regex(_), WitEffectCapture::Expression(_))
+                | (WitEffectCapture::Expression(_), WitEffectCapture::Regex(_)) => false,
+            })
+}
+
+fn same_effect_tags(left: &[WitEffectTag], right: &[WitEffectTag]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.value == right.value
+                && same_wit_range(&left.pattern_span, &right.pattern_span)
+                && same_mapped_span(&left.input_span, &right.input_span)
+                && left.implicit == right.implicit
+        })
+}
+
+fn same_effect_marks(left: &[WitEffectMark], right: &[WitEffectMark]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.value == right.value
+                && same_wit_range(&left.pattern_span, &right.pattern_span)
+                && same_mapped_span(&left.input_span, &right.input_span)
+                && left.accumulated == right.accumulated
+        })
+}
+
+fn same_metadata_entries(left: &[WitMetadataEntry], right: &[WitMetadataEntry]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| left.key == right.key && left.value == right.value)
+}
+fn apply_effect_hook_replacement(
+    matches: &mut EffectMatches,
+    output: WitEffectPayload,
+) -> Result<(), HostError> {
+    let selected = matches
+        .selected
+        .as_mut()
+        .ok_or_else(|| HostError::InvalidEffectHookOutput {
+            message: "Effect replacement requires a selected candidate".to_owned(),
+        })?;
+    let output = output
+        .candidate
+        .ok_or_else(|| HostError::InvalidEffectHookOutput {
+            message: "Effect hook removed the selected candidate".to_owned(),
+        })?;
+    let mut metadata = BTreeMap::new();
+    for entry in output.metadata {
+        if metadata.insert(entry.key.clone(), entry.value).is_some() {
+            return Err(HostError::InvalidEffectHookOutput {
+                message: format!("Effect candidate repeats metadata key {}", entry.key),
+            });
+        }
+    }
+    selected.handler = output.handler;
+    selected.metadata = metadata;
+    Ok(())
+}
+
+fn merge_decision_diagnostics(effects: &mut HookEffects, decision: &HookDecision) {
+    if let HookDecision::Reject(rejection) = decision {
+        effects.diagnostics.extend(rejection.diagnostics.clone());
+    }
+}
+
+fn unknown_effect_matches(
+    source: &MappedSource,
+    node: &skript_parser::RawNode,
+    failure: Option<PatternFailure>,
+) -> Result<EffectMatches, HostError> {
+    let code_span = node
+        .code_span
+        .clone()
+        .ok_or(EffectParseError::MissingCodeSpan { node_id: node.id })?;
+    let range = code_span.virtual_range;
+    let input = range
+        .slice(source.virtual_source())
+        .ok_or(EffectParseError::InvalidCodeRange { range })?
+        .to_owned();
+    Ok(EffectMatches {
+        selected: None,
+        alternatives: Vec::new(),
+        unknown: Some(UnknownEffectNode {
+            raw_node_id: node.id,
+            source: input,
+            span: MatchSpan {
+                local_range: range,
+                mapped: code_span,
+            },
+            failure,
+        }),
+    })
+}
 fn wit_expression_candidate(
     candidate: WitExpressionLeafCandidate,
 ) -> Result<ExpressionLeafCandidate, String> {
@@ -1783,6 +2138,239 @@ impl ParserHost {
         }
     }
 
+    /// Parses one lossless Simple node as an Effect with nested Expression and WASM hooks.
+    ///
+    /// The caller owns the parse transaction. State written while exploring
+    /// rejected candidates, a rejected Effect hook, or an unknown node is
+    /// restored to the entry savepoint. Only the selected candidate and its
+    /// accepted Expression/Effect hooks retain transactional changes.
+    pub fn parse_effect_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: EffectParseRequest<'_>,
+        config: EffectParserConfig,
+    ) -> Result<WasmEffectParseResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != context.document_id || document_revision != context.document_revision {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Effect context {}@{} does not match parse transaction {}@{}",
+                    context.document_id, context.document_revision, document_id, document_revision,
+                ),
+            }
+            .into());
+        }
+        let node_context = u64::from(request.node.syntax_context.get());
+        if node_context != context.syntax_context
+            || request.context.syntax_context != context.syntax_context
+        {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Effect syntax contexts node={node_context}, parser={}, invocation={} do not match",
+                    request.context.syntax_context, context.syntax_context,
+                ),
+            }
+            .into());
+        }
+        if request.node.kind != ParserRawNodeKind::Simple {
+            return Err(EffectParseError::UnsupportedNodeKind {
+                actual: request.node.kind,
+            }
+            .into());
+        }
+        let code_span =
+            request
+                .node
+                .code_span
+                .clone()
+                .ok_or(EffectParseError::MissingCodeSpan {
+                    node_id: request.node.id,
+                })?;
+        let code_range = code_span.virtual_range;
+        let input = code_range
+            .slice(request.source.virtual_source())
+            .ok_or(EffectParseError::InvalidCodeRange { range: code_range })?
+            .to_owned();
+
+        let catalog = self
+            .config
+            .syntax_catalog
+            .clone()
+            .ok_or(HostError::SyntaxCatalogUnavailable)?;
+        let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
+        let base = transaction.savepoint()?;
+        let source = request.source;
+        let node = request.node;
+        let parser_context = request.context;
+        let mut effects = empty_effects();
+        let mut calls = Vec::new();
+        let mut failures = Vec::new();
+
+        let before_payload = effect_hook_payload(EffectHookPayloadView {
+            input: &input,
+            raw_node_id: node.id,
+            span: &code_span,
+            timing: WitEffectTiming::Before,
+            candidate: None,
+            alternatives: &[],
+            failure: None,
+            catalog: catalog.as_ref(),
+        });
+        let before = match self.dispatch_in_parse(
+            transaction,
+            DispatchRequest {
+                context: context.clone(),
+                target: DispatchTarget::SyntaxDefinition(SyntaxKind::Effect),
+                phase: HookPhase::Effect,
+                payload: HookPayload::Effect(before_payload.clone()),
+            },
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                return Err(error);
+            }
+        };
+        merge_decision_diagnostics(&mut effects, &before.decision);
+        merge_effects(&mut effects, before.effects);
+        calls.extend(before.calls);
+        failures.extend(before.failures);
+        let HookPayload::Effect(before_output) = before.payload else {
+            transaction.rollback_to(&base)?;
+            return Err(HostError::InvalidEffectHookOutput {
+                message: "before hook returned a different payload kind".to_owned(),
+            });
+        };
+        if let Err(error) = validate_effect_payload_identity(&before_payload, &before_output, false)
+        {
+            transaction.rollback_to(&base)?;
+            return Err(error);
+        }
+        if matches!(before.decision, HookDecision::Reject(_)) {
+            transaction.rollback_to(&base)?;
+            return Ok(WasmEffectParseResult {
+                matches: unknown_effect_matches(source, node, None)?,
+                effects,
+                calls,
+                failures,
+            });
+        }
+
+        let hooks = WasmPatternHooks {
+            host: self,
+            transaction,
+            context: context.clone(),
+            input: source.virtual_source().to_owned(),
+            frames: Vec::new(),
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let mut environment = WasmExpressionEnvironment {
+            hooks,
+            pending_leaf: None,
+        };
+        let parsed = run_effect_parser(
+            catalog.as_ref(),
+            Some(&dynamic_snapshot),
+            EffectParseRequest {
+                source,
+                node,
+                context: parser_context,
+            },
+            &mut environment,
+            config,
+        );
+        let (nested_effects, nested_calls, nested_failures) = environment.into_parts();
+        merge_effects(&mut effects, nested_effects);
+        calls.extend(nested_calls);
+        failures.extend(nested_failures);
+        let mut matches = match parsed {
+            Ok(matches) => matches,
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                return Err(error.into());
+            }
+        };
+
+        let target = matches.selected.as_ref().map_or(
+            DispatchTarget::SyntaxDefinition(SyntaxKind::Effect),
+            |selected| DispatchTarget::ExactRegistration {
+                registration_id: selected.matched.registration_id.clone(),
+                syntax_kind: SyntaxKind::Effect,
+            },
+        );
+        let after_payload = effect_hook_payload(EffectHookPayloadView {
+            input: &input,
+            raw_node_id: node.id,
+            span: &code_span,
+            timing: WitEffectTiming::After,
+            candidate: matches.selected.as_ref(),
+            alternatives: &matches.alternatives,
+            failure: matches
+                .unknown
+                .as_ref()
+                .and_then(|unknown| unknown.failure.as_ref()),
+            catalog: catalog.as_ref(),
+        });
+        let after = match self.dispatch_in_parse(
+            transaction,
+            DispatchRequest {
+                context,
+                target,
+                phase: HookPhase::Effect,
+                payload: HookPayload::Effect(after_payload.clone()),
+            },
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                return Err(error);
+            }
+        };
+        merge_decision_diagnostics(&mut effects, &after.decision);
+        merge_effects(&mut effects, after.effects);
+        calls.extend(after.calls);
+        failures.extend(after.failures);
+        let HookPayload::Effect(after_output) = after.payload else {
+            transaction.rollback_to(&base)?;
+            return Err(HostError::InvalidEffectHookOutput {
+                message: "after hook returned a different payload kind".to_owned(),
+            });
+        };
+        if let Err(error) = validate_effect_payload_identity(&after_payload, &after_output, true) {
+            transaction.rollback_to(&base)?;
+            return Err(error);
+        }
+
+        if let HookDecision::Reject(rejection) = after.decision {
+            let failure = matches.selected.as_ref().map(|selected| PatternFailure {
+                offset: selected.matched.matched.span.local_range.start,
+                span: selected.matched.matched.span.clone(),
+                reasons: vec![PatternFailureReason::HookRejected {
+                    reason: rejection.reason,
+                }],
+            });
+            transaction.rollback_to(&base)?;
+            matches = unknown_effect_matches(source, node, failure)?;
+        } else if matches.selected.is_some() {
+            if let Err(error) = apply_effect_hook_replacement(&mut matches, after_output) {
+                transaction.rollback_to(&base)?;
+                return Err(error);
+            }
+        } else {
+            transaction.rollback_to(&base)?;
+        }
+
+        Ok(WasmEffectParseResult {
+            matches,
+            effects,
+            calls,
+            failures,
+        })
+    }
     /// Disables an addon and removes its baseline dynamic syntax.
     pub fn unload_addon(&mut self, component_id: &str) -> Result<bool, HostError> {
         if component_id == CORE_LIBRARY_COMPONENT_ID {
@@ -2901,10 +3489,10 @@ impl ParserHost {
         transaction: &ParseTransaction,
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
-        let capability_id = if matches!(request.phase, HookPhase::Expression) {
-            CAPABILITY_EXPRESSION_PARSER
-        } else {
-            CAPABILITY_HOOKS
+        let capability_id = match request.phase {
+            HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
+            HookPhase::Effect => CAPABILITY_EFFECT_PARSER,
+            _ => CAPABILITY_HOOKS,
         };
         let candidates =
             self.registry
@@ -3316,6 +3904,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
         CAPABILITY_EXPRESSION_PARSER,
+        CAPABILITY_EFFECT_PARSER,
     ]
     .map(|id| Capability::new(id, 1))
     .to_vec()
@@ -3460,6 +4049,21 @@ fn validate_manifest(
             return Err(HostError::InvalidManifest {
                 message: format!(
                     "Expression parser subscription {} must target parse-stage in the Expression phase with transform mode",
+                    subscription.id
+                ),
+            });
+        }
+        if subscription.capability_id == CAPABILITY_EFFECT_PARSER
+            && (!matches!(subscription.phase, HookPhase::Effect)
+                || !matches!(
+                    subscription.target,
+                    HookTarget::SyntaxDefinition(SyntaxKind::Effect)
+                        | HookTarget::ExactRegistration(_)
+                ))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "Effect parser subscription {} must target Effect syntax or an exact registration in the Effect phase",
                     subscription.id
                 ),
             });
@@ -4243,6 +4847,24 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .input
             .len()
             .saturating_add(value.pattern.as_ref().map_or(0, String::len)),
+        HookPayload::Effect(value) => value
+            .input
+            .len()
+            .saturating_add(value.candidate.as_ref().map_or(0, effect_candidate_size))
+            .saturating_add(
+                value
+                    .alternatives
+                    .iter()
+                    .map(effect_candidate_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(value.failure.as_ref().map_or(0, |failure| {
+                failure
+                    .reasons
+                    .iter()
+                    .map(String::len)
+                    .fold(0usize, usize::saturating_add)
+            })),
         HookPayload::Expression(value) => value.input.len().saturating_add(
             value
                 .candidates
@@ -4295,6 +4917,44 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
     }
 }
 
+fn effect_candidate_size(
+    candidate: &crate::bindings::nlaocs::skript_parser_addon::types::EffectCandidate,
+) -> usize {
+    candidate
+        .definition_id
+        .len()
+        .saturating_add(candidate.registration_id.len())
+        .saturating_add(candidate.pattern.len())
+        .saturating_add(candidate.handler.as_ref().map_or(0, String::len))
+        .saturating_add(
+            candidate
+                .captures
+                .iter()
+                .map(|capture| match capture {
+                    WitEffectCapture::Regex(capture) => capture.value.len(),
+                    WitEffectCapture::Expression(capture) => capture
+                        .expression
+                        .len()
+                        .saturating_add(capture.value.len())
+                        .saturating_add(capture.resolution_id.as_ref().map_or(0, String::len)),
+                })
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            candidate
+                .tags
+                .iter()
+                .map(|tag| tag.value.len())
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            candidate
+                .metadata
+                .iter()
+                .map(|entry| entry.key.len().saturating_add(entry.value.len()))
+                .fold(0usize, usize::saturating_add),
+        )
+}
 fn raw_tree_size(tree: &RawTree) -> usize {
     tree.nodes
         .iter()
@@ -4518,6 +5178,7 @@ mod tests {
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
                 CAPABILITY_EXPRESSION_PARSER,
+                CAPABILITY_EFFECT_PARSER,
             ]
         );
     }
@@ -4698,6 +5359,57 @@ mod tests {
         }
     }
 
+    #[test]
+    fn effect_subscriptions_use_effect_targets_and_phase() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
+        };
+
+        let subscription = HookSubscription {
+            id: "effect.parse".to_owned(),
+            target: HookTarget::SyntaxDefinition(SyntaxKind::Effect),
+            phase: HookPhase::Effect,
+            priority: 0,
+            mode: HookMode::Transform,
+            capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+        };
+        let manifest = |subscription| ComponentManifest {
+            component_id: "test.effect-contract".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![WitCapabilityRequirement {
+                id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                minimum_version: 1,
+                required: true,
+            }],
+            subscriptions: vec![subscription],
+            state_namespaces: Vec::new(),
+        };
+
+        validate_manifest(&manifest(subscription.clone()), &host_capabilities())
+            .expect("an Effect category subscription must be accepted");
+        let mut exact = subscription.clone();
+        exact.target = HookTarget::ExactRegistration("effect:test#0".to_owned());
+        exact.mode = HookMode::Override;
+        validate_manifest(&manifest(exact), &host_capabilities())
+            .expect("an exact Effect override must be accepted");
+
+        let mut invalid_target = subscription.clone();
+        invalid_target.target = HookTarget::ParseStage;
+        let mut invalid_kind = subscription.clone();
+        invalid_kind.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
+        let mut invalid_phase = subscription;
+        invalid_phase.phase = HookPhase::Candidate;
+        for invalid in [invalid_target, invalid_kind, invalid_phase] {
+            assert!(matches!(
+                validate_manifest(&manifest(invalid), &host_capabilities()),
+                Err(HostError::InvalidManifest { .. })
+            ));
+        }
+    }
     #[test]
     fn transform_hooks_compose_replacements() {
         let first = apply_hook_output(
