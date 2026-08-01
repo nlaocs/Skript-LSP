@@ -1,0 +1,111 @@
+# Effect Command CLI
+
+[日本語](README.ja.md)
+
+`effectcommandcli` is a standalone inspection utility that parses one Skript
+Effect against an exact SkriptSyntaxGenerator (SSG) schema 3 snapshot. It never
+executes the Effect. The binary demonstrates how `ssg`, `syntaxes`,
+`skript-parser`, `parser-wasm`, and the mandatory CoreLibrary fit together.
+
+## Build
+
+CoreLibrary is embedded in the executable, so build its Component artifact
+first:
+
+```console
+cargo run -p xtask --locked -- build-core-library
+cargo build -p effect-command-cli --locked
+```
+
+The Windows executable is `target/debug/effectcommandcli.exe`.
+
+## Snapshot
+
+Pass either an SSG output directory or its `Manifest.json`:
+
+```console
+effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1"
+```
+
+When `--snapshot` is omitted, the utility uses
+`EFFECT_COMMAND_CLI_SNAPSHOT`, then the current directory. The complete
+snapshot is validated before CoreLibrary starts; unsupported schemas, digest
+mismatches, missing files, and invalid cross-file references fail before
+parsing.
+
+## One-Shot Mode
+
+An Effect argument parses one line and exits:
+
+```console
+effectcommandcli.exe "send 1"
+effectcommandcli.exe --json "broadcast \"hello\""
+```
+
+Human output identifies the selected Effect, addon, implementation class,
+registration pattern, pattern AST, captures, expected Skript types, resolved
+Java return types, multiplicity, nested Expressions, parse tags, parse marks,
+alternatives, and the farthest useful failure. JSON reports carry
+`schemaVersion: 1` so consumers can version their reader independently from the
+SSG schema.
+
+`patternElements` is the complete AST of the selected registration pattern,
+including branches that were not selected. `elements` contains the regex and typed
+Expression captures that actually participated in the match.
+
+Some addons intentionally register catch-all Effects. For example,
+skript-reflect registers an expression statement as `[1:await] <.+>`, so any
+non-empty input may be a valid Effect in snapshots containing that addon. The CLI
+reports the selected catch-all instead of manufacturing an unknown result.
+
+Exit codes are stable:
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | A registered Effect matched. |
+| `1` | The input was valid but no Effect matched. |
+| `2` | CLI arguments were invalid. |
+| `3` | Snapshot, host, parser, or stream setup failed. |
+
+## REPL Mode
+
+Omit the Effect or pass `--repl` to reuse the loaded snapshot, catalog, and
+parser host:
+
+```console
+effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
+
+effect> send 1
+effect> broadcast "hello"
+effect> :json on
+effect> :reload
+effect> :quit
+```
+
+Available commands are `:help`, `:reload`, `:json on`, `:json off`, `:quit`,
+and `:exit`. A no-match or malformed line is reported without ending the REPL.
+EOF exits cleanly; an interrupted read returns to the prompt.
+
+## Current Boundary
+
+Registered Expressions, variables, literals, custom leaves, expected types,
+resolved return classes, and recursive Expression captures are reported now.
+The data model can represent a generic Function leaf, but CoreLibrary does not
+yet parse standard Skript Function calls or expose their overload and argument
+tree. Function completion remains tracked by
+[Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79); this utility must
+not present a generic `parserId` as a fully resolved Function.
+
+The utility parses exactly one top-level Effect line. It does not parse a whole
+`.sk` file, run Text/Tree macros, or execute Minecraft behavior.
+
+## Tests
+
+```console
+cargo test -p effect-command-cli --locked
+```
+
+Integration tests use both the checked-in multi-addon Skript 2.15.4 and legacy
+Skript 2.6.4/Minecraft 1.12.2 schema 3 snapshots. They cover one-shot JSON,
+unknown Effects, nested element data, REPL continuation, output switching, and
+snapshot reload.

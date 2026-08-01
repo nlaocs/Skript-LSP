@@ -1,0 +1,19 @@
+[package]
+name = "effect-command-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "effectcommandcli"
+path = "src/main.rs"
+
+[dependencies]
+parser-wasm = { path = "../../parser-wasm" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+skript-lsp = { path = "../.." }
+skript-parser = { path = "../../skript-parser" }
+ssg = { path = "../../ssg" }
+syntax-pattern-parser = { path = "../../syntax-pattern-parser" }
+syntaxes = { path = "../../syntaxes" }
+thiserror = "2.0.17"

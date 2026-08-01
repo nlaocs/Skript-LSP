@@ -443,6 +443,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "effect-command-cli"
+version = "0.1.0"
+dependencies = [
+ "parser-wasm",
+ "serde",
+ "serde_json",
+ "skript-lsp",
+ "skript-parser",
+ "ssg",
+ "syntax-pattern-parser",
+ "syntaxes",
+ "thiserror",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
