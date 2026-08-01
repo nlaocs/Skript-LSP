@@ -495,6 +495,82 @@ struct MatchEngine<'input, 'candidate, 'ext, R, H> {
 }
 
 /// Matches and deterministically ranks all candidates against one complete input.
+///
+/// A candidate succeeds only when one of its patterns consumes the complete
+/// trimmed input. Successful candidates are ordered by resolved dynamic order,
+/// priority, generator registration order, and declaration order. If none
+/// match, the result keeps the farthest merged failure for diagnostics.
+///
+/// # Examples
+///
+/// This example parses a registration pattern, matches it, and reads the regex
+/// capture with its editor-facing source span:
+///
+/// ~~~
+/// use skript_parser::{
+///     match_pattern_candidates, MappedSource, MatchInput, MatchPattern,
+///     MatchSyntaxKind, NoopPatternMatchHooks, PatternCandidate, PatternCapture,
+///     PatternMatcherConfig, RejectTypeExpressions, TextRange,
+/// };
+/// use syntax_pattern_parser::syntax::{self, PluralRules};
+///
+/// # let rules = PluralRules::from_json(r#"{
+/// #     "algorithm": "singular-aware",
+/// #     "pluralOverrideSupported": false,
+/// #     "rules": [{
+/// #         "ruleOrder": 0, "singular": "", "plural": "s",
+/// #         "completeWord": false, "origin": "built-in",
+/// #         "addon": { "name": "Skript", "version": "example" }
+/// #     }]
+/// # }"#).unwrap();
+/// let pattern_source = "announce <(.+)>";
+/// let parsed = syntax::parse(pattern_source, &rules)?;
+/// let candidate = PatternCandidate {
+///     kind: MatchSyntaxKind::Effect,
+///     definition_id: "effect:announce".to_owned(),
+///     registration_id: "effect:announce#0".to_owned(),
+///     priority: 0,
+///     registration_order: 12,
+///     resolved_order: None,
+///     patterns: vec![MatchPattern {
+///         source: pattern_source,
+///         parsed: &parsed,
+///     }],
+/// };
+///
+/// let source = MappedSource::identity("announce 日本語");
+/// let input = MatchInput::from_source(
+///     &source,
+///     TextRange::new(0, source.virtual_source().len()),
+/// )?;
+/// let matches = match_pattern_candidates(
+///     input,
+///     &[candidate],
+///     &mut RejectTypeExpressions,
+///     &mut NoopPatternMatchHooks,
+///     PatternMatcherConfig::default(),
+/// )?;
+///
+/// let selected = matches.selected.expect("the effect matches");
+/// assert_eq!(selected.registration_id, "effect:announce#0");
+/// let PatternCapture::Regex { value, span, .. } = &selected.matched.captures[0]
+/// else {
+///     panic!("regex capture expected");
+/// };
+/// assert_eq!(value, "日本語");
+/// assert_eq!(span.local_range.slice(source.virtual_source()), Some("日本語"));
+/// assert_eq!(
+///     span.mapped.primary_origin().unwrap().original_range,
+///     span.local_range,
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ~~~
+///
+/// # Errors
+///
+/// Returns [PatternMatchError] for invalid resource limits, regex compilation or
+/// execution failures, invalid source mappings, resolver failures, hook
+/// failures, or an exceeded backtracking/resource budget.
 pub fn match_pattern_candidates<R: TypeExpressionResolver, H: PatternMatchHooks>(
     input: MatchInput<'_>,
     candidates: &[PatternCandidate<'_>],

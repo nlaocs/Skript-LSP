@@ -62,6 +62,32 @@ pub const ALL_FILES: [&str; 19] = [
 
 #[derive(Debug, Clone)]
 /// Fully verified snapshot containing its source manifest and runtime catalog.
+///
+/// A snapshot keeps provenance and runtime data together: [Snapshot::manifest]
+/// identifies the exact server/plugin environment, while [Snapshot::catalog]
+/// exposes normalized indexes suitable for parser and LSP queries.
+///
+/// # Examples
+///
+/// ~~~no_run
+/// use ssg::load;
+///
+/// let snapshot = load("run/plugins/SkriptSyntaxGenerator")?;
+/// let manifest = snapshot.manifest();
+///
+/// println!(
+///     "Minecraft {} with {} plugins: {} syntaxes",
+///     manifest.server.minecraft_version,
+///     manifest.plugins.len(),
+///     snapshot.catalog().syntaxes().len(),
+/// );
+///
+/// // Catalog queries preserve the registration order captured by SSG.
+/// for expression in snapshot.catalog().expressions().take(3) {
+///     println!("{}", expression.common.registration_id.as_str());
+/// }
+/// # Ok::<(), ssg::SnapshotError>(())
+/// ~~~
 pub struct Snapshot {
     manifest: raw::Manifest,
     catalog: Catalog,
@@ -89,6 +115,25 @@ impl Snapshot {
 /// Unknown JSON fields are accepted, but required files, hashes, identities,
 /// resolution states, references, and syntax patterns are verified before a
 /// [`Snapshot`] is returned.
+///
+/// Loading is all-or-nothing. A successful return means every listed file was
+/// read, both manifest digests matched, cross-file references were valid, and
+/// every syntax pattern was parsed with the snapshot's plural rules.
+///
+/// # Examples
+///
+/// ~~~no_run
+/// use ssg::{SCHEMA_VERSION, load};
+///
+/// let snapshot = load("path/to/generated-snapshot")?;
+/// assert_eq!(snapshot.manifest().schema_version, SCHEMA_VERSION);
+///
+/// let catalog = snapshot.catalog();
+/// if let Some(string_type) = catalog.type_by_code_name("string") {
+///     println!("string is represented by {}", string_type.original_class.as_str());
+/// }
+/// # Ok::<(), ssg::SnapshotError>(())
+/// ~~~
 ///
 /// # Errors
 ///

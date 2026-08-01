@@ -100,6 +100,61 @@ pub struct TreeEditApplication {
 }
 
 /// Validates and atomically applies one generated Tree macro operation.
+///
+/// Generated node IDs are local to the supplied fragment. After complete
+/// validation, the host assigns stable arena IDs, attaches a new expansion and
+/// syntax context, and returns a new tree without mutating the input tree.
+///
+/// # Examples
+///
+/// ~~~
+/// use skript_parser::{
+///     apply_tree_edit, parse_raw_tree, GeneratedRawNode, GeneratedRawNodeId,
+///     GeneratedRawNodeKind, GeneratedRawTree, MappedSource, RawTreeOptions,
+///     TreeEdit, TreeEditMetadata,
+/// };
+///
+/// let source = MappedSource::identity("replace me\n");
+/// let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+/// let target = tree.roots[0];
+/// let generated_id = GeneratedRawNodeId::new(0);
+///
+/// let applied = apply_tree_edit(
+///     &source,
+///     &tree,
+///     target,
+///     TreeEdit::ReplaceNode {
+///         replacement: GeneratedRawTree {
+///             roots: vec![generated_id],
+///             nodes: vec![GeneratedRawNode {
+///                 id: generated_id,
+///                 kind: GeneratedRawNodeKind::Simple,
+///                 text: "broadcast \"generated\"".to_owned(),
+///                 children: Vec::new(),
+///             }],
+///         },
+///         retained_children: None,
+///     },
+///     TreeEditMetadata {
+///         component: "example.addon".to_owned(),
+///         hook: "expand-statement".to_owned(),
+///     },
+/// )?;
+///
+/// let replacement = applied.tree.get(applied.tree.roots[0]).unwrap();
+/// assert_eq!(replacement.text, "broadcast \"generated\"");
+/// assert!(replacement.span.is_generated());
+/// assert_eq!(applied.source.virtual_source(), "replace me\n");
+/// assert_eq!(applied.replacement_roots, 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ~~~
+///
+/// # Errors
+///
+/// Returns [TreeEditError] if the target is missing, a fragment ID is
+/// duplicated or unresolved, generated structure is invalid, retained children
+/// target a non-section, or expansion provenance cannot be registered. The
+/// original source and tree remain unchanged.
 pub fn apply_tree_edit(
     source: &MappedSource,
     tree: &RawTree,

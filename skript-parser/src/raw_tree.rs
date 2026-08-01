@@ -199,6 +199,25 @@ pub enum MultilineCommentSupport {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Explicit version-dependent lexical options for RawTree parsing.
+///
+/// Language features are selected from the target server's Skript version
+/// instead of the LSP binary's version. In particular, a triple-hash line is
+/// ordinary code before Skript 2.9 and a multiline-comment delimiter from 2.9.
+///
+/// # Examples
+///
+/// ~~~
+/// use skript_parser::{MultilineCommentSupport, RawTreeOptions};
+///
+/// assert_eq!(
+///     RawTreeOptions::for_skript_version(2, 8).multiline_comments,
+///     MultilineCommentSupport::Unsupported,
+/// );
+/// assert_eq!(
+///     RawTreeOptions::for_skript_version(2, 9).multiline_comments,
+///     MultilineCommentSupport::TripleHash,
+/// );
+/// ~~~
 pub struct RawTreeOptions {
     pub multiline_comments: MultilineCommentSupport,
 }
@@ -247,6 +266,36 @@ impl RawTree {
 }
 
 /// Builds a lossless, recoverable indentation tree from mapped virtual source.
+///
+/// Every physical line becomes a node, including blank lines, comments, and
+/// invalid indentation. Section nodes own indented descendants, and all spans
+/// retain the source-map origins established by earlier Text macros.
+///
+/// # Examples
+///
+/// ~~~
+/// use skript_parser::{
+///     parse_raw_tree, MappedSource, RawNodeKind, RawTreeOptions,
+/// };
+///
+/// let source = MappedSource::identity(
+///     "on join:\n    broadcast \"hello\"\n# retained comment\n",
+/// );
+/// let tree = parse_raw_tree(
+///     &source,
+///     RawTreeOptions::for_skript_version(2, 15),
+/// );
+///
+/// let event = tree.get(tree.roots[0]).expect("root node exists");
+/// assert_eq!(event.kind, RawNodeKind::Section);
+/// assert_eq!(event.text, "on join");
+/// assert!(event.header_span.is_some()); // The header span includes the colon.
+///
+/// let body = tree.get(event.children[0]).expect("section child exists");
+/// assert_eq!(body.kind, RawNodeKind::Simple);
+/// assert_eq!(body.text, "broadcast \"hello\"");
+/// assert!(tree.diagnostics.is_empty());
+/// ~~~
 pub fn parse_raw_tree(source: &MappedSource, options: RawTreeOptions) -> RawTree {
     RawTreeParser::new(source, options).parse()
 }

@@ -120,7 +120,46 @@ impl CapabilityRequirement {
 /// Validates one side of the ABI negotiation.
 ///
 /// The same function is used by the host for an addon manifest and by a guest
-/// for the host profile passed to its initialization hook.
+/// for the host profile passed to its initialization hook. ABI versions must
+/// match exactly. Required capabilities must exist at or above their minimum
+/// version; optional requirements never reject negotiation.
+///
+/// # Examples
+///
+/// ~~~
+/// use parser_wasm::{
+///     validate_compatibility, AbiVersion, Capability,
+///     CapabilityRequirement, CompatibilityError, CAPABILITY_HOOKS,
+/// };
+///
+/// let available = [Capability::new(CAPABILITY_HOOKS, 2)];
+/// let requirements = [
+///     CapabilityRequirement::required(CAPABILITY_HOOKS, 1),
+///     CapabilityRequirement::optional("parser.future-feature", 1),
+/// ];
+///
+/// validate_compatibility(
+///     AbiVersion::new(1, 3),
+///     AbiVersion::new(1, 3),
+///     &requirements,
+///     &available,
+/// )?;
+///
+/// let error = validate_compatibility(
+///     AbiVersion::new(1, 3),
+///     AbiVersion::new(2, 0),
+///     &[],
+///     &available,
+/// ).unwrap_err();
+/// assert!(matches!(error, CompatibilityError::AbiVersionMismatch { .. }));
+/// # Ok::<(), CompatibilityError>(())
+/// ~~~
+///
+/// # Errors
+///
+/// Returns [CompatibilityError] for an ABI mismatch, blank or duplicate
+/// capability IDs, a missing required capability, or an insufficient required
+/// capability version.
 pub fn validate_compatibility(
     expected_abi: AbiVersion,
     actual_abi: AbiVersion,

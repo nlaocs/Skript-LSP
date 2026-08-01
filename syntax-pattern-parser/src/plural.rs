@@ -100,6 +100,47 @@ impl PluralRule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Validated ordered plural rules for one generated server snapshot.
+///
+/// Skript applies these suffix replacements when type placeholders are parsed.
+/// The order and algorithm differ across Skript versions, and addons may
+/// register overrides, so rules must be loaded from the same SSG snapshot as
+/// the syntax catalog they accompany.
+///
+/// # Examples
+///
+/// ~~~
+/// use syntax_pattern_parser::syntax::{PluralAlgorithm, PluralRules};
+///
+/// let json = r#"{
+///     "algorithm": "singular-aware",
+///     "pluralOverrideSupported": false,
+///     "rules": [
+///         {
+///             "ruleOrder": 0,
+///             "singular": "person",
+///             "plural": "people",
+///             "completeWord": true,
+///             "origin": "built-in",
+///             "addon": { "name": "Skript", "version": "example" }
+///         },
+///         {
+///             "ruleOrder": 1,
+///             "singular": "",
+///             "plural": "s",
+///             "completeWord": false,
+///             "origin": "built-in",
+///             "addon": { "name": "Skript", "version": "example" }
+///         }
+///     ]
+/// }"#;
+/// let rules = PluralRules::from_json(json)?;
+///
+/// assert_eq!(rules.algorithm(), PluralAlgorithm::SingularAware);
+/// assert_eq!(rules.to_singular("people"), ("person".to_owned(), true));
+/// assert_eq!(rules.to_singular("person"), ("person".to_owned(), false));
+/// assert_eq!(rules.to_plural("message"), "messages");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ~~~
 pub struct PluralRules {
     algorithm: PluralAlgorithm,
     plural_override_supported: bool,
@@ -253,6 +294,15 @@ impl<'de> Deserialize<'de> for PluralRules {
 
 impl PluralRules {
     /// Deserializes and validates generated `PluralRules.json`.
+    ///
+    /// Validation covers contiguous runtime order, version-specific fields,
+    /// addon override ownership, and the required final fallback rule. A
+    /// successful result is therefore ready for [crate::syntax::parse].
+    ///
+    /// # Errors
+    ///
+    /// Returns a JSON error whose message contains the violated
+    /// [PluralRulesError] invariant when the serialized rules are malformed.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
