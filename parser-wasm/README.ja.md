@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.4.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.5.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -54,8 +54,8 @@ node ID arenaを使い、Component Model上で再帰しない値として表現�
 
 package versionはWITのshapeを示します。Text editのanchor追加で0.1.0から0.2.0へ、
 lossless RawTreeと対象指定TreeEditの追加で0.3.0へ、型付きpattern matching scope、path、
-status、spanの追加で0.4.0へ変わりました。manifestの現在の`abi`値は
-1.3で、runtime handshakeとして`major.minor`の完全一致が必要です。
+status、spanの追加で0.4.0、Expression leaf request/candidateの追加で0.5.0へ変わりました。
+manifestの現在の`abi`値は1.4で、runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。
@@ -68,6 +68,22 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
 
 hostはText macroとTree macroをadvertiseし、実行します。AST macroはcontractだけが存在し、
 まだadvertiseされません。
+
+## Expression解析
+
+`ParserHost::parse_expression_in_parse`はdocumentのdynamic syntax registryをfreezeし、1つの
+transactional WASM environmentで`skript-parser`を実行します。Expression subscriptionは
+`parser.expression` capabilityを宣言し、`ParseStage` / `Expression` phase / `Transform` modeを
+使用します。型付きpayloadにはvirtual source全体、remaining rangeとmapped span、expected Java
+classとplural、合法split位置、literal/expression flag、time state、depth、蓄積leaf候補が含まれます。
+
+CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加できます。hostはnative
+parserでstatic/dynamic登録Expressionと順位付けする前に、変更不可request field、UTF-8 range、
+parser ID、return type/Multiplicity、metadataを検証します。nativeのrange、type、Multiplicity
+検証で全leafが除外された場合、そのdispatchのstateとeffectsをsavepointへ戻します。再帰matcher
+呼び出しはそれぞれcandidate frameを持つため、子候補の選択が親のselected stateを上書きしません。
+no-matchとparser failureでは開始時のStateStore savepointへ戻します。parse overlay revisionは
+native memo keyに含まれ、candidate rollback時にはrevision自体も復元されます。
 
 ## Text macro
 

@@ -16,10 +16,14 @@ use std::{
 };
 
 use skript_parser::{
-    CandidateMatches, MatchInput, MatchSyntaxKind, PatternCandidate, PatternHookControl,
-    PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming, PatternMatchError,
-    PatternMatchHooks, PatternMatcherConfig, PatternPathSegment, TypeExpressionResolver,
+    CandidateMatches, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
+    ExpressionMatches, ExpressionParseEnvironment, ExpressionParseError, ExpressionParseRequest,
+    ExpressionParserConfig, MatchInput, MatchSyntaxKind, PatternCandidate, PatternHookControl,
+    PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
+    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatcherConfig,
+    PatternPathSegment, TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver,
     match_pattern_candidates as run_pattern_matcher,
+    parse_expression_with_snapshot as run_expression_parser,
 };
 use skript_parser::{
     ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
@@ -36,10 +40,10 @@ use skript_parser::{
     apply_tree_edit,
 };
 use syntaxes::{
-    Catalog, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
+    Catalog, ClassName, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
     DynamicSyntaxInput, DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot,
-    DynamicSyntaxUpdate, RegistrationId, SyntaxKind as CatalogSyntaxKind, SyntaxOverrideTarget,
-    SyntaxReference,
+    DynamicSyntaxUpdate, Multiplicity, RegistrationId, SyntaxKind as CatalogSyntaxKind,
+    SyntaxOverrideTarget, SyntaxReference,
 };
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
@@ -54,6 +58,9 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     DynamicSyntaxOverride as WitDynamicSyntaxOverride,
     DynamicSyntaxOverrideTarget as WitDynamicSyntaxOverrideTarget,
     DynamicSyntaxReference as WitDynamicSyntaxReference,
+    ExpressionExpectedType as WitExpressionExpectedType,
+    ExpressionLeafCandidate as WitExpressionLeafCandidate,
+    ExpressionLeafKind as WitExpressionLeafKind, ExpressionPayload as WitExpressionPayload,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
     LineEnding as WitLineEnding, OriginKind as WitOriginKind,
     RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
@@ -72,9 +79,9 @@ use crate::state::{
 };
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
-    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
-    validate_compatibility,
+    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS,
+    CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
+    CapabilityRequirement, CompatibilityError, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -219,6 +226,10 @@ pub enum HostError {
     StateStore(#[from] StateError),
     #[error("pattern matching failed: {0}")]
     PatternMatcher(#[from] PatternMatchError),
+    #[error("Expression parsing failed: {0}")]
+    ExpressionParser(#[from] ExpressionParseError),
+    #[error("Expression parsing requires an SSG syntax Catalog")]
+    SyntaxCatalogUnavailable,
     #[error("dynamic syntax registry is unavailable without an SSG Catalog")]
     DynamicSyntaxUnavailable,
     #[error("dynamic syntax registry operation failed: {0}")]
@@ -389,6 +400,15 @@ pub struct DispatchResult {
 /// Native candidate results plus accepted matching-hook side effects.
 pub struct WasmPatternMatchResult {
     pub matches: CandidateMatches,
+    pub effects: HookEffects,
+    pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
+
+#[derive(Debug)]
+/// Recursive Expression results plus accepted WASM side effects and trace data.
+pub struct WasmExpressionParseResult {
+    pub matches: ExpressionMatches,
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
@@ -933,12 +953,6 @@ struct HookEffectsCheckpoint {
 }
 
 impl HookEffectsCheckpoint {
-    const EMPTY: Self = Self {
-        diagnostics: 0,
-        context_updates: 0,
-        parse_requests: 0,
-    };
-
     fn capture(effects: &HookEffects) -> Self {
         Self {
             diagnostics: effects.diagnostics.len(),
@@ -954,21 +968,63 @@ impl HookEffectsCheckpoint {
     }
 }
 
+struct PatternMatchFrame {
+    base: StateSavepoint,
+    base_effects: HookEffectsCheckpoint,
+    selected: Option<StateSavepoint>,
+    selected_effects: Option<HookEffectsCheckpoint>,
+    candidate_range: Option<ParserTextRange>,
+}
+
 struct WasmPatternHooks<'a> {
     host: &'a mut ParserHost,
     transaction: &'a ParseTransaction,
     context: InvocationContext,
     input: String,
-    base: StateSavepoint,
-    selected: Option<StateSavepoint>,
-    selected_effects: Option<HookEffectsCheckpoint>,
-    candidate_range: Option<ParserTextRange>,
+    frames: Vec<PatternMatchFrame>,
     effects: HookEffects,
     calls: Vec<HookCall>,
     failures: Vec<ComponentFailure>,
 }
 
 impl WasmPatternHooks<'_> {
+    fn begin_match_frame(&mut self) -> Result<(), String> {
+        self.frames.push(PatternMatchFrame {
+            base: self
+                .transaction
+                .savepoint()
+                .map_err(|error| error.to_string())?,
+            base_effects: HookEffectsCheckpoint::capture(&self.effects),
+            selected: None,
+            selected_effects: None,
+            candidate_range: None,
+        });
+        Ok(())
+    }
+
+    fn finish_match_frame(&mut self, accepted: bool) -> Result<(), String> {
+        let frame = self
+            .frames
+            .pop()
+            .ok_or_else(|| "matcher frame finished without a matching begin".to_owned())?;
+        let (savepoint, effects) = if accepted {
+            let savepoint = frame
+                .selected
+                .ok_or_else(|| "accepted matcher frame has no selected candidate".to_owned())?;
+            let effects = frame.selected_effects.ok_or_else(|| {
+                "accepted matcher frame has no selected effects checkpoint".to_owned()
+            })?;
+            (savepoint, effects)
+        } else {
+            (frame.base, frame.base_effects)
+        };
+        self.transaction
+            .rollback_to(&savepoint)
+            .map_err(|error| error.to_string())?;
+        effects.restore(&mut self.effects);
+        Ok(())
+    }
+
     fn restore_candidate_state(
         &mut self,
         scope: PatternHookScope,
@@ -976,36 +1032,51 @@ impl WasmPatternHooks<'_> {
         outcome: &PatternHookOutcome,
         control: &PatternHookControl,
     ) -> Result<(), String> {
-        if scope != PatternHookScope::Definition {
-            return Ok(());
-        }
-        if timing == PatternHookTiming::Before {
+        if scope != PatternHookScope::Definition || timing == PatternHookTiming::Before {
             return Ok(());
         }
 
+        let frame = self
+            .frames
+            .last_mut()
+            .ok_or_else(|| "definition hook ran outside a matcher frame".to_owned())?;
         let accepted = match control {
             PatternHookControl::Continue => {
                 matches!(outcome, PatternHookOutcome::Matched { .. })
             }
-            PatternHookControl::Match(range) => Some(*range) == self.candidate_range,
+            PatternHookControl::Match(range) => Some(*range) == frame.candidate_range,
             PatternHookControl::Fail(_) => false,
         };
-        if accepted && self.selected.is_none() {
-            self.selected = Some(
+        if accepted && frame.selected.is_none() {
+            frame.selected = Some(
                 self.transaction
                     .savepoint()
                     .map_err(|error| error.to_string())?,
             );
-            self.selected_effects = Some(HookEffectsCheckpoint::capture(&self.effects));
+            frame.selected_effects = Some(HookEffectsCheckpoint::capture(&self.effects));
             return Ok(());
         }
 
+        let savepoint = frame.selected.as_ref().unwrap_or(&frame.base).clone();
+        let effects = frame.selected_effects.unwrap_or(frame.base_effects);
         self.transaction
-            .rollback_to(self.selected.as_ref().unwrap_or(&self.base))
+            .rollback_to(&savepoint)
             .map_err(|error| error.to_string())?;
-        self.selected_effects
-            .unwrap_or(HookEffectsCheckpoint::EMPTY)
-            .restore(&mut self.effects);
+        effects.restore(&mut self.effects);
+        Ok(())
+    }
+
+    fn prepare_definition_candidate(&mut self, range: ParserTextRange) -> Result<(), String> {
+        let frame = self
+            .frames
+            .last_mut()
+            .ok_or_else(|| "definition hook ran outside a matcher frame".to_owned())?;
+        let effects = frame.selected_effects.unwrap_or(frame.base_effects);
+        self.transaction
+            .rollback_to(&frame.base)
+            .map_err(|error| error.to_string())?;
+        effects.restore(&mut self.effects);
+        frame.candidate_range = Some(range);
         Ok(())
     }
 
@@ -1013,18 +1084,19 @@ impl WasmPatternHooks<'_> {
         (self.effects, self.calls, self.failures)
     }
 }
-
 impl PatternMatchHooks for WasmPatternHooks<'_> {
+    fn begin_match(&mut self) -> Result<(), String> {
+        self.begin_match_frame()
+    }
+
+    fn finish_match(&mut self, accepted: bool) -> Result<(), String> {
+        self.finish_match_frame(accepted)
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
-            self.transaction
-                .rollback_to(&self.base)
-                .map_err(|error| error.to_string())?;
-            self.selected_effects
-                .unwrap_or(HookEffectsCheckpoint::EMPTY)
-                .restore(&mut self.effects);
-            self.candidate_range = Some(event.input_range);
+            self.prepare_definition_candidate(event.input_range)?;
         }
         let original_status = match &event.outcome {
             PatternHookOutcome::Pending => MatchingStatus::Pending,
@@ -1150,6 +1222,200 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         self.restore_candidate_state(event.scope, event.timing, &event.outcome, &control)?;
         Ok(control)
     }
+}
+
+struct WasmExpressionEnvironment<'a> {
+    hooks: WasmPatternHooks<'a>,
+    pending_leaf: Option<(StateSavepoint, HookEffectsCheckpoint)>,
+}
+
+impl WasmExpressionEnvironment<'_> {
+    fn into_parts(self) -> (HookEffects, Vec<HookCall>, Vec<ComponentFailure>) {
+        self.hooks.into_parts()
+    }
+}
+
+impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
+    fn begin_pattern_match(&mut self) -> Result<(), String> {
+        self.hooks.begin_match_frame()
+    }
+
+    fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
+        self.hooks.finish_match_frame(accepted)
+    }
+
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<Vec<TypeExpressionResolution>, String> {
+        Ok(Vec::new())
+    }
+
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        self.hooks.dispatch(event)
+    }
+}
+
+impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+        if self.pending_leaf.is_some() {
+            return Err("previous Expression leaf set was not finalized".to_owned());
+        }
+        let leaf_savepoint = self
+            .hooks
+            .transaction
+            .savepoint()
+            .map_err(|error| error.to_string())?;
+        let effects_checkpoint = HookEffectsCheckpoint::capture(&self.hooks.effects);
+        let remaining = WitTextRange {
+            start: u64::try_from(request.remaining.start)
+                .map_err(|_| "Expression range start does not fit u64".to_owned())?,
+            end: u64::try_from(request.remaining.end)
+                .map_err(|_| "Expression range end does not fit u64".to_owned())?,
+        };
+        let span = mapped_span_to_wit(request.span.mapped.clone());
+        let expected_types = request
+            .expected_types
+            .iter()
+            .map(|expected| WitExpressionExpectedType {
+                class_name: expected.class_name.as_str().to_owned(),
+                plural: expected.plural,
+            })
+            .collect::<Vec<_>>();
+        let candidate_ends = request
+            .candidate_ends
+            .iter()
+            .map(|end| {
+                u64::try_from(*end)
+                    .map_err(|_| "Expression candidate end does not fit u64".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let depth = u32::try_from(request.depth)
+            .map_err(|_| "Expression recursion depth does not fit u32".to_owned())?;
+        let payload = WitExpressionPayload {
+            input: request.input.to_owned(),
+            remaining,
+            span: span.clone(),
+            expected_types: expected_types.clone(),
+            candidate_ends: candidate_ends.clone(),
+            allow_literals: request.allow_literals,
+            allow_expressions: request.allow_expressions,
+            time: request.time,
+            depth,
+            candidates: Vec::new(),
+        };
+        let result = self
+            .hooks
+            .host
+            .dispatch_in_parse(
+                self.hooks.transaction,
+                DispatchRequest {
+                    context: self.hooks.context.clone(),
+                    target: DispatchTarget::ParseStage,
+                    phase: HookPhase::Expression,
+                    payload: HookPayload::Expression(payload),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        merge_effects(&mut self.hooks.effects, result.effects);
+        self.hooks.calls.extend(result.calls);
+        self.hooks.failures.extend(result.failures);
+        if matches!(result.decision, HookDecision::Reject(_)) {
+            return Ok(Vec::new());
+        }
+        let HookPayload::Expression(output) = result.payload else {
+            return Err("Expression hook returned a different payload kind".to_owned());
+        };
+        if output.input != request.input
+            || !same_wit_range(&output.remaining, &remaining)
+            || !same_mapped_span(&output.span, &span)
+            || output.expected_types.len() != expected_types.len()
+            || !output
+                .expected_types
+                .iter()
+                .zip(&expected_types)
+                .all(|(left, right)| {
+                    left.class_name == right.class_name && left.plural == right.plural
+                })
+            || output.candidate_ends != candidate_ends
+            || output.allow_literals != request.allow_literals
+            || output.allow_expressions != request.allow_expressions
+            || output.time != request.time
+            || output.depth != depth
+        {
+            return Err("Expression hook changed immutable request fields".to_owned());
+        }
+
+        let candidates = output
+            .candidates
+            .into_iter()
+            .map(wit_expression_candidate)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
+        Ok(candidates)
+    }
+
+    fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
+        let Some((savepoint, effects_checkpoint)) = self.pending_leaf.take() else {
+            return Err("Expression leaf set was finalized without a pending dispatch".to_owned());
+        };
+        if !accepted {
+            self.hooks
+                .transaction
+                .rollback_to(&savepoint)
+                .map_err(|error| error.to_string())?;
+            effects_checkpoint.restore(&mut self.hooks.effects);
+        }
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        self.hooks
+            .transaction
+            .state_revision()
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn wit_expression_candidate(
+    candidate: WitExpressionLeafCandidate,
+) -> Result<ExpressionLeafCandidate, String> {
+    if candidate.parser_id.trim().is_empty() {
+        return Err("Expression candidate parser ID is blank".to_owned());
+    }
+    let start = usize::try_from(candidate.range.start)
+        .map_err(|_| "Expression candidate start does not fit usize".to_owned())?;
+    let end = usize::try_from(candidate.range.end)
+        .map_err(|_| "Expression candidate end does not fit usize".to_owned())?;
+    let mut metadata = BTreeMap::new();
+    for entry in candidate.metadata {
+        if metadata.insert(entry.key.clone(), entry.value).is_some() {
+            return Err(format!(
+                "Expression candidate {} repeats metadata key {}",
+                candidate.parser_id, entry.key
+            ));
+        }
+    }
+    Ok(ExpressionLeafCandidate {
+        parser_id: candidate.parser_id,
+        kind: match candidate.kind {
+            WitExpressionLeafKind::Variable => ExpressionLeafKind::Variable,
+            WitExpressionLeafKind::Literal => ExpressionLeafKind::Literal,
+            WitExpressionLeafKind::Function => ExpressionLeafKind::Function,
+            WitExpressionLeafKind::Custom => ExpressionLeafKind::Custom,
+        },
+        range: ParserTextRange::new(start, end),
+        return_type: candidate.return_type.map(ClassName),
+        multiplicity: candidate.multiplicity.map(|value| match value {
+            WitDynamicMultiplicity::Single => Multiplicity::Single,
+            WitDynamicMultiplicity::Multiple => Multiplicity::Multiple,
+            WitDynamicMultiplicity::Both => Multiplicity::Both,
+        }),
+        metadata,
+    })
 }
 
 fn same_matching_path(left: &[MatchingPathSegment], right: &[MatchingPathSegment]) -> bool {
@@ -1415,10 +1681,7 @@ impl ParserHost {
             transaction,
             context,
             input: input_text,
-            base: base.clone(),
-            selected: None,
-            selected_effects: None,
-            candidate_range: None,
+            frames: Vec::new(),
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -1438,6 +1701,88 @@ impl ParserHost {
             }
         }
     }
+    /// Parses one Expression with SSG registrations and WASM leaf parsers.
+    ///
+    /// The caller owns the surrounding parse transaction. A no-match or parser
+    /// failure restores the transaction to its entry savepoint; accepted
+    /// candidates retain only state selected by matching/Expression hooks.
+    pub fn parse_expression_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: ExpressionParseRequest<'_>,
+        config: ExpressionParserConfig,
+    ) -> Result<WasmExpressionParseResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != context.document_id || document_revision != context.document_revision {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Expression context {}@{} does not match parse transaction {}@{}",
+                    context.document_id, context.document_revision, document_id, document_revision,
+                ),
+            }
+            .into());
+        }
+        if request.context.syntax_context != context.syntax_context {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Expression syntax context {} does not match invocation context {}",
+                    request.context.syntax_context, context.syntax_context,
+                ),
+            }
+            .into());
+        }
+
+        let catalog = self
+            .config
+            .syntax_catalog
+            .clone()
+            .ok_or(HostError::SyntaxCatalogUnavailable)?;
+        let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
+        let base = transaction.savepoint()?;
+        let input_text = request.source.virtual_source().to_owned();
+        let hooks = WasmPatternHooks {
+            host: self,
+            transaction,
+            context,
+            input: input_text,
+            frames: Vec::new(),
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let mut environment = WasmExpressionEnvironment {
+            hooks,
+            pending_leaf: None,
+        };
+        let result = run_expression_parser(
+            catalog.as_ref(),
+            Some(&dynamic_snapshot),
+            request,
+            &mut environment,
+            config,
+        );
+        let (effects, calls, failures) = environment.into_parts();
+        match result {
+            Ok(matches) => {
+                if matches.selected.is_none() {
+                    transaction.rollback_to(&base)?;
+                }
+                Ok(WasmExpressionParseResult {
+                    matches,
+                    effects,
+                    calls,
+                    failures,
+                })
+            }
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                Err(error.into())
+            }
+        }
+    }
+
     /// Disables an addon and removes its baseline dynamic syntax.
     pub fn unload_addon(&mut self, component_id: &str) -> Result<bool, HostError> {
         if component_id == CORE_LIBRARY_COMPONENT_ID {
@@ -2556,9 +2901,14 @@ impl ParserHost {
         transaction: &ParseTransaction,
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
+        let capability_id = if matches!(request.phase, HookPhase::Expression) {
+            CAPABILITY_EXPRESSION_PARSER
+        } else {
+            CAPABILITY_HOOKS
+        };
         let candidates =
             self.registry
-                .matching_capability(&request.target, request.phase, CAPABILITY_HOOKS);
+                .matching_capability(&request.target, request.phase, capability_id);
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
         let mut payload = request.payload;
@@ -2965,6 +3315,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_TREE_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
+        CAPABILITY_EXPRESSION_PARSER,
     ]
     .map(|id| Capability::new(id, 1))
     .to_vec()
@@ -3097,6 +3448,18 @@ fn validate_manifest(
             return Err(HostError::InvalidManifest {
                 message: format!(
                     "tree macro subscription {} must target parse-stage in the tree phase with transform mode",
+                    subscription.id
+                ),
+            });
+        }
+        if subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
+            && (!matches!(subscription.target, HookTarget::ParseStage)
+                || !matches!(subscription.phase, HookPhase::Expression)
+                || !matches!(subscription.mode, HookMode::Transform))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "Expression parser subscription {} must target parse-stage in the Expression phase with transform mode",
                     subscription.id
                 ),
             });
@@ -3880,6 +4243,25 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .input
             .len()
             .saturating_add(value.pattern.as_ref().map_or(0, String::len)),
+        HookPayload::Expression(value) => value.input.len().saturating_add(
+            value
+                .candidates
+                .iter()
+                .map(|candidate| {
+                    candidate
+                        .parser_id
+                        .len()
+                        .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
+                        .saturating_add(
+                            candidate
+                                .metadata
+                                .iter()
+                                .map(|entry| entry.key.len().saturating_add(entry.value.len()))
+                                .fold(0usize, usize::saturating_add),
+                        )
+                })
+                .fold(0usize, usize::saturating_add),
+        ),
         HookPayload::Capture(value) => value
             .syntax_id
             .len()
@@ -4135,6 +4517,7 @@ mod tests {
                 CAPABILITY_TREE_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
+                CAPABILITY_EXPRESSION_PARSER,
             ]
         );
     }
@@ -4267,6 +4650,54 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn expression_subscriptions_use_the_dedicated_pipeline_shape() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
+        };
+
+        let subscription = HookSubscription {
+            id: "expression.parse".to_owned(),
+            target: HookTarget::ParseStage,
+            phase: HookPhase::Expression,
+            priority: 0,
+            mode: HookMode::Transform,
+            capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+        };
+        let manifest = |subscription| ComponentManifest {
+            component_id: "test.expression-contract".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![WitCapabilityRequirement {
+                id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                minimum_version: 1,
+                required: true,
+            }],
+            subscriptions: vec![subscription],
+            state_namespaces: Vec::new(),
+        };
+
+        validate_manifest(&manifest(subscription.clone()), &host_capabilities())
+            .expect("the dedicated Expression pipeline shape must be accepted");
+
+        let mut invalid_target = subscription.clone();
+        invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
+        let mut invalid_phase = subscription.clone();
+        invalid_phase.phase = HookPhase::Candidate;
+        let mut invalid_mode = subscription;
+        invalid_mode.mode = HookMode::Override;
+
+        for invalid in [invalid_target, invalid_phase, invalid_mode] {
+            assert!(matches!(
+                validate_manifest(&manifest(invalid), &host_capabilities()),
+                Err(HostError::InvalidManifest { .. })
+            ));
+        }
+    }
+
     #[test]
     fn transform_hooks_compose_replacements() {
         let first = apply_hook_output(

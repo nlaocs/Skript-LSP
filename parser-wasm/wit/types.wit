@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.4.0;
+package nlaocs:skript-parser-addon@0.5.0;
 
 interface types {
     record abi-version {
@@ -127,6 +127,7 @@ interface types {
         tree,
         node,
         matching,
+        expression,
         capture,
         syntax,
         candidate,
@@ -307,6 +308,40 @@ interface types {
         diagnostics: list<diagnostic>,
         context-updates: list<context-update>,
         parse-requests: list<parse-request>,
+    }
+
+    record expression-expected-type {
+        class-name: string,
+        plural: bool,
+    }
+
+    enum expression-leaf-kind {
+        variable,
+        literal,
+        function,
+        custom,
+    }
+
+    record expression-leaf-candidate {
+        parser-id: string,
+        kind: expression-leaf-kind,
+        range: text-range,
+        return-type: option<string>,
+        multiplicity: option<dynamic-multiplicity>,
+        metadata: list<metadata-entry>,
+    }
+
+    record expression-payload {
+        input: string,
+        remaining: text-range,
+        span: mapped-span,
+        expected-types: list<expression-expected-type>,
+        candidate-ends: list<u64>,
+        allow-literals: bool,
+        allow-expressions: bool,
+        time: s32,
+        depth: u32,
+        candidates: list<expression-leaf-candidate>,
     }
 
     enum line-ending {
@@ -580,6 +615,7 @@ interface types {
         tree(raw-tree),
         node(node-payload),
         matching(matching-payload),
+        expression(expression-payload),
         capture(capture-payload),
         syntax(syntax-definition-payload),
         exact-registration(exact-registration-payload),

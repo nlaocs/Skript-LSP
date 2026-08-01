@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.4.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.5.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -57,8 +57,9 @@ Every manifest exposes a component ID and component version for diagnostics.
 The package version identifies the WIT shape. Text edit anchors changed the
 package from 0.1.0 to 0.2.0; the lossless RawTree and targeted TreeEdit model
 changed it to 0.3.0; typed pattern-matching scopes, paths, status, and spans
-changed it to 0.4.0. The manifest's current `abi` value is 1.3 and is a runtime
-handshake that requires an exact `major.minor` match.
+changed it to 0.4.0; Expression leaf requests and candidates changed it to
+0.5.0. The manifest's current `abi` value is 1.4 and is a runtime handshake that
+requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an
@@ -73,6 +74,27 @@ older host without failing while lifting its manifest.
 
 The host advertises and executes Text and Tree macros. The AST macro capability
 remains contract-only and is not advertised yet.
+
+## Expression Parsing
+
+`ParserHost::parse_expression_in_parse` freezes the document's dynamic syntax
+registry and runs `skript-parser` with one transactional WASM environment.
+Expression subscriptions target `ParseStage` in the `Expression` phase with
+`Transform` mode and the `parser.expression` capability. Their typed payload
+contains the complete virtual source, remaining range and mapped span, expected
+Java types and plurality, legal split points, literal/expression flags, time
+state, depth, and accumulated leaf candidates.
+
+CoreLibrary and addons may append Variable, Literal, Function, or Custom leaf
+candidates. The host validates immutable request fields, UTF-8 ranges, parser
+IDs, return type/multiplicity, and metadata before the native parser ranks the
+results with registered static and dynamic expressions. A leaf set eliminated
+by native range, type, or multiplicity validation restores its dispatch
+savepoint and effects. Every recursive matcher invocation owns a nested
+candidate frame, so child selection cannot overwrite its parent's selected
+state. No-match and parser failure restore the entry StateStore savepoint. The
+parse-overlay revision is part of native memo keys and is itself restored by
+candidate rollback.
 
 ## Text Macros
 

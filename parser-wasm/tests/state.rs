@@ -172,6 +172,62 @@ fn enforces_private_and_shared_namespace_permissions() {
 }
 
 #[test]
+fn parser_revision_tracks_only_accepted_state_access_and_savepoint_rollback() {
+    let directory = TempDir::new().expect("temporary directory must exist");
+    let store = store(directory.path());
+    register_namespaces(&store, 1);
+    let parse = store
+        .begin_parse(PROJECT, DOCUMENT, 1)
+        .expect("parse must begin");
+
+    parse
+        .begin_invocation(OWNER)
+        .expect("empty invocation may begin")
+        .commit()
+        .expect("empty invocation may commit");
+    assert_eq!(parse.state_revision().unwrap(), 0);
+
+    let mut reader = parse.begin_invocation(READER).expect("reader may invoke");
+    assert_eq!(
+        reader
+            .get(
+                StateScope::Parse,
+                NamespaceVisibility::Shared,
+                SHARED,
+                "missing",
+            )
+            .expect("reader may inspect state"),
+        None
+    );
+    reader.commit().expect("read dependency must merge");
+    assert_eq!(
+        parse.state_revision().unwrap(),
+        0,
+        "read-only invocations do not change the parse overlay"
+    );
+
+    let base = parse.savepoint().expect("candidate savepoint must exist");
+    let mut writer = parse.begin_invocation(OWNER).expect("writer may invoke");
+    writer
+        .put(
+            StateScope::Parse,
+            NamespaceVisibility::Shared,
+            SHARED,
+            "candidate",
+            value("string"),
+        )
+        .expect("candidate write must stage");
+    writer.commit().expect("candidate write must merge");
+    assert_eq!(parse.state_revision().unwrap(), 1);
+
+    parse
+        .rollback_to(&base)
+        .expect("rejected candidate must restore state revision");
+    assert_eq!(parse.state_revision().unwrap(), 0);
+    parse.cancel().unwrap();
+}
+
+#[test]
 fn rolls_back_invocations_and_candidate_savepoints() {
     let directory = TempDir::new().expect("temporary directory must exist");
     let store = store(directory.path());

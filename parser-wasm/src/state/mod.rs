@@ -593,6 +593,7 @@ impl StateStore {
                 read_write_set: StateReadWriteSet::default(),
                 base_revisions: BTreeMap::new(),
                 current_revisions: BTreeMap::new(),
+                overlay_revision: 0,
                 closed: false,
             })),
         })
@@ -615,6 +616,7 @@ struct ParseTransactionInner {
     read_write_set: StateReadWriteSet,
     base_revisions: BTreeMap<RevisionKey, u64>,
     current_revisions: BTreeMap<RevisionKey, u64>,
+    overlay_revision: u64,
     closed: bool,
 }
 
@@ -677,6 +679,7 @@ impl ParseTransaction {
             read_write_set: inner.read_write_set.clone(),
             base_revisions: inner.base_revisions.clone(),
             current_revisions: inner.current_revisions.clone(),
+            overlay_revision: inner.overlay_revision,
         })
     }
 
@@ -693,6 +696,7 @@ impl ParseTransaction {
         inner
             .current_revisions
             .clone_from(&savepoint.current_revisions);
+        inner.overlay_revision = savepoint.overlay_revision;
         Ok(())
     }
 
@@ -747,6 +751,17 @@ impl ParseTransaction {
         Ok(())
     }
 
+    /// Returns the current parse-overlay revision for parser memoization.
+    ///
+    /// The value advances whenever an invocation is accepted and is restored by
+    /// candidate rollback, so memoized parser results cannot outlive state that
+    /// influenced them.
+    pub fn state_revision(&self) -> Result<u64, StateError> {
+        let inner = self.lock()?;
+        inner.ensure_open()?;
+        Ok(inner.overlay_revision)
+    }
+
     /// Returns the document identity bound to this transaction.
     pub fn document_id(&self) -> Result<String, StateError> {
         Ok(self.lock()?.document_id.clone())
@@ -772,6 +787,7 @@ pub struct StateSavepoint {
     read_write_set: StateReadWriteSet,
     base_revisions: BTreeMap<RevisionKey, u64>,
     current_revisions: BTreeMap<RevisionKey, u64>,
+    overlay_revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -925,6 +941,10 @@ impl InvocationTransaction {
 
     /// Merges invocation writes into the parent parse overlay.
     pub fn commit(self) -> Result<(), StateError> {
+        let overlay_changed = self
+            .writes
+            .keys()
+            .any(|address| address.scope != StateScope::Invocation);
         let mut parse = self.parse.lock().map_err(|_| StateError::Internal {
             message: "parse transaction mutex was poisoned".to_owned(),
         })?;
@@ -1007,6 +1027,9 @@ impl InvocationTransaction {
         for key in touched {
             let revision = parse.current_revisions.entry(key).or_insert(0);
             *revision = revision.saturating_add(1);
+        }
+        if overlay_changed {
+            parse.overlay_revision = parse.overlay_revision.saturating_add(1);
         }
         Ok(())
     }

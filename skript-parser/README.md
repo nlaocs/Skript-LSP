@@ -170,6 +170,26 @@ sequence and choice-branch positions. Configurable state, backtrack, regex
 execution, evaluated-byte, and regex-engine limits bound ambiguous or hostile
 patterns. Transition memoization avoids repeating deterministic literal and
 regex work.
+## Recursive Expression Parsing
+
+`parse_expression` combines SSG `Catalog` registrations with leaf parsers from
+an `ExpressionParseEnvironment`. `parse_expression_with_snapshot` additionally
+uses a frozen dynamic syntax snapshot, preserving resolved before/after order,
+dynamic return metadata, and registry revision in memo keys.
+
+Each top-level `ExpressionExpectedType` retains both its Java class and singular/plural requirement. The parser preserves `%type%` alternatives, plurality, nullable markers,
+literal/expression flags, and time state. It filters return classes through the
+Catalog hierarchy, rejects Multiple-only results for singular placeholders,
+and recursively attaches typed captures as child `ExpressionNode` values.
+Variables, literals, functions, and custom addon parsers use the same mapped
+spans as registered expressions.
+
+Left-recursive forms such as `%strings% in upper case` use seed-and-grow parsing.
+Leading and trailing literal constraints are extracted conservatively from the
+Pattern AST before matching, while depth, candidate, matcher, and memo limits
+bound hostile recursion. Memo keys include source range, expected type/context,
+StateStore revision, and dynamic registry revision.
+
 ## Invariants
 
 Constructors reject:
@@ -195,7 +215,8 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `source_map` | origins, segments, mapped source, and mapped spans |
 | `expansion` | expansion graph, component/hook ownership, and syntax contexts |
 | `raw_tree` | physical lines, comment splitting, indentation recovery, and RawTree |
-| `pattern_match` | registered-pattern matching, captures, ranking, hooks, and limits |
+| pattern_match | registered-pattern matching, captures, ranking, hooks, and limits |
+| Expression | recursive Expression AST, type filtering, left recursion, memoization, and leaf parser integration |
 | `catalog_match` | adapters from static Catalogs and frozen dynamic snapshots |
 
 All public items are re-exported from the crate root.
@@ -212,4 +233,4 @@ anchors, invalid segment layouts, and property tests for identity mappings and
 arbitrary UTF-8 Text edit application. RawTree tests cover Skript's comment
 cases, LF/CRLF/no-final-newline inputs, spaces and tabs, nested Sections,
 recoverable invalid indentation, empty Sections, block comments, macro origins,
-and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases.
+and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, and the full multi-addon Catalog.

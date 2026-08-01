@@ -150,6 +150,22 @@ overrideできます。element pathにはsequence位置とchoice branch位置の
 state数、backtrack数、regex実行数、評価byte数、regex engine backtrack数の上限により、曖昧または
 敵対的なpatternを制限します。transition memoizationは決定的なliteral/regex処理の再実行を
 避けます。
+## 再帰Expression解析
+
+`parse_expression`はSSG `Catalog`の登録構文と`ExpressionParseEnvironment`が提供するleaf
+parserを統合します。`parse_expression_with_snapshot`はfrozen dynamic syntax snapshotも使い、
+before/after解決順、dynamic return metadata、registry revisionをmemo keyへ保持します。
+
+トップレベルの`ExpressionExpectedType`もJava classとsingular/plural要件を組で保持します。`%type%`のalternative、plural、nullable、literal/expression flag、time stateを失わず、Catalogの
+class hierarchyでreturn typeをfilterします。singular placeholderではMultiple-only結果を拒否し、
+typed captureを子`ExpressionNode`として再帰的にASTへ接続します。variable、literal、function、
+addon独自parserも登録Expressionと同じ`MappedSpan`を返します。
+
+`%strings% in upper case`のようなleft-recursive構文はseed-and-growで解析します。照合前にPattern
+ASTから先頭・末尾literal制約を保守的に抽出し、depth、candidate、matcher、memoの各上限で
+敵対的な再帰を制限します。memo keyにはsource range、expected type/context、StateStore revision、
+dynamic registry revisionが含まれます。
+
 ## Invariant
 
 constructorは次の入力を拒否します。
@@ -175,7 +191,8 @@ constructorは次の入力を拒否します。
 | `source_map` | origin、segment、mapped source、mapped span |
 | `expansion` | expansion graph、component/hook ownership、syntax context |
 | `raw_tree` | physical line、comment分離、indentation回復、RawTree |
-| `pattern_match` | 登録pattern照合、capture、候補順位、hook、quota |
+| pattern_match | 登録pattern照合、capture、候補順位、hook、quota |
+| Expression | 再帰Expression AST、型filter、left recursion、memo、leaf parser統合 |
 | `catalog_match` | static Catalogとfrozen dynamic snapshotの候補adapter |
 
 公開itemはcrate rootからre-exportされます。
@@ -190,4 +207,4 @@ test suiteには、multibyte UTF-8 mapping、生成text、replacement range、�
 backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
 UTF-8 Text edit適用のproperty testが含まれます。RawTreeについてはSkript公式comment case、
 LF/CRLF/最終改行なし、space/tab、nested Section、回復可能な不正indent、空Section、block
-comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。
+comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、multi-addon Catalog全体を検証します。

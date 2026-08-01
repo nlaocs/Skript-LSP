@@ -3,6 +3,7 @@
 
 mod catalog_match;
 mod expansion;
+mod expression;
 mod pattern_match;
 mod raw_tree;
 mod source_map;
@@ -13,6 +14,8 @@ mod tree_edit;
 pub use catalog_match::*;
 /// Macro expansion identities, syntax contexts, and provenance graph.
 pub use expansion::*;
+/// Recursive Expression parsing over SSG registrations and parser extensions.
+pub use expression::*;
 /// Registered-pattern matching and typed extension points.
 pub use pattern_match::*;
 /// Lossless indentation tree and recoverable lexical diagnostics.
