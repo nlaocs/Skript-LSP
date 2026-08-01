@@ -221,7 +221,74 @@ pub enum PatternHookControl {
 
 /// Observer/override interface spanning definition through element scopes.
 pub trait PatternMatchHooks {
+    /// Starts one matcher invocation, including recursive re-entry.
+    fn begin_match(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Finalizes one matcher invocation and its selected candidate state.
+    fn finish_match(&mut self, accepted: bool) -> Result<(), String> {
+        let _ = accepted;
+        Ok(())
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
+}
+
+/// Unified extension environment used by recursive pattern matching.
+///
+/// Keeping typed-expression resolution and hook dispatch behind one mutable
+/// value lets a resolver re-enter the matcher without borrowing a separate
+/// hook host. This is particularly important for WASM-backed expression
+/// parsing, where both operations share one transactional parse session.
+pub trait PatternMatchEnvironment {
+    /// Starts one matcher invocation, including recursive re-entry.
+    fn begin_pattern_match(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Finalizes one matcher invocation and its selected candidate state.
+    fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
+        let _ = accepted;
+        Ok(())
+    }
+
+    /// Resolves one typed placeholder at the legal split points supplied by the matcher.
+    fn resolve_type(
+        &mut self,
+        request: TypeExpressionRequest<'_>,
+    ) -> Result<Vec<TypeExpressionResolution>, String>;
+
+    /// Dispatches one matcher lifecycle event.
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
+}
+
+struct SplitPatternMatchEnvironment<'a, R, H> {
+    resolver: &'a mut R,
+    hooks: &'a mut H,
+}
+
+impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
+    for SplitPatternMatchEnvironment<'_, R, H>
+{
+    fn begin_pattern_match(&mut self) -> Result<(), String> {
+        self.hooks.begin_match()
+    }
+
+    fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
+        self.hooks.finish_match(accepted)
+    }
+
+    fn resolve_type(
+        &mut self,
+        request: TypeExpressionRequest<'_>,
+    ) -> Result<Vec<TypeExpressionResolution>, String> {
+        self.resolver.resolve(request)
+    }
+
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        self.hooks.dispatch(event)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -478,10 +545,9 @@ struct CandidateContext<'a> {
     pattern: Option<&'a MatchPattern<'a>>,
 }
 
-struct MatchEngine<'input, 'candidate, 'ext, R, H> {
+struct MatchEngine<'input, 'candidate, 'ext, E> {
     input: MatchInput<'input>,
-    resolver: &'ext mut R,
-    hooks: &'ext mut H,
+    environment: &'ext mut E,
     config: PatternMatcherConfig,
     failure: FailureTracker,
     states: usize,
@@ -578,12 +644,45 @@ pub fn match_pattern_candidates<R: TypeExpressionResolver, H: PatternMatchHooks>
     hooks: &mut H,
     config: PatternMatcherConfig,
 ) -> Result<CandidateMatches, PatternMatchError> {
+    let mut environment = SplitPatternMatchEnvironment { resolver, hooks };
+    match_pattern_candidates_with_environment(input, candidates, &mut environment, config)
+}
+
+/// Matches candidates using one extension environment for resolution and hooks.
+///
+/// Unlike [`match_pattern_candidates`], this entry point stores both extension
+/// operations behind a single mutable borrow. Recursive parsers can therefore
+/// call the matcher again while preserving one host session and transaction.
+pub fn match_pattern_candidates_with_environment<E: PatternMatchEnvironment>(
+    input: MatchInput<'_>,
+    candidates: &[PatternCandidate<'_>],
+    environment: &mut E,
+    config: PatternMatcherConfig,
+) -> Result<CandidateMatches, PatternMatchError> {
     config.validate()?;
+    environment
+        .begin_pattern_match()
+        .map_err(|message| PatternMatchError::Hook { message })?;
+    let result = match_pattern_candidates_in_environment(input, candidates, environment, config);
+    let accepted = result
+        .as_ref()
+        .is_ok_and(|matches| matches.selected.is_some());
+    environment
+        .finish_pattern_match(accepted)
+        .map_err(|message| PatternMatchError::Hook { message })?;
+    result
+}
+
+fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
+    input: MatchInput<'_>,
+    candidates: &[PatternCandidate<'_>],
+    environment: &mut E,
+    config: PatternMatcherConfig,
+) -> Result<CandidateMatches, PatternMatchError> {
     let trim_range = java_trim_range(input.text());
     let mut engine = MatchEngine {
         input,
-        resolver,
-        hooks,
+        environment,
         config,
         failure: FailureTracker::default(),
         states: 0,
@@ -633,8 +732,8 @@ pub fn match_pattern_candidates<R: TypeExpressionResolver, H: PatternMatchHooks>
     })
 }
 
-impl<'input, 'candidate, 'ext, R: TypeExpressionResolver, H: PatternMatchHooks>
-    MatchEngine<'input, 'candidate, 'ext, R, H>
+impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
+    MatchEngine<'input, 'candidate, 'ext, E>
 {
     fn match_candidate(
         &mut self,
@@ -1383,8 +1482,8 @@ impl<'input, 'candidate, 'ext, R: TypeExpressionResolver, H: PatternMatchHooks>
             boundaries.insert(0, state.cursor);
         }
         let resolutions = self
-            .resolver
-            .resolve(TypeExpressionRequest {
+            .environment
+            .resolve_type(TypeExpressionRequest {
                 input: self.input.text(),
                 expression,
                 pattern_span,
@@ -1485,8 +1584,8 @@ impl<'input, 'candidate, 'ext, R: TypeExpressionResolver, H: PatternMatchHooks>
             .current
             .as_ref()
             .expect("hooks only run while matching a candidate");
-        self.hooks
-            .dispatch(PatternHookEvent {
+        self.environment
+            .dispatch_hook(PatternHookEvent {
                 kind: current.candidate.kind,
                 definition_id: &current.candidate.definition_id,
                 registration_id: &current.candidate.registration_id,

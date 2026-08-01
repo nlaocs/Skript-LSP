@@ -1364,6 +1364,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "ssg",
  "syntax-pattern-parser",
  "syntaxes",
  "thiserror",
