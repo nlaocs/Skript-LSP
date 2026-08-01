@@ -12,14 +12,19 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 
 - component ID `nlaocs.core-library`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
-- Document phaseの`core.health-check` subscription 1件
+- Document phaseのcore.health-check subscription 1件
+- variable・string・number用のcore.expression-leaves Transform subscription 1件
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
 
-text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
-CoreLibraryは、SkriptのExpression、Condition、Section、Structure、legacy解析の意味処理を
-まだ実装していません。
+Expression hookは合法split位置にあるbrace付きvariable、quoted string literal、有限の符号付き
+integer/decimal literalを認識します。hostから渡されたexpected type/plural contractを維持し、
+再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
+責務です。
+
+text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。CoreLibraryは、
+Function call、Condition、Section、Structure、legacy解析の意味処理をまだ実装していません。
 
 ## WASM Componentである理由
 

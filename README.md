@@ -67,9 +67,9 @@ The intended data flow is:
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
 | [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 snapshot directories. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |
-| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, and registered-pattern matching for `.sk` documents. |
-| [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, StateStore, and dynamic syntax bridge. |
-| [`core-library`](./core-library/) | WASM component | Mandatory parser addon component reserved for Skript's built-in parsing behavior. It currently supplies ABI negotiation and a health hook. |
+| [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, registered-pattern matching, and recursive Expression ASTs for `.sk` documents. |
+| [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, transactional Expression leaf pipeline, StateStore, and dynamic syntax bridge. |
+| [`core-library`](./core-library/) | WASM component | Mandatory parser addon component for Skript built-ins. It supplies ABI negotiation, a health hook, and variable/string/number Expression leaves. |
 | [`skripthub`](./skripthub/) | legacy library | Compatibility reader for the old SkriptHub API and its flattened function strings. New syntax data should use `ssg` and `syntaxes`. |
 | [`text-macro-addon`](./test-components/text-macro-addon/) | test WASM component | Exercises ordered Text macro expansion, UTF-8 edits, anchors, StateStore rollback, and traps. |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/) | test WASM component | Exercises targeted TreeEdit operations, recursive expansion, provenance, cycles, StateStore rollback, quotas, and traps. |

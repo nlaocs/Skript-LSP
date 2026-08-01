@@ -12,15 +12,22 @@ The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
 - ABI and capability negotiation during `addon.initialize`
-- one `core.health-check` subscription at the Document phase
+- one core.health-check subscription at the Document phase
+- one core.expression-leaves Transform subscription for variables, strings, and numbers
 - typed exports for hooks and text, tree, and AST macro interfaces
 
 The health hook validates its target, phase, and payload, then continues
 without modifying the document.
 
-Text, tree, and AST macro exports currently return
-`unsupported-capability`. CoreLibrary does not yet implement Skript expression,
-condition, section, structure, or legacy parsing semantics.
+The Expression hook recognizes braced variables, quoted string literals, and
+finite signed integer/decimal literals at legal split points. It preserves the
+host's expected type/plurality contract and returns typed leaf candidates to
+the recursive native parser. Registered Expression matching, recursion, and
+ranking remain Rust host responsibilities.
+
+Text, tree, and AST macro exports currently return `unsupported-capability`.
+CoreLibrary does not yet implement Function calls, Condition, Section,
+Structure, or legacy parsing semantics.
 
 ## Why It Is a WASM Component
 
