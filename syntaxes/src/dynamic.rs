@@ -1,3 +1,9 @@
+//! Transactional overlay for syntax registered or overridden by WASM components.
+//!
+//! Mutable document revisions are isolated from the immutable static catalog.
+//! Freezing validates references and produces deterministic candidate order.
+#![allow(missing_docs)] // Public fields are described by their owning domain type.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, MutexGuard},
@@ -13,12 +19,14 @@ const MAX_PATTERN_BYTES_PER_SYNTAX: usize = 64 * 1024;
 const MAX_METADATA_ENTRIES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Component-qualified identity of a dynamically registered syntax.
 pub struct DynamicSyntaxId {
     pub component_id: String,
     pub local_id: String,
 }
 
 impl DynamicSyntaxId {
+    /// Creates a component-qualified ID from manifest and local names.
     pub fn new(component_id: impl Into<String>, local_id: impl Into<String>) -> Self {
         Self {
             component_id: component_id.into(),
@@ -26,12 +34,14 @@ impl DynamicSyntaxId {
         }
     }
 
+    /// Formats the stable `dynamic:<component>/<local>` identity.
     pub fn qualified(&self) -> String {
         format!("dynamic:{}/{}", self.component_id, self.local_id)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Multiplicity metadata accepted from a dynamic syntax component.
 pub enum DynamicMultiplicity {
     Single,
     Multiple,
@@ -39,6 +49,7 @@ pub enum DynamicMultiplicity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Static or dynamic target used by ordering constraints.
 pub enum SyntaxReference {
     Dynamic(DynamicSyntaxId),
     Definition(DefinitionId),
@@ -46,12 +57,14 @@ pub enum SyntaxReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Source and parsed AST of one dynamic registration pattern.
 pub struct DynamicPattern {
     pub source: String,
     pub parsed: ParseResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Unqualified syntax declaration supplied by a component.
 pub struct DynamicSyntaxInput {
     pub local_id: String,
     pub kind: SyntaxKind,
@@ -66,6 +79,7 @@ pub struct DynamicSyntaxInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Validated, component-qualified dynamic syntax definition.
 pub struct DynamicSyntaxDefinition {
     pub id: DynamicSyntaxId,
     pub kind: SyntaxKind,
@@ -82,12 +96,14 @@ pub struct DynamicSyntaxDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Static definition or exact registration selected for override.
 pub enum SyntaxOverrideTarget {
     Definition(DefinitionId),
     Registration(RegistrationId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Override declaration supplied by a component.
 pub struct DynamicSyntaxOverrideInput {
     pub local_id: String,
     pub target: SyntaxOverrideTarget,
@@ -97,6 +113,7 @@ pub struct DynamicSyntaxOverrideInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Validated, component-owned override attached to a static candidate.
 pub struct DynamicSyntaxOverride {
     pub id: DynamicSyntaxId,
     pub target: SyntaxOverrideTarget,
@@ -108,6 +125,7 @@ pub struct DynamicSyntaxOverride {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Opaque component handler and metadata associated with a candidate.
 pub struct DynamicHandler {
     pub registration_id: DynamicSyntaxId,
     pub handler: String,
@@ -117,12 +135,14 @@ pub struct DynamicHandler {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Whether a ranked candidate came from the static catalog or a component.
 pub enum SyntaxCandidateSource {
     Static(usize),
     Dynamic(DynamicSyntaxId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One parser candidate after dynamic ordering and overrides are resolved.
 pub struct RankedSyntaxCandidate {
     pub source: SyntaxCandidateSource,
     pub kind: SyntaxKind,
@@ -130,6 +150,7 @@ pub struct RankedSyntaxCandidate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Immutable candidate view frozen for one document revision.
 pub struct DynamicSyntaxSnapshot {
     pub document_id: String,
     pub document_revision: u64,
@@ -140,6 +161,7 @@ pub struct DynamicSyntaxSnapshot {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Rejected dynamic update, ordering graph, revision, or quota operation.
 pub enum DynamicRegistryError {
     #[error("invalid dynamic syntax input: {message}")]
     InvalidInput { message: String },
@@ -203,12 +225,14 @@ struct RegistryInner {
 }
 
 #[derive(Clone)]
+/// Thread-safe dynamic overlay rooted in an immutable static catalog.
 pub struct DynamicSyntaxRegistry {
     catalog: Arc<Catalog>,
     inner: Arc<Mutex<RegistryInner>>,
 }
 
 impl DynamicSyntaxRegistry {
+    /// Creates an empty overlay over an immutable static catalog.
     pub fn new(catalog: Arc<Catalog>) -> Self {
         Self {
             catalog,
@@ -222,6 +246,7 @@ impl DynamicSyntaxRegistry {
         }
     }
 
+    /// Starts a transactional update to the component initialization baseline.
     pub fn begin_initial_update(
         &self,
         component_id: impl Into<String>,
@@ -234,6 +259,7 @@ impl DynamicSyntaxRegistry {
         )
     }
 
+    /// Clones the baseline into a mutable document revision.
     pub fn begin_document(
         &self,
         document_id: &str,
@@ -274,6 +300,7 @@ impl DynamicSyntaxRegistry {
         Ok(())
     }
 
+    /// Starts a transactional update against one document revision.
     pub fn begin_document_update(
         &self,
         component_id: impl Into<String>,
@@ -292,6 +319,7 @@ impl DynamicSyntaxRegistry {
         )
     }
 
+    /// Captures an opaque document rollback point for candidate speculation.
     pub fn savepoint(
         &self,
         document_id: &str,
@@ -313,6 +341,7 @@ impl DynamicSyntaxRegistry {
         })
     }
 
+    /// Restores a document registry to a compatible savepoint.
     pub fn rollback_to(
         &self,
         savepoint: &DynamicSyntaxSavepoint,
@@ -337,6 +366,7 @@ impl DynamicSyntaxRegistry {
         Ok(())
     }
 
+    /// Validates and deterministically ranks a revision into an immutable snapshot.
     pub fn freeze(
         &self,
         document_id: &str,
@@ -363,6 +393,7 @@ impl DynamicSyntaxRegistry {
         Ok(snapshot)
     }
 
+    /// Removes all baseline definitions and overrides owned by a component.
     pub fn remove_component(&self, component_id: &str) -> Result<(), DynamicRegistryError> {
         let mut inner = self.lock()?;
         let mut changed = inner.initial.remove(component_id).is_some();
@@ -450,6 +481,7 @@ enum StagedOperation {
     Remove(String),
 }
 
+/// Transactional batch of registrations and overrides from one component.
 pub struct DynamicSyntaxUpdate {
     registry: DynamicSyntaxRegistry,
     component_id: String,
@@ -460,10 +492,12 @@ pub struct DynamicSyntaxUpdate {
 }
 
 impl DynamicSyntaxUpdate {
+    /// Returns the component that owns this transaction.
     pub fn component_id(&self) -> &str {
         &self.component_id
     }
 
+    /// Stages a syntax after validating identity, quotas, and patterns.
     pub fn register(&mut self, input: DynamicSyntaxInput) -> Result<(), DynamicRegistryError> {
         validate_local_id(&input.local_id)?;
         validate_handler(&input.handler)?;
@@ -526,6 +560,7 @@ impl DynamicSyntaxUpdate {
         Ok(())
     }
 
+    /// Stages an override of a static definition or exact registration.
     pub fn register_override(
         &mut self,
         input: DynamicSyntaxOverrideInput,
@@ -546,6 +581,7 @@ impl DynamicSyntaxUpdate {
         Ok(())
     }
 
+    /// Stages removal of one local dynamic definition.
     pub fn remove(&mut self, local_id: &str) -> Result<bool, DynamicRegistryError> {
         validate_local_id(local_id)?;
         if self.known.remove(local_id) {
@@ -557,6 +593,7 @@ impl DynamicSyntaxUpdate {
         }
     }
 
+    /// Atomically publishes every staged change.
     pub fn commit(self) -> Result<(), DynamicRegistryError> {
         let mut inner = self.registry.lock()?;
         let current_items = match &self.target {
@@ -660,6 +697,7 @@ impl DynamicSyntaxUpdate {
         Ok(())
     }
 
+    /// Explicitly discards the staged update.
     pub fn rollback(self) {}
 
     fn insert_id(&mut self, local_id: &str) -> Result<(), DynamicRegistryError> {
@@ -682,6 +720,7 @@ impl DynamicSyntaxUpdate {
 }
 
 #[derive(Debug, Clone)]
+/// Opaque rollback point for document-scoped dynamic registry changes.
 pub struct DynamicSyntaxSavepoint {
     document_id: String,
     document_revision: u64,

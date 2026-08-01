@@ -1,5 +1,11 @@
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
+//! Test Component for dynamic syntax registration and override lifecycles.
+//!
+//! It intentionally exercises successful updates, invalid registrations, rollback,
+//! document prepass behavior, and component unload cleanup through the real WIT ABI.
+#![allow(missing_docs)] // `wit_bindgen` generates the exported guest API.
+
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
     world: "parser-addon",

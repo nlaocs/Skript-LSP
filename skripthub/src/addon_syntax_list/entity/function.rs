@@ -1,3 +1,5 @@
+//! Legacy SkriptHub flattened-function entity and return-type conversion.
+
 use crate::addon_syntax_list::entity::utils::{define_syntax_struct, return_type_parser};
 
 fn parse_function_pattern(

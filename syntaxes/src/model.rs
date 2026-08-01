@@ -1,3 +1,9 @@
+//! Format-independent domain model for Skript and addon registrations.
+//!
+//! The types in this module contain no file I/O and no SSG schema assumptions.
+//! `Catalog` indexes them, while `ssg` is responsible for constructing them.
+#![allow(missing_docs)] // Public fields are described by their owning domain type.
+
 use serde_json::Value;
 use std::collections::BTreeMap;
 use syntax_pattern_parser::syntax::ParseResult;
@@ -27,18 +33,21 @@ string_id!(RegistrationId);
 string_id!(TypeCodeName);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Plugin identity attached to a generated registration or registry entry.
 pub struct Addon {
     pub name: String,
     pub version: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether runtime-derived metadata was resolved or remained dynamic.
 pub enum ResolutionState {
     Resolved,
     Unresolved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether an expression returns one value, many values, or supports both.
 pub enum Multiplicity {
     Single,
     Multiple,
@@ -46,6 +55,7 @@ pub enum Multiplicity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Mutation operation accepted by an expression changer.
 pub enum ChangeMode {
     Add,
     Set,
@@ -55,15 +65,18 @@ pub enum ChangeMode {
     Reset,
 }
 
+/// Map from changer operation to accepted Java value classes.
 pub type ChangeModes = BTreeMap<ChangeMode, Vec<ClassName>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Ordering constraints declared around one syntax registration.
 pub struct Priority {
     pub after: Vec<Priority>,
     pub before: Vec<Priority>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Optional documentation collected from a Skript registration.
 pub struct Documentation {
     pub name: Option<String>,
     pub documentation_id: Option<String>,
@@ -75,12 +88,14 @@ pub struct Documentation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Parsed registration pattern and its original source text.
 pub struct Pattern {
     pub source: String,
     pub parsed: ParseResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Experimental feature required to enable a syntax.
 pub struct Experiment {
     pub code_name: String,
     pub phase: String,
@@ -88,6 +103,7 @@ pub struct Experiment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Experimental requirements and explicit disallowances for a syntax.
 pub struct ExperimentalSyntax {
     pub required: Vec<Experiment>,
     pub disallowed: Vec<Experiment>,
@@ -95,17 +111,20 @@ pub struct ExperimentalSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Marker describing a syntax that supplies values to a surrounding section.
 pub struct ReturnHandler {
     pub return_value_type: Option<ClassName>,
     pub single_return_value: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Normalized rules for entries accepted by a structure.
 pub struct EntryValidator {
     pub entry_data: Vec<EntryData>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One named structure entry and its value requirements.
 pub struct EntryData {
     pub key: String,
     pub default_value: Option<Value>,
@@ -122,6 +141,7 @@ pub struct EntryData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Semantic kind of a structure entry validator.
 pub enum EntryKind {
     Literal,
     VariableString,
@@ -134,6 +154,7 @@ pub enum EntryKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Physical Skript node shape accepted for a structure entry.
 pub enum NodeType {
     Simple,
     Section,
@@ -141,6 +162,7 @@ pub enum NodeType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Fields shared by every registered syntax category.
 pub struct CommonSyntax {
     pub registration_order: usize,
     pub documentation: Documentation,
@@ -166,6 +188,7 @@ pub struct CommonSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered event syntax and its event-value context.
 pub struct Event {
     pub common: CommonSyntax,
     pub reference_events: Vec<ClassName>,
@@ -175,16 +198,19 @@ pub struct Event {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered boolean condition syntax.
 pub struct Condition {
     pub common: CommonSyntax,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered executable effect syntax.
 pub struct Effect {
     pub common: CommonSyntax,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered value-producing expression syntax.
 pub struct Expression {
     pub common: CommonSyntax,
     pub return_type: Option<ClassName>,
@@ -196,6 +222,7 @@ pub struct Expression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered syntax that owns an indented body.
 pub struct Section {
     pub common: CommonSyntax,
     pub loop_section: bool,
@@ -203,6 +230,7 @@ pub struct Section {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Top-level structure syntax and entry-validation metadata.
 pub struct Structure {
     pub common: CommonSyntax,
     pub entry_validator: Option<EntryValidator>,
@@ -210,6 +238,7 @@ pub struct Structure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Role played by a Java class in the generated hierarchy.
 pub enum ClassKind {
     Annotation,
     Enum,
@@ -226,6 +255,7 @@ pub enum ClassKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Localized type display name with grammatical gender and plurality.
 pub struct Noun {
     pub key: String,
     pub value: Option<String>,
@@ -236,6 +266,7 @@ pub struct Noun {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered Skript type, parser metadata, and Java representation.
 pub struct Type {
     pub type_parse_order: usize,
     pub documentation: Documentation,
@@ -264,6 +295,7 @@ pub struct Type {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Cardinality modifier applied to a function parameter.
 pub enum ParameterModifier {
     Optional,
     Keyed,
@@ -272,6 +304,7 @@ pub enum ParameterModifier {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One function parameter and optional default value.
 pub struct FunctionParameter {
     pub name: String,
     pub parameter_type: ClassName,
@@ -280,6 +313,7 @@ pub struct FunctionParameter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Registered Skript function signature and implementation metadata.
 pub struct Function {
     pub registration_order: usize,
     pub name: String,
@@ -293,6 +327,7 @@ pub struct Function {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Any of the eight syntax categories in canonical project order.
 pub enum Syntax {
     Event(Event),
     Condition(Condition),
@@ -305,6 +340,7 @@ pub enum Syntax {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Discriminant for the eight syntax categories.
 pub enum SyntaxKind {
     Event,
     Condition,
@@ -386,6 +422,7 @@ impl SyntaxKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Directed conversion from one Java value class to another.
 pub struct Converter {
     pub from: ClassName,
     pub to: ClassName,
@@ -396,6 +433,7 @@ pub struct Converter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Comparison handler registered for two Java value classes.
 pub struct Comparator {
     pub registration_order: usize,
     pub first_type: ClassName,
@@ -407,6 +445,7 @@ pub struct Comparator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Value exposed while parsing a compatible event context.
 pub struct EventValue {
     pub event_class: ClassName,
     pub value_class: ClassName,
@@ -423,6 +462,7 @@ pub struct EventValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Named property and the handlers registered for it.
 pub struct Property {
     pub name: String,
     pub documentation_id: String,
@@ -435,6 +475,7 @@ pub struct Property {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Property support declared by one Skript type.
 pub struct TypeProperty {
     pub type_code_name: TypeCodeName,
     pub type_class: ClassName,
@@ -452,6 +493,7 @@ pub struct TypeProperty {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Operation implemented by a property handler.
 pub enum PropertyHandlerKind {
     Expression,
     Condition,
@@ -462,6 +504,7 @@ pub enum PropertyHandlerKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Named arithmetic operator and its registration metadata.
 pub struct Operator {
     pub sign: String,
     pub priority: Priority,
@@ -472,6 +515,7 @@ pub struct Operator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Arithmetic implementation for operand and return classes.
 pub struct Operation {
     pub operator_sign: String,
     pub left: ClassName,
@@ -483,6 +527,7 @@ pub struct Operation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Difference operation registered for one Java value class.
 pub struct Difference {
     pub input_type: ClassName,
     pub return_type: ClassName,
@@ -492,6 +537,7 @@ pub struct Difference {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Java class node and direct hierarchy relationships.
 pub struct Class {
     pub name: ClassName,
     pub binary_name: String,
@@ -503,12 +549,14 @@ pub struct Class {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Server-provided Skript aliases and their normalized targets.
 pub struct AliasRegistry {
     pub aliases: BTreeMap<String, usize>,
     pub targets: Vec<AliasTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved target composed from one or more alias items.
 pub struct AliasTarget {
     pub amount: i32,
     pub all: bool,
@@ -516,6 +564,7 @@ pub struct AliasTarget {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One material or item component of an alias target.
 pub struct AliasItem {
     pub material: String,
     pub minecraft_id: Option<String>,

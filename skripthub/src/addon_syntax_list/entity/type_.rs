@@ -1,3 +1,5 @@
+//! Legacy SkriptHub type entity.
+
 use crate::addon_syntax_list::entity::utils::define_syntax_struct;
 
 fn type_usage_parser(_s: &crate::api::types::AbstractAddonSyntaxListEntry) -> Vec<String> {

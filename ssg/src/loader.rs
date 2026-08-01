@@ -1,3 +1,8 @@
+//! Snapshot directory I/O and the public loading pipeline.
+//!
+//! This module gates the schema before reading data, verifies both digests, then
+//! deserializes, validates, and converts the complete snapshot atomically.
+
 use crate::{SnapshotError, convert, digest, raw, validate};
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
@@ -5,9 +10,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use syntaxes::Catalog;
 
+/// Highest SSG snapshot schema accepted by this reader.
 pub const SCHEMA_VERSION: u32 = 3;
+/// Canonical manifest filename.
 pub const MANIFEST_FILE: &str = "Manifest.json";
 
+/// Data files covered by the content digest, in canonical digest order.
 pub const DATA_FILES: [&str; 18] = [
     "Aliases.json",
     "ClassHierarchy.json",
@@ -29,6 +37,7 @@ pub const DATA_FILES: [&str; 18] = [
     "Types.json",
 ];
 
+/// Complete required schema 3 inventory, including `Manifest.json`.
 pub const ALL_FILES: [&str; 19] = [
     "Aliases.json",
     "ClassHierarchy.json",
@@ -52,25 +61,39 @@ pub const ALL_FILES: [&str; 19] = [
 ];
 
 #[derive(Debug, Clone)]
+/// Fully verified snapshot containing its source manifest and runtime catalog.
 pub struct Snapshot {
     manifest: raw::Manifest,
     catalog: Catalog,
 }
 
 impl Snapshot {
+    /// Returns the raw manifest used to identify the server and capabilities.
     pub fn manifest(&self) -> &raw::Manifest {
         &self.manifest
     }
 
+    /// Returns the normalized immutable syntax catalog.
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }
 
+    /// Consumes the snapshot and returns its normalized catalog.
     pub fn into_catalog(self) -> Catalog {
         self.catalog
     }
 }
 
+/// Loads and atomically validates one complete SSG schema 3 directory.
+///
+/// Unknown JSON fields are accepted, but required files, hashes, identities,
+/// resolution states, references, and syntax patterns are verified before a
+/// [`Snapshot`] is returned.
+///
+/// # Errors
+///
+/// Returns [`SnapshotError`] with file and JSON-path context for I/O, format,
+/// integrity, semantic validation, or pattern failures.
 pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
     let directory = directory.as_ref();
     let manifest_text = read_file(directory, MANIFEST_FILE)?;

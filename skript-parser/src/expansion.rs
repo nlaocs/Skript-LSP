@@ -1,8 +1,15 @@
+//! Macro expansion identities, syntax contexts, sites, and provenance graph.
+//!
+//! The graph is a validated DAG. It supports both a primary backtrace and every
+//! distinct parent path for text assembled from multiple origins.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use crate::TextRange;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Stable numeric identity of one graph expansion.
 pub struct ExpansionId(u32);
 
 impl ExpansionId {
@@ -22,6 +29,7 @@ impl fmt::Display for ExpansionId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Hygiene context assigned to original or generated syntax.
 pub struct SyntaxContextId(u32);
 
 impl SyntaxContextId {
@@ -37,6 +45,7 @@ impl SyntaxContextId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Validated owner identity copied from a WASM component manifest.
 pub struct ComponentId(String);
 
 impl ComponentId {
@@ -56,6 +65,7 @@ impl From<&str> for ComponentId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Stable subscription or macro hook identity.
 pub struct HookId(String);
 
 impl HookId {
@@ -75,6 +85,7 @@ impl From<&str> for HookId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Parser representation level transformed by a macro.
 pub enum ExpansionKind {
     Text,
     Tree,
@@ -83,6 +94,7 @@ pub enum ExpansionKind {
 
 /// A location in the original document, optionally produced by another expansion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Original range and optional parent expansion at one macro call site.
 pub struct ExpansionSite {
     pub original_range: TextRange,
     pub expansion: Option<ExpansionId>,
@@ -105,6 +117,7 @@ impl ExpansionSite {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One accepted macro transformation and all provenance edges it introduced.
 pub struct Expansion {
     pub id: ExpansionId,
     pub kind: ExpansionKind,
@@ -116,6 +129,7 @@ pub struct Expansion {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Validated acyclic collection of macro expansions.
 pub struct ExpansionGraph {
     expansions: BTreeMap<ExpansionId, Expansion>,
 }
@@ -204,26 +218,32 @@ impl ExpansionGraph {
         Ok(())
     }
 
+    /// Looks up one expansion by stable ID.
     pub fn get(&self, id: ExpansionId) -> Option<&Expansion> {
         self.expansions.get(&id)
     }
 
+    /// Returns whether an expansion ID exists.
     pub fn contains(&self, id: ExpansionId) -> bool {
         self.expansions.contains_key(&id)
     }
 
+    /// Iterates expansions in stable ID order.
     pub fn iter(&self) -> impl Iterator<Item = &Expansion> {
         self.expansions.values()
     }
 
+    /// Returns the number of accepted expansions.
     pub fn len(&self) -> usize {
         self.expansions.len()
     }
 
+    /// Returns whether the graph contains no macro expansions.
     pub fn is_empty(&self) -> bool {
         self.expansions.is_empty()
     }
 
+    /// Allocates the next representable expansion identity.
     pub fn next_id(&self) -> Result<ExpansionId, ExpansionGraphError> {
         let next = self
             .expansions
@@ -236,6 +256,7 @@ impl ExpansionGraph {
         }
     }
 
+    /// Clones the graph with one validated expansion appended.
     pub fn with_expansion(&self, expansion: Expansion) -> Result<Self, ExpansionGraphError> {
         let mut expansions = self.expansions.values().cloned().collect::<Vec<_>>();
         expansions.push(expansion);
@@ -243,6 +264,7 @@ impl ExpansionGraph {
     }
 
     /// Returns the primary call-site path, from the innermost expansion to the root.
+    /// Returns one deterministic innermost-to-root provenance path.
     pub fn backtrace(&self, id: ExpansionId) -> Option<Vec<&Expansion>> {
         let mut result = Vec::new();
         let mut current = Some(id);
@@ -255,6 +277,8 @@ impl ExpansionGraph {
     }
 
     /// Returns every distinct call-site path, each ordered innermost to root.
+    /// Returns one deterministic innermost-to-root provenance path.
+    /// Returns every distinct innermost-to-root provenance path.
     pub fn backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&Expansion>>> {
         self.collect_backtraces(id)
     }
@@ -287,6 +311,7 @@ impl ExpansionGraph {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Invalid identity, owner, reference, or cycle in an expansion graph.
 pub enum ExpansionGraphError {
     #[error("duplicate expansion ID {id}")]
     DuplicateId { id: ExpansionId },

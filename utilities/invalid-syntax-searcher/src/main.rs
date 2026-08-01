@@ -1,3 +1,9 @@
+//! Developer utility that classifies historical SkriptHub patterns rejected by
+//! the registration-pattern and legacy function parsers.
+//!
+//! The only argument is a generated `PluralRules.json` matching the corpus being
+//! checked. This binary is not part of normal LSP startup.
+
 use skripthub::api::types::{AbstractAddonSyntaxListEntry, SyntaxType};
 use skripthub::function_pattern::{FnParseError, FnParseErrorKind, InvalidFunctionNameKind};
 use syntax_pattern_parser::syntax::{ParseError, ParseErrorKind, PluralRules};

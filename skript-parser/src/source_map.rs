@@ -1,3 +1,9 @@
+//! Mapping between original document bytes and macro-expanded virtual source.
+//!
+//! Text edits are validated and applied atomically. Generated segments retain all
+//! relevant origins and expansion IDs so diagnostics can return to editor source.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use crate::{
     ComponentId, Expansion, ExpansionGraph, ExpansionGraphError, ExpansionId, ExpansionKind,
     ExpansionSite, HookId, SyntaxContextId, TextRange,
@@ -5,6 +11,7 @@ use crate::{
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// How a virtual source segment relates to its original range.
 pub enum OriginKind {
     /// The virtual text is byte-for-byte identical to the original text.
     Exact,
@@ -15,6 +22,7 @@ pub enum OriginKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// One original-document origin associated with a virtual segment.
 pub struct SourceOrigin {
     pub original_range: TextRange,
     pub kind: OriginKind,
@@ -48,12 +56,14 @@ impl SourceOrigin {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Contiguous virtual range and all original origins contributing to it.
 pub struct SourceMapSegment {
     pub virtual_range: TextRange,
     pub origins: Vec<SourceOrigin>,
 }
 
 impl SourceMapSegment {
+    /// Creates a segment with one original-source origin.
     pub fn new(virtual_range: TextRange, origin: SourceOrigin) -> Self {
         Self {
             virtual_range,
@@ -73,6 +83,7 @@ impl SourceMapSegment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Validated ordered mapping from virtual UTF-8 ranges to original source.
 pub struct SourceMap {
     original_len: usize,
     virtual_len: usize,
@@ -308,30 +319,36 @@ impl SourceMap {
             .collect()
     }
 
+    /// Returns the original document length in UTF-8 bytes.
     pub fn original_len(&self) -> usize {
         self.original_len
     }
 
+    /// Returns the current virtual source length in UTF-8 bytes.
     pub fn virtual_len(&self) -> usize {
         self.virtual_len
     }
 
+    /// Returns validated segments in contiguous virtual order.
     pub fn segments(&self) -> &[SourceMapSegment] {
         &self.segments
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Local virtual range plus every editor-facing original origin.
 pub struct MappedSpan {
     pub virtual_range: TextRange,
     pub origins: Vec<SourceOrigin>,
 }
 
 impl MappedSpan {
+    /// Returns the first origin for consumers that cannot display related locations.
     pub fn primary_origin(&self) -> Option<SourceOrigin> {
         self.origins.first().copied()
     }
 
+    /// Returns whether any origin came from a macro expansion.
     pub fn is_generated(&self) -> bool {
         self.origins
             .iter()
@@ -340,6 +357,7 @@ impl MappedSpan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Atomic replacement requested by one Text macro invocation.
 pub struct TextEdit {
     pub range: TextRange,
     pub replacement: String,
@@ -347,6 +365,7 @@ pub struct TextEdit {
 }
 
 impl TextEdit {
+    /// Creates an unanchored replacement edit.
     pub fn new(range: TextRange, replacement: impl Into<String>) -> Self {
         Self {
             range,
@@ -365,6 +384,7 @@ impl TextEdit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Identity metadata attached to an accepted Text macro batch.
 pub struct TextExpansion {
     pub component: ComponentId,
     pub hook: HookId,
@@ -372,6 +392,7 @@ pub struct TextExpansion {
 }
 
 impl TextExpansion {
+    /// Creates expansion metadata from the owning component and hook.
     pub fn new(component: impl Into<String>, hook: impl Into<String>) -> Self {
         Self {
             component: ComponentId::new(component),
@@ -382,6 +403,7 @@ impl TextExpansion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Identity metadata attached to an accepted Tree macro edit.
 pub struct TreeExpansion {
     pub component: ComponentId,
     pub hook: HookId,
@@ -389,6 +411,7 @@ pub struct TreeExpansion {
 }
 
 impl TreeExpansion {
+    /// Creates expansion metadata from the owning component and hook.
     pub fn new(component: impl Into<String>, hook: impl Into<String>) -> Self {
         Self {
             component: ComponentId::new(component),
@@ -399,6 +422,7 @@ impl TreeExpansion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// New source provenance and assigned identity after a Tree edit.
 pub struct TreeExpansionApplication {
     pub source: MappedSource,
     pub expansion: ExpansionId,
@@ -406,6 +430,7 @@ pub struct TreeExpansionApplication {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Mapped source and accounting returned after an accepted text-edit batch.
 pub struct TextEditApplication {
     pub source: MappedSource,
     pub expansion: Option<ExpansionId>,
@@ -413,6 +438,7 @@ pub struct TextEditApplication {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Original text, current virtual text, composed source map, and expansion graph.
 pub struct MappedSource {
     original: Arc<str>,
     virtual_source: Arc<str>,
@@ -421,6 +447,7 @@ pub struct MappedSource {
 }
 
 impl MappedSource {
+    /// Creates an unexpanded source whose virtual and original text are identical.
     pub fn identity(source: impl Into<Arc<str>>) -> Self {
         let source = source.into();
         Self {
@@ -431,6 +458,7 @@ impl MappedSource {
         }
     }
 
+    /// Constructs a mapped source after validating graph sites and complete segment coverage.
     pub fn new(
         original: impl Into<Arc<str>>,
         virtual_source: impl Into<Arc<str>>,
@@ -482,22 +510,27 @@ impl MappedSource {
         Ok(())
     }
 
+    /// Returns the immutable editor document text.
     pub fn original(&self) -> &str {
         &self.original
     }
 
+    /// Returns text after every accepted Text macro transformation.
     pub fn virtual_source(&self) -> &str {
         &self.virtual_source
     }
 
+    /// Returns the composed mapping from virtual to original bytes.
     pub fn source_map(&self) -> &SourceMap {
         &self.source_map
     }
 
+    /// Returns accepted Text, Tree, and AST expansion provenance.
     pub fn expansions(&self) -> &ExpansionGraph {
         &self.expansions
     }
 
+    /// Maps one valid virtual range to all contributing original locations.
     pub fn map_range(&self, range: TextRange) -> Result<MappedSpan, SourceMapError> {
         if !range.is_valid_for(&self.virtual_source) {
             return Err(SourceMapError::InvalidRange {
@@ -508,14 +541,17 @@ impl MappedSource {
         self.source_map.map_range(range)
     }
 
+    /// Returns the primary expansion path from `id` to original source.
     pub fn expansion_backtrace(&self, id: ExpansionId) -> Option<Vec<&crate::Expansion>> {
         self.expansions.backtrace(id)
     }
 
+    /// Returns every distinct expansion path from `id` to original source.
     pub fn expansion_backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&crate::Expansion>>> {
         self.expansions.backtraces(id)
     }
 
+    /// Registers accepted Tree provenance without changing source text.
     pub fn register_tree_expansion(
         &self,
         call_site: &MappedSpan,
@@ -571,6 +607,7 @@ impl MappedSource {
         })
     }
 
+    /// Validates and atomically applies one Text macro edit batch.
     pub fn apply_text_edits(
         &self,
         edits: impl IntoIterator<Item = TextEdit>,
@@ -791,6 +828,7 @@ impl MappedSource {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Invalid attempt to register Tree expansion provenance.
 pub enum TreeExpansionError {
     #[error("tree macro call site has invalid virtual range {range}")]
     InvalidVirtualRange { range: TextRange },
@@ -805,6 +843,7 @@ pub enum TreeExpansionError {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Invalid or unrepresentable Text macro edit batch.
 pub enum TextEditError {
     #[error("text edit {index} has invalid UTF-8 byte range {range}")]
     InvalidRange { index: usize, range: TextRange },
@@ -821,6 +860,7 @@ pub enum TextEditError {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Invalid source-map structure or range lookup.
 pub enum SourceMapError {
     #[error("invalid {input} byte range {range}")]
     InvalidRange {

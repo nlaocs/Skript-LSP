@@ -1,6 +1,16 @@
+//! Typed failures produced while loading and validating an SSG snapshot.
+//!
+//! Errors retain the source file and JSON path whenever the failure can be tied
+//! to a serialized field.
+
 use std::path::PathBuf;
 
+/// Failure to read, authenticate, validate, or convert an SSG snapshot.
+///
+/// Display messages are stable enough for diagnostics; callers should match
+/// variants when behavior depends on the failure class.
 #[derive(Debug, thiserror::Error)]
+#[allow(missing_docs)] // Variant fields are fully named and rendered by `thiserror`.
 pub enum SnapshotError {
     #[error("failed to read {path}: {source}")]
     Io {

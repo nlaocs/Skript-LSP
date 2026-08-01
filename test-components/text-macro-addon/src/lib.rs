@@ -1,5 +1,11 @@
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
+//! Test Component covering ordered Text macro expansion over UTF-8 source.
+//!
+//! Scenarios include replacements, anchored insertions, diagnostics, StateStore
+//! changes, rejection, invalid output, resource limits, and guest traps.
+#![allow(missing_docs)] // `wit_bindgen` generates the exported guest API.
+
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
     world: "parser-addon",

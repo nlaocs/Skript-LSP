@@ -1,3 +1,9 @@
+//! Backtracking matcher for parsed Skript registration patterns.
+//!
+//! Matching supports typed resolver and hook extension points, bounded resource use,
+//! deterministic candidate ranking, captures, and farthest-failure diagnostics.
+#![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
+
 use crate::{MappedSource, MappedSpan, TextRange};
 use fancy_regex::{Error as FancyRegexError, Regex, RegexBuilder, RuntimeError};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -22,6 +28,7 @@ pub struct MatchInput<'a> {
 }
 
 impl<'a> MatchInput<'a> {
+    /// Borrows a valid virtual-source range and preserves its composed mapping.
     pub fn from_source(
         source: &'a MappedSource,
         range: TextRange,
@@ -38,6 +45,7 @@ impl<'a> MatchInput<'a> {
         })
     }
 
+    /// Creates matcher input whose ranges map to a fixed generated call site.
     pub fn generated(text: &'a str, call_site: MappedSpan) -> Self {
         Self {
             text,
@@ -45,10 +53,12 @@ impl<'a> MatchInput<'a> {
         }
     }
 
+    /// Returns the node-local text presented to the matcher.
     pub const fn text(&self) -> &'a str {
         self.text
     }
 
+    /// Converts a node-local range into editor-facing provenance.
     pub fn map_range(&self, local_range: TextRange) -> Result<MatchSpan, PatternMatchError> {
         if !local_range.is_valid_for(self.text) {
             return Err(PatternMatchError::InvalidInputRange { range: local_range });
@@ -75,12 +85,14 @@ impl<'a> MatchInput<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Matched local range paired with mapped original-source provenance.
 pub struct MatchSpan {
     pub local_range: TextRange,
     pub mapped: MappedSpan,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Syntax category order used by candidate ranking and hooks.
 pub enum MatchSyntaxKind {
     Event,
     Condition,
@@ -93,12 +105,14 @@ pub enum MatchSyntaxKind {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Borrowed source and parsed AST for one registration pattern.
 pub struct MatchPattern<'a> {
     pub source: &'a str,
     pub parsed: &'a ParseResult,
 }
 
 #[derive(Debug, Clone)]
+/// One definition/registration and all patterns eligible for matching.
 pub struct PatternCandidate<'a> {
     pub kind: MatchSyntaxKind,
     pub definition_id: String,
@@ -112,12 +126,14 @@ pub struct PatternCandidate<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One prefix accepted by recursive typed-expression parsing.
 pub struct TypeExpressionResolution {
     pub range: TextRange,
     pub alternative_index: Option<usize>,
     pub resolution_id: Option<String>,
 }
 
+/// Context supplied to the recursive typed-expression resolver.
 pub struct TypeExpressionRequest<'a> {
     pub input: &'a str,
     pub expression: &'a PatternTypeExpr,
@@ -127,6 +143,7 @@ pub struct TypeExpressionRequest<'a> {
     pub candidate_ends: &'a [usize],
 }
 
+/// Extension point that resolves `%type%` placeholders at legal split points.
 pub trait TypeExpressionResolver {
     fn resolve(
         &mut self,
@@ -135,6 +152,7 @@ pub trait TypeExpressionResolver {
 }
 
 #[derive(Debug, Default)]
+/// Resolver that rejects every typed placeholder without failing the matcher.
 pub struct RejectTypeExpressions;
 
 impl TypeExpressionResolver for RejectTypeExpressions {
@@ -147,6 +165,7 @@ impl TypeExpressionResolver for RejectTypeExpressions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Matcher hierarchy at which a WASM or native hook is invoked.
 pub enum PatternHookScope {
     Definition,
     Registration,
@@ -155,12 +174,14 @@ pub enum PatternHookScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether a hook runs before or after native matching for its scope.
 pub enum PatternHookTiming {
     Before,
     After,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Native or overridden result visible to an after-hook.
 pub enum PatternHookOutcome {
     Pending,
     Matched { range: TextRange },
@@ -168,11 +189,13 @@ pub enum PatternHookOutcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Stable route to a nested element or choice branch in the pattern AST.
 pub enum PatternPathSegment {
     Element(u32),
     Branch(u32),
 }
 
+/// Complete typed context delivered for one matcher hook invocation.
 pub struct PatternHookEvent<'a> {
     pub kind: MatchSyntaxKind,
     pub definition_id: &'a str,
@@ -189,17 +212,20 @@ pub struct PatternHookEvent<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Decision returned by a matcher hook.
 pub enum PatternHookControl {
     Continue,
     Match(TextRange),
     Fail(String),
 }
 
+/// Observer/override interface spanning definition through element scopes.
 pub trait PatternMatchHooks {
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
 }
 
 #[derive(Debug, Default)]
+/// Hook implementation that always continues native matching.
 pub struct NoopPatternMatchHooks;
 
 impl PatternMatchHooks for NoopPatternMatchHooks {
@@ -209,6 +235,7 @@ impl PatternMatchHooks for NoopPatternMatchHooks {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Resource counter that may terminate bounded backtracking.
 pub enum PatternMatchLimit {
     States,
     Backtracks,
@@ -218,6 +245,7 @@ pub enum PatternMatchLimit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Hard limits applied to one matcher invocation.
 pub struct PatternMatcherConfig {
     pub max_states: usize,
     pub max_backtracks: usize,
@@ -254,6 +282,7 @@ impl PatternMatcherConfig {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Configuration, extension, regex, mapping, or resource failure.
 pub enum PatternMatchError {
     #[error("pattern matcher limits must be greater than zero")]
     InvalidConfiguration,
@@ -283,6 +312,7 @@ pub enum PatternMatchError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Expected construct recorded at the farthest failed input offset.
 pub enum PatternFailureReason {
     Literal { expected: String },
     Regex { pattern: String },
@@ -292,6 +322,7 @@ pub enum PatternFailureReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Merged farthest-failure diagnostic for all unsuccessful candidates.
 pub struct PatternFailure {
     pub offset: usize,
     pub span: MatchSpan,
@@ -299,6 +330,7 @@ pub struct PatternFailure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One numbered regex group and its optional matched span.
 pub struct RegexGroupCapture {
     pub index: usize,
     pub value: Option<String>,
@@ -306,6 +338,7 @@ pub struct RegexGroupCapture {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Typed value captured by a regex or `%type%` element.
 pub enum PatternCapture {
     Regex {
         pattern_span: PatternSpan,
@@ -324,6 +357,7 @@ pub enum PatternCapture {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Parse tag value and the input position where it became active.
 pub struct ParseTagCapture {
     pub value: String,
     pub pattern_span: PatternSpan,
@@ -332,6 +366,7 @@ pub struct ParseTagCapture {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One parse mark and its accumulated XOR value.
 pub struct ParseMarkCapture {
     pub value: i32,
     pub pattern_span: PatternSpan,
@@ -340,6 +375,7 @@ pub struct ParseMarkCapture {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Complete match result for one registration pattern.
 pub struct PatternMatch {
     pub span: MatchSpan,
     pub captures: Vec<PatternCapture>,
@@ -349,6 +385,7 @@ pub struct PatternMatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Successful syntax candidate with identity, ranking, and captures.
 pub struct CandidateMatch {
     pub kind: MatchSyntaxKind,
     pub definition_id: String,
@@ -361,6 +398,7 @@ pub struct CandidateMatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Selected candidate, later alternatives, or a farthest failure.
 pub struct CandidateMatches {
     pub selected: Option<CandidateMatch>,
     pub alternatives: Vec<CandidateMatch>,
@@ -456,6 +494,7 @@ struct MatchEngine<'input, 'candidate, 'ext, R, H> {
     current: Option<CandidateContext<'candidate>>,
 }
 
+/// Matches and deterministically ranks all candidates against one complete input.
 pub fn match_pattern_candidates<R: TypeExpressionResolver, H: PatternMatchHooks>(
     input: MatchInput<'_>,
     candidates: &[PatternCandidate<'_>],

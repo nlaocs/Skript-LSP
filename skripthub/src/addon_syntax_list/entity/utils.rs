@@ -1,4 +1,10 @@
 #![allow(dead_code)]
+
+//! Macros and parsers shared by legacy SkriptHub entity definitions.
+//!
+//! The generated public fields mirror the retired API model and are deliberately
+//! excluded from missing-doc linting; new runtime code uses `syntaxes` instead.
+#![allow(missing_docs)]
 macro_rules! define_syntax_struct {
     ($name:ident, $parse_func:path, $pattern_type:ty, {
         $($field:ident : $ty:ty = $func:expr),* $(,)?

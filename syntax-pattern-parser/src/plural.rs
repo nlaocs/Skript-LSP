@@ -1,31 +1,46 @@
+//! Server-specific singular/plural conversion used while parsing type expressions.
+//!
+//! Rules are loaded from SSG output so addon overrides and Skript-version behavior
+//! remain part of the snapshot rather than hardcoded LSP behavior.
+
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// Skript algorithm used to decide whether a word is already singular.
 pub enum PluralAlgorithm {
+    /// Older releases apply the first suffix rule that matches.
     LegacyFirstMatch,
+    /// Newer releases first protect words that already look singular.
     SingularAware,
+    /// Generator could not identify the runtime algorithm; rejected by this crate.
     Unresolved,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// Registry that contributed a plural conversion rule.
 pub enum PluralRuleOrigin {
+    /// Rule shipped by Skript itself.
     BuiltIn,
+    /// Rule registered at runtime by an addon.
     Override,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+/// Addon identity recorded for a plural rule.
 pub struct PluralRuleAddon {
     name: String,
     version: String,
 }
 
 impl PluralRuleAddon {
+    /// Plugin name reported by the server.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Plugin version reported by the server.
     pub fn version(&self) -> &str {
         &self.version
     }
@@ -33,6 +48,7 @@ impl PluralRuleAddon {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// One ordered suffix replacement from generated `PluralRules.json`.
 pub struct PluralRule {
     rule_order: usize,
     singular: String,
@@ -44,36 +60,46 @@ pub struct PluralRule {
 }
 
 impl PluralRule {
+    /// Zero-based order in which the runtime considers this rule.
     pub fn rule_order(&self) -> usize {
         self.rule_order
     }
 
+    /// Singular suffix, or an empty string for the fallback rule.
     pub fn singular(&self) -> &str {
         &self.singular
     }
 
+    /// Plural suffix replacing [`Self::singular`].
     pub fn plural(&self) -> &str {
         &self.plural
     }
 
+    /// Whether this rule must match the complete word.
+    ///
+    /// `None` is valid only for the legacy algorithm.
     pub fn complete_word(&self) -> Option<bool> {
         self.complete_word
     }
 
+    /// Returns whether Skript or an addon registered the rule.
     pub fn origin(&self) -> PluralRuleOrigin {
         self.origin
     }
 
+    /// Addon override order, present only for override rules.
     pub fn override_registration_order(&self) -> Option<usize> {
         self.override_registration_order
     }
 
+    /// Returns the owner recorded by the generator.
     pub fn addon(&self) -> &PluralRuleAddon {
         &self.addon
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Validated ordered plural rules for one generated server snapshot.
 pub struct PluralRules {
     algorithm: PluralAlgorithm,
     plural_override_supported: bool,
@@ -89,6 +115,8 @@ struct RawPluralRules {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+/// Invariant violation in generated `PluralRules.json`.
+#[allow(missing_docs)] // Variant messages precisely describe the rejected invariant.
 pub enum PluralRulesError {
     #[error("PluralRules.json uses the unresolved algorithm")]
     UnresolvedAlgorithm,
@@ -224,22 +252,29 @@ impl<'de> Deserialize<'de> for PluralRules {
 }
 
 impl PluralRules {
+    /// Deserializes and validates generated `PluralRules.json`.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
+    /// Returns the runtime algorithm captured by SSG.
     pub fn algorithm(&self) -> PluralAlgorithm {
         self.algorithm
     }
 
+    /// Returns whether this Skript version exposes addon plural overrides.
     pub fn plural_override_supported(&self) -> bool {
         self.plural_override_supported
     }
 
+    /// Returns rules in exact runtime evaluation order.
     pub fn rules(&self) -> &[PluralRule] {
         &self.rules
     }
 
+    /// Converts a type word to its singular code name.
+    ///
+    /// The boolean reports whether a plural spelling was recognized.
     pub fn to_singular(&self, word: &str) -> (String, bool) {
         if word.is_empty() {
             return (String::new(), false);
@@ -266,6 +301,7 @@ impl PluralRules {
         (word.to_string(), false)
     }
 
+    /// Converts a singular type code name to its runtime plural spelling.
     pub fn to_plural(&self, word: &str) -> String {
         for rule in &self.rules {
             if rule.complete_word == Some(true) && word.len() != rule.singular.len() {

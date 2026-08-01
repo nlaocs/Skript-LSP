@@ -41,9 +41,13 @@ data fileで構成されます。
 返される`Snapshot`は、raw Manifestと正規化済みCatalogの両方を保持します。
 
 ```rust
-let snapshot = ssg::load("path/to/SkriptSyntaxGenerator")?;
-println!("{}", snapshot.manifest().snapshot_id);
-let catalog = snapshot.into_catalog();
+fn load_catalog(
+    path: impl AsRef<std::path::Path>,
+) -> Result<syntaxes::Catalog, ssg::SnapshotError> {
+    let snapshot = ssg::load(path)?;
+    println!("{}", snapshot.manifest().snapshot_id);
+    Ok(snapshot.into_catalog())
+}
 ```
 
 ## 検証内容

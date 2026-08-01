@@ -1,4 +1,9 @@
 #![allow(dead_code)]
+
+//! Serde DTOs for the historical SkriptHub addon syntax list response.
+//!
+//! Field names and optionality are controlled by that external wire format.
+#![allow(missing_docs)]
 use crate::api::internal_utils::intern_arc_str_with_empty;
 use serde_intern::intern_arc_str;
 use std::sync::Arc;
