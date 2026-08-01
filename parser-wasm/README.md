@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.3.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.4.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -56,7 +56,8 @@ Every manifest exposes a component ID and component version for diagnostics.
 
 The package version identifies the WIT shape. Text edit anchors changed the
 package from 0.1.0 to 0.2.0; the lossless RawTree and targeted TreeEdit model
-changed it to 0.3.0. The manifest's current `abi` value is 1.2 and is a runtime
+changed it to 0.3.0; typed pattern-matching scopes, paths, status, and spans
+changed it to 0.4.0. The manifest's current `abi` value is 1.3 and is a runtime
 handshake that requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -146,6 +147,24 @@ provenance, and parse StateStore savepoint. Successful edits append Tree
 entries to the ExpansionGraph, so recursively generated nodes retain complete
 call-site backtraces.
 
+## Pattern Matching Hooks
+
+`ParserHost::match_patterns_in_parse` runs the native matcher with the same
+parse transaction used by other parser stages. `MatchingPayload` exposes the
+input and optional pattern, definition and registration IDs, pattern index,
+nested element/branch path, pattern-source range, local input range,
+editor-facing mapped span, scope, timing, status, and failure reason.
+
+Matching hooks run before and after definition, registration, pattern, and
+element scopes. A handled override must return `matched` or `failed`; a matched
+element may consume a validated prefix, while broad definition, registration,
+and pattern matches must consume the complete trimmed input. Identity and
+provenance fields are immutable across hook replacement.
+
+Each syntax candidate starts from the same parse StateStore savepoint. Failed
+candidates and non-selected alternatives are rolled back. Only writes made by
+the selected candidate remain in the parse transaction, while hook calls and
+component failures stay available for diagnostics and tracing.
 ## Hook rules
 
 A subscription selects a target, phase, signed priority, and mode.
@@ -226,6 +245,7 @@ The main entry points are:
 - `expand_tree_in_parse`: recursively run Tree macros in an existing parse transaction
 - `expand_tree`: convenience API for a one-tree-pipeline parse transaction
 - `dynamic_syntax_snapshot`: freeze and retrieve ranked syntax candidates
+- `match_patterns_in_parse`: match ranked candidates with transactional WASM hooks
 - `dispatch`: convenience API for a one-dispatch transaction
 
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
@@ -247,6 +267,7 @@ optional syntax Catalog.
 | `tests/dynamic_syntax.rs` | real WASM dynamic registration against an SSG fixture |
 | `tests/text_macro.rs` | ordered real-WASM expansion, diagnostic mapping, rollback, quotas, and traps |
 | `tests/tree_macro.rs` | real-WASM node/body edits, recursive provenance, cycles, rollback, quotas, and traps |
+| `tests/pattern_match.rs` | real-WASM element override and selected-candidate StateStore rollback |
 
 ## Testing
 

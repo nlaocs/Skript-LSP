@@ -1,0 +1,7 @@
+# Matching hookテストAddon
+
+[English](README.md)
+
+`parser-wasm`のpattern matching統合テストで使う決定的なWASM fixtureです。1つのexact registrationへsubscribeし、各matching scope呼び出しをprivateなparse scopeのStateStore namespaceへ記録します。またelement scopeをoverrideし、本来一致しない入力を成功させます。
+
+host testは同じregistrationを採用候補とalternativeの両方として実行します。これにより型付き`MatchingPayload` dispatchと候補単位rollbackの両方を検証し、採用候補の評価中に書かれたstateだけがparse transactionへ残ることを確認します。

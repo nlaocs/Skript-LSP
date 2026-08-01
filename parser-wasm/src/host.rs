@@ -10,6 +10,12 @@ use std::{
 };
 
 use skript_parser::{
+    CandidateMatches, MatchInput, MatchSyntaxKind, PatternCandidate, PatternHookControl,
+    PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming, PatternMatchError,
+    PatternMatchHooks, PatternMatcherConfig, PatternPathSegment, TypeExpressionResolver,
+    match_pattern_candidates as run_pattern_matcher,
+};
+use skript_parser::{
     ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
     GeneratedRawNodeId as ParserGeneratedRawNodeId,
     GeneratedRawNodeKind as ParserGeneratedRawNodeKind, GeneratedRawTree as ParserGeneratedRawTree,
@@ -55,8 +61,8 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
 };
 use crate::state::{
     InvocationTransaction, NamespaceDeclaration, NamespaceVisibility, ParseTransaction,
-    StateEncoding, StateError, StateReadWriteSet, StateScope, StateStore, StateStoreConfig,
-    StateValue,
+    StateEncoding, StateError, StateReadWriteSet, StateSavepoint, StateScope, StateStore,
+    StateStoreConfig, StateValue,
 };
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
@@ -68,7 +74,8 @@ use crate::{
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     AstNode, AstTree, Capture, CaptureValue, ComponentManifest, ContextUpdate, Diagnostic,
     DiagnosticSeverity, HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase,
-    HookSubscription, HookTarget, InvocationContext, MappedSpan, ParseRequest, RawTree,
+    HookSubscription, HookTarget, InvocationContext, MappedSpan, MatchingPathSegment,
+    MatchingPayload, MatchingScope, MatchingStatus, MatchingTiming, ParseRequest, RawTree,
     RawTreeNode, Rejection, RelatedSpan, SyntaxKind, TextMacroInput, TextMacroOutput,
     TreeMacroInput, TreeMacroOutput,
 };
@@ -179,6 +186,8 @@ pub enum HostError {
     InvalidManifest { message: String },
     #[error("StateStore operation failed: {0}")]
     StateStore(#[from] StateError),
+    #[error("pattern matching failed: {0}")]
+    PatternMatcher(#[from] PatternMatchError),
     #[error("dynamic syntax registry is unavailable without an SSG Catalog")]
     DynamicSyntaxUnavailable,
     #[error("dynamic syntax registry operation failed: {0}")]
@@ -339,6 +348,13 @@ pub struct DispatchResult {
     pub failures: Vec<ComponentFailure>,
 }
 
+#[derive(Debug)]
+pub struct WasmPatternMatchResult {
+    pub matches: CandidateMatches,
+    pub effects: HookEffects,
+    pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
 pub struct TextMacroRequest {
     pub context: InvocationContext,
     pub source: MappedSource,
@@ -865,6 +881,299 @@ fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> 
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HookEffectsCheckpoint {
+    diagnostics: usize,
+    context_updates: usize,
+    parse_requests: usize,
+}
+
+impl HookEffectsCheckpoint {
+    const EMPTY: Self = Self {
+        diagnostics: 0,
+        context_updates: 0,
+        parse_requests: 0,
+    };
+
+    fn capture(effects: &HookEffects) -> Self {
+        Self {
+            diagnostics: effects.diagnostics.len(),
+            context_updates: effects.context_updates.len(),
+            parse_requests: effects.parse_requests.len(),
+        }
+    }
+
+    fn restore(self, effects: &mut HookEffects) {
+        effects.diagnostics.truncate(self.diagnostics);
+        effects.context_updates.truncate(self.context_updates);
+        effects.parse_requests.truncate(self.parse_requests);
+    }
+}
+
+struct WasmPatternHooks<'a> {
+    host: &'a mut ParserHost,
+    transaction: &'a ParseTransaction,
+    context: InvocationContext,
+    input: String,
+    base: StateSavepoint,
+    selected: Option<StateSavepoint>,
+    selected_effects: Option<HookEffectsCheckpoint>,
+    candidate_range: Option<ParserTextRange>,
+    effects: HookEffects,
+    calls: Vec<HookCall>,
+    failures: Vec<ComponentFailure>,
+}
+
+impl WasmPatternHooks<'_> {
+    fn restore_candidate_state(
+        &mut self,
+        scope: PatternHookScope,
+        timing: PatternHookTiming,
+        outcome: &PatternHookOutcome,
+        control: &PatternHookControl,
+    ) -> Result<(), String> {
+        if scope != PatternHookScope::Definition {
+            return Ok(());
+        }
+        if timing == PatternHookTiming::Before {
+            return Ok(());
+        }
+
+        let accepted = match control {
+            PatternHookControl::Continue => {
+                matches!(outcome, PatternHookOutcome::Matched { .. })
+            }
+            PatternHookControl::Match(range) => Some(*range) == self.candidate_range,
+            PatternHookControl::Fail(_) => false,
+        };
+        if accepted && self.selected.is_none() {
+            self.selected = Some(
+                self.transaction
+                    .savepoint()
+                    .map_err(|error| error.to_string())?,
+            );
+            self.selected_effects = Some(HookEffectsCheckpoint::capture(&self.effects));
+            return Ok(());
+        }
+
+        self.transaction
+            .rollback_to(self.selected.as_ref().unwrap_or(&self.base))
+            .map_err(|error| error.to_string())?;
+        self.selected_effects
+            .unwrap_or(HookEffectsCheckpoint::EMPTY)
+            .restore(&mut self.effects);
+        Ok(())
+    }
+
+    fn into_parts(self) -> (HookEffects, Vec<HookCall>, Vec<ComponentFailure>) {
+        (self.effects, self.calls, self.failures)
+    }
+}
+
+impl PatternMatchHooks for WasmPatternHooks<'_> {
+    fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
+        {
+            self.transaction
+                .rollback_to(&self.base)
+                .map_err(|error| error.to_string())?;
+            self.selected_effects
+                .unwrap_or(HookEffectsCheckpoint::EMPTY)
+                .restore(&mut self.effects);
+            self.candidate_range = Some(event.input_range);
+        }
+        let original_status = match &event.outcome {
+            PatternHookOutcome::Pending => MatchingStatus::Pending,
+            PatternHookOutcome::Matched { .. } => MatchingStatus::Matched,
+            PatternHookOutcome::Failed { .. } => MatchingStatus::Failed,
+        };
+        let original_range = WitTextRange {
+            start: event.input_range.start as u64,
+            end: event.input_range.end as u64,
+        };
+        let original_element_path = event
+            .element_path
+            .iter()
+            .map(|segment| match segment {
+                PatternPathSegment::Element(index) => MatchingPathSegment::Element(*index),
+                PatternPathSegment::Branch(index) => MatchingPathSegment::Branch(*index),
+            })
+            .collect::<Vec<_>>();
+        let original_pattern_span = event.pattern_span.map(|span| WitTextRange {
+            start: span.start as u64,
+            end: span.end as u64,
+        });
+        let original_span = mapped_span_to_wit(event.input_span.mapped);
+        let payload = MatchingPayload {
+            input: self.input.clone(),
+            pattern: event.pattern.map(ToOwned::to_owned),
+            definition_id: event.definition_id.to_owned(),
+            registration_id: event.registration_id.to_owned(),
+            pattern_index: event.pattern_index.map(|index| index as u64),
+            element_path: original_element_path.clone(),
+            pattern_span: original_pattern_span,
+            scope: match event.scope {
+                PatternHookScope::Definition => MatchingScope::Definition,
+                PatternHookScope::Registration => MatchingScope::Registration,
+                PatternHookScope::Pattern => MatchingScope::Pattern,
+                PatternHookScope::Element => MatchingScope::Element,
+            },
+            timing: match event.timing {
+                PatternHookTiming::Before => MatchingTiming::Before,
+                PatternHookTiming::After => MatchingTiming::After,
+            },
+            input_range: original_range,
+            span: original_span.clone(),
+            status: original_status,
+            failure_reason: match &event.outcome {
+                PatternHookOutcome::Failed { reason } => Some(reason.clone()),
+                PatternHookOutcome::Pending | PatternHookOutcome::Matched { .. } => None,
+            },
+        };
+        let target = if event.scope == PatternHookScope::Definition {
+            DispatchTarget::SyntaxDefinition(wit_syntax_kind(event.kind))
+        } else {
+            DispatchTarget::ExactRegistration {
+                registration_id: event.registration_id.to_owned(),
+                syntax_kind: wit_syntax_kind(event.kind),
+            }
+        };
+        let result = self
+            .host
+            .dispatch_in_parse(
+                self.transaction,
+                DispatchRequest {
+                    context: self.context.clone(),
+                    target,
+                    phase: HookPhase::Matching,
+                    payload: HookPayload::Matching(payload),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        merge_effects(&mut self.effects, result.effects);
+        self.calls.extend(result.calls);
+        self.failures.extend(result.failures);
+
+        let HookPayload::Matching(output) = result.payload else {
+            return Err("matching hook returned a different payload kind".to_owned());
+        };
+        if output.input != self.input
+            || output.pattern.as_deref() != event.pattern
+            || output.definition_id != event.definition_id
+            || output.registration_id != event.registration_id
+            || output.pattern_index != event.pattern_index.map(|index| index as u64)
+            || !same_matching_path(&output.element_path, &original_element_path)
+            || !same_optional_wit_range(
+                output.pattern_span.as_ref(),
+                original_pattern_span.as_ref(),
+            )
+            || !same_mapped_span(&output.span, &original_span)
+            || output.scope
+                != match event.scope {
+                    PatternHookScope::Definition => MatchingScope::Definition,
+                    PatternHookScope::Registration => MatchingScope::Registration,
+                    PatternHookScope::Pattern => MatchingScope::Pattern,
+                    PatternHookScope::Element => MatchingScope::Element,
+                }
+            || output.timing
+                != match event.timing {
+                    PatternHookTiming::Before => MatchingTiming::Before,
+                    PatternHookTiming::After => MatchingTiming::After,
+                }
+        {
+            return Err("matching hook changed immutable matcher identity fields".to_owned());
+        }
+
+        let start = usize::try_from(output.input_range.start)
+            .map_err(|_| "matching input range start does not fit usize".to_owned())?;
+        let end = usize::try_from(output.input_range.end)
+            .map_err(|_| "matching input range end does not fit usize".to_owned())?;
+        let range = ParserTextRange::new(start, end);
+        let changed = output.status != original_status
+            || output.input_range.start != original_range.start
+            || output.input_range.end != original_range.end;
+        let control = match result.decision {
+            HookDecision::Reject(rejection) => PatternHookControl::Fail(rejection.reason),
+            HookDecision::Handled if output.status == MatchingStatus::Pending => {
+                return Err("handled matching hook must return matched or failed status".to_owned());
+            }
+            HookDecision::Handled => matching_control(output.status, range, output.failure_reason),
+            HookDecision::ContinueProcessing if changed => {
+                matching_control(output.status, range, output.failure_reason)
+            }
+            HookDecision::ContinueProcessing => PatternHookControl::Continue,
+        };
+        self.restore_candidate_state(event.scope, event.timing, &event.outcome, &control)?;
+        Ok(control)
+    }
+}
+
+fn same_matching_path(left: &[MatchingPathSegment], right: &[MatchingPathSegment]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| match (left, right) {
+                (MatchingPathSegment::Element(left), MatchingPathSegment::Element(right))
+                | (MatchingPathSegment::Branch(left), MatchingPathSegment::Branch(right)) => {
+                    left == right
+                }
+                _ => false,
+            })
+}
+
+fn same_optional_wit_range(left: Option<&WitTextRange>, right: Option<&WitTextRange>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => same_wit_range(left, right),
+        (None, None) => true,
+        (Some(_), None) | (None, Some(_)) => false,
+    }
+}
+
+fn same_wit_range(left: &WitTextRange, right: &WitTextRange) -> bool {
+    left.start == right.start && left.end == right.end
+}
+
+fn same_mapped_span(left: &MappedSpan, right: &MappedSpan) -> bool {
+    same_wit_range(&left.virtual_range, &right.virtual_range)
+        && left.origins.len() == right.origins.len()
+        && left
+            .origins
+            .iter()
+            .zip(&right.origins)
+            .all(|(left, right)| {
+                same_wit_range(&left.original_range, &right.original_range)
+                    && mem::discriminant(&left.kind) == mem::discriminant(&right.kind)
+                    && left.expansion == right.expansion
+            })
+}
+
+fn matching_control(
+    status: MatchingStatus,
+    range: ParserTextRange,
+    failure_reason: Option<String>,
+) -> PatternHookControl {
+    match status {
+        MatchingStatus::Pending => PatternHookControl::Continue,
+        MatchingStatus::Matched => PatternHookControl::Match(range),
+        MatchingStatus::Failed => PatternHookControl::Fail(
+            failure_reason.unwrap_or_else(|| "matching hook rejected the scope".to_owned()),
+        ),
+    }
+}
+
+fn wit_syntax_kind(kind: MatchSyntaxKind) -> SyntaxKind {
+    match kind {
+        MatchSyntaxKind::Event => SyntaxKind::Event,
+        MatchSyntaxKind::Condition => SyntaxKind::Condition,
+        MatchSyntaxKind::Effect => SyntaxKind::Effect,
+        MatchSyntaxKind::Expression => SyntaxKind::Expression,
+        MatchSyntaxKind::Type => SyntaxKind::Type,
+        MatchSyntaxKind::Function => SyntaxKind::Function,
+        MatchSyntaxKind::Section => SyntaxKind::Section,
+        MatchSyntaxKind::Structure => SyntaxKind::Structure,
+    }
+}
 struct EpochTicker {
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
@@ -1002,6 +1311,57 @@ impl ParserHost {
         )?)
     }
 
+    pub fn match_patterns_in_parse<R: TypeExpressionResolver>(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        input: MatchInput<'_>,
+        candidates: &[PatternCandidate<'_>],
+        resolver: &mut R,
+        config: PatternMatcherConfig,
+    ) -> Result<WasmPatternMatchResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != context.document_id || document_revision != context.document_revision {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "matcher context {}@{} does not match parse transaction {}@{}",
+                    context.document_id, context.document_revision, document_id, document_revision,
+                ),
+            }
+            .into());
+        }
+
+        let base = transaction.savepoint()?;
+        let input_text = input.text().to_owned();
+        let mut hooks = WasmPatternHooks {
+            host: self,
+            transaction,
+            context,
+            input: input_text,
+            base: base.clone(),
+            selected: None,
+            selected_effects: None,
+            candidate_range: None,
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let result = run_pattern_matcher(input, candidates, resolver, &mut hooks, config);
+        let (effects, calls, failures) = hooks.into_parts();
+        match result {
+            Ok(matches) => Ok(WasmPatternMatchResult {
+                matches,
+                effects,
+                calls,
+                failures,
+            }),
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                Err(error.into())
+            }
+        }
+    }
     pub fn unload_addon(&mut self, component_id: &str) -> Result<bool, HostError> {
         if component_id == CORE_LIBRARY_COMPONENT_ID {
             return Err(HostError::CannotUnloadCoreLibrary);
@@ -3430,7 +3790,10 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::Line(value) => value.text.len(),
         HookPayload::Tree(value) => raw_tree_size(value),
         HookPayload::Node(value) => raw_node_size(&value.node),
-        HookPayload::Matching(value) => value.input.len().saturating_add(value.pattern.len()),
+        HookPayload::Matching(value) => value
+            .input
+            .len()
+            .saturating_add(value.pattern.as_ref().map_or(0, String::len)),
         HookPayload::Capture(value) => value
             .syntax_id
             .len()

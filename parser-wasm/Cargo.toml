@@ -19,6 +19,7 @@ wasmtime = { version = "=43.0.0", default-features = false, features = ["compone
 
 [dev-dependencies]
 ssg = { path = "../ssg" }
+syntax-pattern-parser = { path = "../syntax-pattern-parser" }
 tempfile = "3.25.0"
 wasm-encoder = "=0.245.1"
 wit-bindgen = "0.59.0"

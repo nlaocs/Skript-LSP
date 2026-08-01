@@ -30,6 +30,13 @@ const DYNAMIC_SYNTAX_ADDON: ComponentSpec = ComponentSpec {
     display_name: "dynamic syntax test addon",
 };
 
+const MATCHING_ADDON: ComponentSpec = ComponentSpec {
+    package: "matching-addon",
+    module_name: "matching_addon.wasm",
+    artifact_name: "matching-addon.wasm",
+    display_name: "matching hook test addon",
+};
+
 const TEXT_MACRO_ADDON: ComponentSpec = ComponentSpec {
     package: "text-macro-addon",
     module_name: "text_macro_addon.wasm",
@@ -57,7 +64,12 @@ fn build_core_library() -> Result<()> {
 }
 
 fn build_test_components() -> Result<()> {
-    for component in [&DYNAMIC_SYNTAX_ADDON, &TEXT_MACRO_ADDON, &TREE_MACRO_ADDON] {
+    for component in [
+        &DYNAMIC_SYNTAX_ADDON,
+        &MATCHING_ADDON,
+        &TEXT_MACRO_ADDON,
+        &TREE_MACRO_ADDON,
+    ] {
         build_component(component)?;
     }
     Ok(())
