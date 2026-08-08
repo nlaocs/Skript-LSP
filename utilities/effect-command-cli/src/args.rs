@@ -13,7 +13,7 @@ ARGS:
     <EFFECT>                 Effect text to parse. Omit it to start the REPL.
 
 OPTIONS:
-    -s, --snapshot <PATH>    SSG schema 3 directory or its Manifest.json
+    -s, --snapshot <PATH>    SSG schema 3 or 4 directory, or its Manifest.json
         --json               Emit structured JSON
         --repl               Start the REPL explicitly
     -h, --help               Print help

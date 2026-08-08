@@ -16,7 +16,7 @@ const DOCUMENT_URI: &str = "file:///effectcommandcli/input.sk";
 /// Snapshot loading, input validation, parser-host, or transaction failure.
 #[derive(Debug, Error)]
 pub enum EffectCommandSessionError {
-    /// The schema 3 snapshot could not be loaded or validated.
+    /// The schema 3 or 4 snapshot could not be loaded or validated.
     #[error("failed to load SSG snapshot {path}: {source}")]
     Snapshot {
         path: PathBuf,
@@ -65,7 +65,7 @@ pub struct EffectCommandSession {
 }
 
 impl EffectCommandSession {
-    /// Loads and validates one SSG schema 3 snapshot and initializes CoreLibrary.
+    /// Loads and validates one SSG schema 3 or 4 snapshot and initializes CoreLibrary.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, EffectCommandSessionError> {
         let snapshot_path = snapshot_directory(path);
         let loaded =

@@ -13,17 +13,20 @@ The component currently provides the integration foundation:
 - component ID `nlaocs.core-library`
 - ABI and capability negotiation during `addon.initialize`
 - one core.health-check subscription at the Document phase
-- one core.expression-leaves Transform subscription for variables, strings, and numbers
+- one core.expression-leaves Transform subscription for leaves and registered Expression semantics
 - typed exports for hooks and text, tree, and AST macro interfaces
 
 The health hook validates its target, phase, and payload, then continues
 without modifying the document.
 
-The Expression hook recognizes braced variables, quoted string literals, and
-finite signed integer/decimal literals at legal split points. It preserves the
+The Expression hook recognizes braced variables, quoted string literals,
+finite signed integer/decimal literals, and generated `ClassInfo` literals at
+legal split points. It also resolves context-dependent return metadata for
+`PropExprSize` and both forms of `ExprParse`. It preserves the
 host's expected type/plurality contract and returns typed leaf candidates to
 the recursive native parser. Registered Expression matching, recursion, and
-ranking remain Rust host responsibilities.
+ranking remain Rust host responsibilities; CoreLibrary owns only the built-in
+semantics that cannot be recovered from SSG registration data alone.
 
 Text, tree, and AST macro exports currently return `unsupported-capability`.
 CoreLibrary does not yet implement Function calls, Condition, Section,

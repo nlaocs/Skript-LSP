@@ -334,6 +334,11 @@ impl Catalog {
             .map(|position| &self.parts.classes[*position])
     }
 
+    /// Returns the complete Java class hierarchy captured by SSG.
+    pub fn classes(&self) -> &[Class] {
+        &self.parts.classes
+    }
+
     fn class_lineage<'a>(&'a self, class_name: &'a str) -> Vec<&'a str> {
         let mut result = Vec::new();
         let mut pending = VecDeque::from([class_name]);

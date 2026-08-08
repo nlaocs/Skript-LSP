@@ -2,15 +2,16 @@ use skript_parser::{
     ExpressionExpectedType, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
     ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseRequest,
     ExpressionParserConfig, MappedSource, NoopExpressionEnvironment, PatternHookControl,
-    PatternHookEvent, PatternMatchEnvironment, PatternMatchError, TextRange, TypeExpressionRequest,
-    TypeExpressionResolution, parse_expression, parse_expression_with_snapshot,
+    PatternHookEvent, PatternMatchEnvironment, PatternMatchError, RegisteredExpressionDecision,
+    RegisteredExpressionRequest, TextRange, TypeExpressionRequest, TypeExpressionResolution,
+    parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use syntaxes::{
     Catalog, CatalogParts, ClassName, DynamicMultiplicity, DynamicPattern, DynamicSyntaxDefinition,
-    DynamicSyntaxId, DynamicSyntaxSnapshot, Multiplicity, RankedSyntaxCandidate, Syntax,
-    SyntaxCandidateSource, SyntaxKind,
+    DynamicSyntaxId, DynamicSyntaxSnapshot, Multiplicity, PossibleReturnTypesState,
+    RankedSyntaxCandidate, ReturnTypeState, Syntax, SyntaxCandidateSource, SyntaxKind,
 };
 
 fn fixture() -> PathBuf {
@@ -248,6 +249,67 @@ fn excludes_incompatible_expected_return_type() {
 }
 
 #[test]
+fn dynamic_return_type_is_finalized_after_the_pattern_matches() {
+    let source_catalog = expression_fixture();
+    let mut syntaxes = source_catalog.syntaxes().to_vec();
+    let expression = syntaxes
+        .iter_mut()
+        .find_map(|syntax| match syntax {
+            Syntax::Expression(value)
+                if value
+                    .common
+                    .patterns
+                    .iter()
+                    .any(|pattern| pattern.source == "dummy direct registry expression") =>
+            {
+                Some(value)
+            }
+            _ => None,
+        })
+        .expect("fixture Expression must exist");
+    expression.return_type = Some(ClassName("java.lang.Object".to_owned()));
+    expression.return_type_state = ReturnTypeState::Dynamic;
+    expression.possible_return_types = vec![ClassName("java.lang.Long".to_owned())];
+    expression.possible_return_types_state = PossibleReturnTypesState::Partial;
+    let catalog = Catalog::new(CatalogParts {
+        syntaxes,
+        converters: Vec::new(),
+        comparators: Vec::new(),
+        event_values: Vec::new(),
+        properties: Vec::new(),
+        operators: Vec::new(),
+        operations: BTreeMap::new(),
+        differences: Vec::new(),
+        classes: Vec::new(),
+        aliases: source_catalog.aliases().clone(),
+        plural_rules: source_catalog.plural_rules().clone(),
+    });
+    let text = "dummy direct registry expression";
+    let source = MappedSource::identity(text);
+    let mut environment = DynamicReturnEnvironment::default();
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.Long")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("dynamic return type must parse");
+
+    let selected = result.selected.expect("resolved candidate must survive");
+    assert_eq!(
+        selected.node.return_type,
+        Some(ClassName("java.lang.Long".to_owned()))
+    );
+    assert_eq!(environment.resolutions, 1);
+    assert_eq!(environment.finalizations, [true]);
+}
+
+#[test]
 fn parses_leaf_candidates_from_the_extension_environment() {
     let catalog = expression_fixture();
     let source = MappedSource::identity("\"hello\"");
@@ -437,6 +499,58 @@ fn recursion_depth_is_bounded() {
 #[derive(Default)]
 struct MultipleEnvironment {
     finalizations: Vec<bool>,
+}
+
+#[derive(Default)]
+struct DynamicReturnEnvironment {
+    resolutions: usize,
+    finalizations: Vec<bool>,
+}
+
+impl PatternMatchEnvironment for DynamicReturnEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<Vec<TypeExpressionResolution>, String> {
+        Ok(Vec::new())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for DynamicReturnEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        _request: ExpressionLeafRequest<'_>,
+    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+        Ok(Vec::new())
+    }
+
+    fn resolve_registered_expression(
+        &mut self,
+        _request: RegisteredExpressionRequest<'_>,
+    ) -> Result<RegisteredExpressionDecision, String> {
+        self.resolutions += 1;
+        Ok(RegisteredExpressionDecision::Resolved {
+            return_type: Some(ClassName("java.lang.Long".to_owned())),
+            multiplicity: Some(Multiplicity::Single),
+            metadata: BTreeMap::new(),
+        })
+    }
+
+    fn finish_registered_expression(&mut self, accepted: bool) -> Result<(), String> {
+        self.finalizations.push(accepted);
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
 }
 
 impl PatternMatchEnvironment for MultipleEnvironment {

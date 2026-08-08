@@ -47,6 +47,22 @@ pub enum ResolutionState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether an expression's registered return type is exact or context-dependent.
+pub enum ReturnTypeState {
+    Static,
+    Dynamic,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Completeness of the known runtime return-type alternatives.
+pub enum PossibleReturnTypesState {
+    Complete,
+    Partial,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Whether an expression returns one value, many values, or supports both.
 pub enum Multiplicity {
     Single,
@@ -214,6 +230,9 @@ pub struct Effect {
 pub struct Expression {
     pub common: CommonSyntax,
     pub return_type: Option<ClassName>,
+    pub return_type_state: ReturnTypeState,
+    pub possible_return_types: Vec<ClassName>,
+    pub possible_return_types_state: PossibleReturnTypesState,
     pub section_expression: bool,
     pub return_type_multiplicity: Option<Multiplicity>,
     pub return_type_multiplicity_state: ResolutionState,

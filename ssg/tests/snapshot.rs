@@ -115,7 +115,7 @@ fn rejects_unsupported_schema_before_reading_data_files() {
     let mut manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(modern_fixture().join("Manifest.json")).unwrap())
             .unwrap();
-    manifest["schemaVersion"] = 4.into();
+    manifest["schemaVersion"] = 5.into();
     fs::write(
         directory.path().join("Manifest.json"),
         serde_json::to_vec(&manifest).unwrap(),
@@ -126,8 +126,9 @@ fn rejects_unsupported_schema_before_reading_data_files() {
     assert!(matches!(
         error,
         SnapshotError::UnsupportedSchema {
-            expected: 3,
-            actual: 4
+            minimum: 3,
+            maximum: 4,
+            actual: 5
         }
     ));
 }

@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.6.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.7.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -58,8 +58,9 @@ The package version identifies the WIT shape. Text edit anchors changed the
 package from 0.1.0 to 0.2.0; the lossless RawTree and targeted TreeEdit model
 changed it to 0.3.0; typed pattern-matching scopes, paths, status, and spans
 changed it to 0.4.0; Expression leaf requests and candidates changed it to
-0.5.0; typed Effect lifecycle candidates and failures changed it to 0.6.0. The
-manifest's current `abi` value is 1.5 and is a runtime handshake that
+0.5.0; typed Effect lifecycle candidates and failures changed it to 0.6.0;
+post-match registered Expression resolution changed it to 0.7.0. The
+manifest's current `abi` value is 1.6 and is a runtime handshake that
 requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -87,7 +88,11 @@ Java types and plurality, legal split points, literal/expression flags, time
 state, depth, and accumulated leaf candidates.
 
 CoreLibrary and addons may append Variable, Literal, Function, or Custom leaf
-candidates. The host validates immutable request fields, UTF-8 ranges, parser
+candidates. After a dynamic registered Expression and its typed children match,
+the host sends a second payload containing parse tags, children, known return
+types, and applicable property metadata. CoreLibrary or an addon may resolve
+the effective Java return type and multiplicity, or reject the candidate.
+The host validates immutable request fields, UTF-8 ranges, parser
 IDs, return type/multiplicity, and metadata before the native parser ranks the
 results with registered static and dynamic expressions. A leaf set eliminated
 by native range, type, or multiplicity validation restores its dispatch

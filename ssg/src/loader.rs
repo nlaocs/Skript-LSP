@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use syntaxes::Catalog;
 
 /// Highest SSG snapshot schema accepted by this reader.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
+/// Oldest SSG snapshot schema accepted by this reader.
+pub const MIN_SCHEMA_VERSION: u32 = 3;
 /// Canonical manifest filename.
 pub const MANIFEST_FILE: &str = "Manifest.json";
 
@@ -37,7 +39,7 @@ pub const DATA_FILES: [&str; 18] = [
     "Types.json",
 ];
 
-/// Complete required schema 3 inventory, including `Manifest.json`.
+/// Complete required snapshot inventory, including `Manifest.json`.
 pub const ALL_FILES: [&str; 19] = [
     "Aliases.json",
     "ClassHierarchy.json",
@@ -110,7 +112,7 @@ impl Snapshot {
     }
 }
 
-/// Loads and atomically validates one complete SSG schema 3 directory.
+/// Loads and atomically validates one complete supported SSG snapshot directory.
 ///
 /// Unknown JSON fields are accepted, but required files, hashes, identities,
 /// resolution states, references, and syntax patterns are verified before a
@@ -123,10 +125,10 @@ impl Snapshot {
 /// # Examples
 ///
 /// ~~~no_run
-/// use ssg::{SCHEMA_VERSION, load};
+/// use ssg::{MIN_SCHEMA_VERSION, SCHEMA_VERSION, load};
 ///
 /// let snapshot = load("path/to/generated-snapshot")?;
-/// assert_eq!(snapshot.manifest().schema_version, SCHEMA_VERSION);
+/// assert!((MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&snapshot.manifest().schema_version));
 ///
 /// let catalog = snapshot.catalog();
 /// if let Some(string_type) = catalog.type_by_code_name("string") {
@@ -144,9 +146,10 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
     let manifest_text = read_file(directory, MANIFEST_FILE)?;
     let manifest: raw::Manifest = parse_json(MANIFEST_FILE, &manifest_text)?;
 
-    if manifest.schema_version != SCHEMA_VERSION {
+    if !(MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&manifest.schema_version) {
         return Err(SnapshotError::UnsupportedSchema {
-            expected: SCHEMA_VERSION,
+            minimum: MIN_SCHEMA_VERSION,
+            maximum: SCHEMA_VERSION,
             actual: manifest.schema_version,
         });
     }

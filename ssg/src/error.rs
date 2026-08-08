@@ -25,8 +25,12 @@ pub enum SnapshotError {
         #[source]
         source: serde_json::Error,
     },
-    #[error("unsupported SSG schema version {actual}; expected {expected}")]
-    UnsupportedSchema { expected: u32, actual: u32 },
+    #[error("unsupported SSG schema version {actual}; supported range is {minimum}..={maximum}")]
+    UnsupportedSchema {
+        minimum: u32,
+        maximum: u32,
+        actual: u32,
+    },
     #[error("Manifest.json files mismatch: {message}")]
     ManifestFiles { message: String },
     #[error("snapshot is missing required file {file}")]

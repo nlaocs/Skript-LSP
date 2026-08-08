@@ -42,7 +42,7 @@ flowchart LR
 
 想定しているデータの流れは次のとおりです。
 
-1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 3
+1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 4
    snapshotを生成する。
 2. `ssg`がsnapshotを検証し、保存形式に依存しない`syntaxes::Catalog`へ変換する。
 3. `parser-wasm`が必須のCoreLibraryと任意のaddon componentを読み込む。componentは
@@ -59,11 +59,11 @@ flowchart LR
 | --- | --- | --- |
 | [`skript-lsp`](./) | library / binary | 最上位の統合crate。CoreLibraryを埋め込み、parser hostを構築します。binaryは現時点ではscaffoldです。 |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
-| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3 snapshot directoryを読み込み、完全性を検証してruntime modelへ変換します。 |
+| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3 / 4 snapshot directoryを読み込み、完全性を検証してruntime modelへ変換します。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
 | [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、lossless RawTree、登録pattern照合、再帰Expression AST、sourceを保持するEffect候補を所有します。 |
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、transactional Expression/Effect pipeline、StateStore、dynamic syntax bridgeを実装します。 |
-| [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装する必須parser addonです。ABI negotiation、health hook、variable/string/number Expression leafを提供します。 |
+| [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装する必須parser addonです。ABI negotiation、health hook、Expression leaf、動的な標準Expressionの意味解析を提供します。 |
 | [`skripthub`](./skripthub/README.ja.md) | legacy library | 旧SkriptHub APIとflattenされたfunction文字列の互換readerです。新しい構文データには`ssg`と`syntaxes`を使用します。 |
 | [`text-macro-addon`](./test-components/text-macro-addon/README.ja.md) | test WASM component | 順序付きText macro展開、UTF-8 edit、anchor、StateStore rollback、trapを検証します。 |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/README.ja.md) | test WASM component | 対象指定TreeEdit、再帰展開、provenance、cycle、StateStore rollback、quota、trapを検証します。 |
