@@ -5,8 +5,8 @@
 #![allow(missing_docs)] // Public fields are described by their owning domain type.
 
 use crate::{
-    AliasRegistry, Class, Comparator, Converter, Difference, EventValue, Function, Operation,
-    Operator, Property, Syntax, Type,
+    AliasRegistry, Class, ClassKind, Comparator, Converter, Difference, EventValue, Function,
+    Operation, Operator, Property, Syntax, Type,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use syntax_pattern_parser::syntax::PluralRules;
@@ -358,8 +358,9 @@ impl Catalog {
     /// Tests generated Java assignability from `from` to `to` without loading classes.
     ///
     /// The traversal follows the generated superclass and interface graph and
-    /// is cycle-safe. Unknown classes are not assumed assignable, except that a
-    /// class is always assignable to itself.
+    /// is cycle-safe. As in Java, every known non-primitive class, interface,
+    /// and array is assignable to `java.lang.Object`. Unknown classes are not
+    /// assumed assignable, except that a class is always assignable to itself.
     ///
     /// # Examples
     ///
@@ -373,6 +374,13 @@ impl Catalog {
     /// ~~~
     pub fn is_class_assignable(&self, from: &str, to: &str) -> bool {
         if from == to {
+            return true;
+        }
+        if to == "java.lang.Object"
+            && self
+                .class(from)
+                .is_some_and(|class| class.kind != ClassKind::Primitive)
+        {
             return true;
         }
 
