@@ -12,6 +12,7 @@ use crate::{
     catalog_pattern_candidates, match_pattern_candidates_with_environment,
     snapshot_pattern_candidates,
 };
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{
@@ -228,15 +229,14 @@ pub enum ExpressionParseError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MemoKey {
+    // Context and registry candidates are immutable for the lifetime of a session.
     range: TextRange,
     candidate_ends: Vec<usize>,
-    expected_types: Vec<ExpressionExpectedType>,
+    expected_type_id: usize,
     allow_literals: bool,
     allow_expressions: bool,
     time: i32,
-    context: ExpressionParseContext,
     state_revision: u64,
-    registry_revision: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -250,7 +250,10 @@ pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
     registered_candidates: Vec<PatternCandidate<'a>>,
     pattern_prefilters: HashMap<&'a str, PatternPrefilter>,
-    registry_revision: u64,
+    pattern_initials: PatternInitialIndex,
+    expected_type_ids: RefCell<HashMap<Vec<ExpressionExpectedType>, usize>>,
+    candidate_compatibility_cache: RefCell<Vec<Vec<bool>>>,
+    matcher_position_cache: RefCell<HashMap<MatcherPositionKey, Vec<PatternPosition>>>,
     registrations: HashMap<String, RegistrationMetadata>,
     source: &'a MappedSource,
     environment: &'a mut E,
@@ -368,8 +371,8 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
     })
 }
 
-impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
-    pub(crate) fn new<'a>(
+impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
+    pub(crate) fn new(
         catalog: &'a Catalog,
         dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
         source: &'a MappedSource,
@@ -383,11 +386,15 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             catalog_pattern_candidates(catalog, SyntaxKind::Expression)
         };
         let pattern_prefilters = pattern_prefilter_index(&registered_candidates);
+        let pattern_initials = pattern_initial_index(&registered_candidates, &pattern_prefilters);
         ExpressionSession {
             catalog,
             registered_candidates,
             pattern_prefilters,
-            registry_revision: dynamic_snapshot.map_or(0, |snapshot| snapshot.registry_revision),
+            pattern_initials,
+            expected_type_ids: RefCell::new(HashMap::new()),
+            candidate_compatibility_cache: RefCell::new(Vec::new()),
+            matcher_position_cache: RefCell::new(HashMap::new()),
             registrations: registration_metadata_index(catalog, dynamic_snapshot),
             source,
             environment,
@@ -443,19 +450,18 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             });
         }
         self.validate_prefix_request(range, candidate_ends)?;
+        let expected_type_id = self.expected_type_id(expected_types);
         let key = MemoKey {
             range,
             candidate_ends: candidate_ends.to_vec(),
-            expected_types: expected_types.to_vec(),
+            expected_type_id,
             allow_literals,
             allow_expressions,
             time,
-            context: self.context.clone(),
             state_revision: self
                 .environment
                 .state_revision()
                 .map_err(|message| ExpressionParseError::Environment { message })?,
-            registry_revision: self.registry_revision,
         };
         if let Some(cached) = self.memo.get(&key) {
             return Ok(cached.clone());
@@ -593,35 +599,8 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             let input = range
                 .slice(self.source.virtual_source())
                 .expect("validated Expression range");
-            let matcher_candidates = self
-                .registered_candidates
-                .iter()
-                .filter(|candidate| self.registered_candidate_matches(candidate, expected_types))
-                .filter_map(|candidate| {
-                    let patterns = candidate
-                        .patterns
-                        .iter()
-                        .copied()
-                        .filter(|pattern| {
-                            let prefilter = &self.pattern_prefilters[pattern.source];
-                            prefilter.left_recursive
-                                == matches!(registered_pass, RegisteredPass::LeftRecursive)
-                                && prefix_states_may_start_with(&prefilter.leading, input)
-                                && (!prefilter.left_recursive
-                                    || suffix_states_may_end_with(&prefilter.trailing, input))
-                        })
-                        .collect::<Vec<_>>();
-                    (!patterns.is_empty()).then(|| PatternCandidate {
-                        kind: candidate.kind,
-                        definition_id: candidate.definition_id.clone(),
-                        registration_id: candidate.registration_id.clone(),
-                        priority: candidate.priority,
-                        registration_order: candidate.registration_order,
-                        resolved_order: candidate.resolved_order,
-                        patterns,
-                    })
-                })
-                .collect::<Vec<_>>();
+            let matcher_candidates =
+                self.matcher_candidates(input, expected_types, registered_pass);
             for end in candidate_ends.iter().copied() {
                 let candidate_range = TextRange::new(range.start, end);
                 let input = MatchInput::from_source(self.source, candidate_range)?;
@@ -674,6 +653,96 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                     && self.multiplicity_matches(metadata.multiplicity, expected_types)
             })
+    }
+
+    fn matcher_candidates(
+        &self,
+        input: &str,
+        expected_types: &[ExpressionExpectedType],
+        registered_pass: RegisteredPass,
+    ) -> Vec<PatternCandidate<'a>> {
+        let initial = input
+            .chars()
+            .find(|character| *character != ' ')
+            .and_then(|character| character.to_lowercase().next());
+        let key = MatcherPositionKey {
+            initial,
+            expected_type_id: self.expected_type_id(expected_types),
+            registered_pass,
+        };
+        if !self.matcher_position_cache.borrow().contains_key(&key) {
+            let compatibility_cache = self.candidate_compatibility_cache.borrow();
+            let compatible = &compatibility_cache[key.expected_type_id];
+            let mut positions = self.pattern_initials.wildcard.clone();
+            if let Some(initial) = initial
+                && let Some(indexed) = self.pattern_initials.by_initial.get(&initial)
+            {
+                positions.extend_from_slice(indexed);
+            }
+            positions.sort_unstable();
+            positions.dedup();
+            positions.retain(|(candidate_index, pattern_index)| {
+                let candidate = &self.registered_candidates[*candidate_index];
+                let pattern = candidate.patterns[*pattern_index];
+                self.pattern_prefilters[pattern.source].left_recursive
+                    == matches!(registered_pass, RegisteredPass::LeftRecursive)
+                    && compatible[*candidate_index]
+            });
+            self.matcher_position_cache
+                .borrow_mut()
+                .insert(key.clone(), positions);
+        }
+        let position_cache = self.matcher_position_cache.borrow();
+        let positions = &position_cache[&key];
+
+        let mut result = Vec::new();
+        let mut cursor = 0;
+        while cursor < positions.len() {
+            let candidate_index = positions[cursor].0;
+            let candidate = &self.registered_candidates[candidate_index];
+            let mut patterns = Vec::new();
+            while cursor < positions.len() && positions[cursor].0 == candidate_index {
+                let pattern = candidate.patterns[positions[cursor].1];
+                let prefilter = &self.pattern_prefilters[pattern.source];
+                if prefix_states_may_start_with(&prefilter.leading, input)
+                    && (!prefilter.left_recursive
+                        || suffix_states_may_end_with(&prefilter.trailing, input))
+                {
+                    patterns.push(pattern);
+                }
+                cursor += 1;
+            }
+            if !patterns.is_empty() {
+                result.push(PatternCandidate {
+                    kind: candidate.kind,
+                    definition_id: candidate.definition_id.clone(),
+                    registration_id: candidate.registration_id.clone(),
+                    priority: candidate.priority,
+                    registration_order: candidate.registration_order,
+                    resolved_order: candidate.resolved_order,
+                    patterns,
+                });
+            }
+        }
+        result
+    }
+
+    fn expected_type_id(&self, expected_types: &[ExpressionExpectedType]) -> usize {
+        if let Some(id) = self.expected_type_ids.borrow().get(expected_types) {
+            return *id;
+        }
+        let compatible = self
+            .registered_candidates
+            .iter()
+            .map(|candidate| self.registered_candidate_matches(candidate, expected_types))
+            .collect();
+        let mut compatibility_cache = self.candidate_compatibility_cache.borrow_mut();
+        let id = compatibility_cache.len();
+        compatibility_cache.push(compatible);
+        self.expected_type_ids
+            .borrow_mut()
+            .insert(expected_types.to_vec(), id);
+        id
     }
 
     fn registered_node(
@@ -853,7 +922,7 @@ fn registration_metadata_index(
     registrations
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum RegisteredPass {
     Base,
     LeftRecursive,
@@ -869,6 +938,20 @@ struct PatternPrefilter {
     left_recursive: bool,
     leading: Vec<PrefixState>,
     trailing: Vec<PrefixState>,
+}
+
+type PatternPosition = (usize, usize);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MatcherPositionKey {
+    initial: Option<char>,
+    expected_type_id: usize,
+    registered_pass: RegisteredPass,
+}
+
+struct PatternInitialIndex {
+    wildcard: Vec<PatternPosition>,
+    by_initial: HashMap<char, Vec<PatternPosition>>,
 }
 
 fn pattern_prefilter_index<'a>(
@@ -888,6 +971,45 @@ fn pattern_prefilter_index<'a>(
             });
     }
     result
+}
+
+fn pattern_initial_index(
+    candidates: &[PatternCandidate<'_>],
+    prefilters: &HashMap<&str, PatternPrefilter>,
+) -> PatternInitialIndex {
+    let mut wildcard = Vec::new();
+    let mut by_initial = HashMap::<char, Vec<PatternPosition>>::new();
+    for (candidate_index, candidate) in candidates.iter().enumerate() {
+        for (pattern_index, pattern) in candidate.patterns.iter().enumerate() {
+            let position = (candidate_index, pattern_index);
+            let mut has_wildcard = false;
+            for state in &prefilters[pattern.source].leading {
+                let initial = state
+                    .text
+                    .chars()
+                    .find(|character| *character != ' ')
+                    .and_then(|character| character.to_lowercase().next());
+                if let Some(initial) = initial {
+                    by_initial.entry(initial).or_default().push(position);
+                } else {
+                    has_wildcard = true;
+                }
+            }
+            if has_wildcard {
+                wildcard.push(position);
+            }
+        }
+    }
+    wildcard.sort_unstable();
+    wildcard.dedup();
+    for positions in by_initial.values_mut() {
+        positions.sort_unstable();
+        positions.dedup();
+    }
+    PatternInitialIndex {
+        wildcard,
+        by_initial,
+    }
 }
 
 fn pattern_is_left_recursive(elements: &[SpannedPatternElement]) -> bool {

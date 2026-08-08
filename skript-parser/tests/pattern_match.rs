@@ -106,6 +106,9 @@ fn captures_regex_groups_with_utf8_byte_spans() {
     assert_eq!(groups[1].value.as_deref(), Some("本語"));
 }
 
+// These boundary-focused tests use stub resolvers that accept the requested range without
+// validating it as a real Skript expression. They isolate which candidate ends the matcher
+// offers to the expression parser; expression syntax is covered by the expression tests.
 #[test]
 fn delegates_types_only_at_legal_skript_boundaries() {
     struct Resolver;
@@ -115,7 +118,7 @@ fn delegates_types_only_at_legal_skript_boundaries() {
             request: TypeExpressionRequest<'_>,
         ) -> Result<Vec<TypeExpressionResolution>, String> {
             assert_eq!(request.expression.alternatives[0].name, "string");
-            assert!(!request.candidate_ends.contains(&9));
+            assert_eq!(request.candidate_ends, &[13]);
             Ok(vec![TypeExpressionResolution {
                 range: TextRange::new(request.remaining.start, 13),
                 alternative_index: Some(0),
@@ -146,6 +149,118 @@ fn delegates_types_only_at_legal_skript_boundaries() {
     };
     assert_eq!(value, "\"a now\"");
     assert_eq!(resolution_id.as_deref(), Some("expr:1"));
+}
+
+#[test]
+fn carries_type_boundary_lookahead_out_of_nested_groups() {
+    struct Resolver;
+    impl TypeExpressionResolver for Resolver {
+        fn resolve(
+            &mut self,
+            request: TypeExpressionRequest<'_>,
+        ) -> Result<Vec<TypeExpressionResolution>, String> {
+            assert_eq!(request.candidate_ends, &[13]);
+            Ok(vec![TypeExpressionResolution {
+                range: TextRange::new(request.remaining.start, 13),
+                alternative_index: Some(0),
+                resolution_id: None,
+            }])
+        }
+    }
+
+    let source = "print (%string%) now";
+    let pattern = parse(source);
+    let input = "print one two now";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut Resolver,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    assert!(result.selected.is_some());
+}
+
+#[test]
+fn keeps_both_optional_tail_paths_for_type_boundaries() {
+    struct Resolver;
+    impl TypeExpressionResolver for Resolver {
+        fn resolve(
+            &mut self,
+            request: TypeExpressionRequest<'_>,
+        ) -> Result<Vec<TypeExpressionResolution>, String> {
+            assert_eq!(request.candidate_ends, &[9, 13]);
+            Ok(vec![TypeExpressionResolution {
+                range: TextRange::new(request.remaining.start, 9),
+                alternative_index: Some(0),
+                resolution_id: None,
+            }])
+        }
+    }
+
+    let source = "print %string%[ now]";
+    let pattern = parse(source);
+    let input = "print one now";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut Resolver,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    assert!(result.selected.is_some());
+}
+
+#[test]
+fn keeps_all_boundaries_before_a_dynamic_type_tail() {
+    struct Resolver;
+    impl TypeExpressionResolver for Resolver {
+        fn resolve(
+            &mut self,
+            request: TypeExpressionRequest<'_>,
+        ) -> Result<Vec<TypeExpressionResolution>, String> {
+            let end = match request.remaining.start {
+                6 => {
+                    assert_eq!(request.candidate_ends, &[7, 8]);
+                    7
+                }
+                7 => {
+                    assert_eq!(request.candidate_ends, &[8]);
+                    8
+                }
+                start => panic!("unexpected resolver start: {start}"),
+            };
+            Ok(vec![TypeExpressionResolution {
+                range: TextRange::new(request.remaining.start, end),
+                alternative_index: Some(0),
+                resolution_id: None,
+            }])
+        }
+    }
+
+    // Skript permits adjacent type elements, so the matcher cannot infer where the first one
+    // ends. The stub above deliberately treats the bare `a` and `b` as string expressions;
+    // this tests boundary exploration, not whether real Skript accepts those string literals.
+    let source = "print %string%%string%";
+    let pattern = parse(source);
+    let input = "print ab";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut Resolver,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    assert!(result.selected.is_some());
 }
 
 #[test]

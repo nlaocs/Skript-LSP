@@ -527,6 +527,112 @@ impl MatchState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TailPrefix {
+    text: String,
+    dynamic: bool,
+}
+
+fn sequence_tail_prefixes(
+    elements: &[SpannedPatternElement],
+    continuation: &[TailPrefix],
+) -> Vec<TailPrefix> {
+    let mut result = Vec::new();
+    for prefix in leading_tail_prefixes(elements) {
+        if prefix.dynamic {
+            push_tail_prefix(&mut result, prefix);
+            continue;
+        }
+        for suffix in continuation {
+            let mut text = prefix.text.clone();
+            text.push_str(&suffix.text);
+            push_tail_prefix(
+                &mut result,
+                TailPrefix {
+                    text,
+                    dynamic: suffix.dynamic,
+                },
+            );
+        }
+    }
+    result
+}
+
+fn leading_tail_prefixes(elements: &[SpannedPatternElement]) -> Vec<TailPrefix> {
+    let mut states = vec![TailPrefix {
+        text: String::new(),
+        dynamic: false,
+    }];
+    for element in elements {
+        let mut next = Vec::new();
+        for state in states {
+            if state.dynamic {
+                push_tail_prefix(&mut next, state);
+                continue;
+            }
+            match &element.value {
+                PatternElement::Literal(value) => {
+                    let mut state = state;
+                    state.text.push_str(value);
+                    push_tail_prefix(&mut next, state);
+                }
+                PatternElement::Regex(_) | PatternElement::TypeExpr(_) => {
+                    let mut state = state;
+                    state.dynamic = true;
+                    push_tail_prefix(&mut next, state);
+                }
+                PatternElement::Group(children) => {
+                    append_tail_prefixes(&state, leading_tail_prefixes(children), &mut next);
+                }
+                PatternElement::Option(children) => {
+                    push_tail_prefix(&mut next, state.clone());
+                    append_tail_prefixes(&state, leading_tail_prefixes(children), &mut next);
+                }
+                PatternElement::Choice(branches) => {
+                    for branch in branches {
+                        append_tail_prefixes(&state, leading_tail_prefixes(branch), &mut next);
+                    }
+                }
+                PatternElement::ParseTag(_)
+                | PatternElement::ParseMark(_)
+                | PatternElement::Empty => push_tail_prefix(&mut next, state),
+            }
+        }
+        if next.len() > 256 {
+            return vec![TailPrefix {
+                text: String::new(),
+                dynamic: true,
+            }];
+        }
+        states = next;
+    }
+    states
+}
+
+fn append_tail_prefixes(
+    parent: &TailPrefix,
+    children: Vec<TailPrefix>,
+    output: &mut Vec<TailPrefix>,
+) {
+    for child in children {
+        let mut text = parent.text.clone();
+        text.push_str(&child.text);
+        push_tail_prefix(
+            output,
+            TailPrefix {
+                text,
+                dynamic: child.dynamic,
+            },
+        );
+    }
+}
+
+fn push_tail_prefix(output: &mut Vec<TailPrefix>, value: TailPrefix) {
+    if !output.contains(&value) {
+        output.push(value);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TransitionKey {
     pattern_source: String,
@@ -917,11 +1023,16 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             }
 
             let mut path = Vec::new();
+            let pattern_end = [TailPrefix {
+                text: String::new(),
+                dynamic: false,
+            }];
             let states = self.match_sequence(
                 &pattern.parsed.elements,
                 0,
                 MatchState::new(self.trim_range.start),
                 &mut path,
+                &pattern_end,
             )?;
             if let Some(state) = states
                 .iter()
@@ -1027,6 +1138,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         }
         Ok(None)
     }
+
     fn first_synthetic_candidate_match(
         &mut self,
         candidate: &'candidate PatternCandidate<'candidate>,
@@ -1158,6 +1270,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         index: usize,
         state: MatchState,
         path: &mut Vec<PatternPathSegment>,
+        outer_tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         self.visit_state()?;
         if index == elements.len() {
@@ -1167,14 +1280,25 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         path.push(PatternPathSegment::Element(
             u32::try_from(index).unwrap_or(u32::MAX),
         ));
-        let transitions = self.match_element(&elements[index], state, path)?;
+        let element = &elements[index];
+        let tail = matches!(
+            &element.value,
+            PatternElement::TypeExpr(_)
+                | PatternElement::Group(_)
+                | PatternElement::Option(_)
+                | PatternElement::Choice(_)
+        )
+        .then(|| sequence_tail_prefixes(&elements[index + 1..], outer_tail));
+        let transitions =
+            self.match_element(element, state, path, tail.as_deref().unwrap_or(outer_tail))?;
         path.pop();
         self.add_backtracks(transitions.len().saturating_sub(1))?;
 
         let mut matches = Vec::new();
         for transition in transitions {
-            let mut tail = self.match_sequence(elements, index + 1, transition, path)?;
-            matches.append(&mut tail);
+            let mut nested =
+                self.match_sequence(elements, index + 1, transition, path, outer_tail)?;
+            matches.append(&mut nested);
         }
         Ok(matches)
     }
@@ -1184,6 +1308,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         element: &SpannedPatternElement,
         state: MatchState,
         path: &mut Vec<PatternPathSegment>,
+        tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         let start = state.cursor;
         let control = self.dispatch_hook(
@@ -1196,7 +1321,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         )?;
         let original = state.clone();
         let mut transitions = match control {
-            PatternHookControl::Continue => self.match_element_default(element, state, path)?,
+            PatternHookControl::Continue => {
+                self.match_element_default(element, state, path, tail)?
+            }
             PatternHookControl::Match(range) => {
                 self.validate_hook_range(range, TextRange::new(start, self.trim_range.end))?;
                 let mut state = state;
@@ -1269,6 +1396,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         element: &SpannedPatternElement,
         mut state: MatchState,
         path: &mut Vec<PatternPathSegment>,
+        tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         match &element.value {
             PatternElement::Literal(literal) => {
@@ -1292,15 +1420,16 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     path.push(PatternPathSegment::Branch(
                         u32::try_from(index).unwrap_or(u32::MAX),
                     ));
-                    let mut branch_matches = self.match_sequence(branch, 0, state.clone(), path)?;
+                    let mut branch_matches =
+                        self.match_sequence(branch, 0, state.clone(), path, tail)?;
                     path.pop();
                     matches.append(&mut branch_matches);
                 }
                 Ok(matches)
             }
-            PatternElement::Group(elements) => self.match_sequence(elements, 0, state, path),
+            PatternElement::Group(elements) => self.match_sequence(elements, 0, state, path, tail),
             PatternElement::Option(elements) => {
-                let mut matches = self.match_sequence(elements, 0, state.clone(), path)?;
+                let mut matches = self.match_sequence(elements, 0, state.clone(), path, tail)?;
                 state.pending_implicit_tag = None;
                 matches.push(state);
                 Ok(matches)
@@ -1311,7 +1440,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             }
             PatternElement::TypeExpr(expression) => {
                 state.pending_implicit_tag = None;
-                self.match_type_expression(element.span, expression, state)
+                self.match_type_expression(element.span, expression, state, tail)
             }
             PatternElement::ParseTag(tag) => {
                 let input_span = self.input.map_range(TextRange::empty(state.cursor))?;
@@ -1509,10 +1638,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         pattern_span: PatternSpan,
         expression: &PatternTypeExpr,
         state: MatchState,
+        tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         let mut boundaries =
-            skript_boundaries(self.input.text(), state.cursor, self.trim_range.end);
-        if expression.nullable {
+            skript_boundaries(self.input.text(), state.cursor, self.trim_range.end)
+                .into_iter()
+                .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
+                .collect::<Vec<_>>();
+        if expression.nullable && self.boundary_allows_tail(state.cursor, tail) {
             boundaries.insert(0, state.cursor);
         }
         let resolutions = self
@@ -1572,6 +1705,24 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             );
         }
         Ok(matches)
+    }
+
+    fn boundary_allows_tail(&self, boundary: usize, tail: &[TailPrefix]) -> bool {
+        tail.is_empty()
+            || tail.iter().any(|prefix| {
+                if prefix.text.is_empty() {
+                    prefix.dynamic || boundary == self.trim_range.end
+                } else {
+                    if prefix.text.starts_with(' ')
+                        && boundary > self.trim_range.start
+                        && self.input.text().as_bytes().get(boundary - 1) == Some(&b' ')
+                    {
+                        return false;
+                    }
+                    match_literal_at(self.input.text(), self.trim_range, boundary, &prefix.text)
+                        .is_ok()
+                }
+            })
     }
 
     fn regex(

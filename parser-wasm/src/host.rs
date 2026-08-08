@@ -973,6 +973,13 @@ impl SubscriptionRegistry {
                     .is_some_and(|component| !component.disabled && !component.unloaded)
         })
     }
+
+    fn has_matching_hooks(&self) -> bool {
+        self.subscriptions.iter().any(|entry| {
+            entry.subscription.phase == HookPhase::Matching
+                && entry.subscription.capability_id == CAPABILITY_HOOKS
+        })
+    }
 }
 
 fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> Option<u8> {
@@ -1030,6 +1037,7 @@ struct PatternMatchFrame {
 struct WasmPatternHooks<'a> {
     host: &'a mut ParserHost,
     transaction: &'a ParseTransaction,
+    matching_hooks_registered: bool,
     context: InvocationContext,
     input: String,
     frames: Vec<PatternMatchFrame>,
@@ -1040,6 +1048,9 @@ struct WasmPatternHooks<'a> {
 
 impl WasmPatternHooks<'_> {
     fn begin_match_frame(&mut self) -> Result<(), String> {
+        if !self.matching_hooks_registered {
+            return Ok(());
+        }
         self.frames.push(PatternMatchFrame {
             base: self
                 .transaction
@@ -1054,6 +1065,9 @@ impl WasmPatternHooks<'_> {
     }
 
     fn finish_match_frame(&mut self, accepted: bool) -> Result<(), String> {
+        if !self.matching_hooks_registered {
+            return Ok(());
+        }
         let frame = self
             .frames
             .pop()
@@ -1083,6 +1097,9 @@ impl WasmPatternHooks<'_> {
         outcome: &PatternHookOutcome,
         control: &PatternHookControl,
     ) -> Result<(), String> {
+        if !self.matching_hooks_registered {
+            return Ok(());
+        }
         if scope != PatternHookScope::Definition || timing == PatternHookTiming::Before {
             return Ok(());
         }
@@ -1118,6 +1135,9 @@ impl WasmPatternHooks<'_> {
     }
 
     fn prepare_definition_candidate(&mut self, range: ParserTextRange) -> Result<(), String> {
+        if !self.matching_hooks_registered {
+            return Ok(());
+        }
         let frame = self
             .frames
             .last_mut()
@@ -1149,6 +1169,9 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         kind: MatchSyntaxKind,
         registration_id: &str,
     ) -> Result<bool, String> {
+        if !self.matching_hooks_registered {
+            return Ok(false);
+        }
         Ok(self.host.registry.has_active_matching_handler(
             &self.host.components,
             &DispatchTarget::ExactRegistration {
@@ -1159,6 +1182,9 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
     }
 
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        if !self.matching_hooks_registered {
+            return Ok(PatternHookControl::Continue);
+        }
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
             self.prepare_definition_candidate(event.input_range)?;
@@ -2096,9 +2122,11 @@ impl ParserHost {
 
         let base = transaction.savepoint()?;
         let input_text = input.text().to_owned();
+        let matching_hooks_registered = self.registry.has_matching_hooks();
         let mut hooks = WasmPatternHooks {
             host: self,
             transaction,
+            matching_hooks_registered,
             context,
             input: input_text,
             frames: Vec::new(),
@@ -2162,9 +2190,11 @@ impl ParserHost {
         let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
         let base = transaction.savepoint()?;
         let input_text = request.source.virtual_source().to_owned();
+        let matching_hooks_registered = self.registry.has_matching_hooks();
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            matching_hooks_registered,
             context,
             input: input_text,
             frames: Vec::new(),
@@ -2323,9 +2353,11 @@ impl ParserHost {
             });
         }
 
+        let matching_hooks_registered = self.registry.has_matching_hooks();
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            matching_hooks_registered,
             context: context.clone(),
             input: source.virtual_source().to_owned(),
             frames: Vec::new(),
@@ -5225,6 +5257,33 @@ mod tests {
                 "syntax-first-component",
             ]
         );
+    }
+
+    #[test]
+    fn registry_detects_only_matching_hook_subscriptions() {
+        let mut registry = SubscriptionRegistry::default();
+        registry.register(
+            0,
+            0,
+            &[subscription(
+                "document",
+                HookTarget::ParseStage,
+                0,
+                HookMode::Observe,
+            )],
+        );
+        assert!(!registry.has_matching_hooks());
+
+        let mut matching = subscription(
+            "matching",
+            HookTarget::SyntaxDefinition(SyntaxKind::Expression),
+            0,
+            HookMode::Transform,
+        );
+        matching.phase = HookPhase::Matching;
+        registry.register(1, 1, &[matching]);
+
+        assert!(registry.has_matching_hooks());
     }
 
     #[test]

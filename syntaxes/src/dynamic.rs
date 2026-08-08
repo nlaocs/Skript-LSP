@@ -814,6 +814,27 @@ fn build_snapshot(
         }
     }
 
+    if definitions.is_empty() && overrides.is_empty() {
+        let candidates = catalog
+            .syntaxes()
+            .iter()
+            .enumerate()
+            .map(|(index, syntax)| RankedSyntaxCandidate {
+                kind: syntax.kind(),
+                source: SyntaxCandidateSource::Static(index),
+                overrides: Vec::new(),
+            })
+            .collect();
+        return Ok(DynamicSyntaxSnapshot {
+            document_id: document_id.to_owned(),
+            document_revision,
+            registry_revision,
+            definitions,
+            overrides,
+            candidates,
+        });
+    }
+
     let mut nodes = BTreeMap::new();
     let mut registration_targets: BTreeMap<String, Vec<CandidateKey>> = BTreeMap::new();
     let mut definition_targets: BTreeMap<String, Vec<CandidateKey>> = BTreeMap::new();
