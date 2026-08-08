@@ -67,6 +67,70 @@ fn parses_effect_and_reports_literal_and_type_information() {
 }
 
 #[test]
+fn parses_optional_and_interface_expressions_without_regex_fallbacks() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+
+    let absorbed = session
+        .analyze("send absorbed blocks")
+        .expect("optional leading literal must parse");
+    let absorbed: Value = serde_json::from_str(&absorbed.to_json().unwrap()).unwrap();
+    assert_eq!(absorbed["result"]["status"], "matched");
+    assert_eq!(
+        absorbed["result"]["effect"]["elements"][0]["resolved"]["expression"]["syntax"]["elementClass"],
+        "ch.njol.skript.expressions.ExprAbsorbedBlocks"
+    );
+    assert_eq!(
+        absorbed["result"]["effect"]["elements"][0]["resolved"]["multiplicity"],
+        "multiple"
+    );
+    assert_eq!(
+        absorbed["result"]["alternatives"].as_array().unwrap().len(),
+        0
+    );
+
+    let offline = session
+        .analyze("set {_m} to all offline players")
+        .expect("interface return type must parse as Object");
+    let offline: Value = serde_json::from_str(&offline.to_json().unwrap()).unwrap();
+    assert_eq!(offline["result"]["status"], "matched");
+    assert_eq!(
+        offline["result"]["effect"]["elements"][0]["resolved"]["multiplicity"],
+        "single"
+    );
+    assert_eq!(
+        offline["result"]["effect"]["elements"][1]["resolved"]["returnType"],
+        "org.bukkit.OfflinePlayer"
+    );
+    assert_eq!(
+        offline["result"]["effect"]["elements"][1]["resolved"]["multiplicity"],
+        "multiple"
+    );
+
+    let chat = session
+        .analyze("set {_m} to chat-message")
+        .expect("Component interface return type must parse as Object");
+    let chat: Value = serde_json::from_str(&chat.to_json().unwrap()).unwrap();
+    assert_eq!(chat["result"]["status"], "matched");
+    assert_eq!(
+        chat["result"]["effect"]["elements"][1]["resolved"]["returnType"],
+        "net.kyori.adventure.text.Component"
+    );
+
+    let contextual = session
+        .analyze("send player's health")
+        .expect("missing event context is a normal no-match");
+    let contextual: Value = serde_json::from_str(&contextual.to_json().unwrap()).unwrap();
+    assert_eq!(contextual["result"]["status"], "unknown");
+    assert!(
+        contextual["result"]["failure"]["reasons"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|reason| reason["expected"] != " if ")
+    );
+}
+
+#[test]
 fn one_shot_json_uses_stable_no_match_exit_code() {
     let snapshot = legacy_fixture();
     let mut output = Vec::new();

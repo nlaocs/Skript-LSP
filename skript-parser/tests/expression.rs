@@ -345,6 +345,63 @@ fn grows_left_recursive_expression_from_a_literal_seed() {
 }
 
 #[test]
+fn optional_leading_literal_does_not_require_its_boundary_space() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    for text in ["absorbed blocks", "the absorbed blocks"] {
+        let source = MappedSource::identity(text);
+        let result = parse_expression(
+            snapshot.catalog(),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![expected_plural("ch.njol.skript.util.BlockStateBlock")],
+                context: ExpressionParseContext::default(),
+            },
+            &mut NoopExpressionEnvironment,
+            ExpressionParserConfig::default(),
+        )
+        .expect("optional leading literal must parse with or without its following space");
+
+        assert!(result.selected.is_some(), "{text:?} must match");
+    }
+}
+
+#[test]
+fn interface_return_type_matches_java_object() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    assert!(
+        snapshot
+            .catalog()
+            .is_class_assignable("org.bukkit.OfflinePlayer", "java.lang.Object")
+    );
+    let text = "all offline players";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected_plural("java.lang.Object")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("interface return type must be assignable to Object");
+
+    let selected = result.selected.expect("offline players must parse");
+    assert_eq!(
+        selected
+            .node
+            .return_type
+            .as_ref()
+            .map(|value| value.as_str()),
+        Some("org.bukkit.OfflinePlayer")
+    );
+    assert_eq!(selected.node.multiplicity, Some(Multiplicity::Multiple));
+}
+
+#[test]
 fn recursion_depth_is_bounded() {
     let catalog = expression_fixture();
     let text = format!(
