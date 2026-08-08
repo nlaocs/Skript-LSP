@@ -192,6 +192,24 @@ fn class_assignability_terminates_on_cycles() {
 }
 
 #[test]
+fn known_java_reference_types_are_assignable_to_object() {
+    let mut interface = class("test.Named", None, &[]);
+    interface.kind = ClassKind::Interface;
+    let mut array = class("test.Named[]", None, &[]);
+    array.kind = ClassKind::Array;
+    let mut primitive = class("int", None, &[]);
+    primitive.kind = ClassKind::Primitive;
+    let mut parts = parts();
+    parts.classes = vec![interface, array, primitive];
+    let catalog = Catalog::new(parts);
+
+    assert!(catalog.is_class_assignable("test.Named", "java.lang.Object"));
+    assert!(catalog.is_class_assignable("test.Named[]", "java.lang.Object"));
+    assert!(!catalog.is_class_assignable("int", "java.lang.Object"));
+    assert!(!catalog.is_class_assignable("test.Missing", "java.lang.Object"));
+}
+
+#[test]
 fn type_assignability_uses_declared_ssg_relationships() {
     let mut parts = parts();
     parts.syntaxes = vec![
