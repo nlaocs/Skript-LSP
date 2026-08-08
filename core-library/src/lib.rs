@@ -171,11 +171,6 @@ fn core_expression_candidate(payload: &ExpressionPayload) -> Option<ExpressionLe
 
     for (end, text) in candidates {
         if payload.allow_expressions && is_variable(text) {
-            let plural = text.contains("::*")
-                || payload
-                    .expected_types
-                    .first()
-                    .is_some_and(|expected| expected.plural);
             return Some(expression_candidate(
                 "core.variable",
                 ExpressionLeafKind::Variable,
@@ -185,7 +180,7 @@ fn core_expression_candidate(payload: &ExpressionPayload) -> Option<ExpressionLe
                     .expected_types
                     .first()
                     .map_or("java.lang.Object", |expected| expected.class_name.as_str()),
-                if plural {
+                if is_list_variable(text) {
                     DynamicMultiplicity::Multiple
                 } else {
                     DynamicMultiplicity::Single
@@ -236,6 +231,10 @@ fn is_variable(text: &str) -> bool {
         && text.starts_with('{')
         && text.ends_with('}')
         && !text[1..text.len() - 1].trim().is_empty()
+}
+
+fn is_list_variable(text: &str) -> bool {
+    text[1..text.len() - 1].trim_end().ends_with("::*")
 }
 
 fn is_string_literal(text: &str) -> bool {
@@ -446,6 +445,27 @@ mod tests {
             assert_eq!(payload.candidates[0].parser_id, parser_id);
             assert_eq!(payload.candidates[0].kind, kind);
             assert_eq!(payload.candidates[0].range.end, text.len() as u64);
+        }
+    }
+
+    #[test]
+    fn variable_multiplicity_follows_the_variable_shape() {
+        for (text, expected) in [
+            ("{value}", DynamicMultiplicity::Single),
+            ("{values::*}", DynamicMultiplicity::Multiple),
+        ] {
+            let mut invocation = expression_invocation(text);
+            let HookPayload::Expression(payload) = &mut invocation.payload else {
+                unreachable!();
+            };
+            payload.expected_types[0].plural = true;
+
+            let output = <CoreLibrary as hooks::Guest>::invoke(invocation)
+                .expect("CoreLibrary Expression invocation must succeed");
+            let Some(HookPayload::Expression(payload)) = output.replacement else {
+                panic!("variable must replace the Expression payload");
+            };
+            assert_eq!(payload.candidates[0].multiplicity, Some(expected));
         }
     }
 

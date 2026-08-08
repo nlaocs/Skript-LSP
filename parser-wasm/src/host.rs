@@ -957,6 +957,22 @@ impl SubscriptionRegistry {
                     .is_some_and(|component| !component.disabled && !component.unloaded)
         })
     }
+
+    fn has_active_matching_handler(
+        &self,
+        components: &[ComponentEntry],
+        target: &DispatchTarget,
+    ) -> bool {
+        self.subscriptions.iter().any(|entry| {
+            entry.subscription.phase == HookPhase::Matching
+                && entry.subscription.capability_id == CAPABILITY_HOOKS
+                && !matches!(entry.subscription.mode, HookMode::Observe)
+                && target_specificity(&entry.subscription.target, target).is_some()
+                && components
+                    .get(entry.component_index)
+                    .is_some_and(|component| !component.disabled && !component.unloaded)
+        })
+    }
 }
 
 fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> Option<u8> {
@@ -1128,6 +1144,20 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         self.finish_match_frame(accepted)
     }
 
+    fn allows_regex_pattern(
+        &mut self,
+        kind: MatchSyntaxKind,
+        registration_id: &str,
+    ) -> Result<bool, String> {
+        Ok(self.host.registry.has_active_matching_handler(
+            &self.host.components,
+            &DispatchTarget::ExactRegistration {
+                registration_id: registration_id.to_owned(),
+                syntax_kind: wit_syntax_kind(kind),
+            },
+        ))
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
@@ -1287,6 +1317,14 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         self.hooks.finish_match_frame(accepted)
+    }
+
+    fn allows_regex_pattern(
+        &mut self,
+        kind: MatchSyntaxKind,
+        registration_id: &str,
+    ) -> Result<bool, String> {
+        self.hooks.allows_regex_pattern(kind, registration_id)
     }
 
     fn resolve_type(

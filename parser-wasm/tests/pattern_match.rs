@@ -39,7 +39,7 @@ fn wasm_matching_hook_overrides_elements_and_keeps_only_selected_candidate_state
         "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
     ))
     .unwrap();
-    let pattern = syntax_pattern_parser::syntax::parse("never", &rules).unwrap();
+    let pattern = syntax_pattern_parser::syntax::parse("<.+>", &rules).unwrap();
     let candidates = [
         PatternCandidate {
             kind: MatchSyntaxKind::Effect,
@@ -49,7 +49,7 @@ fn wasm_matching_hook_overrides_elements_and_keeps_only_selected_candidate_state
             registration_order: 0,
             resolved_order: None,
             patterns: vec![MatchPattern {
-                source: "never",
+                source: "<.+>",
                 parsed: &pattern,
             }],
         },
@@ -61,7 +61,7 @@ fn wasm_matching_hook_overrides_elements_and_keeps_only_selected_candidate_state
             registration_order: 1,
             resolved_order: None,
             patterns: vec![MatchPattern {
-                source: "never",
+                source: "<.+>",
                 parsed: &pattern,
             }],
         },
@@ -116,4 +116,48 @@ fn wasm_matching_hook_overrides_elements_and_keeps_only_selected_candidate_state
             .all(|write| !write.key.starts_with("effect:alternative:"))
     );
     transaction.commit().unwrap();
+}
+
+#[test]
+fn regex_patterns_require_a_wasm_matching_handler() {
+    let mut host =
+        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/test.sk", 1)
+        .unwrap();
+    let rules = PluralRules::from_json(include_str!(
+        "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+    ))
+    .unwrap();
+    let pattern = syntax_pattern_parser::syntax::parse("<.+>", &rules).unwrap();
+    let candidates = [PatternCandidate {
+        kind: MatchSyntaxKind::Effect,
+        definition_id: "effect:without-handler".to_owned(),
+        registration_id: "effect:without-handler#0".to_owned(),
+        priority: 0,
+        registration_order: 0,
+        resolved_order: None,
+        patterns: vec![MatchPattern {
+            source: "<.+>",
+            parsed: &pattern,
+        }],
+    }];
+    let source = MappedSource::identity("handled");
+
+    let result = host
+        .match_patterns_in_parse(
+            &transaction,
+            context(),
+            MatchInput::from_source(&source, TextRange::new(0, 7)).unwrap(),
+            &candidates,
+            &mut RejectTypeExpressions,
+            PatternMatcherConfig::default(),
+        )
+        .unwrap();
+
+    assert!(result.matches.selected.is_none());
+    assert!(result.matches.alternatives.is_empty());
+    assert!(result.matches.failure.is_none());
+    assert!(result.calls.is_empty());
+    transaction.cancel().unwrap();
 }

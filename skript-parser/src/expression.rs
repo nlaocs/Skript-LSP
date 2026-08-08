@@ -249,6 +249,7 @@ struct RegistrationMetadata {
 pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
     registered_candidates: Vec<PatternCandidate<'a>>,
+    pattern_prefilters: HashMap<&'a str, PatternPrefilter>,
     registry_revision: u64,
     registrations: HashMap<String, RegistrationMetadata>,
     source: &'a MappedSource,
@@ -381,9 +382,11 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
         } else {
             catalog_pattern_candidates(catalog, SyntaxKind::Expression)
         };
+        let pattern_prefilters = pattern_prefilter_index(&registered_candidates);
         ExpressionSession {
             catalog,
             registered_candidates,
+            pattern_prefilters,
             registry_revision: dynamic_snapshot.map_or(0, |snapshot| snapshot.registry_revision),
             registrations: registration_metadata_index(catalog, dynamic_snapshot),
             source,
@@ -600,13 +603,12 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                         .iter()
                         .copied()
                         .filter(|pattern| {
-                            let left_recursive =
-                                pattern_is_left_recursive(&pattern.parsed.elements);
-                            left_recursive
+                            let prefilter = &self.pattern_prefilters[pattern.source];
+                            prefilter.left_recursive
                                 == matches!(registered_pass, RegisteredPass::LeftRecursive)
-                                && pattern_may_start_with(&pattern.parsed.elements, input)
-                                && (!left_recursive
-                                    || pattern_may_end_with(&pattern.parsed.elements, input))
+                                && prefix_states_may_start_with(&prefilter.leading, input)
+                                && (!prefilter.left_recursive
+                                    || suffix_states_may_end_with(&prefilter.trailing, input))
                         })
                         .collect::<Vec<_>>();
                     (!patterns.is_empty()).then(|| PatternCandidate {
@@ -863,6 +865,31 @@ struct PrefixState {
     terminal: bool,
 }
 
+struct PatternPrefilter {
+    left_recursive: bool,
+    leading: Vec<PrefixState>,
+    trailing: Vec<PrefixState>,
+}
+
+fn pattern_prefilter_index<'a>(
+    candidates: &[PatternCandidate<'a>],
+) -> HashMap<&'a str, PatternPrefilter> {
+    let mut result = HashMap::new();
+    for pattern in candidates
+        .iter()
+        .flat_map(|candidate| candidate.patterns.iter())
+    {
+        result
+            .entry(pattern.source)
+            .or_insert_with(|| PatternPrefilter {
+                left_recursive: pattern_is_left_recursive(&pattern.parsed.elements),
+                leading: leading_prefix_states(&pattern.parsed.elements),
+                trailing: trailing_suffix_states(&pattern.parsed.elements),
+            });
+    }
+    result
+}
+
 fn pattern_is_left_recursive(elements: &[SpannedPatternElement]) -> bool {
     sequence_start(elements).0
 }
@@ -904,16 +931,20 @@ fn element_start(element: &PatternElement) -> (bool, bool) {
     }
 }
 
-fn pattern_may_start_with(elements: &[SpannedPatternElement], input: &str) -> bool {
-    leading_prefix_states(elements)
-        .into_iter()
-        .any(|state| state.text.is_empty() || starts_with_ignore_case(input, &state.text))
+fn prefix_states_may_start_with(states: &[PrefixState], input: &str) -> bool {
+    states.iter().any(|state| {
+        state.text.is_empty()
+            || (state.text.bytes().any(|value| value != b' ')
+                && starts_with_skript_literal(input, &state.text))
+    })
 }
 
-fn pattern_may_end_with(elements: &[SpannedPatternElement], input: &str) -> bool {
-    trailing_suffix_states(elements)
-        .into_iter()
-        .any(|state| state.text.is_empty() || ends_with_ignore_case(input, &state.text))
+fn suffix_states_may_end_with(states: &[PrefixState], input: &str) -> bool {
+    states.iter().any(|state| {
+        state.text.is_empty()
+            || (state.text.bytes().any(|value| value != b' ')
+                && ends_with_skript_literal(input, &state.text))
+    })
 }
 
 fn trailing_suffix_states(elements: &[SpannedPatternElement]) -> Vec<PrefixState> {
@@ -1051,22 +1082,62 @@ fn append_prefix_states(
     }
 }
 
-fn ends_with_ignore_case(input: &str, suffix: &str) -> bool {
-    let mut input = input.chars().rev();
-    suffix.chars().rev().all(|expected| {
-        input.next().is_some_and(|actual| {
-            actual == expected || actual.to_lowercase().eq(expected.to_lowercase())
-        })
-    })
+fn ends_with_skript_literal(input: &str, suffix: &str) -> bool {
+    let mut cursor = input.len();
+    for expected in suffix.chars().rev() {
+        if expected == ' ' {
+            if cursor == 0 || cursor == input.len() {
+                continue;
+            }
+            if input.as_bytes().get(cursor - 1) == Some(&b' ') {
+                cursor -= 1;
+                continue;
+            }
+            if input.as_bytes().get(cursor) == Some(&b' ') {
+                continue;
+            }
+            return false;
+        }
+        let Some((index, actual)) = input[..cursor].char_indices().next_back() else {
+            return false;
+        };
+        if !chars_equal_ignore_case(expected, actual) {
+            return false;
+        }
+        cursor = index;
+    }
+    true
 }
 
-fn starts_with_ignore_case(input: &str, prefix: &str) -> bool {
-    let mut input = input.chars();
-    prefix.chars().all(|expected| {
-        input.next().is_some_and(|actual| {
-            actual == expected || actual.to_lowercase().eq(expected.to_lowercase())
-        })
-    })
+fn starts_with_skript_literal(input: &str, prefix: &str) -> bool {
+    let mut cursor = 0;
+    for expected in prefix.chars() {
+        if expected == ' ' {
+            if cursor == 0 || cursor == input.len() {
+                continue;
+            }
+            if input.as_bytes().get(cursor) == Some(&b' ') {
+                cursor += 1;
+                continue;
+            }
+            if input.as_bytes().get(cursor - 1) == Some(&b' ') {
+                continue;
+            }
+            return false;
+        }
+        let Some(actual) = input[cursor..].chars().next() else {
+            return false;
+        };
+        if !chars_equal_ignore_case(expected, actual) {
+            return false;
+        }
+        cursor += actual.len_utf8();
+    }
+    true
+}
+
+fn chars_equal_ignore_case(left: char, right: char) -> bool {
+    left == right || left.to_lowercase().eq(right.to_lowercase())
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
@@ -1076,6 +1147,14 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
 
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         self.environment.finish_pattern_match(accepted)
+    }
+
+    fn allows_regex_pattern(
+        &mut self,
+        kind: crate::MatchSyntaxKind,
+        registration_id: &str,
+    ) -> Result<bool, String> {
+        self.environment.allows_regex_pattern(kind, registration_id)
     }
 
     fn resolve_type(

@@ -232,6 +232,15 @@ pub trait PatternMatchHooks {
         Ok(())
     }
 
+    /// Returns whether native matching may evaluate a pattern containing regex elements.
+    fn allows_regex_pattern(
+        &mut self,
+        _kind: MatchSyntaxKind,
+        _registration_id: &str,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
 }
 
@@ -251,6 +260,15 @@ pub trait PatternMatchEnvironment {
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
+    }
+
+    /// Returns whether native matching may evaluate a pattern containing regex elements.
+    fn allows_regex_pattern(
+        &mut self,
+        _kind: MatchSyntaxKind,
+        _registration_id: &str,
+    ) -> Result<bool, String> {
+        Ok(false)
     }
 
     /// Resolves one typed placeholder at the legal split points supplied by the matcher.
@@ -277,6 +295,14 @@ impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
 
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         self.hooks.finish_match(accepted)
+    }
+
+    fn allows_regex_pattern(
+        &mut self,
+        kind: MatchSyntaxKind,
+        registration_id: &str,
+    ) -> Result<bool, String> {
+        self.hooks.allows_regex_pattern(kind, registration_id)
     }
 
     fn resolve_type(
@@ -848,6 +874,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
 
         let mut matched = None;
         for (pattern_index, pattern) in candidate.patterns.iter().enumerate() {
+            if pattern_contains_regex(&pattern.parsed.elements)
+                && !self
+                    .environment
+                    .allows_regex_pattern(candidate.kind, &candidate.registration_id)
+                    .map_err(|message| PatternMatchError::Hook { message })?
+            {
+                continue;
+            }
             self.current = Some(CandidateContext {
                 candidate,
                 pattern_index: Some(pattern_index),
@@ -1640,6 +1674,23 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             Ok(())
         }
     }
+}
+
+fn pattern_contains_regex(elements: &[SpannedPatternElement]) -> bool {
+    elements.iter().any(|element| match &element.value {
+        PatternElement::Regex(_) => true,
+        PatternElement::Group(children) | PatternElement::Option(children) => {
+            pattern_contains_regex(children)
+        }
+        PatternElement::Choice(branches) => {
+            branches.iter().any(|branch| pattern_contains_regex(branch))
+        }
+        PatternElement::Literal(_)
+        | PatternElement::TypeExpr(_)
+        | PatternElement::ParseTag(_)
+        | PatternElement::ParseMark(_)
+        | PatternElement::Empty => false,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
