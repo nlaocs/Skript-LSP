@@ -45,7 +45,7 @@ flowchart LR
 
 The intended data flow is:
 
-1. A Minecraft server runs SSG and produces a schema 3 snapshot for its exact
+1. A Minecraft server runs SSG and produces a schema 4 snapshot for its exact
    Skript and addon set.
 2. `ssg` validates the snapshot and converts it into the format-independent
    `syntaxes::Catalog`.
@@ -66,11 +66,11 @@ The intended data flow is:
 | --- | --- | --- |
 | [`skript-lsp`](./) | library and binary | Top-level integration crate. Embeds CoreLibrary and constructs the parser host. The binary is currently a scaffold. |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
-| [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 snapshot directories. |
+| [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 and 4 snapshot directories. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |
 | [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, registered-pattern matching, recursive Expression ASTs, and source-preserving Effect candidates for `.sk` documents. |
 | [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, transactional Expression/Effect pipeline, StateStore, and dynamic syntax bridge. |
-| [`core-library`](./core-library/) | WASM component | Mandatory parser addon component for Skript built-ins. It supplies ABI negotiation, a health hook, and variable/string/number Expression leaves. |
+| [`core-library`](./core-library/) | WASM component | Mandatory parser addon component for Skript built-ins. It supplies ABI negotiation, a health hook, Expression leaves, and dynamic built-in Expression semantics. |
 | [`skripthub`](./skripthub/) | legacy library | Compatibility reader for the old SkriptHub API and its flattened function strings. New syntax data should use `ssg` and `syntaxes`. |
 | [`text-macro-addon`](./test-components/text-macro-addon/) | test WASM component | Exercises ordered Text macro expansion, UTF-8 edits, anchors, StateStore rollback, and traps. |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/) | test WASM component | Exercises targeted TreeEdit operations, recursive expansion, provenance, cycles, StateStore rollback, quotas, and traps. |

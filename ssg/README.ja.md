@@ -11,7 +11,7 @@ snapshotの生成は行いません。
 
 ## 対応format
 
-現在はSSG schema version 3に対応しています。完全なsnapshotは`Manifest.json`と18個の
+現在はSSG schema version 3と4に対応しています。完全なsnapshotは`Manifest.json`と18個の
 data fileで構成されます。
 
 - syntax: Conditions、Effects、Events、Expressions、Functions、Sections、Structures、Types
@@ -20,7 +20,8 @@ data fileで構成されます。
 
 正確なfile名は`DATA_FILES`と`ALL_FILES`として公開されています。
 
-古いSkript/Minecraft versionもschema 3を使用します。機能の有無はManifest capabilityで
+schema 3 snapshotは互換性のため読み込みを維持し、現在のgeneratorはschema 4を生成します。
+機能の有無はManifest capabilityで
 表現されるため、意図的に非対応のregistryと、file欠落・不正値は区別されます。
 
 ## 読み込みpipeline
@@ -28,7 +29,7 @@ data fileで構成されます。
 `load(directory)`は次の順序で処理します。
 
 1. `Manifest.json`を読み込み、deserializeする
-2. schema version 3であることを要求する
+2. schema versionが3から4の対応範囲内であることを要求する
 3. manifestと完全なfile inventoryを検証する
 4. すべてのdata fileを読み込む
 5. serialized fileに対するcontent digestを検証する
@@ -64,7 +65,7 @@ checkは次のとおりです。
 - EventValueのtime rangeとresolution field
 - alias target indexと到達可能性
 
-schema 3 readerのforward compatibilityのため、未知のJSON fieldは受け入れます。ただし
+schema 3 / 4 readerのforward compatibilityのため、未知のJSON fieldは受け入れます。ただし
 digestは元のserialized file全体を対象とするため、未知fieldによってdigest検証を回避する
 ことはできません。
 

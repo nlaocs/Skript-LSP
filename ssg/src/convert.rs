@@ -64,9 +64,23 @@ pub(crate) fn catalog(
         }));
     }
     for (index, value) in expressions.into_iter().enumerate() {
+        let legacy_return_type_state = if value.return_type.is_some() {
+            raw::ReturnTypeState::Static
+        } else {
+            raw::ReturnTypeState::Unresolved
+        };
         syntaxes.push(model::Syntax::Expression(model::Expression {
             common: common("Expressions.json", index, value.common, &plural_rules)?,
             return_type: value.return_type.map(Into::into),
+            return_type_state: return_type_state(
+                value.return_type_state.unwrap_or(legacy_return_type_state),
+            ),
+            possible_return_types: class_names(value.possible_return_types.unwrap_or_default()),
+            possible_return_types_state: possible_return_types_state(
+                value
+                    .possible_return_types_state
+                    .unwrap_or(raw::PossibleReturnTypesState::Unresolved),
+            ),
             section_expression: value.section_expression,
             return_type_multiplicity: value.return_type_multiplicity.map(multiplicity),
             return_type_multiplicity_state: resolution_state(value.return_type_multiplicity_state),
@@ -545,6 +559,24 @@ fn resolution_state(value: raw::ResolutionState) -> model::ResolutionState {
     match value {
         raw::ResolutionState::Resolved => model::ResolutionState::Resolved,
         raw::ResolutionState::Unresolved => model::ResolutionState::Unresolved,
+    }
+}
+
+fn return_type_state(value: raw::ReturnTypeState) -> model::ReturnTypeState {
+    match value {
+        raw::ReturnTypeState::Static => model::ReturnTypeState::Static,
+        raw::ReturnTypeState::Dynamic => model::ReturnTypeState::Dynamic,
+        raw::ReturnTypeState::Unresolved => model::ReturnTypeState::Unresolved,
+    }
+}
+
+fn possible_return_types_state(
+    value: raw::PossibleReturnTypesState,
+) -> model::PossibleReturnTypesState {
+    match value {
+        raw::PossibleReturnTypesState::Complete => model::PossibleReturnTypesState::Complete,
+        raw::PossibleReturnTypesState::Partial => model::PossibleReturnTypesState::Partial,
+        raw::PossibleReturnTypesState::Unresolved => model::PossibleReturnTypesState::Unresolved,
     }
 }
 

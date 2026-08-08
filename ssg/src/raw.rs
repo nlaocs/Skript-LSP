@@ -1,4 +1,4 @@
-//! Serde DTOs that mirror every JSON object emitted by SSG schema 3.
+//! Serde DTOs that mirror every JSON object emitted by supported SSG schemas.
 //!
 //! These structures are a wire-format boundary, not the semantic parser model.
 //! Optional values and empty lists preserve the distinctions made by the generator.
@@ -147,6 +147,22 @@ pub enum ResolutionState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReturnTypeState {
+    Static,
+    Dynamic,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PossibleReturnTypesState {
+    Complete,
+    Partial,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Multiplicity {
     Single,
@@ -238,6 +254,9 @@ pub struct Expression {
     #[serde(flatten)]
     pub common: CommonSyntax,
     pub return_type: Option<String>,
+    pub return_type_state: Option<ReturnTypeState>,
+    pub possible_return_types: Option<Vec<String>>,
+    pub possible_return_types_state: Option<PossibleReturnTypesState>,
     pub section_expression: bool,
     pub return_type_multiplicity: Option<Multiplicity>,
     pub return_type_multiplicity_state: ResolutionState,

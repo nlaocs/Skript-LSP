@@ -4,7 +4,9 @@
 //! and inconsistent-but-valid JSON produce precise, stable errors.
 
 use crate::SnapshotError;
-use crate::raw::{self, EventValueApi, ResolutionState, SyntaxKind};
+use crate::raw::{
+    self, EventValueApi, PossibleReturnTypesState, ResolutionState, ReturnTypeState, SyntaxKind,
+};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn manifest(
@@ -60,7 +62,7 @@ pub(crate) fn snapshot(
 ) -> Result<(), SnapshotError> {
     validate_capability_roots(manifest, snapshot)?;
     validate_orders(snapshot)?;
-    validate_syntaxes(snapshot)?;
+    validate_syntaxes(manifest, snapshot)?;
 
     let class_paths = unique_classes(snapshot)?;
     let type_paths = unique_types(snapshot)?;
@@ -224,7 +226,10 @@ fn validate_orders(snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
     Ok(())
 }
 
-fn validate_syntaxes(snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
+fn validate_syntaxes(
+    manifest: &raw::Manifest,
+    snapshot: &raw::Snapshot,
+) -> Result<(), SnapshotError> {
     let mut registration_ids = HashMap::new();
     for (file, expected, values) in [
         (
@@ -255,6 +260,51 @@ fn validate_syntaxes(snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
             SyntaxKind::Expression,
             &mut registration_ids,
         )?;
+        if manifest.schema_version >= 4 {
+            if value.return_type_state.is_none() {
+                return Err(SnapshotError::validation(
+                    format!("Expressions.json[{index}].returnTypeState"),
+                    "schema 4 expressions require returnTypeState",
+                ));
+            }
+            if value.possible_return_types_state.is_none() {
+                return Err(SnapshotError::validation(
+                    format!("Expressions.json[{index}].possibleReturnTypesState"),
+                    "schema 4 expressions require possibleReturnTypesState",
+                ));
+            }
+        }
+        if value.return_type_state == Some(ReturnTypeState::Static) && value.return_type.is_none() {
+            return Err(SnapshotError::validation(
+                format!("Expressions.json[{index}].returnType"),
+                "a static return type must include returnType",
+            ));
+        }
+        match value.possible_return_types_state {
+            Some(PossibleReturnTypesState::Complete | PossibleReturnTypesState::Partial)
+                if value
+                    .possible_return_types
+                    .as_ref()
+                    .is_none_or(Vec::is_empty) =>
+            {
+                return Err(SnapshotError::validation(
+                    format!("Expressions.json[{index}].possibleReturnTypes"),
+                    "complete or partial possible return types must not be empty",
+                ));
+            }
+            Some(PossibleReturnTypesState::Unresolved)
+                if value
+                    .possible_return_types
+                    .as_ref()
+                    .is_some_and(|types| !types.is_empty()) =>
+            {
+                return Err(SnapshotError::validation(
+                    format!("Expressions.json[{index}].possibleReturnTypesState"),
+                    "known possible return types cannot have unresolved state",
+                ));
+            }
+            _ => {}
+        }
         state_pair(
             &format!("Expressions.json[{index}].returnTypeMultiplicity"),
             value.return_type_multiplicity.is_some(),
@@ -546,6 +596,18 @@ fn validate_syntax_references(
             class_ref(
                 classes,
                 &format!("Expressions.json[{index}].returnType"),
+                return_type,
+            )?;
+        }
+        for (type_index, return_type) in expression
+            .possible_return_types
+            .iter()
+            .flatten()
+            .enumerate()
+        {
+            class_ref(
+                classes,
+                &format!("Expressions.json[{index}].possibleReturnTypes[{type_index}]"),
                 return_type,
             )?;
         }
@@ -1029,6 +1091,20 @@ mod tests {
             .clone()
     }
 
+    fn schema_four_fixture() -> (raw::Manifest, raw::Snapshot) {
+        let (mut manifest, mut data) = fixture();
+        manifest.schema_version = 4;
+        for expression in &mut data.expressions {
+            expression.return_type_state = Some(if expression.return_type.is_some() {
+                ReturnTypeState::Static
+            } else {
+                ReturnTypeState::Unresolved
+            });
+            expression.possible_return_types_state = Some(PossibleReturnTypesState::Unresolved);
+        }
+        (manifest, data)
+    }
+
     fn assert_validation(error: SnapshotError, expected_path: &str, expected_message: &str) {
         match error {
             SnapshotError::Validation { path, message } => {
@@ -1046,6 +1122,32 @@ mod tests {
     fn accepts_generated_modern_fixture() {
         let (manifest, data) = fixture();
         snapshot(&manifest, &data).unwrap();
+    }
+
+    #[test]
+    fn schema_four_requires_expression_return_type_states() {
+        let (manifest, mut data) = schema_four_fixture();
+        data.expressions[0].return_type_state = None;
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Expressions.json[0].returnTypeState",
+            "require returnTypeState",
+        );
+    }
+
+    #[test]
+    fn schema_four_validates_complete_possible_return_types() {
+        let (manifest, mut data) = schema_four_fixture();
+        data.expressions[0].return_type_state = Some(ReturnTypeState::Dynamic);
+        data.expressions[0].possible_return_types = Some(Vec::new());
+        data.expressions[0].possible_return_types_state = Some(PossibleReturnTypesState::Complete);
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Expressions.json[0].possibleReturnTypes",
+            "must not be empty",
+        );
     }
 
     #[test]

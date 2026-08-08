@@ -3,7 +3,7 @@
 [English](README.md)
 
 `effectcommandcli`は、1つのSkript EffectをSkriptSyntaxGenerator（SSG）の
-schema 3 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
+schema 3 / 4 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
 `ssg`、`syntaxes`、`skript-parser`、`parser-wasm`、必須CoreLibraryを接続する
 小さな実例としても利用できます。
 

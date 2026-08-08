@@ -31,7 +31,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.6.0")
+        Some("0.7.0")
     );
 
     let world = package

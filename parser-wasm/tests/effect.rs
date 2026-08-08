@@ -1,12 +1,15 @@
 use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
-    EffectParseRequest, EffectParserConfig, ExpressionParseContext, MappedSource, RawTreeOptions,
+    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionParseContext,
+    ExpressionParseRequest, ExpressionParserConfig, MappedSource, RawTreeOptions, TextRange,
     parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use syntaxes::{Catalog, CatalogParts, Syntax};
+use syntaxes::{
+    Catalog, CatalogParts, ClassName, PossibleReturnTypesState, ReturnTypeState, Syntax,
+};
 
 const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -59,6 +62,49 @@ fn effect_catalog() -> Arc<Catalog> {
         operations: BTreeMap::new(),
         differences: Vec::new(),
         classes: Vec::new(),
+        aliases: source.aliases().clone(),
+        plural_rules: source.plural_rules().clone(),
+    }))
+}
+
+fn full_dynamic_catalog() -> Arc<Catalog> {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let source = snapshot.catalog();
+    let mut syntaxes = source.syntaxes().to_vec();
+    for syntax in &mut syntaxes {
+        let Syntax::Expression(expression) = syntax else {
+            continue;
+        };
+        if expression
+            .common
+            .element_class
+            .as_str()
+            .ends_with(".PropExprSize")
+        {
+            expression.return_type_state = ReturnTypeState::Dynamic;
+            expression.possible_return_types = vec![ClassName("java.lang.Long".to_owned())];
+            expression.possible_return_types_state = PossibleReturnTypesState::Partial;
+        } else if expression
+            .common
+            .element_class
+            .as_str()
+            .ends_with(".ExprParse")
+        {
+            expression.return_type_state = ReturnTypeState::Dynamic;
+            expression.possible_return_types.clear();
+            expression.possible_return_types_state = PossibleReturnTypesState::Unresolved;
+        }
+    }
+    Arc::new(Catalog::new(CatalogParts {
+        syntaxes,
+        converters: source.converters().to_vec(),
+        comparators: source.comparators().to_vec(),
+        event_values: source.event_values().to_vec(),
+        properties: source.properties().to_vec(),
+        operators: source.operators().to_vec(),
+        operations: source.operations().clone(),
+        differences: source.differences().to_vec(),
+        classes: source.classes().to_vec(),
         aliases: source.aliases().clone(),
         plural_rules: source.plural_rules().clone(),
     }))
@@ -208,5 +254,89 @@ fn dynamic_effect_uses_the_same_end_to_end_pipeline() {
     let writes = transaction.read_write_set().unwrap().writes;
     assert!(writes.iter().any(|write| write.key == "category-before"));
     assert!(writes.iter().any(|write| write.key == "category-after"));
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn dynamic_size_and_parse_expressions_work_inside_effects() {
+    let catalog = full_dynamic_catalog();
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 4)
+        .unwrap();
+
+    let size_text = "all offline players's size";
+    let size_source = MappedSource::identity(size_text);
+    let size = host
+        .parse_expression_in_parse(
+            &transaction,
+            context(4),
+            ExpressionParseRequest {
+                source: &size_source,
+                range: TextRange::new(0, size_text.len()),
+                expected_types: vec![ExpressionExpectedType {
+                    class_name: ClassName("java.lang.Number".to_owned()),
+                    plural: false,
+                }],
+                context: ExpressionParseContext::default(),
+            },
+            ExpressionParserConfig::default(),
+        )
+        .unwrap();
+    assert!(
+        size.matches.selected.is_some(),
+        "size must resolve as Number"
+    );
+
+    let vector = parse_effect(
+        &mut host,
+        &transaction,
+        4,
+        "send new vector from yaw all offline players's size and pitch all offline players's size",
+    );
+    assert!(
+        vector.matches.selected.is_some(),
+        "vector send must parse: {:#?}",
+        vector.matches.unknown
+    );
+    transaction.cancel().unwrap();
+
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 5)
+        .unwrap();
+    let parsed = parse_effect(
+        &mut host,
+        &transaction,
+        5,
+        "set {_parsed} to \"42\" parsed as number",
+    );
+    assert!(
+        parsed.matches.selected.is_some(),
+        "typed ExprParse must parse: {:#?}",
+        parsed.matches.unknown
+    );
+    transaction.cancel().unwrap();
+
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 6)
+        .unwrap();
+    let parsed = parse_effect(
+        &mut host,
+        &transaction,
+        6,
+        "set {_parsed::*} to \"value: 42\" parsed as \"value: %number%\"",
+    );
+    assert!(
+        parsed.matches.selected.is_some(),
+        "pattern ExprParse must parse: {:#?}",
+        parsed.matches.unknown
+    );
     transaction.cancel().unwrap();
 }

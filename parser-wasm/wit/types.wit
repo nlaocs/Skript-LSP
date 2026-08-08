@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.6.0;
+package nlaocs:skript-parser-addon@0.7.0;
 
 interface types {
     record abi-version {
@@ -332,6 +332,14 @@ interface types {
         metadata: list<metadata-entry>,
     }
 
+    record expression-type-option {
+        code-name: string,
+        class-name: string,
+        singular: string,
+        plural: string,
+        has-parser: bool,
+    }
+
     record expression-payload {
         input: string,
         remaining: text-range,
@@ -342,7 +350,62 @@ interface types {
         allow-expressions: bool,
         time: s32,
         depth: u32,
+        type-options: list<expression-type-option>,
         candidates: list<expression-leaf-candidate>,
+    }
+
+    enum expression-return-type-state {
+        %static,
+        dynamic,
+        unresolved,
+    }
+
+    enum expression-possible-return-types-state {
+        complete,
+        partial,
+        unresolved,
+    }
+
+    record registered-expression-child {
+        text: string,
+        return-type: option<string>,
+        multiplicity: option<dynamic-multiplicity>,
+        metadata: list<metadata-entry>,
+    }
+
+    record registered-expression-tag {
+        value: string,
+        implicit: bool,
+    }
+
+    record registered-expression-property-option {
+        input-class: string,
+        return-types: list<string>,
+    }
+
+    record registered-expression-payload {
+        input: string,
+        definition-id: string,
+        registration-id: string,
+        element-class: string,
+        related-property: option<string>,
+        pattern-index: u64,
+        span: mapped-span,
+        expected-types: list<expression-expected-type>,
+        declared-return-type: option<string>,
+        declared-multiplicity: option<dynamic-multiplicity>,
+        return-type-state: expression-return-type-state,
+        possible-return-types: list<string>,
+        possible-return-types-state: expression-possible-return-types-state,
+        regex-captures: list<string>,
+        tags: list<registered-expression-tag>,
+        mark: s32,
+        children: list<registered-expression-child>,
+        type-options: list<expression-type-option>,
+        property-options: list<registered-expression-property-option>,
+        effective-return-type: option<string>,
+        effective-multiplicity: option<dynamic-multiplicity>,
+        metadata: list<metadata-entry>,
     }
 
     enum effect-timing {
@@ -689,6 +752,7 @@ interface types {
         node(node-payload),
         matching(matching-payload),
         expression(expression-payload),
+        registered-expression(registered-expression-payload),
         effect(effect-payload),
         capture(capture-payload),
         syntax(syntax-definition-payload),

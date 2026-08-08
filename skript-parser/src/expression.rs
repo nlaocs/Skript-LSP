@@ -6,17 +6,18 @@
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
 use crate::{
-    CandidateMatch, MappedSource, MatchInput, MatchSpan, PatternCandidate, PatternCapture,
-    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
-    PatternMatcherConfig, TextRange, TypeExpressionRequest, TypeExpressionResolution,
-    catalog_pattern_candidates, match_pattern_candidates_with_environment,
-    snapshot_pattern_candidates,
+    CandidateMatch, MappedSource, MatchInput, MatchSpan, ParseTagCapture, PatternCandidate,
+    PatternCapture, PatternHookControl, PatternHookEvent, PatternMatchEnvironment,
+    PatternMatchError, PatternMatcherConfig, TextRange, TypeExpressionRequest,
+    TypeExpressionResolution, catalog_pattern_candidates,
+    match_pattern_candidates_with_environment, snapshot_pattern_candidates,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{
-    Catalog, ClassName, DynamicMultiplicity, DynamicSyntaxSnapshot, Multiplicity, SyntaxKind,
+    Catalog, ClassName, DynamicMultiplicity, DynamicSyntaxSnapshot, Multiplicity,
+    PossibleReturnTypesState, ResolutionState, ReturnTypeState, SyntaxKind,
 };
 use thiserror::Error;
 
@@ -93,6 +94,8 @@ pub struct ExpressionNode {
     pub return_type: Option<ClassName>,
     pub multiplicity: Option<Multiplicity>,
     pub captures: Vec<PatternCapture>,
+    pub tags: Vec<ParseTagCapture>,
+    pub mark: i32,
     pub children: Vec<ExpressionNode>,
     pub metadata: BTreeMap<String, String>,
 }
@@ -153,6 +156,42 @@ pub struct ExpressionLeafCandidate {
     pub metadata: BTreeMap<String, String>,
 }
 
+/// Context supplied after a registered Expression and all typed captures matched.
+pub struct RegisteredExpressionRequest<'a> {
+    pub input: &'a str,
+    pub definition_id: &'a str,
+    pub registration_id: &'a str,
+    pub element_class: &'a ClassName,
+    pub related_property: Option<&'a str>,
+    pub pattern_index: usize,
+    pub span: &'a MatchSpan,
+    pub expected_types: &'a [ExpressionExpectedType],
+    pub declared_return_type: Option<&'a ClassName>,
+    pub declared_multiplicity: Option<Multiplicity>,
+    pub return_type_state: ReturnTypeState,
+    pub possible_return_types: &'a [ClassName],
+    pub possible_return_types_state: PossibleReturnTypesState,
+    pub captures: &'a [PatternCapture],
+    pub tags: &'a [ParseTagCapture],
+    pub mark: i32,
+    pub children: &'a [ExpressionNode],
+    pub context: &'a ExpressionParseContext,
+}
+
+/// Semantic decision returned by CoreLibrary or an addon for a dynamic Expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegisteredExpressionDecision {
+    UseDeclared,
+    Resolved {
+        return_type: Option<ClassName>,
+        multiplicity: Option<Multiplicity>,
+        metadata: BTreeMap<String, String>,
+    },
+    Reject {
+        reason: String,
+    },
+}
+
 /// Unified native/WASM environment used during recursive Expression parsing.
 pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     /// Returns leaf candidates in parser priority order.
@@ -167,6 +206,20 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     /// range, kind, type, and multiplicity validation. Environments may use
     /// this callback to retain or roll back their speculative transaction.
     fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
+        let _ = accepted;
+        Ok(())
+    }
+
+    /// Resolves context-dependent return metadata after typed children matched.
+    fn resolve_registered_expression(
+        &mut self,
+        _request: RegisteredExpressionRequest<'_>,
+    ) -> Result<RegisteredExpressionDecision, String> {
+        Ok(RegisteredExpressionDecision::UseDeclared)
+    }
+
+    /// Finalizes speculative state written by the latest registered resolver.
+    fn finish_registered_expression(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
     }
@@ -241,8 +294,14 @@ struct MemoKey {
 
 #[derive(Debug, Clone)]
 struct RegistrationMetadata {
+    element_class: ClassName,
+    related_property: Option<String>,
     return_type: Option<ClassName>,
+    return_type_state: ReturnTypeState,
+    possible_return_types: Vec<ClassName>,
+    possible_return_types_state: PossibleReturnTypesState,
     multiplicity: Option<Multiplicity>,
+    multiplicity_state: ResolutionState,
     metadata: BTreeMap<String, String>,
 }
 
@@ -583,6 +642,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         return_type: leaf.return_type,
                         multiplicity: leaf.multiplicity,
                         captures: Vec::new(),
+                        tags: Vec::new(),
+                        mark: 0,
                         children: Vec::new(),
                         metadata: leaf.metadata,
                     },
@@ -616,11 +677,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_depths.pop();
                 self.frame_starts.pop();
                 let matched = matched?;
-                if let Some(selected) = matched.selected {
-                    candidates.push(self.registered_node(selected, candidate_range.start)?);
+                if let Some(selected) = matched.selected
+                    && let Some(candidate) =
+                        self.registered_node(selected, candidate_range.start, expected_types)?
+                {
+                    candidates.push(candidate);
                 }
                 for alternative in matched.alternatives {
-                    candidates.push(self.registered_node(alternative, candidate_range.start)?);
+                    if let Some(candidate) =
+                        self.registered_node(alternative, candidate_range.start, expected_types)?
+                    {
+                        candidates.push(candidate);
+                    }
                 }
             }
         }
@@ -650,8 +718,21 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     ) -> bool {
         self.registration_metadata(&candidate.registration_id)
             .is_some_and(|metadata| {
-                self.return_type_matches(metadata.return_type.as_ref(), expected_types)
-                    && self.multiplicity_matches(metadata.multiplicity, expected_types)
+                let return_type_matches = match metadata.return_type_state {
+                    ReturnTypeState::Static => {
+                        self.return_type_matches(metadata.return_type.as_ref(), expected_types)
+                    }
+                    ReturnTypeState::Dynamic | ReturnTypeState::Unresolved => {
+                        metadata.possible_return_types_state != PossibleReturnTypesState::Complete
+                            || metadata.possible_return_types.iter().any(|return_type| {
+                                self.return_type_matches(Some(return_type), expected_types)
+                            })
+                    }
+                };
+                let multiplicity_matches = metadata.multiplicity_state
+                    == ResolutionState::Unresolved
+                    || self.multiplicity_matches(metadata.multiplicity, expected_types);
+                return_type_matches && multiplicity_matches
             })
     }
 
@@ -746,14 +827,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     }
 
     fn registered_node(
-        &self,
+        &mut self,
         matched: CandidateMatch,
         frame_start: usize,
-    ) -> Result<ExpressionCandidate, ExpressionParseError> {
-        let metadata = self.registration_metadata(&matched.registration_id);
+        expected_types: &[ExpressionExpectedType],
+    ) -> Result<Option<ExpressionCandidate>, ExpressionParseError> {
+        let metadata = self
+            .registration_metadata(&matched.registration_id)
+            .cloned();
         let local = matched.matched.span.local_range;
         let absolute = TextRange::new(frame_start + local.start, frame_start + local.end);
-        let children = matched
+        let span = self.map_range(absolute)?;
+        let children: Vec<ExpressionNode> = matched
             .matched
             .captures
             .iter()
@@ -769,24 +854,89 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 } => None,
             })
             .collect();
-        Ok(ExpressionCandidate {
+        let mut return_type = metadata
+            .as_ref()
+            .and_then(|value| value.return_type.clone());
+        let mut multiplicity = metadata.as_ref().and_then(|value| value.multiplicity);
+        let mut node_metadata = metadata
+            .as_ref()
+            .map_or_else(BTreeMap::new, |value| value.metadata.clone());
+        let needs_resolution = metadata.as_ref().is_some_and(|value| {
+            value.return_type_state != ReturnTypeState::Static
+                || value.multiplicity_state == ResolutionState::Unresolved
+        });
+        if needs_resolution {
+            let value = metadata.as_ref().expect("checked registered metadata");
+            let decision = self
+                .environment
+                .resolve_registered_expression(RegisteredExpressionRequest {
+                    input: self.source.virtual_source(),
+                    definition_id: &matched.definition_id,
+                    registration_id: &matched.registration_id,
+                    element_class: &value.element_class,
+                    related_property: value.related_property.as_deref(),
+                    pattern_index: matched.pattern_index,
+                    span: &span,
+                    expected_types,
+                    declared_return_type: value.return_type.as_ref(),
+                    declared_multiplicity: value.multiplicity,
+                    return_type_state: value.return_type_state,
+                    possible_return_types: &value.possible_return_types,
+                    possible_return_types_state: value.possible_return_types_state,
+                    captures: &matched.matched.captures,
+                    tags: &matched.matched.tags,
+                    mark: matched.matched.mark,
+                    children: &children,
+                    context: &self.context,
+                })
+                .map_err(|message| ExpressionParseError::Environment { message })?;
+            match decision {
+                RegisteredExpressionDecision::UseDeclared => {}
+                RegisteredExpressionDecision::Resolved {
+                    return_type: resolved_return_type,
+                    multiplicity: resolved_multiplicity,
+                    metadata,
+                } => {
+                    return_type = resolved_return_type;
+                    multiplicity = resolved_multiplicity;
+                    node_metadata.extend(metadata);
+                }
+                RegisteredExpressionDecision::Reject { .. } => {
+                    self.environment
+                        .finish_registered_expression(false)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    return Ok(None);
+                }
+            }
+        }
+        let accepted = self.return_type_matches(return_type.as_ref(), expected_types)
+            && self.multiplicity_matches(multiplicity, expected_types);
+        if needs_resolution {
+            self.environment
+                .finish_registered_expression(accepted)
+                .map_err(|message| ExpressionParseError::Environment { message })?;
+        }
+        if !accepted {
+            return Ok(None);
+        }
+        Ok(Some(ExpressionCandidate {
             node: ExpressionNode {
                 kind: ExpressionNodeKind::Registered {
                     definition_id: matched.definition_id,
                     registration_id: matched.registration_id,
                     pattern_index: matched.pattern_index,
                 },
-                span: self.map_range(absolute)?,
-                return_type: metadata
-                    .as_ref()
-                    .and_then(|value| value.return_type.clone()),
-                multiplicity: metadata.as_ref().and_then(|value| value.multiplicity),
+                span,
+                return_type,
+                multiplicity,
                 captures: matched.matched.captures,
+                tags: matched.matched.tags,
+                mark: matched.matched.mark,
                 children,
-                metadata: metadata.map_or_else(BTreeMap::new, |value| value.metadata.clone()),
+                metadata: node_metadata,
             },
             expected_alternative: None,
-        })
+        }))
     }
 
     fn registration_metadata(&self, registration_id: &str) -> Option<&RegistrationMetadata> {
@@ -890,8 +1040,14 @@ fn registration_metadata_index(
             (
                 expression.common.registration_id.as_str().to_owned(),
                 RegistrationMetadata {
+                    element_class: expression.common.element_class.clone(),
+                    related_property: expression.common.related_property.clone(),
                     return_type: expression.return_type.clone(),
+                    return_type_state: expression.return_type_state,
+                    possible_return_types: expression.possible_return_types.clone(),
+                    possible_return_types_state: expression.possible_return_types_state,
                     multiplicity: expression.return_type_multiplicity,
+                    multiplicity_state: expression.return_type_multiplicity_state,
                     metadata: BTreeMap::new(),
                 },
             )
@@ -907,12 +1063,35 @@ fn registration_metadata_index(
                     (
                         definition.id.qualified(),
                         RegistrationMetadata {
+                            element_class: ClassName(definition.id.qualified()),
+                            related_property: None,
                             return_type: definition.return_type.clone().map(ClassName),
+                            return_type_state: if definition.return_type.is_some() {
+                                ReturnTypeState::Static
+                            } else {
+                                ReturnTypeState::Unresolved
+                            },
+                            possible_return_types: definition
+                                .return_type
+                                .iter()
+                                .cloned()
+                                .map(ClassName)
+                                .collect(),
+                            possible_return_types_state: if definition.return_type.is_some() {
+                                PossibleReturnTypesState::Complete
+                            } else {
+                                PossibleReturnTypesState::Unresolved
+                            },
                             multiplicity: definition.return_multiplicity.map(|value| match value {
                                 DynamicMultiplicity::Single => Multiplicity::Single,
                                 DynamicMultiplicity::Multiple => Multiplicity::Multiple,
                                 DynamicMultiplicity::Both => Multiplicity::Both,
                             }),
+                            multiplicity_state: if definition.return_multiplicity.is_some() {
+                                ResolutionState::Resolved
+                            } else {
+                                ResolutionState::Unresolved
+                            },
                             metadata: definition.metadata.clone(),
                         },
                     )

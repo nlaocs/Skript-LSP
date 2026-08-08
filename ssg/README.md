@@ -12,7 +12,7 @@ inspect Java classes, or generate snapshots.
 
 ## Supported Format
 
-The loader currently accepts SSG schema version 3. A complete snapshot has
+The loader currently accepts SSG schema versions 3 and 4. A complete snapshot has
 `Manifest.json` plus 18 data files:
 
 - syntax: Conditions, Effects, Events, Expressions, Functions, Sections,
@@ -23,7 +23,8 @@ The loader currently accepts SSG schema version 3. A complete snapshot has
 
 The exact filenames are exported as `DATA_FILES` and `ALL_FILES`.
 
-Older Skript and Minecraft versions still use schema 3. Feature availability is
+Schema 3 snapshots remain readable for compatibility; current generators emit
+schema 4. Feature availability is
 described by Manifest capabilities, so an intentionally unsupported registry
 is different from a missing file or malformed value.
 
@@ -32,7 +33,7 @@ is different from a missing file or malformed value.
 `load(directory)` performs these steps in order:
 
 1. read and deserialize `Manifest.json`
-2. require schema version 3
+2. require a supported schema version from 3 through 4
 3. validate the manifest and its complete file inventory
 4. read every data file
 5. verify the content digest over serialized files
@@ -69,7 +70,7 @@ path. Checks include:
 - EventValue time range and resolution fields
 - alias target indices and reachability
 
-Unknown JSON fields are accepted for forward-compatible schema 3 readers.
+Unknown JSON fields are accepted for forward-compatible schema 3 and 4 readers.
 Unknown fields do not bypass digest verification because the digest covers the
 original serialized files.
 

@@ -13,15 +13,17 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 - component ID `nlaocs.core-library`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Document phaseのcore.health-check subscription 1件
-- variable・string・number用のcore.expression-leaves Transform subscription 1件
+- leafと登録Expressionの意味解析用core.expression-leaves Transform subscription 1件
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
 
 Expression hookは合法split位置にあるbrace付きvariable、quoted string literal、有限の符号付き
-integer/decimal literalを認識します。hostから渡されたexpected type/plural contractを維持し、
+integer/decimal literal、生成された`ClassInfo` literalを認識します。また、`PropExprSize`と
+`ExprParse`の2形式について、context依存の返値metadataを解決します。hostから渡された
+expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
-責務です。
+責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
 text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。CoreLibraryは、
 Function call、Condition、Section、Structure、legacy解析の意味処理をまだ実装していません。

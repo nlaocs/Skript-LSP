@@ -3,7 +3,7 @@
 [日本語](README.ja.md)
 
 `effectcommandcli` is a standalone inspection utility that parses one Skript
-Effect against an exact SkriptSyntaxGenerator (SSG) schema 3 snapshot. It never
+Effect against an exact SkriptSyntaxGenerator (SSG) schema 3 or 4 snapshot. It never
 executes the Effect. The binary demonstrates how `ssg`, `syntaxes`,
 `skript-parser`, `parser-wasm`, and the mandatory CoreLibrary fit together.
 
