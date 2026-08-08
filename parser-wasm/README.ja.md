@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.7.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.8.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -55,8 +55,9 @@ node ID arenaを使い、Component Model上で再帰しない値として表現�
 package versionはWITのshapeを示します。Text editのanchor追加で0.1.0から0.2.0へ、
 lossless RawTreeと対象指定TreeEditの追加で0.3.0へ、型付きpattern matching scope、path、
 status、spanの追加で0.4.0、Expression leaf request/candidateの追加で0.5.0、型付きEffect
-lifecycle candidate/failureの追加で0.6.0、登録Expressionのmatch後の意味解決追加で0.7.0へ
-変わりました。manifestの現在の`abi`値は1.6で、
+lifecycle candidate/failureの追加で0.6.0、登録Expressionのmatch後の意味解決追加で0.7.0、
+componentが解決する登録Expression classの宣言追加で0.8.0へ変わりました。
+manifestの現在の`abi`値は1.7で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -82,7 +83,10 @@ classとplural、合法split位置、literal/expression flag、time state、dept
 CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加できます。動的な登録
 Expressionと型付きの子Expressionが一致した後、hostはparse tag、子Expression、既知の返値候補、
 適用可能なproperty情報を含む2段目のpayloadを送ります。CoreLibraryまたはaddonは実効Java返値型と
-Multiplicityを確定するか、候補をrejectできます。hostはnative
+Multiplicityを確定するか、候補をrejectできます。componentは解決可能なJava class suffixを
+`registered-expression-class-suffixes`へ列挙します。native parserは有効なcomponentが宣言した
+場合だけ、通常は期待型と互換しないdynamic登録を候補へ含めます。これにより、未解決登録をすべての
+型探索へ混ぜません。hostはnative
 parserでstatic/dynamic登録Expressionと順位付けする前に、変更不可request field、UTF-8 range、
 parser ID、return type/Multiplicity、metadataを検証します。nativeのrange、type、Multiplicity
 検証で全leafが除外された場合、そのdispatchのstateとeffectsをsavepointへ戻します。再帰matcher
