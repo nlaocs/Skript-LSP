@@ -93,6 +93,15 @@ fn full_dynamic_catalog() -> Arc<Catalog> {
             expression.return_type_state = ReturnTypeState::Dynamic;
             expression.possible_return_types.clear();
             expression.possible_return_types_state = PossibleReturnTypesState::Unresolved;
+        } else if expression
+            .common
+            .element_class
+            .as_str()
+            .ends_with(".ExprEntities")
+        {
+            expression.return_type_state = ReturnTypeState::Dynamic;
+            expression.possible_return_types.clear();
+            expression.possible_return_types_state = PossibleReturnTypesState::Unresolved;
         }
     }
     Arc::new(Catalog::new(CatalogParts {
@@ -338,5 +347,44 @@ fn dynamic_size_and_parse_expressions_work_inside_effects() {
         "pattern ExprParse must parse: {:#?}",
         parsed.matches.unknown
     );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn dynamic_player_expressions_are_valid_audiences() {
+    let catalog = full_dynamic_catalog();
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 7)
+        .unwrap();
+
+    for input in [
+        "send 1 to all players",
+        "send 1 to \"nlaocs\" parsed as player",
+        "send new vector from yaw all offline players's size and pitch all offline players's size to all players",
+    ] {
+        let result = parse_effect(&mut host, &transaction, 7, input);
+        let selected = result.matches.selected.unwrap_or_else(|| {
+            panic!(
+                "dynamic Player must parse as Audience: {:#?}",
+                result.matches.unknown
+            )
+        });
+        let recipient = selected
+            .expressions
+            .last()
+            .expect("message Effect has a recipient");
+        assert_eq!(
+            recipient.return_type.as_ref().map(ClassName::as_str),
+            Some("org.bukkit.entity.Player")
+        );
+    }
     transaction.cancel().unwrap();
 }
