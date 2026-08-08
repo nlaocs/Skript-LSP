@@ -122,6 +122,29 @@ fn dynamic_candidates(snapshot: &syntaxes::DynamicSyntaxSnapshot) -> Vec<String>
 }
 
 #[test]
+fn empty_overlay_preserves_static_registration_order() {
+    let registry = DynamicSyntaxRegistry::new(catalog());
+    registry.begin_document("file:///test.sk", 1).unwrap();
+
+    let snapshot = registry.freeze("file:///test.sk", 1).unwrap();
+    let sources = snapshot
+        .candidates
+        .iter()
+        .map(|candidate| candidate.source.clone())
+        .collect::<Vec<_>>();
+
+    assert!(snapshot.definitions.is_empty());
+    assert!(snapshot.overrides.is_empty());
+    assert_eq!(
+        sources,
+        [
+            SyntaxCandidateSource::Static(0),
+            SyntaxCandidateSource::Static(1)
+        ]
+    );
+}
+
+#[test]
 fn registers_dynamic_effect_and_freezes_mixed_catalog() {
     let registry = DynamicSyntaxRegistry::new(catalog());
     let mut update = registry.begin_initial_update("test.addon", 0).unwrap();
