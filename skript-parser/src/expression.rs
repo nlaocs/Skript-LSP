@@ -210,6 +210,12 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         Ok(())
     }
 
+    /// Returns whether a semantic handler may replace this registration's
+    /// declared return type after its captures have matched.
+    fn can_resolve_registered_expression(&self, _element_class: &ClassName) -> bool {
+        false
+    }
+
     /// Resolves context-dependent return metadata after typed children matched.
     fn resolve_registered_expression(
         &mut self,
@@ -657,13 +663,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         }
 
         if allow_expressions {
-            let input = range
-                .slice(self.source.virtual_source())
-                .expect("validated Expression range");
-            let matcher_candidates =
-                self.matcher_candidates(input, expected_types, registered_pass);
             for end in candidate_ends.iter().copied() {
                 let candidate_range = TextRange::new(range.start, end);
+                let candidate_text = candidate_range
+                    .slice(self.source.virtual_source())
+                    .expect("validated Expression range");
+                let matcher_candidates =
+                    self.matcher_candidates(candidate_text, expected_types, registered_pass);
                 let input = MatchInput::from_source(self.source, candidate_range)?;
                 self.frame_starts.push(candidate_range.start);
                 self.frame_depths.push(depth);
@@ -723,7 +729,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                     }
                     ReturnTypeState::Dynamic | ReturnTypeState::Unresolved => {
-                        metadata.possible_return_types_state != PossibleReturnTypesState::Complete
+                        self.environment
+                            .can_resolve_registered_expression(&metadata.element_class)
+                            || self
+                                .return_type_matches(metadata.return_type.as_ref(), expected_types)
                             || metadata.possible_return_types.iter().any(|return_type| {
                                 self.return_type_matches(Some(return_type), expected_types)
                             })
@@ -742,6 +751,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         expected_types: &[ExpressionExpectedType],
         registered_pass: RegisteredPass,
     ) -> Vec<PatternCandidate<'a>> {
+        let lowercase_input = input.to_lowercase();
         let initial = input
             .chars()
             .find(|character| *character != ' ')
@@ -786,8 +796,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 let pattern = candidate.patterns[positions[cursor].1];
                 let prefilter = &self.pattern_prefilters[pattern.source];
                 if prefix_states_may_start_with(&prefilter.leading, input)
-                    && (!prefilter.left_recursive
-                        || suffix_states_may_end_with(&prefilter.trailing, input))
+                    && suffix_states_may_end_with(&prefilter.trailing, input)
+                    && prefilter.required_literal_branches.iter().any(|branch| {
+                        branch
+                            .iter()
+                            .all(|literal| lowercase_input.contains(literal))
+                    })
                 {
                     patterns.push(pattern);
                 }
@@ -1117,6 +1131,7 @@ struct PatternPrefilter {
     left_recursive: bool,
     leading: Vec<PrefixState>,
     trailing: Vec<PrefixState>,
+    required_literal_branches: Vec<Vec<String>>,
 }
 
 type PatternPosition = (usize, usize);
@@ -1147,6 +1162,7 @@ fn pattern_prefilter_index<'a>(
                 left_recursive: pattern_is_left_recursive(&pattern.parsed.elements),
                 leading: leading_prefix_states(&pattern.parsed.elements),
                 trailing: trailing_suffix_states(&pattern.parsed.elements),
+                required_literal_branches: required_literal_branches(&pattern.parsed.elements),
             });
     }
     result
@@ -1193,6 +1209,46 @@ fn pattern_initial_index(
 
 fn pattern_is_left_recursive(elements: &[SpannedPatternElement]) -> bool {
     sequence_start(elements).0
+}
+
+fn required_literal_branches(elements: &[SpannedPatternElement]) -> Vec<Vec<String>> {
+    let mut branches = vec![Vec::new()];
+    for element in elements {
+        let element_branches = match &element.value {
+            PatternElement::Literal(value) => {
+                let value = value.trim();
+                if value.is_empty() {
+                    vec![Vec::new()]
+                } else {
+                    vec![vec![value.to_lowercase()]]
+                }
+            }
+            PatternElement::Group(children) => required_literal_branches(children),
+            PatternElement::Choice(choices) => choices
+                .iter()
+                .flat_map(|choice| required_literal_branches(choice))
+                .collect(),
+            PatternElement::Regex(_)
+            | PatternElement::TypeExpr(_)
+            | PatternElement::Option(_)
+            | PatternElement::ParseTag(_)
+            | PatternElement::ParseMark(_)
+            | PatternElement::Empty => vec![Vec::new()],
+        };
+        let mut combined = Vec::new();
+        for branch in &branches {
+            for element_branch in &element_branches {
+                let mut value = branch.clone();
+                value.extend(element_branch.iter().cloned());
+                combined.push(value);
+                if combined.len() > 256 {
+                    return vec![Vec::new()];
+                }
+            }
+        }
+        branches = combined;
+    }
+    branches
 }
 
 fn sequence_start(elements: &[SpannedPatternElement]) -> (bool, bool) {
@@ -1515,9 +1571,15 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 request.expression.time,
                 depth,
             )?;
+            // Skript keeps the first successful registration. The parent matcher only
+            // needs one AST for each amount of input this capture can consume.
+            let mut resolved_ends = HashSet::new();
             for mut candidate in candidates {
                 candidate.expected_alternative = Some(alternative_index);
                 let absolute = candidate.node.span.local_range;
+                if !resolved_ends.insert(absolute.end) {
+                    continue;
+                }
                 let id = format!("expression:{}", self.next_resolution_id);
                 self.next_resolution_id = self.next_resolution_id.saturating_add(1);
                 self.resolved_nodes.insert(id.clone(), candidate.node);
