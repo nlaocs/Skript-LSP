@@ -68,6 +68,7 @@ impl addon::Guest for TreeMacroAddon {
                 mode: HookMode::Transform,
                 capability_id: CAPABILITY_TREE_MACRO.to_owned(),
             }],
+            registered_expression_class_suffixes: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,

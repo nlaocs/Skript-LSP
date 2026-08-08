@@ -210,6 +210,12 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         Ok(())
     }
 
+    /// Returns whether a semantic handler may replace this registration's
+    /// declared return type after its captures have matched.
+    fn can_resolve_registered_expression(&self, _element_class: &ClassName) -> bool {
+        false
+    }
+
     /// Resolves context-dependent return metadata after typed children matched.
     fn resolve_registered_expression(
         &mut self,
@@ -723,7 +729,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                     }
                     ReturnTypeState::Dynamic | ReturnTypeState::Unresolved => {
-                        metadata.possible_return_types_state != PossibleReturnTypesState::Complete
+                        self.environment
+                            .can_resolve_registered_expression(&metadata.element_class)
+                            || self
+                                .return_type_matches(metadata.return_type.as_ref(), expected_types)
                             || metadata.possible_return_types.iter().any(|return_type| {
                                 self.return_type_matches(Some(return_type), expected_types)
                             })

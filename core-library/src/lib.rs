@@ -70,6 +70,11 @@ impl addon::Guest for CoreLibrary {
                     capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
                 },
             ],
+            registered_expression_class_suffixes: vec![
+                ".PropExprSize".to_owned(),
+                ".ExprParse".to_owned(),
+                ".ExprEntities".to_owned(),
+            ],
             state_namespaces: Vec::new(),
         }
     }
@@ -172,6 +177,8 @@ fn resolve_registered_expression(
         resolve_size_expression(&payload)
     } else if payload.element_class.ends_with(".ExprParse") {
         resolve_parse_expression(&payload)
+    } else if payload.element_class.ends_with(".ExprEntities") {
+        resolve_entities_expression(&payload)
     } else {
         return Ok(HookOutput {
             decision: HookDecision::ContinueProcessing,
@@ -204,6 +211,29 @@ fn resolve_registered_expression(
         replacement: Some(HookPayload::RegisteredExpression(payload)),
         effects: empty_effects(),
     })
+}
+
+fn resolve_entities_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
+    let Some(entity_data) = payload.children.first() else {
+        return SemanticResolution::Reject(
+            "entities Expression requires an entity data literal".to_owned(),
+        );
+    };
+    if metadata_value(&entity_data.metadata, "entity-plural") != Some("true") {
+        return SemanticResolution::Reject(
+            "entities Expression requires a plural entity data literal".to_owned(),
+        );
+    }
+    let Some(return_type) = metadata_value(&entity_data.metadata, "entity-class") else {
+        return SemanticResolution::Reject(
+            "entity data literal has no runtime entity class".to_owned(),
+        );
+    };
+    resolved(
+        return_type,
+        DynamicMultiplicity::Multiple,
+        "entities-literal-type",
+    )
 }
 
 enum SemanticResolution {
@@ -449,6 +479,28 @@ fn core_expression_candidate(payload: &ExpressionPayload) -> Option<ExpressionLe
             ));
         }
         if payload.allow_literals
+            && payload
+                .expected_types
+                .iter()
+                .any(|expected| expected.class_name == "ch.njol.skript.entity.EntityData")
+            && matches!(text.to_ascii_lowercase().as_str(), "player" | "players")
+        {
+            let plural = text.eq_ignore_ascii_case("players");
+            let mut candidate = expression_candidate(
+                "core.literal.entity-data",
+                ExpressionLeafKind::Literal,
+                payload.remaining.start,
+                end,
+                "ch.njol.skript.entity.EntityData",
+                DynamicMultiplicity::Single,
+            );
+            candidate.metadata = vec![
+                metadata("entity-class", "org.bukkit.entity.Player"),
+                metadata("entity-plural", if plural { "true" } else { "false" }),
+            ];
+            return Some(candidate);
+        }
+        if payload.allow_literals
             && let Some((option, plural)) = type_option(text, &payload.type_options)
         {
             let mut candidate = expression_candidate(
@@ -644,6 +696,10 @@ mod tests {
             manifest.subscriptions[1].mode,
             HookMode::Transform
         ));
+        assert_eq!(
+            manifest.registered_expression_class_suffixes,
+            [".PropExprSize", ".ExprParse", ".ExprEntities"]
+        );
     }
 
     #[test]
@@ -768,6 +824,29 @@ mod tests {
     }
 
     #[test]
+    fn player_entity_data_literal_carries_its_runtime_class_and_plurality() {
+        let mut invocation = expression_invocation("players");
+        let HookPayload::Expression(payload) = &mut invocation.payload else {
+            unreachable!();
+        };
+        payload.expected_types[0].class_name = "ch.njol.skript.entity.EntityData".to_owned();
+
+        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let Some(HookPayload::Expression(payload)) = output.replacement else {
+            panic!("entity data literal must be returned");
+        };
+        assert_eq!(payload.candidates[0].parser_id, "core.literal.entity-data");
+        assert_eq!(
+            metadata_value(&payload.candidates[0].metadata, "entity-class"),
+            Some("org.bukkit.entity.Player")
+        );
+        assert_eq!(
+            metadata_value(&payload.candidates[0].metadata, "entity-plural"),
+            Some("true")
+        );
+    }
+
+    #[test]
     fn size_count_and_parse_expression_resolve_dynamic_metadata() {
         let mut size = registered_expression(
             "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize",
@@ -809,6 +888,31 @@ mod tests {
         };
         assert_eq!(return_type, "java.lang.Number");
         assert_eq!(multiplicity, DynamicMultiplicity::Single);
+    }
+
+    #[test]
+    fn entities_expression_uses_the_entity_data_runtime_class() {
+        let mut entities = registered_expression("ch.njol.skript.expressions.ExprEntities");
+        entities.children.push(RegisteredExpressionChild {
+            text: "players".to_owned(),
+            return_type: Some("ch.njol.skript.entity.EntityData".to_owned()),
+            multiplicity: Some(DynamicMultiplicity::Single),
+            metadata: vec![
+                metadata("entity-class", "org.bukkit.entity.Player"),
+                metadata("entity-plural", "true"),
+            ],
+        });
+
+        let SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        } = resolve_entities_expression(&entities)
+        else {
+            panic!("plural player entity data must resolve");
+        };
+        assert_eq!(return_type, "org.bukkit.entity.Player");
+        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
     }
 
     #[test]

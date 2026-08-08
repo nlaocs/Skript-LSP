@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.7.0;
+package nlaocs:skript-parser-addon@0.8.0;
 
 interface types {
     record abi-version {
@@ -158,6 +158,7 @@ interface types {
         abi: abi-version,
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
+        registered-expression-class-suffixes: list<string>,
         state-namespaces: list<state-namespace-declaration>,
     }
 

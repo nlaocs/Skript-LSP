@@ -1520,6 +1520,18 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         Ok(())
     }
 
+    fn can_resolve_registered_expression(&self, element_class: &ClassName) -> bool {
+        self.hooks.host.components.iter().any(|component| {
+            !component.disabled
+                && !component.unloaded
+                && component
+                    .manifest
+                    .registered_expression_class_suffixes
+                    .iter()
+                    .any(|suffix| element_class.as_str().ends_with(suffix))
+        })
+    }
+
     fn resolve_registered_expression(
         &mut self,
         request: RegisteredExpressionRequest<'_>,
@@ -1549,16 +1561,34 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PatternCapture::TypeExpression { .. } => None,
             })
             .collect::<Vec<_>>();
-        let type_options = if request.element_class.as_str().ends_with(".ExprParse") {
+        let type_options = if request.element_class.as_str().ends_with(".ExprParse")
+            && !regex_captures.is_empty()
+        {
             all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
         } else {
             Vec::new()
         };
-        let property_options = registered_property_options(
-            self.hooks.host.config.syntax_catalog.as_deref(),
-            request.related_property,
-            request.children,
-        );
+        let size_count = request.element_class.as_str().ends_with(".PropExprSize")
+            && !request
+                .tags
+                .iter()
+                .any(|tag| tag.value == "s" && !tag.implicit)
+            && !matches!(
+                request
+                    .children
+                    .first()
+                    .and_then(|child| child.multiplicity),
+                Some(Multiplicity::Single)
+            );
+        let property_options = if size_count {
+            Vec::new()
+        } else {
+            registered_property_options(
+                self.hooks.host.config.syntax_catalog.as_deref(),
+                request.related_property,
+                request.children,
+            )
+        };
         let payload = WitRegisteredExpressionPayload {
             input: request.input.to_owned(),
             definition_id: request.definition_id.to_owned(),
@@ -4553,6 +4583,39 @@ fn validate_manifest(
             });
         }
     }
+    let mut registered_expression_suffixes = BTreeSet::new();
+    for suffix in &manifest.registered_expression_class_suffixes {
+        if suffix.trim().is_empty() {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares a blank registered Expression class suffix",
+                    manifest.component_id
+                ),
+            });
+        }
+        if !registered_expression_suffixes.insert(suffix.as_str()) {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares registered Expression class suffix {} more than once",
+                    manifest.component_id, suffix
+                ),
+            });
+        }
+    }
+    if !manifest.registered_expression_class_suffixes.is_empty()
+        && !manifest.subscriptions.iter().any(|subscription| {
+            subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
+                && subscription.phase == HookPhase::Expression
+                && matches!(subscription.mode, HookMode::Transform)
+        })
+    {
+        return Err(HostError::InvalidManifest {
+            message: format!(
+                "{} declares registered Expression handlers without an Expression parser subscription",
+                manifest.component_id
+            ),
+        });
+    }
     Ok(())
 }
 
@@ -5735,6 +5798,7 @@ mod tests {
             abi: WitAbiVersion { major: 2, minor: 0 },
             capabilities: Vec::new(),
             subscriptions: Vec::new(),
+            registered_expression_class_suffixes: Vec::new(),
             state_namespaces: Vec::new(),
         };
         let error = validate_manifest(&manifest, &host_capabilities()).unwrap_err();
@@ -5774,6 +5838,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
+            registered_expression_class_suffixes: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -5828,6 +5893,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
+            registered_expression_class_suffixes: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -5881,11 +5947,36 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
+            registered_expression_class_suffixes: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
         validate_manifest(&manifest(subscription.clone()), &host_capabilities())
             .expect("the dedicated Expression pipeline shape must be accepted");
+
+        let mut with_handler = manifest(subscription.clone());
+        with_handler.registered_expression_class_suffixes = vec![".ExprParse".to_owned()];
+        validate_manifest(&with_handler, &host_capabilities())
+            .expect("an Expression transform may declare handled registrations");
+
+        for suffixes in [
+            vec!["".to_owned()],
+            vec![".ExprParse".to_owned(), ".ExprParse".to_owned()],
+        ] {
+            let mut invalid = manifest(subscription.clone());
+            invalid.registered_expression_class_suffixes = suffixes;
+            assert!(matches!(
+                validate_manifest(&invalid, &host_capabilities()),
+                Err(HostError::InvalidManifest { .. })
+            ));
+        }
+
+        let mut missing_transform = with_handler;
+        missing_transform.subscriptions.clear();
+        assert!(matches!(
+            validate_manifest(&missing_transform, &host_capabilities()),
+            Err(HostError::InvalidManifest { .. })
+        ));
 
         let mut invalid_target = subscription.clone();
         invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
@@ -5929,6 +6020,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
+            registered_expression_class_suffixes: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
