@@ -248,7 +248,8 @@ struct RegistrationMetadata {
 
 pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
-    dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
+    registered_candidates: Vec<PatternCandidate<'a>>,
+    registry_revision: u64,
     registrations: HashMap<String, RegistrationMetadata>,
     source: &'a MappedSource,
     environment: &'a mut E,
@@ -375,9 +376,15 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
         context: ExpressionParseContext,
         config: ExpressionParserConfig,
     ) -> ExpressionSession<'a, E> {
+        let registered_candidates = if let Some(snapshot) = dynamic_snapshot {
+            snapshot_pattern_candidates(catalog, snapshot, SyntaxKind::Expression)
+        } else {
+            catalog_pattern_candidates(catalog, SyntaxKind::Expression)
+        };
         ExpressionSession {
             catalog,
-            dynamic_snapshot,
+            registered_candidates,
+            registry_revision: dynamic_snapshot.map_or(0, |snapshot| snapshot.registry_revision),
             registrations: registration_metadata_index(catalog, dynamic_snapshot),
             source,
             environment,
@@ -445,9 +452,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 .environment
                 .state_revision()
                 .map_err(|message| ExpressionParseError::Environment { message })?,
-            registry_revision: self
-                .dynamic_snapshot
-                .map_or(0, |snapshot| snapshot.registry_revision),
+            registry_revision: self.registry_revision,
         };
         if let Some(cached) = self.memo.get(&key) {
             return Ok(cached.clone());
@@ -582,28 +587,39 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
         }
 
         if allow_expressions {
-            let catalog = self.catalog;
-            let matcher_candidates = if let Some(snapshot) = self.dynamic_snapshot {
-                snapshot_pattern_candidates(catalog, snapshot, SyntaxKind::Expression)
-            } else {
-                catalog_pattern_candidates(catalog, SyntaxKind::Expression)
-            }
-            .into_iter()
-            .filter(|candidate| self.registered_candidate_matches(candidate, expected_types))
-            .filter_map(|mut candidate| {
-                let input = range
-                    .slice(self.source.virtual_source())
-                    .expect("validated Expression range");
-                candidate.patterns.retain(|pattern| {
-                    let left_recursive = pattern_is_left_recursive(&pattern.parsed.elements);
-                    left_recursive == matches!(registered_pass, RegisteredPass::LeftRecursive)
-                        && pattern_may_start_with(&pattern.parsed.elements, input)
-                        && (!left_recursive
-                            || pattern_may_end_with(&pattern.parsed.elements, input))
-                });
-                (!candidate.patterns.is_empty()).then_some(candidate)
-            })
-            .collect::<Vec<_>>();
+            let input = range
+                .slice(self.source.virtual_source())
+                .expect("validated Expression range");
+            let matcher_candidates = self
+                .registered_candidates
+                .iter()
+                .filter(|candidate| self.registered_candidate_matches(candidate, expected_types))
+                .filter_map(|candidate| {
+                    let patterns = candidate
+                        .patterns
+                        .iter()
+                        .copied()
+                        .filter(|pattern| {
+                            let left_recursive =
+                                pattern_is_left_recursive(&pattern.parsed.elements);
+                            left_recursive
+                                == matches!(registered_pass, RegisteredPass::LeftRecursive)
+                                && pattern_may_start_with(&pattern.parsed.elements, input)
+                                && (!left_recursive
+                                    || pattern_may_end_with(&pattern.parsed.elements, input))
+                        })
+                        .collect::<Vec<_>>();
+                    (!patterns.is_empty()).then(|| PatternCandidate {
+                        kind: candidate.kind,
+                        definition_id: candidate.definition_id.clone(),
+                        registration_id: candidate.registration_id.clone(),
+                        priority: candidate.priority,
+                        registration_order: candidate.registration_order,
+                        resolved_order: candidate.resolved_order,
+                        patterns,
+                    })
+                })
+                .collect::<Vec<_>>();
             for end in candidate_ends.iter().copied() {
                 let candidate_range = TextRange::new(range.start, end);
                 let input = MatchInput::from_source(self.source, candidate_range)?;

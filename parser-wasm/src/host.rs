@@ -940,6 +940,23 @@ impl SubscriptionRegistry {
             .filter(|entry| entry.subscription.capability_id == capability_id)
             .collect()
     }
+
+    fn has_active_matching_capability(
+        &self,
+        components: &[ComponentEntry],
+        target: &DispatchTarget,
+        phase: HookPhase,
+        capability_id: &str,
+    ) -> bool {
+        self.subscriptions.iter().any(|entry| {
+            entry.subscription.phase == phase
+                && entry.subscription.capability_id == capability_id
+                && target_specificity(&entry.subscription.target, target).is_some()
+                && components
+                    .get(entry.component_index)
+                    .is_some_and(|component| !component.disabled && !component.unloaded)
+        })
+    }
 }
 
 fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> Option<u8> {
@@ -1116,6 +1133,24 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         {
             self.prepare_definition_candidate(event.input_range)?;
         }
+        let target = if event.scope == PatternHookScope::Definition {
+            DispatchTarget::SyntaxDefinition(wit_syntax_kind(event.kind))
+        } else {
+            DispatchTarget::ExactRegistration {
+                registration_id: event.registration_id.to_owned(),
+                syntax_kind: wit_syntax_kind(event.kind),
+            }
+        };
+        if !self.host.registry.has_active_matching_capability(
+            &self.host.components,
+            &target,
+            HookPhase::Matching,
+            CAPABILITY_HOOKS,
+        ) {
+            let control = PatternHookControl::Continue;
+            self.restore_candidate_state(event.scope, event.timing, &event.outcome, &control)?;
+            return Ok(control);
+        }
         let original_status = match &event.outcome {
             PatternHookOutcome::Pending => MatchingStatus::Pending,
             PatternHookOutcome::Matched { .. } => MatchingStatus::Matched,
@@ -1163,14 +1198,6 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
                 PatternHookOutcome::Failed { reason } => Some(reason.clone()),
                 PatternHookOutcome::Pending | PatternHookOutcome::Matched { .. } => None,
             },
-        };
-        let target = if event.scope == PatternHookScope::Definition {
-            DispatchTarget::SyntaxDefinition(wit_syntax_kind(event.kind))
-        } else {
-            DispatchTarget::ExactRegistration {
-                registration_id: event.registration_id.to_owned(),
-                syntax_kind: wit_syntax_kind(event.kind),
-            }
         };
         let result = self
             .host
