@@ -89,9 +89,10 @@ fn build_test_components() -> Result<()> {
 
 fn build_component(spec: &ComponentSpec) -> Result<()> {
     let root = workspace_root()?;
-    let target_dir = root
-        .join("target")
-        .join(format!("{}-component", spec.package));
+    let target_root = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"));
+    let target_dir = target_root.join(format!("{}-component", spec.package));
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
     let status = Command::new(cargo)
         .current_dir(&root)
