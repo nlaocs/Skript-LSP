@@ -67,6 +67,42 @@ fn parses_effect_and_reports_literal_and_type_information() {
 }
 
 #[test]
+fn reports_parenthesized_expression_and_its_inner_span() {
+    let snapshot = modern_fixture();
+    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let report = session
+        .analyze("send (1)")
+        .expect("parenthesized Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let grouped = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(grouped["expression"]["kind"], "grouped");
+    assert_eq!(grouped["source"], "(1)");
+    assert_eq!(grouped["span"]["start"], 5);
+    assert_eq!(grouped["span"]["end"], 8);
+    assert_eq!(grouped["inner"]["expression"]["kind"], "literal");
+    assert_eq!(grouped["inner"]["source"], "1");
+    assert_eq!(grouped["inner"]["span"]["start"], 6);
+    assert_eq!(grouped["inner"]["span"]["end"], 7);
+
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "send (1)"]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let human = String::from_utf8(output).unwrap();
+    assert!(human.contains("resolved: groupedExpression"));
+    assert!(human.contains("inner:"));
+}
+
+#[test]
 fn parses_optional_and_interface_expressions_without_regex_fallbacks() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 

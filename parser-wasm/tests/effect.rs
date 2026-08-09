@@ -1,8 +1,8 @@
 use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
-    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionParseContext,
-    ExpressionParseRequest, ExpressionParserConfig, MappedSource, RawTreeOptions, TextRange,
-    parse_raw_tree,
+    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionNodeKind,
+    ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig, MappedSource,
+    RawTreeOptions, TextRange, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -75,29 +75,12 @@ fn full_dynamic_catalog() -> Arc<Catalog> {
         let Syntax::Expression(expression) = syntax else {
             continue;
         };
-        if expression
-            .common
-            .element_class
-            .as_str()
-            .ends_with(".PropExprSize")
-        {
+        let element_class = expression.common.element_class.as_str();
+        if element_class.ends_with(".PropExprSize") {
             expression.return_type_state = ReturnTypeState::Dynamic;
             expression.possible_return_types = vec![ClassName("java.lang.Long".to_owned())];
             expression.possible_return_types_state = PossibleReturnTypesState::Partial;
-        } else if expression
-            .common
-            .element_class
-            .as_str()
-            .ends_with(".ExprParse")
-        {
-            expression.return_type_state = ReturnTypeState::Dynamic;
-            expression.possible_return_types.clear();
-            expression.possible_return_types_state = PossibleReturnTypesState::Unresolved;
-        } else if expression
-            .common
-            .element_class
-            .as_str()
-            .ends_with(".ExprEntities")
+        } else if element_class.ends_with(".ExprParse") || element_class.ends_with(".ExprEntities")
         {
             expression.return_type_state = ReturnTypeState::Dynamic;
             expression.possible_return_types.clear();
@@ -346,6 +329,43 @@ fn dynamic_size_and_parse_expressions_work_inside_effects() {
         parsed.matches.selected.is_some(),
         "pattern ExprParse must parse: {:#?}",
         parsed.matches.unknown
+    );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn nested_parenthesized_expressions_work_inside_effects() {
+    let catalog = full_dynamic_catalog();
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 8)
+        .unwrap();
+    let input = "send (new vector from yaw (all offline players's size) and pitch (all offline players's size))";
+    let result = parse_effect(&mut host, &transaction, 8, input);
+    let selected = result.matches.selected.unwrap_or_else(|| {
+        panic!(
+            "nested parenthesized vector must parse: {:#?}",
+            result.matches.unknown
+        )
+    });
+
+    let grouped_vector = &selected.expressions[0];
+    assert!(matches!(grouped_vector.kind, ExpressionNodeKind::Grouped));
+    let vector = &grouped_vector.children[0];
+    assert!(matches!(vector.kind, ExpressionNodeKind::Registered { .. }));
+    assert_eq!(vector.children.len(), 2);
+    assert!(
+        vector
+            .children
+            .iter()
+            .all(|child| matches!(child.kind, ExpressionNodeKind::Grouped))
     );
     transaction.cancel().unwrap();
 }

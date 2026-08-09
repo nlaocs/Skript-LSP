@@ -452,6 +452,8 @@ struct ExpressionReport {
     multiplicity: Option<MultiplicityReport>,
     pattern: Option<PatternReport>,
     elements: Vec<ResolvedElementReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inner: Option<Box<ExpressionReport>>,
     metadata: BTreeMap<String, String>,
     truncated: bool,
 }
@@ -463,6 +465,7 @@ struct ExpressionReport {
     rename_all_fields = "camelCase"
 )]
 enum ExpressionIdentityReport {
+    Grouped,
     Registered { syntax: SyntaxIdentityReport },
     Variable { parser_id: String },
     Literal { parser_id: String },
@@ -812,6 +815,7 @@ fn expression_report(
     depth: usize,
 ) -> ExpressionReport {
     let (expression, pattern) = match &node.kind {
+        ExpressionNodeKind::Grouped => (ExpressionIdentityReport::Grouped, None),
         ExpressionNodeKind::Registered {
             definition_id,
             registration_id,
@@ -869,6 +873,10 @@ fn expression_report(
     };
     let span = match_span(&node.span);
     let truncated = depth >= MAX_REPORT_EXPRESSION_DEPTH;
+    let inner = (!truncated && matches!(node.kind, ExpressionNodeKind::Grouped))
+        .then(|| node.children.first())
+        .flatten()
+        .map(|node| Box::new(expression_report(node, input, catalog, depth + 1)));
     ExpressionReport {
         source: source_slice(input, node.span.mapped.virtual_range),
         span,
@@ -884,6 +892,7 @@ fn expression_report(
         } else {
             resolved_elements(&node.captures, &node.children, input, catalog, depth)
         },
+        inner,
         metadata: node.metadata.clone(),
         truncated,
     }
@@ -1087,6 +1096,9 @@ fn write_expression(
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     match &expression.expression {
+        ExpressionIdentityReport::Grouped => {
+            writeln!(writer, "{prefix}resolved: groupedExpression")?;
+        }
         ExpressionIdentityReport::Registered { syntax } => {
             writeln!(writer, "{prefix}resolved: registeredExpression")?;
             write_identity(writer, syntax, indent + 1)?;
@@ -1126,6 +1138,9 @@ fn write_expression(
     }
     if expression.truncated {
         writeln!(writer, "{prefix}elements: truncated")?;
+    } else if let Some(inner) = &expression.inner {
+        writeln!(writer, "{prefix}inner:")?;
+        write_expression(writer, inner, indent + 1)?;
     } else if !expression.elements.is_empty() {
         writeln!(writer, "{prefix}elements:")?;
         write_resolved_elements(writer, &expression.elements, indent + 1)?;

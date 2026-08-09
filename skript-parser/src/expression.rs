@@ -5,6 +5,9 @@
 //! as variables and literals through [`ExpressionParseEnvironment`].
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
+use crate::pattern_match::{
+    find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
+};
 use crate::{
     CandidateMatch, MappedSource, MatchInput, MatchSpan, ParseTagCapture, PatternCandidate,
     PatternCapture, PatternHookControl, PatternHookEvent, PatternMatchEnvironment,
@@ -67,6 +70,8 @@ impl Default for ExpressionParserConfig {
 /// Source of an Expression node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionNodeKind {
+    /// A complete child Expression wrapped in one pair of parentheses.
+    Grouped,
     Registered {
         definition_id: String,
         registration_id: String,
@@ -118,8 +123,26 @@ pub struct ExpressionMatches {
 /// Farthest useful failure produced when no Expression consumes the request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionFailure {
+    /// Most specific reason found for the failed complete parse.
+    pub kind: ExpressionFailureKind,
+    /// Primary source location to underline in a diagnostic.
     pub span: MatchSpan,
+    /// Related opening delimiter, when the primary location is elsewhere.
+    pub related_span: Option<MatchSpan>,
     pub expected_types: Vec<ExpressionExpectedType>,
+}
+
+/// Syntactic reason selected for an unsuccessful complete Expression parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpressionFailureKind {
+    /// No candidate matched and no more specific parenthesis error was found.
+    ExpectedExpression,
+    /// A complete parenthesized group contained no Expression.
+    EmptyGroup,
+    /// An opening parenthesis had no corresponding closing parenthesis.
+    UnclosedParenthesis,
+    /// A closing parenthesis had no corresponding opening parenthesis.
+    UnexpectedClosingParenthesis,
 }
 
 /// Kind assigned to one CoreLibrary or addon leaf parser result.
@@ -422,8 +445,12 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
         .collect::<Vec<_>>();
     let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
     let failure = if selected.is_none() {
+        let (kind, primary, related) =
+            expression_failure_ranges(request.source.virtual_source(), request.range);
         Some(ExpressionFailure {
-            span: session.map_range(TextRange::empty(request.range.start))?,
+            kind,
+            span: session.map_range(primary)?,
+            related_span: related.map(|range| session.map_range(range)).transpose()?,
             expected_types,
         })
     } else {
@@ -598,6 +625,64 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         include_leaves: bool,
     ) -> Result<Vec<ExpressionCandidate>, ExpressionParseError> {
         let mut candidates = Vec::new();
+        let mut ordinary_candidate_ends = candidate_ends.to_vec();
+        if self
+            .source
+            .virtual_source()
+            .get(range.start..range.end)
+            .is_some_and(|input| input.starts_with('('))
+            && let Some(close) = find_parenthesis_end(
+                self.source.virtual_source(),
+                range.start + '('.len_utf8(),
+                range.end,
+            )
+        {
+            let group_end = close + ')'.len_utf8();
+            if candidate_ends.contains(&group_end) {
+                ordinary_candidate_ends.retain(|end| *end != group_end);
+                if include_leaves {
+                    let raw_inner = TextRange::new(range.start + '('.len_utf8(), close);
+                    let inner_text = raw_inner
+                        .slice(self.source.virtual_source())
+                        .expect("parenthesized range is validated");
+                    let local_inner = java_trim_range(inner_text);
+                    let inner = TextRange::new(
+                        raw_inner.start + local_inner.start,
+                        raw_inner.start + local_inner.end,
+                    );
+                    if !inner.is_empty() {
+                        let inner_candidates = self.parse_prefixes(
+                            inner,
+                            &[inner.end],
+                            expected_types,
+                            allow_literals,
+                            allow_expressions,
+                            time,
+                            depth + 1,
+                        )?;
+                        let group_span = self.map_range(TextRange::new(range.start, group_end))?;
+                        for inner_candidate in inner_candidates {
+                            let child = inner_candidate.node;
+                            candidates.push(ExpressionCandidate {
+                                node: ExpressionNode {
+                                    kind: ExpressionNodeKind::Grouped,
+                                    span: group_span.clone(),
+                                    return_type: child.return_type.clone(),
+                                    multiplicity: child.multiplicity,
+                                    captures: Vec::new(),
+                                    tags: Vec::new(),
+                                    mark: 0,
+                                    metadata: child.metadata.clone(),
+                                    children: vec![child],
+                                },
+                                expected_alternative: inner_candidate.expected_alternative,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        let candidate_ends = ordinary_candidate_ends.as_slice();
         if include_leaves {
             let leaf_request = ExpressionLeafRequest {
                 input: self.source.virtual_source(),
@@ -1495,6 +1580,84 @@ fn starts_with_skript_literal(input: &str, prefix: &str) -> bool {
 
 fn chars_equal_ignore_case(left: char, right: char) -> bool {
     left == right || left.to_lowercase().eq(right.to_lowercase())
+}
+
+fn expression_failure_ranges(
+    input: &str,
+    range: TextRange,
+) -> (ExpressionFailureKind, TextRange, Option<TextRange>) {
+    if input
+        .get(range.start..range.end)
+        .is_some_and(|text| text.starts_with('('))
+        && let Some(close) = find_parenthesis_end(input, range.start + '('.len_utf8(), range.end)
+        && close + ')'.len_utf8() == range.end
+    {
+        let raw_inner = TextRange::new(range.start + '('.len_utf8(), close);
+        let inner_text = raw_inner
+            .slice(input)
+            .expect("parenthesized failure range is validated");
+        let inner = java_trim_range(inner_text);
+        if inner.is_empty() {
+            let empty = TextRange::empty(raw_inner.start + inner.start);
+            return (
+                ExpressionFailureKind::EmptyGroup,
+                empty,
+                Some(TextRange::new(range.start, range.start + '('.len_utf8())),
+            );
+        }
+    }
+
+    let mut stack = Vec::new();
+    let mut cursor = range.start;
+    while cursor < range.end {
+        let Some(ch) = input
+            .get(cursor..range.end)
+            .and_then(|text| text.chars().next())
+        else {
+            break;
+        };
+        match ch {
+            '"' => {
+                let Some(end) = find_quote_end(input, cursor + ch.len_utf8(), range.end) else {
+                    break;
+                };
+                cursor = end + '"'.len_utf8();
+                continue;
+            }
+            '{' => {
+                let Some(end) = find_variable_end(input, cursor + ch.len_utf8(), range.end) else {
+                    break;
+                };
+                cursor = end + '}'.len_utf8();
+                continue;
+            }
+            '(' => stack.push(cursor),
+            ')' if stack.is_empty() => {
+                return (
+                    ExpressionFailureKind::UnexpectedClosingParenthesis,
+                    TextRange::new(cursor, cursor + ch.len_utf8()),
+                    None,
+                );
+            }
+            ')' => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        cursor += ch.len_utf8();
+    }
+    if let Some(open) = stack.last().copied() {
+        return (
+            ExpressionFailureKind::UnclosedParenthesis,
+            TextRange::empty(range.end),
+            Some(TextRange::new(open, open + '('.len_utf8())),
+        );
+    }
+    (
+        ExpressionFailureKind::ExpectedExpression,
+        TextRange::empty(range.start),
+        None,
+    )
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {

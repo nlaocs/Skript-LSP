@@ -1851,7 +1851,7 @@ enum ScopeDecision {
     Failed,
 }
 
-fn java_trim_range(input: &str) -> TextRange {
+pub(crate) fn java_trim_range(input: &str) -> TextRange {
     let start = input
         .char_indices()
         .find_map(|(index, ch)| ((ch as u32) > 0x20).then_some(index))
@@ -1936,7 +1936,7 @@ fn skript_next(input: &str, start: usize, end: usize) -> Option<usize> {
     }
 }
 
-fn find_quote_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
+pub(crate) fn find_quote_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
     let mut in_expression = false;
     while cursor < end {
         let ch = input.get(cursor..end)?.chars().next()?;
@@ -1956,7 +1956,7 @@ fn find_quote_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
     None
 }
 
-fn find_variable_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
+pub(crate) fn find_variable_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
     let mut depth = 0usize;
     while cursor < end {
         let ch = input.get(cursor..end)?.chars().next()?;
@@ -1971,7 +1971,7 @@ fn find_variable_end(input: &str, mut cursor: usize, end: usize) -> Option<usize
     None
 }
 
-fn find_parenthesis_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
+pub(crate) fn find_parenthesis_end(input: &str, mut cursor: usize, end: usize) -> Option<usize> {
     let mut depth = 0usize;
     while cursor < end {
         let ch = input.get(cursor..end)?.chars().next()?;
