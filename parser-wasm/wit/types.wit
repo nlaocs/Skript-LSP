@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.8.0;
+package nlaocs:skript-parser-addon@0.9.0;
 
 interface types {
     record abi-version {
@@ -129,6 +129,7 @@ interface types {
         matching,
         expression,
         effect,
+        section,
         capture,
         syntax,
         candidate,
@@ -152,13 +153,25 @@ interface types {
         capability-id: string,
     }
 
+    enum registered-capture-kind {
+        raw,
+        condition,
+        effect,
+    }
+
+    record registered-syntax-handler {
+        kind: syntax-kind,
+        class-suffix: string,
+        regex-captures: list<registered-capture-kind>,
+    }
+
     record component-manifest {
         component-id: string,
         component-version: string,
         abi: abi-version,
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
-        registered-expression-class-suffixes: list<string>,
+        registered-syntax-handlers: list<registered-syntax-handler>,
         state-namespaces: list<state-namespace-declaration>,
     }
 
@@ -369,6 +382,7 @@ interface types {
 
     record registered-expression-child {
         text: string,
+        element-class: option<string>,
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
         metadata: list<metadata-entry>,
@@ -382,6 +396,25 @@ interface types {
     record registered-expression-property-option {
         input-class: string,
         return-types: list<string>,
+    }
+
+    record registered-condition-capture {
+        capture-index: u64,
+        text: string,
+        span: mapped-span,
+        definition-id: option<string>,
+        registration-id: option<string>,
+        pattern-index: option<u64>,
+    }
+
+    record registered-effect-capture {
+        capture-index: u64,
+        text: string,
+        span: mapped-span,
+        definition-id: string,
+        registration-id: string,
+        pattern-index: u64,
+        element-class: option<string>,
     }
 
     record registered-expression-payload {
@@ -402,6 +435,8 @@ interface types {
         tags: list<registered-expression-tag>,
         mark: s32,
         children: list<registered-expression-child>,
+        conditions: list<registered-condition-capture>,
+        common-child-return-type: option<string>,
         type-options: list<expression-type-option>,
         property-options: list<registered-expression-property-option>,
         effective-return-type: option<string>,
@@ -452,6 +487,7 @@ interface types {
         raw-node-id: node-id,
         definition-id: string,
         registration-id: string,
+        element-class: option<string>,
         priority: s32,
         registration-order: u64,
         pattern-index: u64,
@@ -463,6 +499,8 @@ interface types {
         marks: list<effect-mark>,
         handler: option<string>,
         metadata: list<metadata-entry>,
+        conditions: list<registered-condition-capture>,
+        effects: list<registered-effect-capture>,
     }
 
     record effect-failure {
@@ -479,6 +517,33 @@ interface types {
         candidate: option<effect-candidate>,
         alternatives: list<effect-candidate>,
         failure: option<effect-failure>,
+    }
+
+    enum section-timing {
+        enter-children,
+        exit-children,
+    }
+
+    record section-candidate {
+        raw-node-id: node-id,
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        pattern-index: u64,
+        span: mapped-span,
+        loop-section: bool,
+        effect-section: bool,
+        section-expression: bool,
+        regex-captures: list<string>,
+        conditions: list<registered-condition-capture>,
+    }
+
+    record section-payload {
+        input: string,
+        raw-node-id: node-id,
+        span: mapped-span,
+        timing: section-timing,
+        candidate: section-candidate,
     }
 
     enum line-ending {
@@ -755,6 +820,7 @@ interface types {
         expression(expression-payload),
         registered-expression(registered-expression-payload),
         effect(effect-payload),
+        section(section-payload),
         capture(capture-payload),
         syntax(syntax-definition-payload),
         exact-registration(exact-registration-payload),

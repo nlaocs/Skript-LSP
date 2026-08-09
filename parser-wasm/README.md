@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.8.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.9.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -60,8 +60,10 @@ changed it to 0.3.0; typed pattern-matching scopes, paths, status, and spans
 changed it to 0.4.0; Expression leaf requests and candidates changed it to
 0.5.0; typed Effect lifecycle candidates and failures changed it to 0.6.0;
 post-match registered Expression resolution changed it to 0.7.0; declaring
-the registered Expression classes handled by a component changed it to 0.8.0.
-The manifest's current `abi` value is 1.7 and is a runtime handshake that
+the registered Expression classes handled by a component changed it to 0.8.0;
+generic registered syntax handlers, semantic Condition/Effect captures, and
+the Section lifecycle changed it to 0.9.0. The manifest's current `abi` value
+is 1.8 and is a runtime handshake that
 requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -89,12 +91,12 @@ Java types and plurality, legal split points, literal/expression flags, time
 state, depth, and accumulated leaf candidates.
 
 CoreLibrary and addons may append Variable, Literal, Function, or Custom leaf
-candidates. After a dynamic registered Expression and its typed children match,
+candidates. After a registered Expression and its typed children match,
 the host sends a second payload containing parse tags, children, known return
 types, and applicable property metadata. CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
-Components list the Java class suffixes they can resolve in
-`registered-expression-class-suffixes`. The native parser considers an
+Components declare the syntax kind, Java class suffix, and meaning of regex
+captures in `registered-syntax-handlers`. The native parser considers an
 otherwise incompatible dynamic registration only when an enabled component
 declares it, avoiding broad unresolved registrations during every type search.
 The host validates immutable request fields, UTF-8 ranges, parser
@@ -118,9 +120,9 @@ so selected Effect and child Expression state use one transaction hierarchy.
 Effect subscriptions declare `parser.effect` and run in the `Effect` phase.
 A category hook runs before native matching, then the selected exact
 registration, or the Effect category for an unknown node, runs afterward. The
-typed payload retains definition and registration IDs, pattern index, capture
-spans, parse tags, XOR marks, dynamic handler metadata, alternatives, and the
-farthest failure. A replacement may update only the selected handler and
+typed payload retains definition and registration IDs, element class, pattern
+index, capture spans, parse tags, XOR marks, parsed Condition or nested Effect
+captures, dynamic handler metadata, alternatives, and the farthest failure. A replacement may update only the selected handler and
 metadata; immutable registration identity, captures, alternatives, and spans
 are validated by the host.
 
@@ -128,6 +130,27 @@ Unknown, rejected, invalid-output, and failed Effect pipelines restore their
 entry StateStore savepoint. The returned unknown node keeps its exact source,
 mapped span, and farthest failure. Reject diagnostics remain observable even
 though the rejecting hook's state is rolled back.
+
+## Condition and Section Parsing
+
+`ParserHost::parse_condition_in_parse` applies Skript's registration-order
+Condition matching, including repeated removal of complete outer parentheses.
+It shares the recursive Expression session, so Condition patterns may contain
+typed Expressions and can themselves be semantic regex captures of registered
+Expressions, Effects, or Sections.
+
+`ParserHost::parse_section_in_parse` consumes a lossless
+`RawNodeKind::Section`. Its header is matched against normal Sections,
+EffectSections, SectionExpressions, and frozen dynamic Sections. The selected
+candidate preserves those three metadata flags. Before and after recursively
+parsing its child Sections and Effects, the host dispatches the exact
+registration in the `Section` phase with `parser.section`. Enter-phase context
+updates apply only to that body and its descendants. Unknown or multiply
+claimed body nodes remain in the partial tree with diagnostics.
+
+CoreLibrary declares semantic handlers for Skript's conditional and while
+Sections, `ExprWhether`, `ExprTernary`, and `EffDoIf`. Addons can use the same
+manifest declarations for their own raw, Condition, or nested Effect captures.
 ## Text Macros
 
 A Text macro subscribes to `ParseStage` during `Preprocess` with `Transform`
@@ -300,6 +323,10 @@ The main entry points are:
 - `expand_tree`: convenience API for a one-tree-pipeline parse transaction
 - `dynamic_syntax_snapshot`: freeze and retrieve ranked syntax candidates
 - `match_patterns_in_parse`: match ranked candidates with transactional WASM hooks
+- `parse_expression_in_parse`: parse a typed recursive Expression
+- `parse_condition_in_parse`: parse a Condition in registration order
+- `parse_effect_in_parse`: parse one simple RawTree node as an Effect
+- `parse_section_in_parse`: parse one Section and recursively claim its body
 - `dispatch`: convenience API for a one-dispatch transaction
 
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance

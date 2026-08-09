@@ -371,6 +371,41 @@ fn nested_parenthesized_expressions_work_inside_effects() {
 }
 
 #[test]
+fn conditional_effect_retains_its_nested_effect_and_condition() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 9)
+        .unwrap();
+    let result = parse_effect(
+        &mut host,
+        &transaction,
+        9,
+        "dummy effect registered through wrapper if dummy fixture condition",
+    );
+    let selected = result.matches.selected.unwrap_or_else(|| {
+        panic!(
+            "conditional Effect must parse: {:#?}",
+            result.matches.unknown
+        )
+    });
+
+    assert_eq!(selected.effects.len(), 1);
+    assert_eq!(selected.conditions.len(), 1);
+    assert!(result.calls.iter().any(|call| {
+        call.component_id == "nlaocs.core-library"
+            && call.subscription_id == "core.effect-semantics"
+    }));
+    transaction.cancel().unwrap();
+}
+
+#[test]
 fn dynamic_player_expressions_are_valid_audiences() {
     let catalog = full_dynamic_catalog();
     let mut host = ParserHost::new(

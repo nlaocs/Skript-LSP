@@ -178,6 +178,27 @@ handlerとmetadataも保持します。型付きcaptureは内部`ExpressionSessi
 memo、matcher hook、候補transaction境界を再利用しながら子`ExpressionNode`を接続します。
 placeholderを持たないpatternではExpression経路を起動しません。
 
+## Condition解析
+
+`parse_condition`はstatic SSG Conditionをregistration順で照合し、
+`parse_condition_with_snapshot`はfrozen dynamic登録も含めます。どちらもJava whitespaceをtrimし、
+入力全体を囲む外側の括弧を繰り返し外すため、Skriptの`Condition.parse`と同じ挙動になります。
+型付きcaptureは現在の`ExpressionSession`を再利用するため、採用`ConditionNode`は解析済みの子
+Expressionを保持します。unknown入力もmapped spanと最遠pattern failureを維持し、後続diagnosticに
+利用できます。
+
+## Section解析
+
+`parse_section`は1件の`RawNodeKind::Section`を受け取り、子をnested SectionまたはEffectとして
+再帰的に取得します。header候補は通常Section、EffectSection、SectionExpression指定された
+Expression登録を統合します。採用nodeは3種類のmetadata flag、意味付きCondition capture、
+子Expression、dynamic handler metadataを保持します。
+
+`ExpressionParseEnvironment::enter_section_children`はbody解析前にchild contextを派生でき、
+`exit_section_children`はbody完了後に同じcontextを参照します。その後parent contextへ戻ります。
+unknown header、未取得body line、複数候補に取得されたnodeはsubtree全体を中断せず、partial ASTと
+`SectionDiagnostic`として保持されます。
+
 ## Invariant
 
 constructorは次の入力を拒否します。
@@ -206,6 +227,8 @@ constructorは次の入力を拒否します。
 | pattern_match | 登録pattern照合、capture、候補順位、hook、quota |
 | `expression` | 再帰Expression AST、型filter、left recursion、memo、leaf parser統合 |
 | `effect` | Simple nodeのEffect候補、dynamic metadata、nested Expression、unknown回復 |
+| `condition` | registration順Condition照合、外側括弧処理、nested Expression |
+| `section` | 再帰Section/Effect body、scoped context、意味付きcapture、partial回復 |
 | `catalog_match` | static Catalogとfrozen dynamic snapshotの候補adapter |
 
 公開itemはcrate rootからre-exportされます。

@@ -12,14 +12,16 @@ wit_bindgen::generate!({
 use exports::nlaocs::skript_parser_addon::{addon, ast_macro, hooks, text_macro, tree_macro};
 use nlaocs::skript_parser_addon::types::{
     AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput, CapabilityRequirement,
-    CompatibilityError, CompatibilityErrorKind, ComponentManifest, DynamicMultiplicity,
-    ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload, ExpressionTypeOption,
-    HookDecision, HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase,
-    HookSubscription, HookTarget, HostProfile, MetadataEntry, RegisteredExpressionPayload,
-    TextMacroInput, TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput,
+    CompatibilityError, CompatibilityErrorKind, ComponentManifest, ContextUpdate,
+    DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
+    ExpressionTypeOption, HookDecision, HookEffects, HookInvocation, HookMode, HookOutput,
+    HookPayload, HookPhase, HookSubscription, HookTarget, HostProfile, MetadataEntry,
+    RegisteredCaptureKind, RegisteredExpressionPayload, RegisteredSyntaxHandler, SectionTiming,
+    SyntaxKind, TextMacroInput, TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput,
 };
 use parser_wasm::{
-    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS,
+    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EFFECT_PARSER,
+    CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
     Capability as ParserCapability, CapabilityRequirement as ParserCapabilityRequirement,
     CompatibilityError as ParserCompatibilityError, validate_compatibility,
 };
@@ -28,8 +30,21 @@ const COMPONENT_ID: &str = "nlaocs.core-library";
 const COMPONENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const HEALTH_CHECK_SUBSCRIPTION_ID: &str = "core.health-check";
 const EXPRESSION_SUBSCRIPTION_ID: &str = "core.expression-leaves";
+const EFFECT_SUBSCRIPTION_ID: &str = "core.effect-semantics";
+const SECTION_SUBSCRIPTION_ID: &str = "core.section-semantics";
 
 struct CoreLibrary;
+
+fn expression_handler(
+    class_suffix: &str,
+    regex_captures: Vec<RegisteredCaptureKind>,
+) -> RegisteredSyntaxHandler {
+    RegisteredSyntaxHandler {
+        kind: SyntaxKind::Expression,
+        class_suffix: class_suffix.to_owned(),
+        regex_captures,
+    }
+}
 
 impl addon::Guest for CoreLibrary {
     fn manifest() -> ComponentManifest {
@@ -51,6 +66,16 @@ impl addon::Guest for CoreLibrary {
                     minimum_version: 1,
                     required: true,
                 },
+                CapabilityRequirement {
+                    id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_SECTION_PARSER.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
             ],
             subscriptions: vec![
                 HookSubscription {
@@ -69,11 +94,47 @@ impl addon::Guest for CoreLibrary {
                     mode: HookMode::Transform,
                     capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
                 },
+                HookSubscription {
+                    id: EFFECT_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxDefinition(SyntaxKind::Effect),
+                    phase: HookPhase::Effect,
+                    priority: i32::MIN,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                },
+                HookSubscription {
+                    id: SECTION_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxDefinition(SyntaxKind::Section),
+                    phase: HookPhase::Section,
+                    priority: i32::MIN,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_SECTION_PARSER.to_owned(),
+                },
             ],
-            registered_expression_class_suffixes: vec![
-                ".PropExprSize".to_owned(),
-                ".ExprParse".to_owned(),
-                ".ExprEntities".to_owned(),
+            registered_syntax_handlers: vec![
+                expression_handler(".PropExprSize", Vec::new()),
+                expression_handler(".ExprParse", Vec::new()),
+                expression_handler(".ExprEntities", Vec::new()),
+                expression_handler(".ExprWhether", vec![RegisteredCaptureKind::Condition]),
+                expression_handler(".ExprTernary", vec![RegisteredCaptureKind::Condition]),
+                RegisteredSyntaxHandler {
+                    kind: SyntaxKind::Effect,
+                    class_suffix: ".EffDoIf".to_owned(),
+                    regex_captures: vec![
+                        RegisteredCaptureKind::Effect,
+                        RegisteredCaptureKind::Condition,
+                    ],
+                },
+                RegisteredSyntaxHandler {
+                    kind: SyntaxKind::Section,
+                    class_suffix: ".SecConditional".to_owned(),
+                    regex_captures: vec![RegisteredCaptureKind::Condition],
+                },
+                RegisteredSyntaxHandler {
+                    kind: SyntaxKind::Section,
+                    class_suffix: ".SecWhile".to_owned(),
+                    regex_captures: vec![RegisteredCaptureKind::Condition],
+                },
             ],
             state_namespaces: Vec::new(),
         }
@@ -83,6 +144,8 @@ impl addon::Guest for CoreLibrary {
         let requirements = [
             ParserCapabilityRequirement::required(CAPABILITY_HOOKS, 1),
             ParserCapabilityRequirement::required(CAPABILITY_EXPRESSION_PARSER, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_SECTION_PARSER, 1),
         ];
         let capabilities = profile
             .capabilities
@@ -105,6 +168,8 @@ impl hooks::Guest for CoreLibrary {
         match input.context.subscription_id.as_str() {
             HEALTH_CHECK_SUBSCRIPTION_ID => health_check(input),
             EXPRESSION_SUBSCRIPTION_ID => parse_expressions(input),
+            EFFECT_SUBSCRIPTION_ID => parse_effect_semantics(input),
+            SECTION_SUBSCRIPTION_ID => parse_section_semantics(input),
             _ => Err(addon_error(
                 AddonErrorKind::UnsupportedHook,
                 format!(
@@ -153,6 +218,114 @@ fn parse_expressions(input: HookInvocation) -> Result<HookOutput, AddonError> {
     }
 }
 
+fn parse_effect_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
+    if !matches!(input.phase, HookPhase::Effect) {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary Effect semantics require the Effect phase",
+        ));
+    }
+    let HookPayload::Effect(payload) = input.payload else {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary Effect semantics require an Effect payload",
+        ));
+    };
+    let Some(candidate) = payload.candidate.as_ref() else {
+        return Ok(continue_without_replacement());
+    };
+    if candidate
+        .element_class
+        .as_deref()
+        .is_none_or(|class| !class.ends_with(".EffDoIf"))
+    {
+        return Ok(continue_without_replacement());
+    }
+    let valid_condition = candidate
+        .conditions
+        .iter()
+        .any(|capture| capture.capture_index == 1);
+    let nested_effect = candidate
+        .effects
+        .iter()
+        .find(|capture| capture.capture_index == 0);
+    if !valid_condition || nested_effect.is_none() {
+        return Ok(reject(
+            "conditional Effect requires an Effect and a Condition",
+        ));
+    }
+    if nested_effect
+        .and_then(|capture| capture.element_class.as_deref())
+        .is_some_and(|class| class.ends_with(".EffDoIf"))
+    {
+        return Ok(reject("conditional Effects may not be nested"));
+    }
+    Ok(HookOutput {
+        decision: HookDecision::ContinueProcessing,
+        replacement: Some(HookPayload::Effect(payload)),
+        effects: empty_effects(),
+    })
+}
+
+fn parse_section_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
+    if !matches!(input.phase, HookPhase::Section) {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary Section semantics require the Section phase",
+        ));
+    }
+    let HookPayload::Section(payload) = input.payload else {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary Section semantics require a Section payload",
+        ));
+    };
+    let recognized = payload
+        .candidate
+        .element_class
+        .as_deref()
+        .is_some_and(|class| class.ends_with(".SecConditional") || class.ends_with(".SecWhile"));
+    if !recognized {
+        return Ok(continue_without_replacement());
+    }
+    if matches!(payload.timing, SectionTiming::EnterChildren)
+        && !payload.candidate.regex_captures.is_empty()
+        && payload.candidate.conditions.len() != payload.candidate.regex_captures.len()
+    {
+        return Ok(reject("Section requires every condition capture to parse"));
+    }
+    let context_updates = if matches!(payload.timing, SectionTiming::EnterChildren) {
+        let mut updates = vec![ContextUpdate {
+            syntax_context: input.context.syntax_context,
+            key: "core.section.class".to_owned(),
+            value: payload
+                .candidate
+                .element_class
+                .as_ref()
+                .map(|class| class.as_bytes().to_vec()),
+        }];
+        if payload.candidate.loop_section {
+            updates.push(ContextUpdate {
+                syntax_context: input.context.syntax_context,
+                key: "core.section.loop".to_owned(),
+                value: Some(b"true".to_vec()),
+            });
+        }
+        updates
+    } else {
+        Vec::new()
+    };
+    Ok(HookOutput {
+        decision: HookDecision::ContinueProcessing,
+        replacement: Some(HookPayload::Section(payload)),
+        effects: HookEffects {
+            diagnostics: Vec::new(),
+            context_updates,
+            parse_requests: Vec::new(),
+        },
+    })
+}
+
 fn parse_expression_leaves(mut payload: ExpressionPayload) -> Result<HookOutput, AddonError> {
     if let Some(candidate) = core_expression_candidate(&payload) {
         payload.candidates.push(candidate);
@@ -179,6 +352,10 @@ fn resolve_registered_expression(
         resolve_parse_expression(&payload)
     } else if payload.element_class.ends_with(".ExprEntities") {
         resolve_entities_expression(&payload)
+    } else if payload.element_class.ends_with(".ExprWhether") {
+        resolve_whether_expression(&payload)
+    } else if payload.element_class.ends_with(".ExprTernary") {
+        resolve_ternary_expression(&payload)
     } else {
         return Ok(HookOutput {
             decision: HookDecision::ContinueProcessing,
@@ -211,6 +388,58 @@ fn resolve_registered_expression(
         replacement: Some(HookPayload::RegisteredExpression(payload)),
         effects: empty_effects(),
     })
+}
+
+fn resolve_whether_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
+    if payload.conditions.len() != 1 || payload.conditions[0].capture_index != 0 {
+        return SemanticResolution::Reject(
+            "whether Expression requires one parsed Condition".to_owned(),
+        );
+    }
+    resolved(
+        "java.lang.Boolean",
+        DynamicMultiplicity::Single,
+        "whether-condition",
+    )
+}
+
+fn resolve_ternary_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
+    if payload.conditions.len() != 1 || payload.conditions[0].capture_index != 0 {
+        return SemanticResolution::Reject(
+            "ternary Expression requires one parsed Condition".to_owned(),
+        );
+    }
+    if payload.children.len() != 2 {
+        return SemanticResolution::Reject(
+            "ternary Expression requires two result Expressions".to_owned(),
+        );
+    }
+    if payload.children.iter().any(|child| {
+        child
+            .element_class
+            .as_deref()
+            .is_some_and(|class| class.ends_with(".ExprTernary"))
+    }) {
+        return SemanticResolution::Reject("ternary Expressions may not be nested".to_owned());
+    }
+    let Some(return_type) = payload.common_child_return_type.as_deref() else {
+        return SemanticResolution::Reject(
+            "ternary result Expressions have no common return type".to_owned(),
+        );
+    };
+    resolved(
+        return_type,
+        if payload
+            .children
+            .iter()
+            .all(|child| matches!(child.multiplicity, Some(DynamicMultiplicity::Single)))
+        {
+            DynamicMultiplicity::Single
+        } else {
+            DynamicMultiplicity::Multiple
+        },
+        "ternary-condition",
+    )
 }
 
 fn resolve_entities_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
@@ -613,6 +842,25 @@ fn empty_effects() -> HookEffects {
     }
 }
 
+fn continue_without_replacement() -> HookOutput {
+    HookOutput {
+        decision: HookDecision::ContinueProcessing,
+        replacement: None,
+        effects: empty_effects(),
+    }
+}
+
+fn reject(reason: &str) -> HookOutput {
+    HookOutput {
+        decision: HookDecision::Reject(nlaocs::skript_parser_addon::types::Rejection {
+            reason: reason.to_owned(),
+            diagnostics: Vec::new(),
+        }),
+        replacement: None,
+        effects: empty_effects(),
+    }
+}
+
 fn unsupported_macro(kind: &str) -> AddonError {
     addon_error(
         AddonErrorKind::UnsupportedCapability,
@@ -673,10 +921,10 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 2);
+        assert_eq!(manifest.capabilities.len(), 4);
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
-        assert_eq!(manifest.subscriptions.len(), 2);
+        assert_eq!(manifest.subscriptions.len(), 4);
         assert_eq!(manifest.subscriptions[0].id, HEALTH_CHECK_SUBSCRIPTION_ID);
         assert!(matches!(
             manifest.subscriptions[0].target,
@@ -696,10 +944,11 @@ mod tests {
             manifest.subscriptions[1].mode,
             HookMode::Transform
         ));
-        assert_eq!(
-            manifest.registered_expression_class_suffixes,
-            [".PropExprSize", ".ExprParse", ".ExprEntities"]
-        );
+        assert_eq!(manifest.capabilities[2].id, CAPABILITY_EFFECT_PARSER);
+        assert_eq!(manifest.subscriptions[2].id, EFFECT_SUBSCRIPTION_ID);
+        assert_eq!(manifest.capabilities[3].id, CAPABILITY_SECTION_PARSER);
+        assert_eq!(manifest.subscriptions[3].id, SECTION_SUBSCRIPTION_ID);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 8);
     }
 
     #[test]
@@ -853,6 +1102,7 @@ mod tests {
         );
         size.children.push(RegisteredExpressionChild {
             text: "all offline players".to_owned(),
+            element_class: None,
             return_type: Some("org.bukkit.OfflinePlayer".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Multiple),
             metadata: Vec::new(),
@@ -871,6 +1121,7 @@ mod tests {
         let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
         parse.children.push(RegisteredExpressionChild {
             text: "number".to_owned(),
+            element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![
@@ -895,6 +1146,7 @@ mod tests {
         let mut entities = registered_expression("ch.njol.skript.expressions.ExprEntities");
         entities.children.push(RegisteredExpressionChild {
             text: "players".to_owned(),
+            element_class: None,
             return_type: Some("ch.njol.skript.entity.EntityData".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![
@@ -1019,6 +1271,8 @@ mod tests {
             tags: Vec::<RegisteredExpressionTag>::new(),
             mark: 0,
             children: Vec::new(),
+            conditions: Vec::new(),
+            common_child_return_type: None,
             type_options: Vec::new(),
             property_options: Vec::<RegisteredExpressionPropertyOption>::new(),
             effective_return_type: Some("java.lang.Object".to_owned()),
