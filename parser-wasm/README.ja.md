@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.8.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.9.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -57,7 +57,8 @@ lossless RawTreeと対象指定TreeEditの追加で0.3.0へ、型付きpattern m
 status、spanの追加で0.4.0、Expression leaf request/candidateの追加で0.5.0、型付きEffect
 lifecycle candidate/failureの追加で0.6.0、登録Expressionのmatch後の意味解決追加で0.7.0、
 componentが解決する登録Expression classの宣言追加で0.8.0へ変わりました。
-manifestの現在の`abi`値は1.7で、
+汎用registered syntax handler、意味付きCondition/Effect capture、Section lifecycleの追加で
+0.9.0へ変わりました。manifestの現在の`abi`値は1.8で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -80,11 +81,11 @@ transactional WASM environmentで`skript-parser`を実行します。Expression 
 使用します。型付きpayloadにはvirtual source全体、remaining rangeとmapped span、expected Java
 classとplural、合法split位置、literal/expression flag、time state、depth、蓄積leaf候補が含まれます。
 
-CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加できます。動的な登録
+CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加できます。登録
 Expressionと型付きの子Expressionが一致した後、hostはparse tag、子Expression、既知の返値候補、
 適用可能なproperty情報を含む2段目のpayloadを送ります。CoreLibraryまたはaddonは実効Java返値型と
-Multiplicityを確定するか、候補をrejectできます。componentは解決可能なJava class suffixを
-`registered-expression-class-suffixes`へ列挙します。native parserは有効なcomponentが宣言した
+Multiplicityを確定するか、候補をrejectできます。componentはsyntax kind、Java class suffix、
+regex captureの意味を`registered-syntax-handlers`へ宣言します。native parserは有効なcomponentが宣言した
 場合だけ、通常は期待型と互換しないdynamic登録を候補へ含めます。これにより、未解決登録をすべての
 型探索へ混ぜません。hostはnative
 parserでstatic/dynamic登録Expressionと順位付けする前に、変更不可request field、UTF-8 range、
@@ -103,13 +104,32 @@ Effectと子Expressionのstateは1つのtransaction階層で管理されます�
 
 Effect subscriptionは`parser.effect` capabilityと`Effect` phaseを使います。native照合前はEffect
 category hook、照合後は採用exact registration、unknownの場合はEffect category hookを実行します。
-typed payloadはdefinition/registration ID、pattern index、capture span、parse tag、XOR mark、
-dynamic handler metadata、alternative、最遠failureを保持します。置換できるのは採用候補の
+typed payloadはdefinition/registration ID、element class、pattern index、capture span、parse tag、
+XOR mark、解析済みConditionまたはnested Effect capture、dynamic handler metadata、alternative、
+最遠failureを保持します。置換できるのは採用候補の
 handlerとmetadataだけで、registration identity、capture、alternative、spanはhostが固定します。
 
 unknown、Reject、不正output、host failureではEffect入口のStateStore savepointへ戻します。
 unknown nodeは正確なsource、mapped span、最遠failureを保持します。Reject hookのstateは破棄
 されますが、そのdiagnosticは結果に残ります。
+
+## ConditionとSection解析
+
+`ParserHost::parse_condition_in_parse`は、完全な外側の括弧を繰り返し外す挙動を含め、Skriptの
+registration順でConditionを照合します。再帰Expression sessionを共有するため、Condition patternは
+型付きExpressionを含められ、登録Expression、Effect、Sectionの意味付きregex captureとしても
+再利用できます。
+
+`ParserHost::parse_section_in_parse`はlosslessな`RawNodeKind::Section`を受け取ります。headerは通常の
+Section、EffectSection、SectionExpression、frozen dynamic Sectionをまとめて照合し、採用候補には
+3種類のmetadata flagを保持します。子SectionとEffectを再帰解析する前後で、hostは
+`parser.section`を使い、`Section` phaseのexact registrationをdispatchします。enter phaseの
+context updateはそのbodyと子孫だけへ適用されます。未取得または複数取得されたbody nodeも、
+diagnostic付きpartial treeとして保持します。
+
+CoreLibraryはSkript標準のconditional/while Section、`ExprWhether`、`ExprTernary`、`EffDoIf`の
+semantic handlerを宣言します。addonも同じmanifest宣言を使い、独自のraw、Condition、nested
+Effect captureを処理できます。
 ## Text macro
 
 Text macroは`Preprocess` phaseの`ParseStage`へ`Transform` modeでsubscribeします。一致した
@@ -262,6 +282,10 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `expand_tree`: 1 tree pipeline分のparse transactionを作るconvenience API
 - `dynamic_syntax_snapshot`: 候補をfreezeし、順位付きsnapshotを取得する
 - `match_patterns_in_parse`: transactional WASM hook付きで順位済み候補を照合する
+- `parse_expression_in_parse`: 型付き再帰Expressionを解析する
+- `parse_condition_in_parse`: registration順でConditionを解析する
+- `parse_effect_in_parse`: simple RawTree nodeをEffectとして解析する
+- `parse_section_in_parse`: Sectionとそのbodyを再帰解析する
 - `dispatch`: 1回のdispatch transaction用convenience API
 
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch

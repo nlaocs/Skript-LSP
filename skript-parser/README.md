@@ -205,6 +205,32 @@ metadata. Typed captures share an internal `ExpressionSession`, attaching child
 `ExpressionNode` values while reusing recursion limits, memoization, matcher
 hooks, and candidate transaction boundaries. Patterns without placeholders do
 not instantiate an Expression path.
+
+## Condition Parsing
+
+`parse_condition` matches static SSG Conditions in registration order, while
+`parse_condition_with_snapshot` also includes frozen dynamic registrations.
+Both trim Java whitespace and repeatedly remove complete outer parentheses,
+matching Skript's `Condition.parse` behavior. Typed captures reuse the current
+`ExpressionSession`; the selected `ConditionNode` therefore owns its parsed
+child Expressions. Unknown input retains its mapped span and farthest pattern
+failure for later diagnostics.
+
+## Section Parsing
+
+`parse_section` consumes one `RawNodeKind::Section` and recursively claims its
+children as nested Sections or Effects. Header candidates combine ordinary
+Sections, EffectSections, and Expression registrations marked as
+SectionExpressions. The selected node retains all three metadata flags,
+semantic Condition captures, child Expressions, and dynamic handler metadata.
+
+`ExpressionParseEnvironment::enter_section_children` may derive a child
+context before the body is parsed; `exit_section_children` observes that same
+context after the body finishes. The parent context is then restored. Unknown
+headers, unclaimed body lines, and multiple successful claims remain available
+as partial AST nodes and `SectionDiagnostic` values instead of aborting the
+whole subtree.
+
 ## Invariants
 
 Constructors reject:
@@ -233,6 +259,8 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | pattern_match | registered-pattern matching, captures, ranking, hooks, and limits |
 | `expression` | recursive Expression AST, type filtering, left recursion, memoization, and leaf parser integration |
 | `effect` | Simple-node Effect candidates, dynamic metadata, nested Expressions, and unknown recovery |
+| `condition` | registration-order Condition matching, outer-parenthesis handling, and nested Expressions |
+| `section` | recursive Section/Effect bodies, scoped contexts, semantic captures, and partial recovery |
 | `catalog_match` | adapters from static Catalogs and frozen dynamic snapshots |
 
 All public items are re-exported from the crate root.
