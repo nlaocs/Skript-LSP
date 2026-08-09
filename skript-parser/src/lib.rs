@@ -6,6 +6,7 @@ mod condition;
 mod effect;
 mod expansion;
 mod expression;
+mod function;
 mod pattern_match;
 mod raw_tree;
 mod section;
@@ -23,6 +24,8 @@ pub use effect::*;
 pub use expansion::*;
 /// Recursive Expression parsing over SSG registrations and parser extensions.
 pub use expression::*;
+/// Registered and future document-defined Function call parsing.
+pub use function::*;
 /// Registered-pattern matching and typed extension points.
 pub use pattern_match::*;
 /// Lossless indentation tree and recoverable lexical diagnostics.
