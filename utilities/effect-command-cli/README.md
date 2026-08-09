@@ -40,6 +40,7 @@ An Effect argument parses one line and exits:
 ```console
 effectcommandcli.exe "send 1"
 effectcommandcli.exe --json "broadcast \"hello\""
+effectcommandcli.exe "send sin(abs(-1))"
 ```
 
 Human output identifies the selected Effect, addon, implementation class,
@@ -88,13 +89,17 @@ EOF exits cleanly; an interrupted read returns to the prompt.
 
 ## Current Boundary
 
-Registered Expressions, variables, literals, custom leaves, expected types,
-resolved return classes, and recursive Expression captures are reported now.
-The data model can represent a generic Function leaf, but CoreLibrary does not
-yet parse standard Skript Function calls or expose their overload and argument
-tree. Function completion remains tracked by
-[Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79); this utility must
-not present a generic `parserId` as a fully resolved Function.
+SSG-registered Skript and addon Functions are parsed as structured Expression
+nodes. Reports include the Function name, definition/registration IDs, addon,
+return type, multiplicity, declared parameter names, named bindings, omitted
+optional parameters, and recursively parsed argument Expressions. Opaque WASM
+Function leaves remain distinguishable with `structured: false`.
+
+User Functions declared inside `.sk` files are not registered yet. The parser
+already accepts document definitions through `lookup_functions`; declaration
+collection and project symbol management will connect that source after whole
+file Structure parsing. The remaining CLI work stays tracked by
+[Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79).
 
 The utility parses exactly one top-level Effect line. It does not parse a whole
 `.sk` file, run Text/Tree macros, or execute Minecraft behavior.
@@ -107,5 +112,5 @@ cargo test -p effect-command-cli --locked
 
 Integration tests use both the checked-in multi-addon Skript 2.15.4 and legacy
 Skript 2.6.4/Minecraft 1.12.2 schema 3 snapshots. They cover one-shot JSON,
-unknown Effects, nested element data, REPL continuation, output switching, and
-snapshot reload.
+unknown Effects, nested Function/Expression data, REPL continuation, output
+switching, and snapshot reload.

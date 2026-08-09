@@ -454,8 +454,20 @@ struct ExpressionReport {
     elements: Vec<ResolvedElementReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     inner: Option<Box<ExpressionReport>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    arguments: Vec<FunctionArgumentReport>,
     metadata: BTreeMap<String, String>,
     truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FunctionArgumentReport {
+    parameter_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    supplied_name: Option<String>,
+    omitted: bool,
+    values: Vec<ExpressionReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -466,11 +478,26 @@ struct ExpressionReport {
 )]
 enum ExpressionIdentityReport {
     Grouped,
-    Registered { syntax: SyntaxIdentityReport },
-    Variable { parser_id: String },
-    Literal { parser_id: String },
-    Function { parser_id: String, structured: bool },
-    Custom { parser_id: String },
+    Registered {
+        syntax: SyntaxIdentityReport,
+    },
+    Variable {
+        parser_id: String,
+    },
+    Literal {
+        parser_id: String,
+    },
+    Function {
+        parser_id: String,
+        structured: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        syntax: Option<SyntaxIdentityReport>,
+    },
+    Custom {
+        parser_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -857,13 +884,24 @@ fn expression_report(
             },
             None,
         ),
-        ExpressionNodeKind::Function { parser_id } => (
-            ExpressionIdentityReport::Function {
-                parser_id: parser_id.clone(),
-                structured: false,
-            },
-            None,
-        ),
+        ExpressionNodeKind::Function { parser_id } => {
+            let function = node.function.as_ref();
+            (
+                ExpressionIdentityReport::Function {
+                    parser_id: parser_id.clone(),
+                    structured: function.is_some(),
+                    name: function.map(|function| function.name.clone()),
+                    syntax: function.map(|function| {
+                        function_identity(
+                            &function.definition_id,
+                            &function.registration_id,
+                            catalog,
+                        )
+                    }),
+                },
+                None,
+            )
+        }
         ExpressionNodeKind::Custom { parser_id } => (
             ExpressionIdentityReport::Custom {
                 parser_id: parser_id.clone(),
@@ -877,6 +915,30 @@ fn expression_report(
         .then(|| node.children.first())
         .flatten()
         .map(|node| Box::new(expression_report(node, input, catalog, depth + 1)));
+    let arguments = if truncated {
+        Vec::new()
+    } else {
+        node.function
+            .iter()
+            .flat_map(|function| &function.arguments)
+            .map(|argument| {
+                let end = argument.child_start.saturating_add(argument.child_count);
+                let values = node
+                    .children
+                    .get(argument.child_start..end)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|child| expression_report(child, input, catalog, depth + 1))
+                    .collect();
+                FunctionArgumentReport {
+                    parameter_name: argument.parameter_name.clone(),
+                    supplied_name: argument.supplied_name.clone(),
+                    omitted: argument.omitted,
+                    values,
+                }
+            })
+            .collect()
+    };
     ExpressionReport {
         source: source_slice(input, node.span.mapped.virtual_range),
         span,
@@ -893,8 +955,35 @@ fn expression_report(
             resolved_elements(&node.captures, &node.children, input, catalog, depth)
         },
         inner,
+        arguments,
         metadata: node.metadata.clone(),
         truncated,
+    }
+}
+
+fn function_identity(
+    definition_id: &str,
+    registration_id: &str,
+    catalog: &Catalog,
+) -> SyntaxIdentityReport {
+    let function = catalog
+        .syntax_by_registration_id(registration_id)
+        .into_iter()
+        .find_map(|syntax| match syntax {
+            Syntax::Function(function) if function.definition_id.as_str() == definition_id => {
+                Some(function)
+            }
+            _ => None,
+        });
+    SyntaxIdentityReport {
+        syntax_id: None,
+        definition_id: definition_id.to_owned(),
+        registration_id: registration_id.to_owned(),
+        element_class: None,
+        addon: function.map(|function| AddonReport {
+            name: function.addon.name.clone(),
+            version: function.addon.version.clone(),
+        }),
     }
 }
 
@@ -1112,11 +1201,19 @@ fn write_expression(
         ExpressionIdentityReport::Function {
             parser_id,
             structured,
+            name,
+            syntax,
         } => {
             writeln!(
                 writer,
                 "{prefix}resolved: function ({parser_id}, structured={structured})"
             )?;
+            if let Some(name) = name {
+                writeln!(writer, "{prefix}name: {name}")?;
+            }
+            if let Some(syntax) = syntax {
+                write_identity(writer, syntax, indent + 1)?;
+            }
         }
         ExpressionIdentityReport::Custom { parser_id } => {
             writeln!(writer, "{prefix}resolved: custom ({parser_id})")?;
@@ -1138,6 +1235,22 @@ fn write_expression(
     }
     if expression.truncated {
         writeln!(writer, "{prefix}elements: truncated")?;
+    } else if !expression.arguments.is_empty() {
+        writeln!(writer, "{prefix}arguments:")?;
+        for argument in &expression.arguments {
+            writeln!(writer, "{prefix}  {}:", argument.parameter_name)?;
+            if let Some(supplied_name) = &argument.supplied_name {
+                writeln!(writer, "{prefix}    suppliedName: {supplied_name}")?;
+            }
+            if argument.omitted {
+                writeln!(writer, "{prefix}    omitted: true")?;
+            } else {
+                for (index, value) in argument.values.iter().enumerate() {
+                    writeln!(writer, "{prefix}    value[{index}]:")?;
+                    write_expression(writer, value, indent + 3)?;
+                }
+            }
+        }
     } else if let Some(inner) = &expression.inner {
         writeln!(writer, "{prefix}inner:")?;
         write_expression(writer, inner, indent + 1)?;

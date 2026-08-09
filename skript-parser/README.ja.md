@@ -166,6 +166,22 @@ ASTから先頭・末尾literal制約を保守的に抽出し、depth、candidat
 敵対的な再帰を制限します。memo keyにはsource range、expected type/context、StateStore revision、
 dynamic registry revisionが含まれます。
 
+## Function呼び出し解析
+
+登録Functionは通常の登録Expression照合より前に専用call parserで処理します。SkriptのUnicode
+Function名を認識し、quoted string、variable、nested parenthesesを飛ばしながらargument境界を
+求め、SSG `Functions.json`そのものからsignatureを解決します。Skript 2.15.4と同じく、通常の
+exact signatureを単一plural parameterのsignatureより先に試します。
+
+各argumentはparameterのJava component typeとして再帰解析します。named argumentは宣言済み
+parameterへ並べ替え、optional parameterは省略bindingとして明示し、単一plural parameterには
+comma区切りの子Expressionをすべて保持します。`FunctionCall`はFunction名、definition/registration
+ID、parameterと子の対応を持ち、親`ExpressionNode`はreturn typeとmultiplicityを保持します。
+
+`ExpressionParseEnvironment::lookup_functions`から現在のdocument/projectで見えるdefinitionを
+先に提供できます。同じparameter shapeならcatalog globalをshadowするため、将来のユーザー定義
+Functionも別parserを作らず、同じcall AST、再帰、overload処理を利用できます。
+
 ## Effect解析
 
 `parse_effect`はlosslessな`RawNodeKind::Simple` nodeを1件受け取ります。nodeの正確なcode spanを
@@ -226,6 +242,7 @@ constructorは次の入力を拒否します。
 | `raw_tree` | physical line、comment分離、indentation回復、RawTree |
 | pattern_match | 登録pattern照合、capture、候補順位、hook、quota |
 | `expression` | 再帰Expression AST、型filter、left recursion、memo、leaf parser統合 |
+| `function` | 登録Function call、named/optional/list引数、overload、document lookup拡張 |
 | `effect` | Simple nodeのEffect候補、dynamic metadata、nested Expression、unknown回復 |
 | `condition` | registration順Condition照合、外側括弧処理、nested Expression |
 | `section` | 再帰Section/Effect body、scoped context、意味付きcapture、partial回復 |
@@ -243,4 +260,4 @@ test suiteには、multibyte UTF-8 mapping、生成text、replacement range、�
 backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
 UTF-8 Text edit適用のproperty testが含まれます。RawTreeについてはSkript公式comment case、
 LF/CRLF/最終改行なし、space/tab、nested Section、回復可能な不正indent、空Section、block
-comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、multi-addon Catalog全体を検証します。Effect testでは実schema 3 DummyAddon登録を使い、placeholderなし、型付き、dynamic、unknown lineを検証します。
+comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、Function callとdocument shadow、multi-addon Catalog全体を検証します。Effect testでは実schema 3 DummyAddon登録を使い、placeholderなし、型付き、dynamic、unknown lineを検証します。

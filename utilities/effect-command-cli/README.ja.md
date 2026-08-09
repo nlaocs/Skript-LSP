@@ -37,6 +37,7 @@ Effect引数を渡すと1行だけ解析して終了します。
 ```console
 effectcommandcli.exe "send 1"
 effectcommandcli.exe --json "broadcast \"hello\""
+effectcommandcli.exe "send sin(abs(-1))"
 ```
 
 人間向け出力では、採用Effect、addon、実装class、登録pattern、pattern AST、capture、
@@ -81,11 +82,15 @@ effect> :quit
 
 ## 現在の境界
 
-登録Expression、variable、literal、custom leaf、期待type、解決return class、再帰的な
-Expression captureは現段階で表示します。data modelはgenericなFunction leafを表現できますが、
-CoreLibraryはまだSkript標準Function呼び出しやoverload・引数treeを解析しません。
-Function対応の完了は[Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79)で
-引き続き追跡し、genericな`parserId`だけを完全に解決されたFunctionとして扱いません。
+SSGに登録されたSkript/addon Functionは構造化Expression nodeとして解析します。Function名、
+definition/registration ID、addon、return type、multiplicity、宣言parameter名、named binding、
+省略optional parameter、再帰解析済みargument Expressionを表示します。opaqueなWASM Function
+leafは`structured: false`のまま区別できます。
+
+`.sk`内で宣言されたユーザーFunctionの登録は未接続です。parser側には既に
+`lookup_functions`からdocument definitionを受け取る入口があり、Structureを含むfile全体解析後に
+宣言収集とproject symbol管理を接続します。残るCLI作業は
+[Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79)で引き続き追跡します。
 
 このutilityが解析するのはトップレベルのEffect 1行だけです。`.sk` file全体の解析、
 Text/Tree macroの実行、Minecraft上の処理実行は行いません。
@@ -98,4 +103,4 @@ cargo test -p effect-command-cli --locked
 
 integration testでは、repositoryに含まれるSkript 2.15.4のmulti-addon snapshotと、
 Skript 2.6.4/Minecraft 1.12.2のlegacy schema 3 snapshotを使用します。単発JSON、
-不明Effect、再帰要素、REPL継続、表示切替、snapshot reloadを検証します。
+不明Effect、再帰Function/Expression、REPL継続、表示切替、snapshot reloadを検証します。

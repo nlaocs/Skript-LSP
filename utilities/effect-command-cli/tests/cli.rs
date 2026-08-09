@@ -103,6 +103,66 @@ fn reports_parenthesized_expression_and_its_inner_span() {
 }
 
 #[test]
+fn reports_registered_function_identity_and_arguments() {
+    let snapshot = modern_fixture();
+    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let report = session
+        .analyze("send sin(abs(-1))")
+        .expect("nested Function Effect must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let function = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(function["expression"]["kind"], "function");
+    assert_eq!(function["expression"]["parserId"], "core.function");
+    assert_eq!(function["expression"]["structured"], true);
+    assert_eq!(function["expression"]["name"], "sin");
+    assert_eq!(function["expression"]["syntax"]["addon"]["name"], "Skript");
+    assert_eq!(function["arguments"][0]["parameterName"], "n");
+    assert_eq!(
+        function["arguments"][0]["values"][0]["expression"]["name"],
+        "abs"
+    );
+    assert_eq!(
+        function["arguments"][0]["values"][0]["arguments"][0]["values"][0]["returnType"],
+        "java.lang.Long"
+    );
+
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "send log(8)"]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let human = String::from_utf8(output).unwrap();
+    assert!(human.contains("resolved: function (core.function, structured=true)"));
+    assert!(human.contains("name: log"));
+    assert!(human.contains("base:"));
+    assert!(human.contains("omitted: true"));
+
+    let mut legacy =
+        EffectCommandSession::load(legacy_fixture()).expect("legacy fixture must load");
+    let legacy: Value = serde_json::from_str(
+        &legacy
+            .analyze("send sin(1)")
+            .expect("2.6.4 Function Effect must parse")
+            .to_json()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(legacy["result"]["status"], "matched");
+    assert_eq!(
+        legacy["result"]["effect"]["elements"][0]["resolved"]["expression"]["syntax"]["addon"]["version"],
+        "2.6.4"
+    );
+}
+
+#[test]
 fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 

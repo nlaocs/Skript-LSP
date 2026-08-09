@@ -190,6 +190,27 @@ Pattern AST before matching, while depth, candidate, matcher, and memo limits
 bound hostile recursion. Memo keys include source range, expected type/context,
 StateStore revision, and dynamic registry revision.
 
+## Function Call Parsing
+
+Registered Functions use a dedicated call parser before ordinary registered
+Expression matching. It recognizes Skript's Unicode Function names, skips
+quoted strings, variables, and nested parentheses while finding argument
+boundaries, and resolves signatures from the exact SSG `Functions.json`
+catalog. Exact signatures are attempted before single-plural-parameter
+signatures, matching Skript 2.15.4.
+
+Each argument is recursively parsed as the parameter's Java component type.
+Named arguments are rebound to their declared parameter, optional parameters
+remain explicit omitted bindings, and a single plural parameter can retain all
+comma-separated child Expressions. `FunctionCall` keeps the Function name,
+definition/registration IDs, and parameter-to-child ranges; its parent
+`ExpressionNode` keeps return type and multiplicity.
+
+`ExpressionParseEnvironment::lookup_functions` may prepend definitions visible
+in the current document or project. A definition with the same parameter shape
+shadows the catalog global, so future user Function declarations reuse the same
+call AST, recursion, and overload logic instead of adding a second parser.
+
 ## Effect Parsing
 
 `parse_effect` consumes one lossless `RawNodeKind::Simple` node. It matches the
@@ -258,6 +279,7 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `raw_tree` | physical lines, comment splitting, indentation recovery, and RawTree |
 | pattern_match | registered-pattern matching, captures, ranking, hooks, and limits |
 | `expression` | recursive Expression AST, type filtering, left recursion, memoization, and leaf parser integration |
+| `function` | registered Function calls, named/optional/list arguments, overloads, and document lookup extension |
 | `effect` | Simple-node Effect candidates, dynamic metadata, nested Expressions, and unknown recovery |
 | `condition` | registration-order Condition matching, outer-parenthesis handling, and nested Expressions |
 | `section` | recursive Section/Effect bodies, scoped contexts, semantic captures, and partial recovery |
@@ -277,4 +299,4 @@ anchors, invalid segment layouts, and property tests for identity mappings and
 arbitrary UTF-8 Text edit application. RawTree tests cover Skript's comment
 cases, LF/CRLF/no-final-newline inputs, spaces and tabs, nested Sections,
 recoverable invalid indentation, empty Sections, block comments, macro origins,
-and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, and the full multi-addon Catalog. Effect tests use real schema 3 DummyAddon registrations for plain, typed, dynamic, and unknown lines.
+and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, Function calls and document shadowing, and the full multi-addon Catalog. Effect tests use real schema 3 DummyAddon registrations for plain, typed, dynamic, and unknown lines.

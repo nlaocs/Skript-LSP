@@ -15,6 +15,7 @@ use crate::{
     TypeExpressionRequest, TypeExpressionResolution, catalog_pattern_candidates,
     match_pattern_candidates_with_environment, snapshot_pattern_candidates,
 };
+use crate::{FunctionCall, FunctionDefinition, FunctionLookupRequest};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
@@ -95,6 +96,7 @@ pub enum ExpressionNodeKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionNode {
     pub kind: ExpressionNodeKind,
+    pub function: Option<FunctionCall>,
     pub span: MatchSpan,
     pub return_type: Option<ClassName>,
     pub multiplicity: Option<Multiplicity>,
@@ -271,6 +273,17 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
+    }
+
+    /// Returns document- or project-defined Functions visible before catalog globals.
+    ///
+    /// Definitions with the same parameter shape shadow catalog definitions.
+    /// The default keeps existing environments catalog-only.
+    fn lookup_functions(
+        &mut self,
+        _request: FunctionLookupRequest<'_>,
+    ) -> Result<Vec<FunctionDefinition>, String> {
+        Ok(Vec::new())
     }
 
     /// Returns whether a semantic handler may replace this registration's
@@ -625,6 +638,34 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         self.environment
     }
 
+    pub(crate) fn function_definitions(
+        &mut self,
+        name: &str,
+    ) -> Result<Vec<FunctionDefinition>, ExpressionParseError> {
+        let context = self.context.clone();
+        let mut definitions = self
+            .environment
+            .lookup_functions(FunctionLookupRequest {
+                name,
+                context: &context,
+            })
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        definitions.retain(|definition| definition.name == name);
+
+        let mut shapes = definitions
+            .iter()
+            .map(FunctionDefinition::shape)
+            .collect::<HashSet<_>>();
+        definitions.extend(
+            self.catalog
+                .functions_named(name)
+                .into_iter()
+                .map(FunctionDefinition::from_catalog)
+                .filter(|definition| shapes.insert(definition.shape())),
+        );
+        Ok(definitions)
+    }
+
     pub(crate) fn begin_semantic_candidate(&mut self) -> Result<(), String> {
         self.environment.begin_semantic_candidate()
     }
@@ -655,7 +696,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn parse_prefixes(
+    pub(crate) fn parse_prefixes(
         &mut self,
         range: TextRange,
         candidate_ends: &[usize],
@@ -795,6 +836,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                             candidates.push(ExpressionCandidate {
                                 node: ExpressionNode {
                                     kind: ExpressionNodeKind::Grouped,
+                                    function: None,
                                     span: group_span.clone(),
                                     return_type: child.return_type.clone(),
                                     multiplicity: child.multiplicity,
@@ -859,6 +901,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 accepted_leaves.push(ExpressionCandidate {
                     node: ExpressionNode {
                         kind,
+                        function: None,
                         span: self.map_range(leaf.range)?,
                         return_type: leaf.return_type,
                         multiplicity: leaf.multiplicity,
@@ -876,6 +919,16 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .finish_expression_leaf(!accepted_leaves.is_empty())
                 .map_err(|message| ExpressionParseError::Environment { message })?;
             candidates.extend(accepted_leaves);
+
+            if allow_expressions {
+                candidates.extend(crate::function::parse_function_call(
+                    self,
+                    range,
+                    candidate_ends,
+                    expected_types,
+                    depth,
+                )?);
+            }
         }
 
         if allow_expressions {
@@ -1204,6 +1257,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     registration_id: matched.registration_id,
                     pattern_index: matched.pattern_index,
                 },
+                function: None,
                 span,
                 return_type,
                 multiplicity,
@@ -1240,7 +1294,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             && self.multiplicity_matches(leaf.multiplicity, expected_types)
     }
 
-    fn return_type_matches(
+    pub(crate) fn return_type_matches(
         &self,
         return_type: Option<&ClassName>,
         expected_types: &[ExpressionExpectedType],
@@ -1254,7 +1308,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             })
     }
 
-    fn multiplicity_matches(
+    pub(crate) fn multiplicity_matches(
         &self,
         multiplicity: Option<Multiplicity>,
         expected_types: &[ExpressionExpectedType],
