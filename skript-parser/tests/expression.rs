@@ -1,10 +1,10 @@
 use skript_parser::{
-    ExpressionExpectedType, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
-    ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseRequest,
-    ExpressionParserConfig, MappedSource, NoopExpressionEnvironment, PatternHookControl,
-    PatternHookEvent, PatternMatchEnvironment, PatternMatchError, RegisteredExpressionDecision,
-    RegisteredExpressionRequest, TextRange, TypeExpressionRequest, TypeExpressionResolution,
-    parse_expression, parse_expression_with_snapshot,
+    ExpressionExpectedType, ExpressionFailureKind, ExpressionLeafCandidate, ExpressionLeafKind,
+    ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment,
+    ExpressionParseRequest, ExpressionParserConfig, MappedSource, NoopExpressionEnvironment,
+    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
+    RegisteredExpressionDecision, RegisteredExpressionRequest, TextRange, TypeExpressionRequest,
+    TypeExpressionResolution, parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -154,6 +154,256 @@ fn recursively_parses_typed_expression_capture() {
     assert!(matches!(
         selected.node.children[0].kind,
         ExpressionNodeKind::Registered { .. }
+    ));
+}
+
+#[test]
+fn nested_parentheses_are_transparent_nodes_with_exact_spans() {
+    let catalog = expression_fixture();
+    let text = "((\"hello\"))";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("nested parenthesized literal must parse");
+
+    assert!(result.alternatives.is_empty());
+    let outer = result.selected.expect("outer group must be selected").node;
+    assert!(matches!(outer.kind, ExpressionNodeKind::Grouped));
+    assert_eq!(outer.span.local_range, TextRange::new(0, text.len()));
+    assert_eq!(
+        outer.return_type,
+        Some(ClassName("java.lang.String".to_owned()))
+    );
+
+    let inner = &outer.children[0];
+    assert!(matches!(inner.kind, ExpressionNodeKind::Grouped));
+    assert_eq!(inner.span.local_range, TextRange::new(1, text.len() - 1));
+    assert!(matches!(
+        inner.children[0].kind,
+        ExpressionNodeKind::Literal { .. }
+    ));
+    assert_eq!(
+        inner.children[0].span.local_range,
+        TextRange::new(2, text.len() - 2)
+    );
+}
+
+#[test]
+fn parenthesized_expression_trims_inner_ascii_whitespace_like_skript() {
+    let catalog = expression_fixture();
+    let text = "( \t\"hello\"\r\n )";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parenthesized literal with inner whitespace must parse");
+
+    let group = result.selected.expect("group must be selected").node;
+    assert!(matches!(group.kind, ExpressionNodeKind::Grouped));
+    assert_eq!(group.span.local_range, TextRange::new(0, text.len()));
+    assert_eq!(group.children[0].span.local_range, TextRange::new(3, 10));
+    assert_eq!(
+        group.children[0].span.local_range.slice(text),
+        Some("\"hello\"")
+    );
+}
+
+#[test]
+fn typed_capture_preserves_its_parenthesized_child() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let inner = "dummy direct registry expression";
+    let text = format!("dummy dynamically registered expression using ({inner})");
+    let source = MappedSource::identity(text.as_str());
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parenthesized typed capture must parse");
+
+    let outer = result.selected.expect("outer expression must parse").node;
+    let grouped = &outer.children[0];
+    assert!(matches!(grouped.kind, ExpressionNodeKind::Grouped));
+    assert_eq!(
+        grouped.span.local_range.slice(&text),
+        Some(format!("({inner})").as_str())
+    );
+    assert!(matches!(
+        grouped.children[0].kind,
+        ExpressionNodeKind::Registered { .. }
+    ));
+    assert_eq!(
+        grouped.children[0].span.local_range.slice(&text),
+        Some(inner)
+    );
+}
+
+#[test]
+fn parentheses_owned_by_a_registered_pattern_are_not_unwrapped() {
+    let catalog = expression_fixture();
+    let id = DynamicSyntaxId::new("test.dynamic", "parenthesized-pattern");
+    let source_pattern = r"\(%string%\) suffix";
+    let definition = DynamicSyntaxDefinition {
+        id: id.clone(),
+        kind: SyntaxKind::Expression,
+        patterns: vec![DynamicPattern {
+            source: source_pattern.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(source_pattern, catalog.plural_rules())
+                .unwrap(),
+        }],
+        priority: -50,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: Some("java.lang.String".to_owned()),
+        return_multiplicity: Some(DynamicMultiplicity::Single),
+        handler: "test.dynamic.parenthesized-pattern".to_owned(),
+        metadata: BTreeMap::new(),
+        component_load_order: 1,
+        declaration_order: 0,
+    };
+    let snapshot = DynamicSyntaxSnapshot {
+        document_id: "file:///dynamic.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 10,
+        definitions: BTreeMap::from([(id.clone(), definition)]),
+        overrides: BTreeMap::new(),
+        candidates: vec![RankedSyntaxCandidate {
+            source: SyntaxCandidateSource::Dynamic(id),
+            kind: SyntaxKind::Expression,
+            overrides: Vec::new(),
+        }],
+    };
+    let text = "(\"hello\") suffix";
+    let source = MappedSource::identity(text);
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("registered parenthesis pattern must parse");
+
+    let selected = result.selected.expect("registered candidate must win").node;
+    assert!(matches!(
+        selected.kind,
+        ExpressionNodeKind::Registered { .. }
+    ));
+    assert!(matches!(
+        selected.children[0].kind,
+        ExpressionNodeKind::Literal { .. }
+    ));
+}
+
+#[test]
+fn parenthesis_failures_keep_primary_and_related_spans() {
+    let catalog = expression_fixture();
+    for (text, kind, primary, related) in [
+        (
+            "(unknown",
+            ExpressionFailureKind::UnclosedParenthesis,
+            TextRange::empty(8),
+            Some(TextRange::new(0, 1)),
+        ),
+        (
+            "unknown)",
+            ExpressionFailureKind::UnexpectedClosingParenthesis,
+            TextRange::new(7, 8),
+            None,
+        ),
+        (
+            "( )",
+            ExpressionFailureKind::EmptyGroup,
+            TextRange::empty(2),
+            Some(TextRange::new(0, 1)),
+        ),
+    ] {
+        let source = MappedSource::identity(text);
+        let result = parse_expression(
+            &catalog,
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![expected("java.lang.String")],
+                context: ExpressionParseContext::default(),
+            },
+            &mut NoopExpressionEnvironment,
+            ExpressionParserConfig::default(),
+        )
+        .expect("invalid parentheses are a recoverable no-match");
+        let failure = result.failure.expect("failure must be retained");
+        assert_eq!(failure.kind, kind);
+        assert_eq!(failure.span.local_range, primary);
+        assert_eq!(failure.related_span.map(|span| span.local_range), related);
+    }
+
+    let quoted = MappedSource::identity("\"(\"");
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &quoted,
+            range: TextRange::new(0, quoted.virtual_source().len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parenthesis inside a quote must remain literal text");
+    assert!(result.selected.is_some());
+}
+
+#[test]
+fn parenthesized_recursion_uses_the_expression_depth_limit() {
+    let catalog = expression_fixture();
+    let text = "(((\"hello\")))";
+    let source = MappedSource::identity(text);
+    let error = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig {
+            max_depth: 1,
+            ..ExpressionParserConfig::default()
+        },
+    )
+    .expect_err("deeply grouped input must hit the configured depth bound");
+    assert!(matches!(
+        error,
+        skript_parser::ExpressionParseError::DepthLimit { limit: 1 }
     ));
 }
 
