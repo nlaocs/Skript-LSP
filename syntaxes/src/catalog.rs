@@ -5,8 +5,8 @@
 #![allow(missing_docs)] // Public fields are described by their owning domain type.
 
 use crate::{
-    AliasRegistry, Class, ClassKind, Comparator, Converter, Difference, EventValue, Function,
-    Operation, Operator, Property, Syntax, Type,
+    AliasRegistry, Class, ClassKind, ClassName, Comparator, Converter, Difference, EventValue,
+    Function, Operation, Operator, Property, Syntax, Type,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use syntax_pattern_parser::syntax::PluralRules;
@@ -411,6 +411,19 @@ impl Catalog {
             }
         }
         false
+    }
+
+    /// Finds the nearest captured Java type that can hold values from both classes.
+    pub fn common_assignable_class(&self, left: &str, right: &str) -> Option<ClassName> {
+        self.class_lineage(left)
+            .into_iter()
+            .find(|candidate| self.is_class_assignable(right, candidate))
+            .map(|candidate| ClassName(candidate.to_owned()))
+            .or_else(|| {
+                (self.is_class_assignable(left, "java.lang.Object")
+                    && self.is_class_assignable(right, "java.lang.Object"))
+                .then(|| ClassName("java.lang.Object".to_owned()))
+            })
     }
 
     /// Tests assignability between the Java classes represented by two Skript types.

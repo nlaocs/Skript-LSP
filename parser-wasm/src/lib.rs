@@ -20,13 +20,14 @@ pub mod state;
 #[cfg(feature = "host")]
 pub use host::{
     HostConfig, HostError, ParserHost, TreeMacroCall, TreeMacroRequest, TreeMacroResult,
-    WasmEffectParseResult, WasmExpressionParseResult, WasmPatternMatchResult,
+    WasmConditionParseResult, WasmEffectParseResult, WasmExpressionParseResult,
+    WasmPatternMatchResult, WasmSectionParseResult,
 };
 #[cfg(feature = "host")]
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 7);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 8);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -48,6 +49,8 @@ pub const CAPABILITY_ADDITIONAL_PARSE: &str = "parser.additional-parse";
 pub const CAPABILITY_EXPRESSION_PARSER: &str = "parser.expression";
 /// Capability ID for Effect lifecycle hooks and candidate replacement.
 pub const CAPABILITY_EFFECT_PARSER: &str = "parser.effect";
+/// Capability ID for Section lifecycle hooks and scoped child context.
+pub const CAPABILITY_SECTION_PARSER: &str = "parser.section";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Major/minor ABI version compared exactly during component initialization.

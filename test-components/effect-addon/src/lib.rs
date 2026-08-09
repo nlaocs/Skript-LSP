@@ -85,7 +85,7 @@ impl addon::Guest for EffectAddon {
                     capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
                 },
             ],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,

@@ -177,6 +177,23 @@ fn class_assignability_follows_superclasses_and_interfaces() {
 }
 
 #[test]
+fn common_assignable_class_prefers_the_nearest_shared_parent() {
+    let mut parts = parts();
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        class("test.Number", Some("java.lang.Object"), &[]),
+        class("test.Long", Some("test.Number"), &[]),
+        class("test.Double", Some("test.Number"), &[]),
+    ];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.common_assignable_class("test.Long", "test.Double"),
+        Some(class_name("test.Number"))
+    );
+}
+
+#[test]
 fn class_assignability_terminates_on_cycles() {
     let mut parts = parts();
     parts.classes = vec![

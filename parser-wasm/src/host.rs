@@ -16,18 +16,22 @@ use std::{
 };
 
 use skript_parser::{
-    CandidateMatches, EffectCandidate, EffectMatches, EffectParseError, EffectParseRequest,
+    CandidateMatches, ConditionMatches, ConditionParseError, ConditionParseRequest,
+    ConditionParserConfig, EffectCandidate, EffectMatches, EffectParseError, EffectParseRequest,
     EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
     ExpressionMatches, ExpressionParseEnvironment, ExpressionParseError, ExpressionParseRequest,
     ExpressionParserConfig, MatchInput, MatchSpan, MatchSyntaxKind, PatternCandidate,
     PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
     PatternHookOutcome, PatternHookScope, PatternHookTiming, PatternMatchEnvironment,
     PatternMatchError, PatternMatchHooks, PatternMatcherConfig, PatternPathSegment,
-    RegisteredExpressionDecision, RegisteredExpressionRequest, TypeExpressionRequest,
-    TypeExpressionResolution, TypeExpressionResolver, UnknownEffectNode,
-    match_pattern_candidates as run_pattern_matcher,
+    RegisteredCaptureKind, RegisteredExpressionDecision, RegisteredExpressionRequest,
+    SectionChildrenDecision, SectionChildrenRequest, SectionMatches, SectionParseError,
+    SectionParseRequest, SectionParserConfig, TypeExpressionRequest, TypeExpressionResolution,
+    TypeExpressionResolver, UnknownEffectNode, match_pattern_candidates as run_pattern_matcher,
+    parse_condition_with_snapshot as run_condition_parser,
     parse_effect_with_snapshot as run_effect_parser,
     parse_expression_with_snapshot as run_expression_parser,
+    parse_section_with_snapshot as run_section_parser,
 };
 use skript_parser::{
     ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
@@ -76,11 +80,16 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry, OriginKind as WitOriginKind,
     RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
     RawInvalidReason as WitRawInvalidReason, RawNodeKind as WitRawNodeKind,
-    RawTriviaKind as WitRawTriviaKind, RegisteredExpressionChild as WitRegisteredExpressionChild,
+    RawTriviaKind as WitRawTriviaKind, RegisteredCaptureKind as WitRegisteredCaptureKind,
+    RegisteredConditionCapture as WitRegisteredConditionCapture,
+    RegisteredEffectCapture as WitRegisteredEffectCapture,
+    RegisteredExpressionChild as WitRegisteredExpressionChild,
     RegisteredExpressionPayload as WitRegisteredExpressionPayload,
     RegisteredExpressionPropertyOption as WitRegisteredExpressionPropertyOption,
     RegisteredExpressionTag as WitRegisteredExpressionTag,
-    RetainedChildrenPlacement as WitRetainedChildrenPlacement, SourceOrigin as WitSourceOrigin,
+    RetainedChildrenPlacement as WitRetainedChildrenPlacement,
+    SectionCandidate as WitSectionCandidate, SectionPayload as WitSectionPayload,
+    SectionTiming as WitSectionTiming, SourceOrigin as WitSourceOrigin,
     StateEncoding as WitStateEncoding, StateEntry as WitStateEntry, StateError as WitStateError,
     StateErrorKind as WitStateErrorKind, StateNamespaceVisibility as WitNamespaceVisibility,
     StateScope as WitStateScope, StateValue as WitStateValue, TextEdit as WitTextEdit,
@@ -94,8 +103,9 @@ use crate::state::{
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
     CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
-    CAPABILITY_HOOKS, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO,
-    Capability, CapabilityRequirement, CompatibilityError, validate_compatibility,
+    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
+    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
+    validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -245,9 +255,13 @@ pub enum HostError {
     PatternMatcher(#[from] PatternMatchError),
     #[error("Expression parsing failed: {0}")]
     ExpressionParser(#[from] ExpressionParseError),
+    #[error("Condition parsing failed: {0}")]
+    ConditionParser(#[from] ConditionParseError),
     #[error("Effect parsing failed: {0}")]
     EffectParser(#[from] EffectParseError),
-    #[error("Expression parsing requires an SSG syntax Catalog")]
+    #[error("Section parsing failed: {0}")]
+    SectionParser(#[from] SectionParseError),
+    #[error("syntax parsing requires an SSG syntax Catalog")]
     SyntaxCatalogUnavailable,
     #[error("dynamic syntax registry is unavailable without an SSG Catalog")]
     DynamicSyntaxUnavailable,
@@ -434,9 +448,25 @@ pub struct WasmExpressionParseResult {
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
 }
+#[derive(Debug)]
+/// Condition results plus accepted matching/Expression hook side effects.
+pub struct WasmConditionParseResult {
+    pub matches: ConditionMatches,
+    pub effects: HookEffects,
+    pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
 /// Effect results plus accepted matching/Expression/Effect hook side effects.
 pub struct WasmEffectParseResult {
     pub matches: EffectMatches,
+    pub effects: HookEffects,
+    pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
+#[derive(Debug)]
+/// Recursive Section results plus scoped lifecycle hook side effects.
+pub struct WasmSectionParseResult {
+    pub matches: SectionMatches,
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
@@ -1058,9 +1088,6 @@ struct WasmPatternHooks<'a> {
 
 impl WasmPatternHooks<'_> {
     fn begin_match_frame(&mut self) -> Result<(), String> {
-        if !self.matching_hooks_registered {
-            return Ok(());
-        }
         self.frames.push(PatternMatchFrame {
             base: self
                 .transaction
@@ -1075,9 +1102,6 @@ impl WasmPatternHooks<'_> {
     }
 
     fn finish_match_frame(&mut self, accepted: bool) -> Result<(), String> {
-        if !self.matching_hooks_registered {
-            return Ok(());
-        }
         let frame = self
             .frames
             .pop()
@@ -1107,9 +1131,6 @@ impl WasmPatternHooks<'_> {
         outcome: &PatternHookOutcome,
         control: &PatternHookControl,
     ) -> Result<(), String> {
-        if !self.matching_hooks_registered {
-            return Ok(());
-        }
         if scope != PatternHookScope::Definition || timing == PatternHookTiming::Before {
             return Ok(());
         }
@@ -1145,9 +1166,6 @@ impl WasmPatternHooks<'_> {
     }
 
     fn prepare_definition_candidate(&mut self, range: ParserTextRange) -> Result<(), String> {
-        if !self.matching_hooks_registered {
-            return Ok(());
-        }
         let frame = self
             .frames
             .last_mut()
@@ -1187,8 +1205,33 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
                     syntax_kind: wit_syntax_kind(kind),
                 },
             );
-        if exact_handler || kind != MatchSyntaxKind::Expression {
-            return Ok(exact_handler);
+        if exact_handler {
+            return Ok(true);
+        }
+        let declared_handler = self
+            .host
+            .config
+            .syntax_catalog
+            .as_deref()
+            .and_then(|catalog| registered_element_class(catalog, kind, registration_id))
+            .is_some_and(|element_class| {
+                has_registered_syntax_handler(
+                    &self.host.components,
+                    match kind {
+                        MatchSyntaxKind::Event => CatalogSyntaxKind::Event,
+                        MatchSyntaxKind::Condition => CatalogSyntaxKind::Condition,
+                        MatchSyntaxKind::Effect => CatalogSyntaxKind::Effect,
+                        MatchSyntaxKind::Expression => CatalogSyntaxKind::Expression,
+                        MatchSyntaxKind::Type => CatalogSyntaxKind::Type,
+                        MatchSyntaxKind::Function => CatalogSyntaxKind::Function,
+                        MatchSyntaxKind::Section => CatalogSyntaxKind::Section,
+                        MatchSyntaxKind::Structure => CatalogSyntaxKind::Structure,
+                    },
+                    element_class,
+                )
+            });
+        if declared_handler || kind != MatchSyntaxKind::Expression {
+            return Ok(declared_handler);
         }
         let dynamic = self
             .host
@@ -1214,12 +1257,14 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
     }
 
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
-        if !self.matching_hooks_registered {
-            return Ok(PatternHookControl::Continue);
-        }
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
             self.prepare_definition_candidate(event.input_range)?;
+        }
+        if !self.matching_hooks_registered {
+            let control = PatternHookControl::Continue;
+            self.restore_candidate_state(event.scope, event.timing, &event.outcome, &control)?;
+            return Ok(control);
         }
         let target = if event.scope == PatternHookScope::Definition {
             DispatchTarget::SyntaxDefinition(wit_syntax_kind(event.kind))
@@ -1361,6 +1406,7 @@ struct WasmExpressionEnvironment<'a> {
     hooks: WasmPatternHooks<'a>,
     pending_leaf: Option<(StateSavepoint, HookEffectsCheckpoint)>,
     pending_registered: Option<(StateSavepoint, HookEffectsCheckpoint)>,
+    semantic_candidates: Vec<(StateSavepoint, HookEffectsCheckpoint)>,
 }
 
 impl WasmExpressionEnvironment<'_> {
@@ -1399,6 +1445,31 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 }
 
 impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        self.semantic_candidates.push((
+            self.hooks
+                .transaction
+                .savepoint()
+                .map_err(|error| error.to_string())?,
+            HookEffectsCheckpoint::capture(&self.hooks.effects),
+        ));
+        Ok(())
+    }
+
+    fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let Some((savepoint, effects)) = self.semantic_candidates.pop() else {
+            return Err("semantic candidate finished without a matching begin".to_owned());
+        };
+        if !accepted {
+            self.hooks
+                .transaction
+                .rollback_to(&savepoint)
+                .map_err(|error| error.to_string())?;
+            effects.restore(&mut self.hooks.effects);
+        }
+        Ok(())
+    }
+
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
@@ -1521,15 +1592,19 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn can_resolve_registered_expression(&self, element_class: &ClassName) -> bool {
-        self.hooks.host.components.iter().any(|component| {
-            !component.disabled
-                && !component.unloaded
-                && component
-                    .manifest
-                    .registered_expression_class_suffixes
-                    .iter()
-                    .any(|suffix| element_class.as_str().ends_with(suffix))
-        })
+        has_registered_syntax_handler(
+            &self.hooks.host.components,
+            CatalogSyntaxKind::Expression,
+            element_class,
+        )
+    }
+
+    fn registered_capture_kinds(
+        &self,
+        kind: CatalogSyntaxKind,
+        element_class: &ClassName,
+    ) -> Vec<RegisteredCaptureKind> {
+        registered_capture_kinds(&self.hooks.host.components, kind, element_class)
     }
 
     fn resolve_registered_expression(
@@ -1638,6 +1713,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                         .slice(request.input)
                         .unwrap_or_default()
                         .to_owned(),
+                    element_class: expression_node_element_class(
+                        child,
+                        self.hooks.host.config.syntax_catalog.as_deref(),
+                    ),
                     return_type: child
                         .return_type
                         .as_ref()
@@ -1653,6 +1732,15 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                         .collect(),
                 })
                 .collect(),
+            conditions: request
+                .conditions
+                .iter()
+                .map(|capture| registered_condition_capture_to_wit(capture, request.input))
+                .collect(),
+            common_child_return_type: common_child_return_type(
+                request.children,
+                self.hooks.host.config.syntax_catalog.as_deref(),
+            ),
             type_options,
             property_options,
             effective_return_type: request
@@ -1725,12 +1813,161 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         Ok(())
     }
 
+    fn enter_section_children(
+        &mut self,
+        request: SectionChildrenRequest<'_>,
+    ) -> Result<SectionChildrenDecision, String> {
+        let payload = section_hook_payload(&request, WitSectionTiming::EnterChildren);
+        let original = payload.clone();
+        let result = self
+            .hooks
+            .host
+            .dispatch_in_parse(
+                self.hooks.transaction,
+                DispatchRequest {
+                    context: self.hooks.context.clone(),
+                    target: DispatchTarget::ExactRegistration {
+                        registration_id: request.registration_id.to_owned(),
+                        syntax_kind: SyntaxKind::Section,
+                    },
+                    phase: HookPhase::Section,
+                    payload: HookPayload::Section(payload),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        let updates = result.effects.context_updates.clone();
+        merge_effects(&mut self.hooks.effects, result.effects);
+        self.hooks.calls.extend(result.calls);
+        self.hooks.failures.extend(result.failures);
+        let HookPayload::Section(output) = result.payload else {
+            return Err("Section hook returned a different payload kind".to_owned());
+        };
+        if !same_section_payload(&output, &original) {
+            return Err("Section hook changed immutable candidate fields".to_owned());
+        }
+        if let HookDecision::Reject(rejection) = result.decision {
+            return Ok(SectionChildrenDecision::Reject {
+                reason: rejection.reason,
+            });
+        }
+        let mut context = request.context.clone();
+        for update in updates {
+            if update.syntax_context != context.syntax_context {
+                continue;
+            }
+            if let Some(value) = update.value {
+                context.values.insert(
+                    update.key,
+                    String::from_utf8(value)
+                        .map_err(|_| "Section context update is not UTF-8".to_owned())?,
+                );
+            } else {
+                context.values.remove(&update.key);
+            }
+        }
+        Ok(SectionChildrenDecision::Accept(context))
+    }
+
+    fn exit_section_children(&mut self, request: SectionChildrenRequest<'_>) -> Result<(), String> {
+        let payload = section_hook_payload(&request, WitSectionTiming::ExitChildren);
+        let original = payload.clone();
+        let result = self
+            .hooks
+            .host
+            .dispatch_in_parse(
+                self.hooks.transaction,
+                DispatchRequest {
+                    context: self.hooks.context.clone(),
+                    target: DispatchTarget::ExactRegistration {
+                        registration_id: request.registration_id.to_owned(),
+                        syntax_kind: SyntaxKind::Section,
+                    },
+                    phase: HookPhase::Section,
+                    payload: HookPayload::Section(payload),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        merge_effects(&mut self.hooks.effects, result.effects);
+        self.hooks.calls.extend(result.calls);
+        self.hooks.failures.extend(result.failures);
+        let HookPayload::Section(output) = result.payload else {
+            return Err("Section hook returned a different payload kind".to_owned());
+        };
+        if !same_section_payload(&output, &original) {
+            return Err("Section hook changed immutable candidate fields".to_owned());
+        }
+        if let HookDecision::Reject(rejection) = result.decision {
+            return Err(format!(
+                "Section exit hook rejected the candidate: {}",
+                rejection.reason
+            ));
+        }
+        Ok(())
+    }
+
     fn state_revision(&self) -> Result<u64, String> {
         self.hooks
             .transaction
             .state_revision()
             .map_err(|error| error.to_string())
     }
+}
+
+fn section_hook_payload(
+    request: &SectionChildrenRequest<'_>,
+    timing: WitSectionTiming,
+) -> WitSectionPayload {
+    WitSectionPayload {
+        input: request.input.to_owned(),
+        raw_node_id: request.raw_node_id.get(),
+        span: mapped_span_to_wit(request.span.mapped.clone()),
+        timing,
+        candidate: WitSectionCandidate {
+            raw_node_id: request.raw_node_id.get(),
+            definition_id: request.definition_id.to_owned(),
+            registration_id: request.registration_id.to_owned(),
+            element_class: request.element_class.map(|class| class.as_str().to_owned()),
+            pattern_index: u64::try_from(request.pattern_index).unwrap_or(u64::MAX),
+            span: mapped_span_to_wit(request.span.mapped.clone()),
+            loop_section: request.loop_section,
+            effect_section: request.effect_section,
+            section_expression: request.section_expression,
+            regex_captures: request
+                .captures
+                .iter()
+                .filter_map(|capture| match capture {
+                    PatternCapture::Regex { value, .. } => Some(value.clone()),
+                    PatternCapture::TypeExpression { .. } => None,
+                })
+                .collect(),
+            conditions: request
+                .conditions
+                .iter()
+                .map(|capture| registered_condition_capture_to_wit(capture, request.input))
+                .collect(),
+        },
+    }
+}
+
+fn same_section_payload(left: &WitSectionPayload, right: &WitSectionPayload) -> bool {
+    left.input == right.input
+        && left.raw_node_id == right.raw_node_id
+        && same_mapped_span(&left.span, &right.span)
+        && left.timing == right.timing
+        && left.candidate.raw_node_id == right.candidate.raw_node_id
+        && left.candidate.definition_id == right.candidate.definition_id
+        && left.candidate.registration_id == right.candidate.registration_id
+        && left.candidate.element_class == right.candidate.element_class
+        && left.candidate.pattern_index == right.candidate.pattern_index
+        && same_mapped_span(&left.candidate.span, &right.candidate.span)
+        && left.candidate.loop_section == right.candidate.loop_section
+        && left.candidate.effect_section == right.candidate.effect_section
+        && left.candidate.section_expression == right.candidate.section_expression
+        && left.candidate.regex_captures == right.candidate.regex_captures
+        && same_registered_condition_captures(
+            &left.candidate.conditions,
+            &right.candidate.conditions,
+        )
 }
 
 struct EffectHookPayloadView<'a> {
@@ -1744,6 +1981,49 @@ struct EffectHookPayloadView<'a> {
     catalog: &'a Catalog,
 }
 
+fn registered_condition_capture_to_wit(
+    capture: &skript_parser::RegisteredConditionCapture,
+    input: &str,
+) -> WitRegisteredConditionCapture {
+    let (definition_id, registration_id, pattern_index) =
+        condition_registration_identity(&capture.node);
+    WitRegisteredConditionCapture {
+        capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
+        text: capture
+            .node
+            .span
+            .local_range
+            .slice(input)
+            .unwrap_or_default()
+            .to_owned(),
+        span: mapped_span_to_wit(capture.node.span.mapped.clone()),
+        definition_id,
+        registration_id,
+        pattern_index: pattern_index.map(u64::try_from).transpose().unwrap_or(None),
+    }
+}
+
+fn condition_registration_identity(
+    node: &skript_parser::ConditionNode,
+) -> (Option<String>, Option<String>, Option<usize>) {
+    match &node.kind {
+        skript_parser::ConditionNodeKind::Registered {
+            definition_id,
+            registration_id,
+            pattern_index,
+        } => (
+            Some(definition_id.clone()),
+            Some(registration_id.clone()),
+            Some(*pattern_index),
+        ),
+        skript_parser::ConditionNodeKind::Grouped => node
+            .children
+            .first()
+            .map(condition_registration_identity)
+            .unwrap_or_default(),
+    }
+}
+
 fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
     WitEffectPayload {
         input: view.input.to_owned(),
@@ -1752,21 +2032,31 @@ fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
         timing: view.timing,
         candidate: view
             .candidate
-            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog)),
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input)),
         alternatives: view
             .alternatives
             .iter()
-            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog))
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input))
             .collect(),
         failure: view.failure.map(effect_failure_to_wit),
     }
 }
 
-fn effect_candidate_to_wit(candidate: &EffectCandidate, catalog: &Catalog) -> WitEffectCandidate {
+fn effect_candidate_to_wit(
+    candidate: &EffectCandidate,
+    catalog: &Catalog,
+    input: &str,
+) -> WitEffectCandidate {
     WitEffectCandidate {
         raw_node_id: candidate.raw_node_id.get(),
         definition_id: candidate.matched.definition_id.clone(),
         registration_id: candidate.matched.registration_id.clone(),
+        element_class: catalog
+            .effects()
+            .find(|effect| {
+                effect.common.registration_id.as_str() == candidate.matched.registration_id
+            })
+            .map(|effect| effect.common.element_class.as_str().to_owned()),
         priority: candidate.matched.priority,
         registration_order: u64::try_from(candidate.matched.registration_order).unwrap_or(u64::MAX),
         pattern_index: u64::try_from(candidate.matched.pattern_index).unwrap_or(u64::MAX),
@@ -1851,6 +2141,31 @@ fn effect_candidate_to_wit(candidate: &EffectCandidate, catalog: &Catalog) -> Wi
                 value: value.clone(),
             })
             .collect(),
+        conditions: candidate
+            .conditions
+            .iter()
+            .map(|capture| registered_condition_capture_to_wit(capture, input))
+            .collect(),
+        effects: candidate
+            .effects
+            .iter()
+            .map(|capture| WitRegisteredEffectCapture {
+                capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
+                text: capture.value.clone(),
+                span: mapped_span_to_wit(capture.span.mapped.clone()),
+                definition_id: capture.candidate.matched.definition_id.clone(),
+                registration_id: capture.candidate.matched.registration_id.clone(),
+                pattern_index: u64::try_from(capture.candidate.matched.pattern_index)
+                    .unwrap_or(u64::MAX),
+                element_class: catalog
+                    .effects()
+                    .find(|effect| {
+                        effect.common.registration_id.as_str()
+                            == capture.candidate.matched.registration_id
+                    })
+                    .map(|effect| effect.common.element_class.as_str().to_owned()),
+            })
+            .collect(),
     }
 }
 
@@ -1920,6 +2235,7 @@ fn same_effect_candidate_identity(
     output.raw_node_id == original.raw_node_id
         && output.definition_id == original.definition_id
         && output.registration_id == original.registration_id
+        && output.element_class == original.element_class
         && output.priority == original.priority
         && output.registration_order == original.registration_order
         && output.pattern_index == original.pattern_index
@@ -1929,6 +2245,8 @@ fn same_effect_candidate_identity(
         && same_effect_tags(&output.tags, &original.tags)
         && output.mark == original.mark
         && same_effect_marks(&output.marks, &original.marks)
+        && same_registered_condition_captures(&output.conditions, &original.conditions)
+        && same_registered_effect_captures(&output.effects, &original.effects)
 }
 
 fn same_effect_candidate_full(left: &WitEffectCandidate, right: &WitEffectCandidate) -> bool {
@@ -2007,6 +2325,37 @@ fn same_metadata_entries(left: &[WitMetadataEntry], right: &[WitMetadataEntry]) 
             .iter()
             .zip(right)
             .all(|(left, right)| left.key == right.key && left.value == right.value)
+}
+
+fn same_registered_condition_captures(
+    left: &[WitRegisteredConditionCapture],
+    right: &[WitRegisteredConditionCapture],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.capture_index == right.capture_index
+                && left.text == right.text
+                && same_mapped_span(&left.span, &right.span)
+                && left.definition_id == right.definition_id
+                && left.registration_id == right.registration_id
+                && left.pattern_index == right.pattern_index
+        })
+}
+
+fn same_registered_effect_captures(
+    left: &[WitRegisteredEffectCapture],
+    right: &[WitRegisteredEffectCapture],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.capture_index == right.capture_index
+                && left.text == right.text
+                && same_mapped_span(&left.span, &right.span)
+                && left.definition_id == right.definition_id
+                && left.registration_id == right.registration_id
+                && left.pattern_index == right.pattern_index
+                && left.element_class == right.element_class
+        })
 }
 fn apply_effect_hook_replacement(
     matches: &mut EffectMatches,
@@ -2174,6 +2523,38 @@ fn registered_property_options(
         .collect()
 }
 
+fn expression_node_element_class(
+    node: &skript_parser::ExpressionNode,
+    catalog: Option<&Catalog>,
+) -> Option<String> {
+    let skript_parser::ExpressionNodeKind::Registered {
+        registration_id, ..
+    } = &node.kind
+    else {
+        return None;
+    };
+    catalog?
+        .expressions()
+        .find(|expression| expression.common.registration_id.as_str() == registration_id)
+        .map(|expression| expression.common.element_class.as_str().to_owned())
+}
+
+fn common_child_return_type(
+    children: &[skript_parser::ExpressionNode],
+    catalog: Option<&Catalog>,
+) -> Option<String> {
+    let catalog = catalog?;
+    let mut types = children
+        .iter()
+        .filter_map(|child| child.return_type.as_ref());
+    let first = types.next()?.clone();
+    types
+        .try_fold(first, |common, next| {
+            catalog.common_assignable_class(common.as_str(), next.as_str())
+        })
+        .map(|value| value.as_str().to_owned())
+}
+
 fn same_expression_type_options(
     left: &[WitExpressionTypeOption],
     right: &[WitExpressionTypeOption],
@@ -2254,10 +2635,13 @@ fn same_registered_expression_identity(
             .zip(&right.children)
             .all(|(left, right)| {
                 left.text == right.text
+                    && left.element_class == right.element_class
                     && left.return_type == right.return_type
                     && left.multiplicity == right.multiplicity
                     && same_metadata_entries(&left.metadata, &right.metadata)
             })
+        && same_registered_condition_captures(&left.conditions, &right.conditions)
+        && left.common_child_return_type == right.common_child_return_type
         && same_expression_type_options(&left.type_options, &right.type_options)
         && left.property_options.len() == right.property_options.len()
         && left
@@ -2333,6 +2717,77 @@ fn wit_syntax_kind(kind: MatchSyntaxKind) -> SyntaxKind {
         MatchSyntaxKind::Function => SyntaxKind::Function,
         MatchSyntaxKind::Section => SyntaxKind::Section,
         MatchSyntaxKind::Structure => SyntaxKind::Structure,
+    }
+}
+
+fn registered_capture_kinds(
+    components: &[ComponentEntry],
+    kind: CatalogSyntaxKind,
+    element_class: &ClassName,
+) -> Vec<RegisteredCaptureKind> {
+    components
+        .iter()
+        .rev()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .flat_map(|component| &component.manifest.registered_syntax_handlers)
+        .find(|handler| {
+            catalog_syntax_kind(handler.kind) == kind
+                && element_class.as_str().ends_with(&handler.class_suffix)
+        })
+        .map_or_else(Vec::new, |handler| {
+            handler
+                .regex_captures
+                .iter()
+                .map(|kind| match kind {
+                    WitRegisteredCaptureKind::Raw => RegisteredCaptureKind::Raw,
+                    WitRegisteredCaptureKind::Condition => RegisteredCaptureKind::Condition,
+                    WitRegisteredCaptureKind::Effect => RegisteredCaptureKind::Effect,
+                })
+                .collect()
+        })
+}
+
+fn has_registered_syntax_handler(
+    components: &[ComponentEntry],
+    kind: CatalogSyntaxKind,
+    element_class: &ClassName,
+) -> bool {
+    components
+        .iter()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .flat_map(|component| &component.manifest.registered_syntax_handlers)
+        .any(|handler| {
+            catalog_syntax_kind(handler.kind) == kind
+                && element_class.as_str().ends_with(&handler.class_suffix)
+        })
+}
+
+fn registered_element_class<'a>(
+    catalog: &'a Catalog,
+    kind: MatchSyntaxKind,
+    registration_id: &str,
+) -> Option<&'a ClassName> {
+    match kind {
+        MatchSyntaxKind::Condition => catalog
+            .conditions()
+            .find(|value| value.common.registration_id.as_str() == registration_id)
+            .map(|value| &value.common.element_class),
+        MatchSyntaxKind::Effect => catalog
+            .effects()
+            .find(|value| value.common.registration_id.as_str() == registration_id)
+            .map(|value| &value.common.element_class),
+        MatchSyntaxKind::Expression => catalog
+            .expressions()
+            .find(|value| value.common.registration_id.as_str() == registration_id)
+            .map(|value| &value.common.element_class),
+        MatchSyntaxKind::Section => catalog
+            .sections()
+            .find(|value| value.common.registration_id.as_str() == registration_id)
+            .map(|value| &value.common.element_class),
+        MatchSyntaxKind::Event
+        | MatchSyntaxKind::Type
+        | MatchSyntaxKind::Function
+        | MatchSyntaxKind::Structure => None,
     }
 }
 struct EpochTicker {
@@ -2611,6 +3066,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            semantic_candidates: Vec::new(),
         };
         let result = run_expression_parser(
             catalog.as_ref(),
@@ -2626,6 +3082,176 @@ impl ParserHost {
                     transaction.rollback_to(&base)?;
                 }
                 Ok(WasmExpressionParseResult {
+                    matches,
+                    effects,
+                    calls,
+                    failures,
+                })
+            }
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Parses one Condition with SSG registrations and recursive Expression hooks.
+    ///
+    /// The caller owns the parse transaction. A no-match or parser failure
+    /// restores the transaction to its entry savepoint, while a selected
+    /// Condition keeps only state belonging to accepted nested candidates.
+    pub fn parse_condition_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: ConditionParseRequest<'_>,
+        config: ConditionParserConfig,
+    ) -> Result<WasmConditionParseResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != context.document_id || document_revision != context.document_revision {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Condition context {}@{} does not match parse transaction {}@{}",
+                    context.document_id, context.document_revision, document_id, document_revision,
+                ),
+            }
+            .into());
+        }
+        if request.context.syntax_context != context.syntax_context {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Condition syntax context {} does not match invocation context {}",
+                    request.context.syntax_context, context.syntax_context,
+                ),
+            }
+            .into());
+        }
+
+        let catalog = self
+            .config
+            .syntax_catalog
+            .clone()
+            .ok_or(HostError::SyntaxCatalogUnavailable)?;
+        let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
+        let base = transaction.savepoint()?;
+        let input_text = request.source.virtual_source().to_owned();
+        let matching_hooks_registered = self.registry.has_matching_hooks();
+        let hooks = WasmPatternHooks {
+            host: self,
+            transaction,
+            matching_hooks_registered,
+            context,
+            input: input_text,
+            frames: Vec::new(),
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let mut environment = WasmExpressionEnvironment {
+            hooks,
+            pending_leaf: None,
+            pending_registered: None,
+            semantic_candidates: Vec::new(),
+        };
+        let result = run_condition_parser(
+            catalog.as_ref(),
+            Some(&dynamic_snapshot),
+            request,
+            &mut environment,
+            config,
+        );
+        let (effects, calls, failures) = environment.into_parts();
+        match result {
+            Ok(matches) => {
+                if matches.selected.is_none() {
+                    transaction.rollback_to(&base)?;
+                }
+                Ok(WasmConditionParseResult {
+                    matches,
+                    effects,
+                    calls,
+                    failures,
+                })
+            }
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Parses one Section header and recursively claims its RawTree children.
+    pub fn parse_section_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: SectionParseRequest<'_>,
+        config: SectionParserConfig,
+    ) -> Result<WasmSectionParseResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != context.document_id || document_revision != context.document_revision {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Section context {}@{} does not match parse transaction {}@{}",
+                    context.document_id, context.document_revision, document_id, document_revision,
+                ),
+            }
+            .into());
+        }
+        let node_context = u64::from(request.node.syntax_context.get());
+        if node_context != context.syntax_context
+            || request.context.syntax_context != context.syntax_context
+        {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Section syntax contexts node={node_context}, parser={}, invocation={} do not match",
+                    request.context.syntax_context, context.syntax_context,
+                ),
+            }
+            .into());
+        }
+
+        let catalog = self
+            .config
+            .syntax_catalog
+            .clone()
+            .ok_or(HostError::SyntaxCatalogUnavailable)?;
+        let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
+        let base = transaction.savepoint()?;
+        let matching_hooks_registered = self.registry.has_matching_hooks();
+        let hooks = WasmPatternHooks {
+            host: self,
+            transaction,
+            matching_hooks_registered,
+            context,
+            input: request.source.virtual_source().to_owned(),
+            frames: Vec::new(),
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let mut environment = WasmExpressionEnvironment {
+            hooks,
+            pending_leaf: None,
+            pending_registered: None,
+            semantic_candidates: Vec::new(),
+        };
+        let parsed = run_section_parser(
+            catalog.as_ref(),
+            Some(&dynamic_snapshot),
+            request,
+            &mut environment,
+            config,
+        );
+        let (effects, calls, failures) = environment.into_parts();
+        match parsed {
+            Ok(matches) => {
+                if matches.selected.is_none() {
+                    transaction.rollback_to(&base)?;
+                }
+                Ok(WasmSectionParseResult {
                     matches,
                     effects,
                     calls,
@@ -2775,6 +3401,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            semantic_candidates: Vec::new(),
         };
         let parsed = run_effect_parser(
             catalog.as_ref(),
@@ -3996,6 +4623,7 @@ impl ParserHost {
         let capability_id = match request.phase {
             HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
             HookPhase::Effect => CAPABILITY_EFFECT_PARSER,
+            HookPhase::Section => CAPABILITY_SECTION_PARSER,
             _ => CAPABILITY_HOOKS,
         };
         let candidates =
@@ -4409,6 +5037,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_ADDITIONAL_PARSE,
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_EFFECT_PARSER,
+        CAPABILITY_SECTION_PARSER,
     ]
     .map(|id| Capability::new(id, 1))
     .to_vec()
@@ -4572,6 +5201,21 @@ fn validate_manifest(
                 ),
             });
         }
+        if subscription.capability_id == CAPABILITY_SECTION_PARSER
+            && (!matches!(subscription.phase, HookPhase::Section)
+                || !matches!(
+                    subscription.target,
+                    HookTarget::SyntaxDefinition(SyntaxKind::Section)
+                        | HookTarget::ExactRegistration(_)
+                ))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "Section parser subscription {} must target Section syntax or an exact registration in the Section phase",
+                    subscription.id
+                ),
+            });
+        }
         if let HookTarget::ExactRegistration(registration_id) = &subscription.target
             && registration_id.trim().is_empty()
         {
@@ -4583,38 +5227,78 @@ fn validate_manifest(
             });
         }
     }
-    let mut registered_expression_suffixes = BTreeSet::new();
-    for suffix in &manifest.registered_expression_class_suffixes {
-        if suffix.trim().is_empty() {
+    let mut registered_handlers = BTreeSet::new();
+    for handler in &manifest.registered_syntax_handlers {
+        if handler.class_suffix.trim().is_empty() {
             return Err(HostError::InvalidManifest {
                 message: format!(
-                    "{} declares a blank registered Expression class suffix",
+                    "{} declares a blank registered syntax class suffix",
                     manifest.component_id
                 ),
             });
         }
-        if !registered_expression_suffixes.insert(suffix.as_str()) {
+        let kind = catalog_syntax_kind(handler.kind);
+        if !matches!(
+            kind,
+            CatalogSyntaxKind::Expression | CatalogSyntaxKind::Effect | CatalogSyntaxKind::Section
+        ) {
             return Err(HostError::InvalidManifest {
                 message: format!(
-                    "{} declares registered Expression class suffix {} more than once",
-                    manifest.component_id, suffix
+                    "{} declares a handler for an unsupported registered syntax kind",
+                    manifest.component_id
                 ),
             });
         }
-    }
-    if !manifest.registered_expression_class_suffixes.is_empty()
-        && !manifest.subscriptions.iter().any(|subscription| {
-            subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
-                && subscription.phase == HookPhase::Expression
-                && matches!(subscription.mode, HookMode::Transform)
-        })
-    {
-        return Err(HostError::InvalidManifest {
-            message: format!(
-                "{} declares registered Expression handlers without an Expression parser subscription",
-                manifest.component_id
-            ),
-        });
+        if matches!(
+            kind,
+            CatalogSyntaxKind::Expression | CatalogSyntaxKind::Section
+        ) && handler
+            .regex_captures
+            .iter()
+            .any(|capture| matches!(capture, WitRegisteredCaptureKind::Effect))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares an Effect capture for a syntax that cannot contain one",
+                    manifest.component_id
+                ),
+            });
+        }
+        if !registered_handlers.insert((kind.order(), handler.class_suffix.as_str())) {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares registered syntax handler {} more than once",
+                    manifest.component_id, handler.class_suffix
+                ),
+            });
+        }
+        let has_subscription = manifest
+            .subscriptions
+            .iter()
+            .any(|subscription| match kind {
+                CatalogSyntaxKind::Expression => {
+                    subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
+                        && subscription.phase == HookPhase::Expression
+                        && matches!(subscription.mode, HookMode::Transform)
+                }
+                CatalogSyntaxKind::Effect => {
+                    subscription.capability_id == CAPABILITY_EFFECT_PARSER
+                        && subscription.phase == HookPhase::Effect
+                }
+                CatalogSyntaxKind::Section => {
+                    subscription.capability_id == CAPABILITY_SECTION_PARSER
+                        && subscription.phase == HookPhase::Section
+                }
+                _ => false,
+            });
+        if !has_subscription {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares registered syntax handler {} without its parser subscription",
+                    manifest.component_id, handler.class_suffix
+                ),
+            });
+        }
     }
     Ok(())
 }
@@ -5402,6 +6086,34 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .map(String::len)
                     .fold(0usize, usize::saturating_add)
             })),
+        HookPayload::Section(value) => value
+            .input
+            .len()
+            .saturating_add(value.candidate.definition_id.len())
+            .saturating_add(value.candidate.registration_id.len())
+            .saturating_add(
+                value
+                    .candidate
+                    .element_class
+                    .as_ref()
+                    .map_or(0, String::len),
+            )
+            .saturating_add(
+                value
+                    .candidate
+                    .regex_captures
+                    .iter()
+                    .map(String::len)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .candidate
+                    .conditions
+                    .iter()
+                    .map(registered_condition_capture_size)
+                    .fold(0usize, usize::saturating_add),
+            ),
         HookPayload::Expression(value) => value.input.len().saturating_add(
             value
                 .candidates
@@ -5427,12 +6139,62 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .saturating_add(value.definition_id.len())
             .saturating_add(value.registration_id.len())
             .saturating_add(value.element_class.len())
+            .saturating_add(value.related_property.as_ref().map_or(0, String::len))
+            .saturating_add(
+                value
+                    .expected_types
+                    .iter()
+                    .map(|expected| expected.class_name.len())
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(value.declared_return_type.as_ref().map_or(0, String::len))
+            .saturating_add(
+                value
+                    .possible_return_types
+                    .iter()
+                    .map(String::len)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .regex_captures
+                    .iter()
+                    .map(String::len)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .tags
+                    .iter()
+                    .map(|tag| tag.value.len())
+                    .fold(0usize, usize::saturating_add),
+            )
             .saturating_add(
                 value
                     .children
                     .iter()
-                    .map(|child| child.text.len())
+                    .map(|child| {
+                        child
+                            .text
+                            .len()
+                            .saturating_add(child.element_class.as_ref().map_or(0, String::len))
+                            .saturating_add(child.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(metadata_entries_size(&child.metadata))
+                    })
                     .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .conditions
+                    .iter()
+                    .map(registered_condition_capture_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .common_child_return_type
+                    .as_ref()
+                    .map_or(0, String::len),
             )
             .saturating_add(
                 value
@@ -5462,7 +6224,9 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                         )
                     })
                     .fold(0usize, usize::saturating_add),
-            ),
+            )
+            .saturating_add(value.effective_return_type.as_ref().map_or(0, String::len))
+            .saturating_add(metadata_entries_size(&value.metadata)),
         HookPayload::Capture(value) => value
             .syntax_id
             .len()
@@ -5503,6 +6267,7 @@ fn effect_candidate_size(
         .definition_id
         .len()
         .saturating_add(candidate.registration_id.len())
+        .saturating_add(candidate.element_class.as_ref().map_or(0, String::len))
         .saturating_add(candidate.pattern.len())
         .saturating_add(candidate.handler.as_ref().map_or(0, String::len))
         .saturating_add(
@@ -5526,13 +6291,45 @@ fn effect_candidate_size(
                 .map(|tag| tag.value.len())
                 .fold(0usize, usize::saturating_add),
         )
+        .saturating_add(metadata_entries_size(&candidate.metadata))
         .saturating_add(
             candidate
-                .metadata
+                .conditions
                 .iter()
-                .map(|entry| entry.key.len().saturating_add(entry.value.len()))
+                .map(registered_condition_capture_size)
                 .fold(0usize, usize::saturating_add),
         )
+        .saturating_add(
+            candidate
+                .effects
+                .iter()
+                .map(registered_effect_capture_size)
+                .fold(0usize, usize::saturating_add),
+        )
+}
+
+fn metadata_entries_size(entries: &[WitMetadataEntry]) -> usize {
+    entries
+        .iter()
+        .map(|entry| entry.key.len().saturating_add(entry.value.len()))
+        .fold(0usize, usize::saturating_add)
+}
+
+fn registered_condition_capture_size(capture: &WitRegisteredConditionCapture) -> usize {
+    capture
+        .text
+        .len()
+        .saturating_add(capture.definition_id.as_ref().map_or(0, String::len))
+        .saturating_add(capture.registration_id.as_ref().map_or(0, String::len))
+}
+
+fn registered_effect_capture_size(capture: &WitRegisteredEffectCapture) -> usize {
+    capture
+        .text
+        .len()
+        .saturating_add(capture.definition_id.len())
+        .saturating_add(capture.registration_id.len())
+        .saturating_add(capture.element_class.as_ref().map_or(0, String::len))
 }
 fn raw_tree_size(tree: &RawTree) -> usize {
     tree.nodes
@@ -5785,6 +6582,7 @@ mod tests {
                 CAPABILITY_ADDITIONAL_PARSE,
                 CAPABILITY_EXPRESSION_PARSER,
                 CAPABILITY_EFFECT_PARSER,
+                CAPABILITY_SECTION_PARSER,
             ]
         );
     }
@@ -5798,7 +6596,7 @@ mod tests {
             abi: WitAbiVersion { major: 2, minor: 0 },
             capabilities: Vec::new(),
             subscriptions: Vec::new(),
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: Vec::new(),
         };
         let error = validate_manifest(&manifest, &host_capabilities()).unwrap_err();
@@ -5838,7 +6636,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -5893,7 +6691,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -5924,6 +6722,7 @@ mod tests {
     fn expression_subscriptions_use_the_dedicated_pipeline_shape() {
         use crate::bindings::nlaocs::skript_parser_addon::types::{
             AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
+            RegisteredSyntaxHandler,
         };
 
         let subscription = HookSubscription {
@@ -5947,7 +6746,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -5955,16 +6754,24 @@ mod tests {
             .expect("the dedicated Expression pipeline shape must be accepted");
 
         let mut with_handler = manifest(subscription.clone());
-        with_handler.registered_expression_class_suffixes = vec![".ExprParse".to_owned()];
+        with_handler.registered_syntax_handlers = vec![RegisteredSyntaxHandler {
+            kind: SyntaxKind::Expression,
+            class_suffix: ".ExprParse".to_owned(),
+            regex_captures: Vec::new(),
+        }];
         validate_manifest(&with_handler, &host_capabilities())
             .expect("an Expression transform may declare handled registrations");
 
-        for suffixes in [
-            vec!["".to_owned()],
-            vec![".ExprParse".to_owned(), ".ExprParse".to_owned()],
-        ] {
+        for suffixes in [vec![""], vec![".ExprParse", ".ExprParse"]] {
             let mut invalid = manifest(subscription.clone());
-            invalid.registered_expression_class_suffixes = suffixes;
+            invalid.registered_syntax_handlers = suffixes
+                .into_iter()
+                .map(|suffix| RegisteredSyntaxHandler {
+                    kind: SyntaxKind::Expression,
+                    class_suffix: suffix.to_owned(),
+                    regex_captures: Vec::new(),
+                })
+                .collect();
             assert!(matches!(
                 validate_manifest(&invalid, &host_capabilities()),
                 Err(HostError::InvalidManifest { .. })
@@ -6020,7 +6827,7 @@ mod tests {
                 required: true,
             }],
             subscriptions: vec![subscription],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -6045,6 +6852,66 @@ mod tests {
             ));
         }
     }
+
+    #[test]
+    fn section_subscriptions_use_section_targets_and_phase() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
+            RegisteredCaptureKind, RegisteredSyntaxHandler,
+        };
+
+        let subscription = HookSubscription {
+            id: "section.parse".to_owned(),
+            target: HookTarget::SyntaxDefinition(SyntaxKind::Section),
+            phase: HookPhase::Section,
+            priority: 0,
+            mode: HookMode::Transform,
+            capability_id: CAPABILITY_SECTION_PARSER.to_owned(),
+        };
+        let manifest = |subscription| ComponentManifest {
+            component_id: "test.section-contract".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![WitCapabilityRequirement {
+                id: CAPABILITY_SECTION_PARSER.to_owned(),
+                minimum_version: 1,
+                required: true,
+            }],
+            subscriptions: vec![subscription],
+            registered_syntax_handlers: vec![RegisteredSyntaxHandler {
+                kind: SyntaxKind::Section,
+                class_suffix: ".SecConditional".to_owned(),
+                regex_captures: vec![RegisteredCaptureKind::Condition],
+            }],
+            state_namespaces: Vec::new(),
+        };
+
+        validate_manifest(&manifest(subscription.clone()), &host_capabilities())
+            .expect("a Section handler may claim Condition captures");
+
+        let mut invalid_target = subscription.clone();
+        invalid_target.target = HookTarget::ParseStage;
+        let mut invalid_phase = subscription.clone();
+        invalid_phase.phase = HookPhase::Candidate;
+        for invalid in [invalid_target, invalid_phase] {
+            assert!(matches!(
+                validate_manifest(&manifest(invalid), &host_capabilities()),
+                Err(HostError::InvalidManifest { .. })
+            ));
+        }
+
+        let mut invalid_capture = manifest(subscription);
+        invalid_capture.registered_syntax_handlers[0].regex_captures =
+            vec![RegisteredCaptureKind::Effect];
+        assert!(matches!(
+            validate_manifest(&invalid_capture, &host_capabilities()),
+            Err(HostError::InvalidManifest { .. })
+        ));
+    }
+
     #[test]
     fn transform_hooks_compose_replacements() {
         let first = apply_hook_output(

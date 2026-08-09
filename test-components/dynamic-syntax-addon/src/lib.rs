@@ -67,7 +67,7 @@ impl addon::Guest for DynamicSyntaxAddon {
                 mode: HookMode::Override,
                 capability_id: CAPABILITY_HOOKS.to_owned(),
             }],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: Vec::new(),
         }
     }

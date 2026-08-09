@@ -9,10 +9,10 @@ use crate::pattern_match::{
     find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
 };
 use crate::{
-    CandidateMatch, MappedSource, MatchInput, MatchSpan, ParseTagCapture, PatternCandidate,
-    PatternCapture, PatternHookControl, PatternHookEvent, PatternMatchEnvironment,
-    PatternMatchError, PatternMatcherConfig, TextRange, TypeExpressionRequest,
-    TypeExpressionResolution, catalog_pattern_candidates,
+    CandidateMatch, ConditionNode, MappedSource, MatchInput, MatchSpan, ParseTagCapture,
+    PatternCandidate, PatternCapture, PatternHookControl, PatternHookEvent,
+    PatternMatchEnvironment, PatternMatchError, PatternMatcherConfig, TextRange,
+    TypeExpressionRequest, TypeExpressionResolution, catalog_pattern_candidates,
     match_pattern_candidates_with_environment, snapshot_pattern_candidates,
 };
 use std::cell::RefCell;
@@ -102,7 +102,46 @@ pub struct ExpressionNode {
     pub tags: Vec<ParseTagCapture>,
     pub mark: i32,
     pub children: Vec<ExpressionNode>,
+    pub conditions: Vec<RegisteredConditionCapture>,
     pub metadata: BTreeMap<String, String>,
+}
+
+/// Semantic meaning assigned to one regex capture by a WASM registration handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegisteredCaptureKind {
+    Raw,
+    Condition,
+    Effect,
+}
+
+/// One regex capture that was recursively accepted as a Condition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredConditionCapture {
+    pub capture_index: usize,
+    pub node: ConditionNode,
+}
+
+/// Selected Section identity supplied around recursive child parsing.
+pub struct SectionChildrenRequest<'a> {
+    pub input: &'a str,
+    pub raw_node_id: crate::RawNodeId,
+    pub definition_id: &'a str,
+    pub registration_id: &'a str,
+    pub element_class: Option<&'a ClassName>,
+    pub pattern_index: usize,
+    pub span: &'a MatchSpan,
+    pub loop_section: bool,
+    pub effect_section: bool,
+    pub section_expression: bool,
+    pub captures: &'a [PatternCapture],
+    pub conditions: &'a [RegisteredConditionCapture],
+    pub context: &'a ExpressionParseContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SectionChildrenDecision {
+    Accept(ExpressionParseContext),
+    Reject { reason: String },
 }
 
 /// One valid Expression candidate in deterministic parser order.
@@ -198,6 +237,7 @@ pub struct RegisteredExpressionRequest<'a> {
     pub tags: &'a [ParseTagCapture],
     pub mark: i32,
     pub children: &'a [ExpressionNode],
+    pub conditions: &'a [RegisteredConditionCapture],
     pub context: &'a ExpressionParseContext,
 }
 
@@ -237,6 +277,42 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     /// declared return type after its captures have matched.
     fn can_resolve_registered_expression(&self, _element_class: &ClassName) -> bool {
         false
+    }
+
+    /// Declares how regex captures for one registered syntax are recursively parsed.
+    fn registered_capture_kinds(
+        &self,
+        _kind: SyntaxKind,
+        _element_class: &ClassName,
+    ) -> Vec<RegisteredCaptureKind> {
+        Vec::new()
+    }
+
+    /// Starts speculative work for semantic regex captures of one candidate.
+    fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Keeps only semantic capture work belonging to the selected candidate.
+    fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let _ = accepted;
+        Ok(())
+    }
+
+    /// Pushes parser context immediately before a selected Section's children.
+    fn enter_section_children(
+        &mut self,
+        request: SectionChildrenRequest<'_>,
+    ) -> Result<SectionChildrenDecision, String> {
+        Ok(SectionChildrenDecision::Accept(request.context.clone()))
+    }
+
+    /// Pops parser context after all children of a selected Section were visited.
+    fn exit_section_children(
+        &mut self,
+        _request: SectionChildrenRequest<'_>,
+    ) -> Result<(), String> {
+        Ok(())
     }
 
     /// Resolves context-dependent return metadata after typed children matched.
@@ -336,6 +412,7 @@ struct RegistrationMetadata {
 
 pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
+    dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
     registered_candidates: Vec<PatternCandidate<'a>>,
     pattern_prefilters: HashMap<&'a str, PatternPrefilter>,
     pattern_initials: PatternInitialIndex,
@@ -481,6 +558,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let pattern_initials = pattern_initial_index(&registered_candidates, &pattern_prefilters);
         ExpressionSession {
             catalog,
+            dynamic_snapshot,
             registered_candidates,
             pattern_prefilters,
             pattern_initials,
@@ -502,17 +580,19 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         }
     }
 
-    pub(crate) fn match_candidates(
+    pub(crate) fn match_candidates_at_depth(
         &mut self,
         range: TextRange,
         candidates: &[PatternCandidate<'_>],
+        depth: usize,
     ) -> Result<crate::CandidateMatches, ExpressionParseError> {
+        self.ensure_depth(depth)?;
         if !range.is_valid_for(self.source.virtual_source()) {
             return Err(ExpressionParseError::InvalidInputRange { range });
         }
         let input = MatchInput::from_source(self.source, range)?;
         self.frame_starts.push(range.start);
-        self.frame_depths.push(0);
+        self.frame_depths.push(depth);
         let matcher_config = self.config.matcher.clone();
         let matched =
             match_pattern_candidates_with_environment(input, candidates, self, matcher_config);
@@ -523,6 +603,55 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
 
     pub(crate) fn resolved_node(&self, id: &str) -> Option<&ExpressionNode> {
         self.resolved_nodes.get(id)
+    }
+
+    pub(crate) const fn catalog(&self) -> &'a Catalog {
+        self.catalog
+    }
+
+    pub(crate) const fn dynamic_snapshot(&self) -> Option<&'a DynamicSyntaxSnapshot> {
+        self.dynamic_snapshot
+    }
+
+    pub(crate) const fn source(&self) -> &'a MappedSource {
+        self.source
+    }
+
+    pub(crate) fn environment(&self) -> &E {
+        self.environment
+    }
+
+    pub(crate) fn environment_mut(&mut self) -> &mut E {
+        self.environment
+    }
+
+    pub(crate) fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        self.environment.begin_semantic_candidate()
+    }
+
+    pub(crate) fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        self.environment.finish_semantic_candidate(accepted)
+    }
+
+    pub(crate) fn context(&self) -> &ExpressionParseContext {
+        &self.context
+    }
+
+    pub(crate) fn replace_context(
+        &mut self,
+        context: ExpressionParseContext,
+    ) -> ExpressionParseContext {
+        std::mem::replace(&mut self.context, context)
+    }
+
+    pub(crate) fn ensure_depth(&self, depth: usize) -> Result<(), ExpressionParseError> {
+        if depth > self.config.max_depth {
+            Err(ExpressionParseError::DepthLimit {
+                limit: self.config.max_depth,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -674,6 +803,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                     mark: 0,
                                     metadata: child.metadata.clone(),
                                     children: vec![child],
+                                    conditions: Vec::new(),
                                 },
                                 expected_alternative: inner_candidate.expected_alternative,
                             });
@@ -736,6 +866,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         tags: Vec::new(),
                         mark: 0,
                         children: Vec::new(),
+                        conditions: Vec::new(),
                         metadata: leaf.metadata,
                     },
                     expected_alternative: None,
@@ -769,15 +900,22 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_starts.pop();
                 let matched = matched?;
                 if let Some(selected) = matched.selected
-                    && let Some(candidate) =
-                        self.registered_node(selected, candidate_range.start, expected_types)?
+                    && let Some(candidate) = self.registered_node(
+                        selected,
+                        candidate_range.start,
+                        expected_types,
+                        depth,
+                    )?
                 {
                     candidates.push(candidate);
                 }
                 for alternative in matched.alternatives {
-                    if let Some(candidate) =
-                        self.registered_node(alternative, candidate_range.start, expected_types)?
-                    {
+                    if let Some(candidate) = self.registered_node(
+                        alternative,
+                        candidate_range.start,
+                        expected_types,
+                        depth,
+                    )? {
                         candidates.push(candidate);
                     }
                 }
@@ -811,7 +949,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             .is_some_and(|metadata| {
                 let return_type_matches = match metadata.return_type_state {
                     ReturnTypeState::Static => {
-                        self.return_type_matches(metadata.return_type.as_ref(), expected_types)
+                        self.environment
+                            .can_resolve_registered_expression(&metadata.element_class)
+                            || self
+                                .return_type_matches(metadata.return_type.as_ref(), expected_types)
                     }
                     ReturnTypeState::Dynamic | ReturnTypeState::Unresolved => {
                         self.environment
@@ -930,6 +1071,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         matched: CandidateMatch,
         frame_start: usize,
         expected_types: &[ExpressionExpectedType],
+        depth: usize,
     ) -> Result<Option<ExpressionCandidate>, ExpressionParseError> {
         let metadata = self
             .registration_metadata(&matched.registration_id)
@@ -960,9 +1102,45 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let mut node_metadata = metadata
             .as_ref()
             .map_or_else(BTreeMap::new, |value| value.metadata.clone());
+        let capture_kinds = metadata.as_ref().map_or_else(Vec::new, |value| {
+            self.environment
+                .registered_capture_kinds(SyntaxKind::Expression, &value.element_class)
+        });
+        let mut conditions = Vec::new();
+        for (capture_index, (capture, kind)) in matched
+            .matched
+            .captures
+            .iter()
+            .filter(|capture| matches!(capture, PatternCapture::Regex { .. }))
+            .zip(capture_kinds)
+            .enumerate()
+        {
+            if kind != RegisteredCaptureKind::Condition {
+                continue;
+            }
+            let PatternCapture::Regex { span, .. } = capture else {
+                unreachable!("regex captures were filtered")
+            };
+            let local = span.local_range;
+            let range = TextRange::new(frame_start + local.start, frame_start + local.end);
+            let parsed = crate::condition::parse_condition_with_session(self, range, depth + 1)
+                .map_err(|error| ExpressionParseError::Environment {
+                    message: error.to_string(),
+                })?;
+            let Some(selected) = parsed.selected else {
+                return Ok(None);
+            };
+            conditions.push(RegisteredConditionCapture {
+                capture_index,
+                node: selected.node,
+            });
+        }
         let needs_resolution = metadata.as_ref().is_some_and(|value| {
             value.return_type_state != ReturnTypeState::Static
                 || value.multiplicity_state == ResolutionState::Unresolved
+                || self
+                    .environment
+                    .can_resolve_registered_expression(&value.element_class)
         });
         if needs_resolution {
             let value = metadata.as_ref().expect("checked registered metadata");
@@ -986,6 +1164,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     tags: &matched.matched.tags,
                     mark: matched.matched.mark,
                     children: &children,
+                    conditions: &conditions,
                     context: &self.context,
                 })
                 .map_err(|message| ExpressionParseError::Environment { message })?;
@@ -1032,6 +1211,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 tags: matched.matched.tags,
                 mark: matched.matched.mark,
                 children,
+                conditions,
                 metadata: node_metadata,
             },
             expected_alternative: None,
@@ -1115,7 +1295,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         }
     }
 
-    fn map_range(&self, range: TextRange) -> Result<MatchSpan, ExpressionParseError> {
+    pub(crate) fn map_range(&self, range: TextRange) -> Result<MatchSpan, ExpressionParseError> {
         let mapped =
             self.source
                 .map_range(range)

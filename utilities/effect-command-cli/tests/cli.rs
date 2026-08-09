@@ -103,7 +103,7 @@ fn reports_parenthesized_expression_and_its_inner_span() {
 }
 
 #[test]
-fn parses_optional_and_interface_expressions_without_regex_fallbacks() {
+fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 
     let absorbed = session
@@ -157,12 +157,14 @@ fn parses_optional_and_interface_expressions_without_regex_fallbacks() {
         .expect("missing event context is a normal no-match");
     let contextual: Value = serde_json::from_str(&contextual.to_json().unwrap()).unwrap();
     assert_eq!(contextual["result"]["status"], "unknown");
+    // ExprTernary now has a CoreLibrary handler, so its regex-backed ` if `
+    // branch is a legitimate farthest-failure candidate instead of a skipped fallback.
     assert!(
         contextual["result"]["failure"]["reasons"]
             .as_array()
             .into_iter()
             .flatten()
-            .all(|reason| reason["expected"] != " if ")
+            .any(|reason| reason["expected"] == " if ")
     );
 }
 

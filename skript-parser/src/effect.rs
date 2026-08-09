@@ -5,10 +5,11 @@
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
 use crate::{
-    CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParserConfig, ExpressionSession, MappedSource, MatchSpan,
-    PatternCapture, PatternFailure, RawNode, RawNodeId, RawNodeKind, TextRange,
-    catalog_pattern_candidates, snapshot_pattern_candidates,
+    CandidateMatch, ConditionParseError, ExpressionNode, ExpressionParseContext,
+    ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
+    MappedSource, MatchSpan, PatternCapture, PatternFailure, RawNode, RawNodeId, RawNodeKind,
+    RegisteredCaptureKind, RegisteredConditionCapture, TextRange, catalog_pattern_candidates,
+    snapshot_pattern_candidates,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -33,6 +34,8 @@ pub struct EffectCandidate {
     pub raw_node_id: RawNodeId,
     pub matched: CandidateMatch,
     pub expressions: Vec<ExpressionNode>,
+    pub conditions: Vec<RegisteredConditionCapture>,
+    pub effects: Vec<RegisteredEffectCapture>,
     /// Opaque handler name for dynamically registered Effects.
     pub handler: Option<String>,
     /// Addon-owned metadata attached to a dynamic registration.
@@ -74,6 +77,8 @@ pub enum EffectParseError {
     SourceMap { message: String },
     #[error(transparent)]
     Expression(#[from] ExpressionParseError),
+    #[error(transparent)]
+    Condition(#[from] ConditionParseError),
 }
 
 /// Parses one Simple node with static Effect registrations.
@@ -155,11 +160,6 @@ pub fn parse_effect_with_snapshot<E: ExpressionParseEnvironment>(
         return Err(EffectParseError::InvalidCodeRange { range });
     }
 
-    let candidates = if let Some(snapshot) = dynamic_snapshot {
-        snapshot_pattern_candidates(catalog, snapshot, SyntaxKind::Effect)
-    } else {
-        catalog_pattern_candidates(catalog, SyntaxKind::Effect)
-    };
     let mut session = ExpressionSession::new(
         catalog,
         dynamic_snapshot,
@@ -168,29 +168,69 @@ pub fn parse_effect_with_snapshot<E: ExpressionParseEnvironment>(
         request.context,
         config.expression,
     );
-    let matches = session.match_candidates(range, &candidates)?;
-    let selected = matches
+    parse_effect_range_with_session(&mut session, range, request.node.id, 0)
+}
+
+/// One regex capture that was recursively accepted as an Effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredEffectCapture {
+    pub capture_index: usize,
+    pub value: String,
+    pub span: MatchSpan,
+    pub candidate: Box<EffectCandidate>,
+}
+
+pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    range: TextRange,
+    raw_node_id: RawNodeId,
+    depth: usize,
+) -> Result<EffectMatches, EffectParseError> {
+    session.ensure_depth(depth)?;
+    let candidates = if let Some(snapshot) = session.dynamic_snapshot() {
+        snapshot_pattern_candidates(session.catalog(), snapshot, SyntaxKind::Effect)
+    } else {
+        catalog_pattern_candidates(session.catalog(), SyntaxKind::Effect)
+    };
+    let matches = session.match_candidates_at_depth(range, &candidates, depth)?;
+    let mut ranked = matches
         .selected
-        .map(|matched| effect_candidate(request.node.id, matched, dynamic_snapshot, &session));
-    let alternatives = matches
-        .alternatives
         .into_iter()
-        .map(|matched| effect_candidate(request.node.id, matched, dynamic_snapshot, &session))
-        .collect();
+        .chain(matches.alternatives)
+        .collect::<Vec<_>>();
+    let mut accepted = Vec::new();
+    for matched in ranked.drain(..) {
+        session
+            .begin_semantic_candidate()
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        let candidate = effect_candidate(raw_node_id, matched, session, range.start, depth);
+        let keep = candidate
+            .as_ref()
+            .is_ok_and(|candidate| candidate.is_some() && accepted.is_empty());
+        session
+            .finish_semantic_candidate(keep)
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        let Some(candidate) = candidate? else {
+            continue;
+        };
+        accepted.push(candidate);
+    }
+    let selected = (!accepted.is_empty()).then(|| accepted.remove(0));
+    let alternatives = accepted;
     let unknown = if selected.is_none() {
         let source = range
-            .slice(request.source.virtual_source())
+            .slice(session.source().virtual_source())
             .ok_or(EffectParseError::InvalidCodeRange { range })?
             .to_owned();
         let mapped =
-            request
-                .source
+            session
+                .source()
                 .map_range(range)
                 .map_err(|error| EffectParseError::SourceMap {
                     message: error.to_string(),
                 })?;
         Some(UnknownEffectNode {
-            raw_node_id: request.node.id,
+            raw_node_id,
             source,
             span: MatchSpan {
                 local_range: range,
@@ -212,9 +252,10 @@ pub fn parse_effect_with_snapshot<E: ExpressionParseEnvironment>(
 fn effect_candidate<E: ExpressionParseEnvironment>(
     raw_node_id: RawNodeId,
     matched: CandidateMatch,
-    dynamic_snapshot: Option<&DynamicSyntaxSnapshot>,
-    session: &ExpressionSession<'_, E>,
-) -> EffectCandidate {
+    session: &mut ExpressionSession<'_, E>,
+    frame_start: usize,
+    depth: usize,
+) -> Result<Option<EffectCandidate>, EffectParseError> {
     let expressions = matched
         .matched
         .captures
@@ -231,17 +272,74 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             } => None,
         })
         .collect();
-    let dynamic = dynamic_snapshot.and_then(|snapshot| {
+    let dynamic = session.dynamic_snapshot().and_then(|snapshot| {
         snapshot
             .definitions
             .values()
             .find(|definition| definition.id.qualified() == matched.registration_id)
     });
-    EffectCandidate {
+    let element_class = session
+        .catalog()
+        .effects()
+        .find(|effect| effect.common.registration_id.as_str() == matched.registration_id)
+        .map(|effect| effect.common.element_class.clone());
+    let capture_kinds = element_class
+        .as_ref()
+        .map_or_else(Vec::new, |element_class| {
+            session
+                .environment()
+                .registered_capture_kinds(SyntaxKind::Effect, element_class)
+        });
+    let mut conditions = Vec::new();
+    let mut effects = Vec::new();
+    for (capture_index, (capture, kind)) in matched
+        .matched
+        .captures
+        .iter()
+        .filter(|capture| matches!(capture, PatternCapture::Regex { .. }))
+        .zip(capture_kinds)
+        .enumerate()
+    {
+        let PatternCapture::Regex { value, span, .. } = capture else {
+            unreachable!("regex captures were filtered")
+        };
+        let local = span.local_range;
+        let range = TextRange::new(frame_start + local.start, frame_start + local.end);
+        match kind {
+            RegisteredCaptureKind::Raw => {}
+            RegisteredCaptureKind::Condition => {
+                let parsed =
+                    crate::condition::parse_condition_with_session(session, range, depth + 1)?;
+                let Some(selected) = parsed.selected else {
+                    return Ok(None);
+                };
+                conditions.push(RegisteredConditionCapture {
+                    capture_index,
+                    node: selected.node,
+                });
+            }
+            RegisteredCaptureKind::Effect => {
+                let parsed =
+                    parse_effect_range_with_session(session, range, raw_node_id, depth + 1)?;
+                let Some(selected) = parsed.selected else {
+                    return Ok(None);
+                };
+                effects.push(RegisteredEffectCapture {
+                    capture_index,
+                    value: value.clone(),
+                    span: span.clone(),
+                    candidate: Box::new(selected),
+                });
+            }
+        }
+    }
+    Ok(Some(EffectCandidate {
         raw_node_id,
         matched,
         expressions,
+        conditions,
+        effects,
         handler: dynamic.map(|definition| definition.handler.clone()),
         metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
-    }
+    }))
 }

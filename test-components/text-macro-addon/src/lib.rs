@@ -64,7 +64,7 @@ impl addon::Guest for TextMacroAddon {
                 macro_subscription(FIRST_SUBSCRIPTION, -10),
                 macro_subscription(SECOND_SUBSCRIPTION, 10),
             ],
-            registered_expression_class_suffixes: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,
