@@ -203,6 +203,13 @@ fn documentation(
 }
 
 fn type_data(value: raw::Type) -> model::Type {
+    let legacy_enum_values = value.class_type == raw::ClassKind::Enum
+        && value.enum_values.is_none()
+        && value.usage.is_some();
+    let enum_values = value
+        .enum_values
+        .or_else(|| legacy_enum_values.then(|| value.usage.clone().unwrap_or_default()))
+        .unwrap_or_default();
     model::Type {
         type_parse_order: value.type_parse_order,
         documentation: documentation(
@@ -235,7 +242,30 @@ fn type_data(value: raw::Type) -> model::Type {
             gender_id: value.noun.gender_id,
         },
         serialize_as: value.serialize_as.map(Into::into),
-        usage: value.usage.unwrap_or_default(),
+        usage: if legacy_enum_values {
+            Vec::new()
+        } else {
+            value.usage.unwrap_or_default()
+        },
+        enum_values,
+        parser_patterns: value.parser_patterns.unwrap_or_default(),
+        literal_values: value.literal_values.unwrap_or_default(),
+        type_literals: value
+            .type_literals
+            .unwrap_or_default()
+            .into_iter()
+            .map(|literal| model::TypeLiteral {
+                text: literal.text,
+                plural_text: literal.plural_text,
+                variable_name: literal.variable_name,
+                debug_text: literal.debug_text,
+                value_class: literal.value_class.into(),
+                represented_class: literal.represented_class.map(Into::into),
+                enum_constant: literal.enum_constant,
+            })
+            .collect(),
+        parser_class: value.parser_class.map(Into::into),
+        parse_contexts: value.parse_contexts.unwrap_or_default(),
         default_expression_class: value.default_expression_class.map(Into::into),
         has_parser: value.has_parser,
         has_serializer: value.has_serializer,

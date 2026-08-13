@@ -304,6 +304,12 @@ pub struct Type {
     pub noun: Noun,
     pub serialize_as: Option<ClassName>,
     pub usage: Vec<String>,
+    pub enum_values: Vec<String>,
+    pub parser_patterns: Vec<String>,
+    pub literal_values: Vec<String>,
+    pub type_literals: Vec<TypeLiteral>,
+    pub parser_class: Option<ClassName>,
+    pub parse_contexts: Vec<String>,
     pub default_expression_class: Option<ClassName>,
     pub has_parser: bool,
     pub has_serializer: bool,
@@ -311,6 +317,18 @@ pub struct Type {
     pub properties: Vec<String>,
     pub before: Vec<TypeCodeName>,
     pub after: Vec<TypeCodeName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One finite value exposed by a registered type's supplier and parser.
+pub struct TypeLiteral {
+    pub text: String,
+    pub plural_text: Option<String>,
+    pub variable_name: Option<String>,
+    pub debug_text: Option<String>,
+    pub value_class: ClassName,
+    pub represented_class: Option<ClassName>,
+    pub enum_constant: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -3,7 +3,7 @@ use syntax_pattern_parser::syntax::PluralRules;
 use syntaxes::{
     Addon, AliasItem, AliasRegistry, AliasTarget, Catalog, CatalogParts, Class, ClassKind,
     ClassName, Converter, DefinitionId, Documentation, EventValue, Function, FunctionParameter,
-    Noun, RegistrationId, Syntax, Type, TypeCodeName,
+    Noun, RegistrationId, Syntax, Type, TypeCodeName, TypeLiteral, TypeLiteralSource,
 };
 
 fn id(value: &str) -> RegistrationId {
@@ -115,6 +115,12 @@ fn type_syntax(code_name: &str, assignable_to: &[&str], order: usize) -> Syntax 
         },
         serialize_as: None,
         usage: Vec::new(),
+        enum_values: Vec::new(),
+        parser_patterns: Vec::new(),
+        literal_values: Vec::new(),
+        type_literals: Vec::new(),
+        parser_class: None,
+        parse_contexts: Vec::new(),
         default_expression_class: None,
         has_parser: false,
         has_serializer: false,
@@ -174,6 +180,31 @@ fn class_assignability_follows_superclasses_and_interfaces() {
     assert!(catalog.is_class_assignable("test.Leaf", "test.Named"));
     assert!(!catalog.is_class_assignable("test.Root", "test.Leaf"));
     assert!(!catalog.is_class_assignable("test.Missing", "test.Root"));
+}
+
+#[test]
+fn converter_compatibility_includes_assignable_inputs_and_dynamic_objects() {
+    let mut parts = parts();
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        class("java.lang.Number", Some("java.lang.Object"), &[]),
+        class("java.lang.Long", Some("java.lang.Number"), &[]),
+        class("java.lang.Float", Some("java.lang.Number"), &[]),
+    ];
+    parts.converters = vec![Converter {
+        from: class_name("java.lang.Number"),
+        to: class_name("java.lang.Float"),
+        flags: 0,
+        registration_order: 0,
+        addon: addon(),
+        registration_id: id("number-to-float"),
+    }];
+    let catalog = Catalog::new(parts);
+
+    assert!(catalog.can_convert("java.lang.Long", "java.lang.Number"));
+    assert!(catalog.can_convert("java.lang.Long", "java.lang.Float"));
+    assert!(catalog.can_convert("java.lang.Object", "java.lang.Float"));
+    assert!(!catalog.can_convert("java.lang.Float", "java.lang.Long"));
 }
 
 #[test]
@@ -342,4 +373,186 @@ fn indexes_functions_converters_registration_ids_and_aliases() {
     assert_eq!(catalog.converters_to("test.Second").len(), 1);
     assert_eq!(catalog.alias("example").unwrap().types[0].material, "STONE");
     assert!(catalog.alias("missing").is_none());
+}
+
+#[test]
+fn indexes_only_parseable_type_literals_in_type_order() {
+    let mut parts = parts();
+    let mut later = match type_syntax("later", &[], 20) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    later.has_parser = true;
+    later.literal_values = vec!["shared".to_owned()];
+    let mut earlier = match type_syntax("earlier", &[], 10) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    earlier.has_parser = true;
+    earlier.parser_patterns = vec!["Shared".to_owned()];
+    let mut enum_without_parser = match type_syntax("rawenum", &[], 0) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    enum_without_parser.enum_values = vec!["shared".to_owned()];
+    parts.syntaxes = vec![
+        Syntax::Type(later),
+        Syntax::Type(earlier),
+        Syntax::Type(enum_without_parser),
+    ];
+    let catalog = Catalog::new(parts);
+
+    let matches = catalog
+        .type_literals(" SHARED ")
+        .map(|value| value.code_name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(matches, ["earlier", "later"]);
+}
+
+#[test]
+fn item_aliases_are_type_literals_and_alias_lookup_is_case_insensitive() {
+    let mut parts = parts();
+    let mut item_type = match type_syntax("itemtype", &[], 0) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    item_type.has_parser = true;
+    parts.syntaxes = vec![Syntax::Type(item_type)];
+    parts.aliases.aliases.insert("stone".to_owned(), 0);
+    parts.aliases.targets.push(AliasTarget {
+        amount: 1,
+        all: false,
+        types: Vec::new(),
+    });
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog
+            .type_literals("STONE")
+            .next()
+            .map(|value| value.code_name.as_str()),
+        Some("itemtype")
+    );
+    assert!(catalog.alias("STONE").is_some());
+}
+
+#[test]
+fn detailed_type_literal_matches_include_supplier_plural_metadata() {
+    let mut parts = parts();
+    let mut entity = match type_syntax("entity", &[], 0) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    entity.has_parser = true;
+    entity.has_supplier = true;
+    entity.literal_values = vec!["zombie".to_owned()];
+    entity.type_literals = vec![TypeLiteral {
+        text: "zombie".to_owned(),
+        plural_text: Some("zombies".to_owned()),
+        variable_name: Some("entitydata:zombie".to_owned()),
+        debug_text: None,
+        value_class: class_name("ch.njol.skript.entity.SimpleEntityData"),
+        represented_class: Some(class_name("org.bukkit.entity.Zombie")),
+        enum_constant: None,
+    }];
+    parts.syntaxes = vec![Syntax::Type(entity)];
+    let catalog = Catalog::new(parts);
+
+    let singular = catalog.type_literal_matches("zombie").collect::<Vec<_>>();
+    assert_eq!(singular.len(), 1);
+    assert_eq!(singular[0].type_info.code_name.as_str(), "entity");
+    assert_eq!(singular[0].canonical_value, "zombie");
+    assert!(!singular[0].plural);
+    assert_eq!(singular[0].source, TypeLiteralSource::Supplier);
+    assert_eq!(
+        singular[0]
+            .literal
+            .and_then(|literal| literal.represented_class.as_ref())
+            .map(|class| class.as_str()),
+        Some("org.bukkit.entity.Zombie")
+    );
+
+    let plural = catalog.type_literal_matches("zombies").collect::<Vec<_>>();
+    assert_eq!(plural.len(), 1);
+    assert_eq!(plural[0].canonical_value, "zombie");
+    assert!(plural[0].plural);
+    assert_eq!(plural[0].source, TypeLiteralSource::Supplier);
+}
+
+#[test]
+fn aliases_get_plural_matches_but_enum_constants_do_not() {
+    let mut parts = parts();
+    let mut item_type = match type_syntax("itemtype", &[], 20) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    item_type.has_parser = true;
+    parts.syntaxes = vec![Syntax::Type(item_type)];
+    parts.aliases.aliases.insert("zombie".to_owned(), 0);
+    parts.aliases.targets.push(AliasTarget {
+        amount: 1,
+        all: false,
+        types: Vec::new(),
+    });
+
+    let mut enum_type = match type_syntax("enum", &[], 10) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    enum_type.has_parser = true;
+    enum_type.enum_values = vec!["zombie".to_owned()];
+    parts.syntaxes.push(Syntax::Type(enum_type));
+    let catalog = Catalog::new(parts);
+
+    let plural = catalog.type_literal_matches("zombies").collect::<Vec<_>>();
+    assert_eq!(plural.len(), 1);
+    assert_eq!(plural[0].type_info.code_name.as_str(), "itemtype");
+    assert_eq!(plural[0].source, TypeLiteralSource::Alias);
+    assert!(plural[0].plural);
+
+    let enum_plural = catalog.type_literal_matches("zombies").any(|matched| {
+        matched.type_info.code_name.as_str() == "enum"
+            && matched.source == TypeLiteralSource::EnumConstant
+    });
+    assert!(!enum_plural);
+}
+
+#[test]
+fn detailed_matches_keep_type_parse_order_and_source_order() {
+    let mut parts = parts();
+    let mut later = match type_syntax("later", &[], 20) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    later.has_parser = true;
+    later.parser_patterns = vec!["shared".to_owned()];
+    later.literal_values = vec!["shared".to_owned()];
+
+    let mut earlier = match type_syntax("earlier", &[], 10) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    earlier.has_parser = true;
+    earlier.enum_values = vec!["shared".to_owned()];
+    parts.syntaxes = vec![Syntax::Type(later), Syntax::Type(earlier)];
+    let catalog = Catalog::new(parts);
+
+    let matches = catalog
+        .type_literal_matches("shared")
+        .map(|matched| {
+            (
+                matched.type_info.code_name.as_str(),
+                matched.source,
+                matched.plural,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches,
+        vec![
+            ("earlier", TypeLiteralSource::EnumConstant, false),
+            ("later", TypeLiteralSource::ParserPattern, false),
+            ("later", TypeLiteralSource::Supplier, false),
+        ]
+    );
 }

@@ -66,6 +66,18 @@ fn loads_and_indexes_modern_multi_addon_snapshot() {
     );
     assert!(catalog.alias("stone").is_some());
 
+    let material = catalog
+        .type_by_code_name("material")
+        .expect("material type must be indexed");
+    assert!(material.usage.is_empty());
+    assert!(material.enum_values.iter().any(|value| value == "stone"));
+    assert!(!material.has_parser);
+    assert!(
+        catalog
+            .type_literals("stone")
+            .all(|value| value.code_name.as_str() != "material")
+    );
+
     let first_plural_rule = &catalog.plural_rules().rules()[0];
     assert_eq!(first_plural_rule.addon().name(), "SkriptDummyAddon");
 }

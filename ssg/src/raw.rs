@@ -368,6 +368,12 @@ pub struct Type {
     pub noun: Noun,
     pub serialize_as: Option<String>,
     pub usage: Option<Vec<String>>,
+    pub enum_values: Option<Vec<String>>,
+    pub parser_patterns: Option<Vec<String>>,
+    pub literal_values: Option<Vec<String>>,
+    pub type_literals: Option<Vec<TypeLiteral>>,
+    pub parser_class: Option<String>,
+    pub parse_contexts: Option<Vec<String>>,
     pub default_expression_class: Option<String>,
     pub has_parser: bool,
     pub has_serializer: bool,
@@ -375,6 +381,18 @@ pub struct Type {
     pub properties: Vec<String>,
     pub before: Option<Vec<String>>,
     pub after: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeLiteral {
+    pub text: String,
+    pub plural_text: Option<String>,
+    pub variable_name: Option<String>,
+    pub debug_text: Option<String>,
+    pub value_class: String,
+    pub represented_class: Option<String>,
+    pub enum_constant: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

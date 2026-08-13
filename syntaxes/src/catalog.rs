@@ -6,7 +6,7 @@
 
 use crate::{
     AliasRegistry, Class, ClassKind, ClassName, Comparator, Converter, Difference, EventValue,
-    Function, Operation, Operator, Property, Syntax, Type,
+    Function, Operation, Operator, Property, Syntax, Type, TypeLiteral,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use syntax_pattern_parser::syntax::PluralRules;
@@ -68,6 +68,34 @@ pub struct Catalog {
     index: CatalogIndex,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The source of a finite type literal accepted by the catalog.
+pub enum TypeLiteralSource {
+    ParserPattern,
+    Supplier,
+    EnumConstant,
+    Alias,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// Semantic information about one exact type-literal match.
+pub struct TypeLiteralMatch<'a> {
+    pub type_info: &'a Type,
+    pub literal: Option<&'a TypeLiteral>,
+    pub canonical_value: &'a str,
+    pub plural: bool,
+    pub source: TypeLiteralSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypeLiteralIndexEntry {
+    type_position: usize,
+    literal_position: Option<usize>,
+    canonical_value: String,
+    plural: bool,
+    source: TypeLiteralSource,
+}
+
 #[derive(Debug, Clone, Default)]
 struct CatalogIndex {
     syntaxes_by_registration_id: HashMap<String, Vec<usize>>,
@@ -77,6 +105,51 @@ struct CatalogIndex {
     converters_by_from: HashMap<String, Vec<usize>>,
     converters_by_to: HashMap<String, Vec<usize>>,
     classes_by_name: HashMap<String, usize>,
+    type_literals: HashMap<String, Vec<TypeLiteralIndexEntry>>,
+}
+
+fn index_type_literals(
+    index: &mut HashMap<String, Vec<TypeLiteralIndexEntry>>,
+    type_position: usize,
+    literals: &[String],
+    source: TypeLiteralSource,
+    pluralize: bool,
+    plural_rules: &PluralRules,
+) {
+    for literal in literals {
+        index_type_literal(index, type_position, None, literal, literal, false, source);
+        if pluralize {
+            let plural = plural_rules.to_plural(literal);
+            if plural != *literal {
+                index_type_literal(index, type_position, None, &plural, literal, true, source);
+            }
+        }
+    }
+}
+
+fn index_type_literal(
+    index: &mut HashMap<String, Vec<TypeLiteralIndexEntry>>,
+    type_position: usize,
+    literal_position: Option<usize>,
+    literal: &str,
+    canonical_value: &str,
+    plural: bool,
+    source: TypeLiteralSource,
+) {
+    let normalized = normalize_literal(literal);
+    if normalized.is_empty() {
+        return;
+    }
+    index
+        .entry(normalized)
+        .or_default()
+        .push(TypeLiteralIndexEntry {
+            type_position,
+            literal_position,
+            canonical_value: canonical_value.to_owned(),
+            plural,
+            source,
+        });
 }
 
 impl Catalog {
@@ -96,6 +169,61 @@ impl Catalog {
                     index
                         .types_by_code_name
                         .insert(value.code_name.as_str().to_owned(), position);
+                    if value.has_parser {
+                        index_type_literals(
+                            &mut index.type_literals,
+                            position,
+                            &value.parser_patterns,
+                            TypeLiteralSource::ParserPattern,
+                            false,
+                            &parts.plural_rules,
+                        );
+                        if value.type_literals.is_empty() {
+                            // Schema 3 snapshots created before structured supplier values
+                            // still use the exported PluralRules as a compatibility fallback.
+                            index_type_literals(
+                                &mut index.type_literals,
+                                position,
+                                &value.literal_values,
+                                TypeLiteralSource::Supplier,
+                                true,
+                                &parts.plural_rules,
+                            );
+                        } else {
+                            for (literal_position, literal) in
+                                value.type_literals.iter().enumerate()
+                            {
+                                index_type_literal(
+                                    &mut index.type_literals,
+                                    position,
+                                    Some(literal_position),
+                                    &literal.text,
+                                    &literal.text,
+                                    false,
+                                    TypeLiteralSource::Supplier,
+                                );
+                                if let Some(plural) = literal.plural_text.as_deref() {
+                                    index_type_literal(
+                                        &mut index.type_literals,
+                                        position,
+                                        Some(literal_position),
+                                        plural,
+                                        &literal.text,
+                                        true,
+                                        TypeLiteralSource::Supplier,
+                                    );
+                                }
+                            }
+                        }
+                        index_type_literals(
+                            &mut index.type_literals,
+                            position,
+                            &value.enum_values,
+                            TypeLiteralSource::EnumConstant,
+                            false,
+                            &parts.plural_rules,
+                        );
+                    }
                 }
                 Syntax::Function(value) => {
                     index
@@ -106,6 +234,50 @@ impl Catalog {
                 }
                 _ => {}
             }
+        }
+
+        if let Some(item_type) = index.types_by_code_name.get("itemtype").copied() {
+            for alias in parts.aliases.aliases.keys() {
+                index_type_literal(
+                    &mut index.type_literals,
+                    item_type,
+                    None,
+                    alias,
+                    alias,
+                    false,
+                    TypeLiteralSource::Alias,
+                );
+                let plural = parts.plural_rules.to_plural(alias);
+                if plural != *alias {
+                    index_type_literal(
+                        &mut index.type_literals,
+                        item_type,
+                        None,
+                        &plural,
+                        alias,
+                        true,
+                        TypeLiteralSource::Alias,
+                    );
+                }
+            }
+        }
+        for positions in index.type_literals.values_mut() {
+            positions.sort_unstable_by(|left, right| {
+                let left_order = match &parts.syntaxes[left.type_position] {
+                    Syntax::Type(value) => value.type_parse_order,
+                    _ => usize::MAX,
+                };
+                let right_order = match &parts.syntaxes[right.type_position] {
+                    Syntax::Type(value) => value.type_parse_order,
+                    _ => usize::MAX,
+                };
+                left_order
+                    .cmp(&right_order)
+                    .then_with(|| left.source.cmp(&right.source))
+                    .then_with(|| left.canonical_value.cmp(&right.canonical_value))
+                    .then_with(|| left.plural.cmp(&right.plural))
+            });
+            positions.dedup();
         }
 
         for (position, event_value) in parts.event_values.iter().enumerate() {
@@ -256,6 +428,33 @@ impl Catalog {
         }
     }
 
+    /// Returns types whose finite parser data accepts `text`, in Skript parse order.
+    pub fn type_literal_matches(&self, text: &str) -> impl Iterator<Item = TypeLiteralMatch<'_>> {
+        self.index
+            .type_literals
+            .get(&normalize_literal(text))
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| match &self.parts.syntaxes[entry.type_position] {
+                Syntax::Type(value) => Some(TypeLiteralMatch {
+                    type_info: value,
+                    literal: entry
+                        .literal_position
+                        .and_then(|position| value.type_literals.get(position)),
+                    canonical_value: entry.canonical_value.as_str(),
+                    plural: entry.plural,
+                    source: entry.source,
+                }),
+                _ => None,
+            })
+    }
+
+    /// Returns every type accepting `text`, preserving the compatibility API.
+    pub fn type_literals(&self, text: &str) -> impl Iterator<Item = &Type> {
+        self.type_literal_matches(text)
+            .map(|matched| matched.type_info)
+    }
+
     /// Returns overloads with the requested function name.
     pub fn functions_named(&self, name: &str) -> Vec<&Function> {
         self.index
@@ -324,6 +523,55 @@ impl Catalog {
             .flatten()
             .map(|position| &self.parts.converters[*position])
             .collect()
+    }
+
+    /// Tests whether Skript can pass a value from `from` to `to`.
+    ///
+    /// This mirrors `Converters.converterExists`: ordinary Java assignability
+    /// is tried first, followed by the registered converter set and its
+    /// chaining flags. SSG collects the generated chained converters after
+    /// Skript finishes registration, so no runtime classes need to be loaded.
+    pub fn can_convert(&self, from: &str, to: &str) -> bool {
+        const NO_LEFT_CHAINING: i32 = 1;
+        const NO_RIGHT_CHAINING: i32 = 2;
+        const ALLOW_UNSAFE_CASTS: i32 = 4;
+
+        if self.is_class_assignable(from, to) {
+            return true;
+        }
+        // Skript defers Object conversions until the runtime value is known.
+        if from == "java.lang.Object" {
+            return true;
+        }
+
+        if self
+            .parts
+            .converters
+            .iter()
+            .any(|converter| converter.from.as_str() == from && converter.to.as_str() == to)
+        {
+            return true;
+        }
+        if self.parts.converters.iter().any(|converter| {
+            self.is_class_assignable(from, converter.from.as_str())
+                && self.is_class_assignable(converter.to.as_str(), to)
+        }) {
+            return true;
+        }
+
+        self.parts.converters.iter().any(|converter| {
+            let unsafe_casts = converter.flags & ALLOW_UNSAFE_CASTS != 0;
+            let narrowed_output = self.is_class_assignable(from, converter.from.as_str())
+                && self.is_class_assignable(to, converter.to.as_str())
+                && (unsafe_casts || converter.flags & NO_RIGHT_CHAINING == 0);
+            let narrowed_input = self.is_class_assignable(converter.from.as_str(), from)
+                && self.is_class_assignable(converter.to.as_str(), to)
+                && (unsafe_casts || converter.flags & NO_LEFT_CHAINING == 0);
+            let narrowed_both = self.is_class_assignable(converter.from.as_str(), from)
+                && self.is_class_assignable(to, converter.to.as_str())
+                && (unsafe_casts || converter.flags & (NO_LEFT_CHAINING | NO_RIGHT_CHAINING) == 0);
+            narrowed_output || narrowed_input || narrowed_both
+        })
     }
 
     /// Looks up one generated Java class node.
@@ -442,7 +690,7 @@ impl Catalog {
         self.parts
             .aliases
             .aliases
-            .get(text)
+            .get(&normalize_literal(text))
             .and_then(|index| self.parts.aliases.targets.get(*index))
     }
 
@@ -480,4 +728,8 @@ impl Catalog {
     pub fn plural_rules(&self) -> &PluralRules {
         &self.parts.plural_rules
     }
+}
+
+fn normalize_literal(text: &str) -> String {
+    text.trim().to_lowercase()
 }
