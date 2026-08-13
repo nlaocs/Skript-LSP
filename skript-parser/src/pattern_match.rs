@@ -1,10 +1,13 @@
 //! Backtracking matcher for parsed Skript registration patterns.
 //!
 //! Matching supports typed resolver and hook extension points, bounded resource use,
-//! deterministic candidate ranking, captures, and farthest-failure diagnostics.
+//! deterministic candidate ranking, captures, and provenance-aware diagnostics.
 #![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
 
-use crate::{MappedSource, MappedSpan, TextRange};
+use crate::{
+    FailureFrame, FailureFrameRole, FailureTrace, MappedSource, MappedSpan, RankedFailures,
+    TextRange,
+};
 use fancy_regex::{Error as FancyRegexError, Regex, RegexBuilder, RuntimeError};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use syntax_pattern_parser::syntax::{
@@ -135,6 +138,22 @@ pub struct TypeExpressionResolution {
     pub resolution_id: Option<String>,
 }
 
+/// Resolved prefixes and the most specific failure discovered while exploring them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TypeExpressionOutcome {
+    pub resolutions: Vec<TypeExpressionResolution>,
+    pub failure: Option<FailureTrace>,
+}
+
+impl From<Vec<TypeExpressionResolution>> for TypeExpressionOutcome {
+    fn from(resolutions: Vec<TypeExpressionResolution>) -> Self {
+        Self {
+            resolutions,
+            failure: None,
+        }
+    }
+}
+
 /// Context supplied to the recursive typed-expression resolver.
 pub struct TypeExpressionRequest<'a> {
     pub input: &'a str,
@@ -150,7 +169,7 @@ pub trait TypeExpressionResolver {
     fn resolve(
         &mut self,
         request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String>;
+    ) -> Result<TypeExpressionOutcome, String>;
 }
 
 #[derive(Debug, Default)]
@@ -161,8 +180,8 @@ impl TypeExpressionResolver for RejectTypeExpressions {
     fn resolve(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 }
 
@@ -287,7 +306,7 @@ pub trait PatternMatchEnvironment {
     fn resolve_type(
         &mut self,
         request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String>;
+    ) -> Result<TypeExpressionOutcome, String>;
 
     /// Dispatches one matcher lifecycle event.
     fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
@@ -324,7 +343,7 @@ impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
     fn resolve_type(
         &mut self,
         request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
+    ) -> Result<TypeExpressionOutcome, String> {
         self.resolver.resolve(request)
     }
 
@@ -361,6 +380,7 @@ pub struct PatternMatcherConfig {
     pub max_regex_executions: usize,
     pub max_regex_evaluated_bytes: usize,
     pub max_regex_backtracks: usize,
+    pub max_candidate_failures: usize,
 }
 
 impl Default for PatternMatcherConfig {
@@ -371,6 +391,7 @@ impl Default for PatternMatcherConfig {
             max_regex_executions: 10_000,
             max_regex_evaluated_bytes: 8 * 1024 * 1024,
             max_regex_backtracks: 1_000_000,
+            max_candidate_failures: 256,
         }
     }
 }
@@ -382,6 +403,7 @@ impl PatternMatcherConfig {
             || self.max_regex_executions == 0
             || self.max_regex_evaluated_bytes == 0
             || self.max_regex_backtracks == 0
+            || self.max_candidate_failures == 0
         {
             Err(PatternMatchError::InvalidConfiguration)
         } else {
@@ -421,19 +443,19 @@ pub enum PatternMatchError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-/// Expected construct recorded at the farthest failed input offset.
+/// Expected construct recorded at the selected failed input range.
 pub enum PatternFailureReason {
     Literal { expected: String },
     Regex { pattern: String },
+    Expression,
     TypeExpression { expected: Vec<String> },
     TrailingInput,
     HookRejected { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Merged farthest-failure diagnostic for all unsuccessful candidates.
+/// Selected diagnostic for one unsuccessful candidate.
 pub struct PatternFailure {
-    pub offset: usize,
     pub span: MatchSpan,
     pub reasons: Vec<PatternFailureReason>,
 }
@@ -447,7 +469,10 @@ pub struct CandidateFailure {
     pub priority: i32,
     pub registration_order: usize,
     pub resolved_order: Option<usize>,
-    pub failure: PatternFailure,
+    pub literal_anchor: bool,
+    pub pattern_index: Option<usize>,
+    pub pattern: Option<String>,
+    pub trace: FailureTrace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -513,18 +538,28 @@ pub struct CandidateMatch {
     pub registration_id: String,
     pub priority: i32,
     pub registration_order: usize,
+    pub literal_anchor: bool,
     pub pattern_index: usize,
     pub pattern: String,
     pub matched: PatternMatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Selected candidate, later alternatives, or a farthest failure.
+/// Selected candidate, later alternatives, and ranked failures.
 pub struct CandidateMatches {
     pub selected: Option<CandidateMatch>,
     pub alternatives: Vec<CandidateMatch>,
-    pub failure: Option<PatternFailure>,
-    pub best_failure: Option<CandidateFailure>,
+    pub failures: RankedFailures<CandidateFailure>,
+}
+
+impl CandidateMatches {
+    /// Returns the best candidate-specific trace, or the aggregate matcher fallback.
+    pub fn primary_failure(&self) -> Option<&FailureTrace> {
+        self.failures
+            .primary()
+            .map(|candidate| &candidate.trace)
+            .or(self.failures.fallback.as_ref())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -685,6 +720,8 @@ struct FailureTracker {
     offset: usize,
     range: Option<TextRange>,
     reasons: BTreeSet<PatternFailureReason>,
+    frame: Option<FailureFrame>,
+    cause: Option<Box<FailureTrace>>,
     initialized: bool,
 }
 
@@ -699,15 +736,38 @@ impl FailureTracker {
         range: Option<TextRange>,
         reason: PatternFailureReason,
     ) {
-        if !self.initialized || offset > self.offset {
+        self.record_detailed(offset, range, reason, None, None);
+    }
+
+    fn record_detailed(
+        &mut self,
+        offset: usize,
+        range: Option<TextRange>,
+        reason: PatternFailureReason,
+        frame: Option<FailureFrame>,
+        cause: Option<FailureTrace>,
+    ) {
+        let specificity = cause.as_ref().map_or(0, FailureTrace::specificity);
+        let current_specificity = self.cause.as_deref().map_or(0, FailureTrace::specificity);
+        if !self.initialized
+            || specificity > current_specificity
+            || (specificity == current_specificity && offset > self.offset)
+        {
             self.offset = offset;
             self.range = range;
             self.reasons.clear();
+            self.frame = frame.clone();
+            self.cause = cause.clone().map(Box::new);
             self.initialized = true;
         }
-        if offset == self.offset {
+        let selected_specificity = self.cause.as_deref().map_or(0, FailureTrace::specificity);
+        if specificity == selected_specificity && offset == self.offset {
             if self.range.is_none() {
                 self.range = range;
+            }
+            if self.frame.is_none() || (self.cause.is_none() && cause.is_some()) {
+                self.frame = frame;
+                self.cause = cause.map(Box::new);
             }
             self.reasons.insert(reason);
         }
@@ -717,15 +777,24 @@ impl FailureTracker {
         if !other.initialized {
             return;
         }
-        if !self.initialized || other.offset > self.offset {
+        let specificity = self.cause.as_deref().map_or(0, FailureTrace::specificity);
+        let other_specificity = other.cause.as_deref().map_or(0, FailureTrace::specificity);
+        if !self.initialized
+            || other_specificity > specificity
+            || (other_specificity == specificity && other.offset > self.offset)
+        {
             *self = other;
             return;
         }
-        if other.offset == self.offset {
+        if other_specificity == specificity && other.offset == self.offset {
             if self.range.is_none() {
                 self.range = other.range;
             }
             self.reasons.extend(other.reasons);
+            if self.frame.is_none() || (self.cause.is_none() && other.cause.is_some()) {
+                self.frame = other.frame;
+                self.cause = other.cause;
+            }
         }
     }
 }
@@ -756,7 +825,8 @@ struct MatchEngine<'input, 'candidate, 'ext, E> {
 /// A candidate succeeds only when one of its patterns consumes the complete
 /// trimmed input. Successful candidates are ordered by resolved dynamic order,
 /// priority, generator registration order, and declaration order. If none
-/// match, the result keeps the farthest merged failure for diagnostics.
+/// match, the result prefers the deepest semantic failure and then the farthest
+/// failure at the same depth.
 ///
 /// # Examples
 ///
@@ -900,7 +970,7 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
 
     let mut matches = Vec::new();
     let mut aggregate_failure = FailureTracker::default();
-    let mut best_failure = None;
+    let mut candidate_failures = Vec::new();
     for (_, candidate) in ranked {
         engine.failure = FailureTracker::default();
         let matched = engine.match_candidate(candidate)?;
@@ -909,27 +979,28 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
             && candidate_failure.initialized
             && candidate_failure.offset > trim_range.start
             && candidate_has_matching_literal_anchor(candidate, engine.input.text(), trim_range)
-            && best_failure.as_ref().is_none_or(|best: &CandidateFailure| {
-                candidate_failure_is_better(&candidate_failure, best)
-            })
         {
-            best_failure = Some(CandidateFailure {
+            let failure = tracker_failure(&engine.input, &candidate_failure)?;
+            let trace = tracker_trace(&candidate_failure, &failure);
+            let value = CandidateFailure {
                 kind: candidate.kind,
                 definition_id: candidate.definition_id.clone(),
                 registration_id: candidate.registration_id.clone(),
                 priority: candidate.priority,
                 registration_order: candidate.registration_order,
                 resolved_order: candidate.resolved_order,
-                failure: PatternFailure {
-                    offset: candidate_failure.offset,
-                    span: engine.input.map_range(
-                        candidate_failure
-                            .range
-                            .unwrap_or_else(|| TextRange::empty(candidate_failure.offset)),
-                    )?,
-                    reasons: candidate_failure.reasons.iter().cloned().collect(),
-                },
-            });
+                literal_anchor: true,
+                pattern_index: candidate_failure
+                    .frame
+                    .as_ref()
+                    .map(|frame| frame.pattern_index),
+                pattern: candidate_failure
+                    .frame
+                    .as_ref()
+                    .map(|frame| frame.pattern.clone()),
+                trace,
+            };
+            candidate_failures.push(value);
         }
         aggregate_failure.merge(candidate_failure);
         if let Some(value) = matched {
@@ -940,33 +1011,57 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
     engine.failure = aggregate_failure;
 
     let selected = (!matches.is_empty()).then(|| matches.remove(0));
-    let failure = if selected.is_none() && engine.failure.initialized {
-        Some(PatternFailure {
-            offset: engine.failure.offset,
-            span: engine
-                .input
-                .map_range(TextRange::empty(engine.failure.offset))?,
-            reasons: engine.failure.reasons.into_iter().collect(),
-        })
+    let fallback = if selected.is_none() && engine.failure.initialized {
+        let failure = tracker_failure(&engine.input, &engine.failure)?;
+        Some(tracker_trace(&engine.failure, &failure))
     } else {
         None
     };
-    if selected.is_some() {
-        best_failure = None;
-    }
+    candidate_failures.sort_by_key(|candidate| {
+        let root = candidate.trace.root_cause();
+        let range = root.failure.span.mapped.virtual_range;
+        (
+            std::cmp::Reverse(candidate.trace.specificity()),
+            std::cmp::Reverse(range.end),
+            std::cmp::Reverse(range.end.saturating_sub(range.start)),
+            candidate.resolved_order.is_none(),
+            candidate.resolved_order.unwrap_or(usize::MAX),
+            candidate.priority,
+            candidate.registration_order,
+        )
+    });
+    candidate_failures.truncate(engine.config.max_candidate_failures);
     Ok(CandidateMatches {
         selected,
         alternatives: matches,
-        failure,
-        best_failure,
+        failures: RankedFailures {
+            fallback,
+            candidates: candidate_failures,
+        },
     })
 }
 
-fn candidate_failure_is_better(candidate: &FailureTracker, current: &CandidateFailure) -> bool {
-    candidate.offset > current.failure.offset
-        || (candidate.offset == current.failure.offset
-            && candidate.range.is_some_and(|range| range.end > range.start)
-            && current.failure.span.local_range.start == current.failure.span.local_range.end)
+fn tracker_failure(
+    input: &MatchInput<'_>,
+    tracker: &FailureTracker,
+) -> Result<PatternFailure, PatternMatchError> {
+    let span = input.map_range(
+        tracker
+            .range
+            .unwrap_or_else(|| TextRange::empty(tracker.offset)),
+    )?;
+    Ok(PatternFailure {
+        span,
+        reasons: tracker.reasons.iter().cloned().collect(),
+    })
+}
+
+fn tracker_trace(tracker: &FailureTracker, failure: &PatternFailure) -> FailureTrace {
+    FailureTrace {
+        failure: failure.clone(),
+        frame: tracker.frame.clone(),
+        cause: tracker.cause.clone(),
+    }
 }
 
 fn candidate_has_matching_literal_anchor(
@@ -1158,6 +1253,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     registration_id: candidate.registration_id.to_owned(),
                     priority: candidate.priority,
                     registration_order: candidate.registration_order,
+                    literal_anchor: candidate_has_matching_literal_anchor(
+                        candidate,
+                        self.input.text(),
+                        self.trim_range,
+                    ),
                     pattern_index: pattern.pattern_index,
                     pattern: pattern.source.to_owned(),
                     matched: PatternMatch {
@@ -1280,6 +1380,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             registration_id: candidate.registration_id.to_owned(),
             priority: candidate.priority,
             registration_order: candidate.registration_order,
+            literal_anchor: candidate_has_matching_literal_anchor(
+                candidate,
+                self.input.text(),
+                self.trim_range,
+            ),
             pattern_index: pattern.pattern_index,
             pattern: pattern.source.to_owned(),
             matched: PatternMatch {
@@ -1553,7 +1658,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             }
             PatternElement::TypeExpr(expression) => {
                 state.pending_implicit_tag = None;
-                self.match_type_expression(element.span, expression, state, tail)
+                self.match_type_expression(element.span, expression, state, path, tail)
             }
             PatternElement::ParseTag(tag) => {
                 let input_span = self.input.map_range(TextRange::empty(state.cursor))?;
@@ -1751,6 +1856,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         pattern_span: PatternSpan,
         expression: &PatternTypeExpr,
         state: MatchState,
+        path: &[PatternPathSegment],
         tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         let mut boundaries =
@@ -1758,15 +1864,31 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 .into_iter()
                 .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
                 .collect::<Vec<_>>();
-        let failure_range = boundaries
+        let anchored_failure_end = boundaries
             .iter()
             .copied()
-            .find(|end| *end > state.cursor)
-            .map(|end| TextRange::new(state.cursor, end));
+            .filter_map(|boundary| {
+                self.tail_literal_specificity(boundary, tail)
+                    .map(|specificity| (boundary, specificity))
+            })
+            .max_by_key(|(boundary, specificity)| {
+                (
+                    *specificity,
+                    std::cmp::Reverse(boundary.saturating_sub(state.cursor)),
+                )
+            })
+            .map(|(boundary, _)| boundary);
+        let failure_end = anchored_failure_end
+            .or_else(|| boundaries.iter().copied().find(|end| *end > state.cursor));
+        let failure_range = failure_end.map(|end| TextRange::new(state.cursor, end));
         if expression.nullable && self.boundary_allows_tail(state.cursor, tail) {
             boundaries.insert(0, state.cursor);
         }
-        let resolutions = self
+        let potential_range = TextRange::new(
+            state.cursor,
+            boundaries.iter().copied().max().unwrap_or(state.cursor),
+        );
+        let outcome = self
             .environment
             .resolve_type(TypeExpressionRequest {
                 input: self.input.text(),
@@ -1779,10 +1901,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 pattern_span,
                 message,
             })?;
+        let cause = outcome.failure;
 
         let legal = boundaries.into_iter().collect::<HashSet<_>>();
         let mut matches = Vec::new();
-        for resolution in resolutions {
+        for resolution in outcome.resolutions {
             let range = resolution.range;
             if range.start != state.cursor
                 || range.end > self.trim_range.end
@@ -1810,8 +1933,29 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             matches.push(next);
         }
 
-        if matches.is_empty() {
-            self.failure.record_range(
+        if matches.is_empty() || cause.is_some() {
+            let cause_range = anchored_failure_end
+                .map(|end| TextRange::new(state.cursor, end))
+                .unwrap_or(potential_range);
+            let cause_virtual_range = self.input.map_range(cause_range)?.mapped.virtual_range;
+            let cause = cause.filter(|cause| {
+                let root = cause.root_cause().failure.span.mapped.virtual_range;
+                root != cause_virtual_range
+                    && root.start >= cause_virtual_range.start
+                    && root.end <= cause_virtual_range.end
+            });
+            let input_range = if cause.is_some() {
+                potential_range
+            } else {
+                failure_range.unwrap_or_else(|| TextRange::empty(state.cursor))
+            };
+            let frame = self.failure_frame(
+                path,
+                Some(pattern_span),
+                input_range,
+                FailureFrameRole::TypeExpressionCapture,
+            )?;
+            self.failure.record_detailed(
                 state.cursor,
                 failure_range,
                 PatternFailureReason::TypeExpression {
@@ -1821,9 +1965,37 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         .map(|alternative| alternative.name.clone())
                         .collect(),
                 },
+                frame,
+                cause,
             );
         }
         Ok(matches)
+    }
+
+    fn failure_frame(
+        &self,
+        path: &[PatternPathSegment],
+        pattern_span: Option<PatternSpan>,
+        input_range: TextRange,
+        role: FailureFrameRole,
+    ) -> Result<Option<FailureFrame>, PatternMatchError> {
+        let Some(current) = &self.current else {
+            return Ok(None);
+        };
+        let (Some(pattern_index), Some(pattern)) = (current.pattern_index, current.pattern) else {
+            return Ok(None);
+        };
+        Ok(Some(FailureFrame {
+            kind: current.candidate.kind,
+            definition_id: current.candidate.definition_id.clone(),
+            registration_id: current.candidate.registration_id.clone(),
+            pattern_index,
+            pattern: pattern.source.to_owned(),
+            element_path: path.to_vec(),
+            pattern_span,
+            input_span: self.input.map_range(input_range)?,
+            role,
+        }))
     }
 
     fn boundary_allows_tail(&self, boundary: usize, tail: &[TailPrefix]) -> bool {
@@ -1832,16 +2004,29 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 if prefix.text.is_empty() {
                     prefix.dynamic || boundary == self.trim_range.end
                 } else {
-                    if prefix.text.starts_with(' ')
-                        && boundary > self.trim_range.start
-                        && self.input.text().as_bytes().get(boundary - 1) == Some(&b' ')
-                    {
-                        return false;
-                    }
-                    match_literal_at(self.input.text(), self.trim_range, boundary, &prefix.text)
-                        .is_ok()
+                    self.boundary_matches_tail_prefix(boundary, prefix)
                 }
             })
+    }
+
+    fn tail_literal_specificity(&self, boundary: usize, tail: &[TailPrefix]) -> Option<usize> {
+        tail.iter()
+            .filter(|prefix| {
+                !prefix.text.trim().is_empty()
+                    && self.boundary_matches_tail_prefix(boundary, prefix)
+            })
+            .map(|prefix| prefix.text.len())
+            .max()
+    }
+
+    fn boundary_matches_tail_prefix(&self, boundary: usize, prefix: &TailPrefix) -> bool {
+        if prefix.text.starts_with(' ')
+            && boundary > self.trim_range.start
+            && self.input.text().as_bytes().get(boundary - 1) == Some(&b' ')
+        {
+            return false;
+        }
+        match_literal_at(self.input.text(), self.trim_range, boundary, &prefix.text).is_ok()
     }
 
     fn regex(
@@ -2111,4 +2296,40 @@ pub(crate) fn find_parenthesis_end(input: &str, mut cursor: usize, end: usize) -
         cursor += ch.len_utf8();
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syntax_pattern_parser::syntax::{self, PluralRules};
+
+    #[test]
+    fn tail_prefixes_keep_literals_beside_dynamic_choices() {
+        let rules = PluralRules::from_json(include_str!(
+            "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+        ))
+        .unwrap();
+        let parsed = syntax::parse(
+            "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+            &rules,
+        )
+        .unwrap();
+        let type_index = parsed
+            .elements
+            .iter()
+            .position(|element| matches!(element.value, PatternElement::TypeExpr(_)))
+            .unwrap();
+        let prefixes = sequence_tail_prefixes(
+            &parsed.elements[type_index + 1..],
+            &[TailPrefix {
+                text: String::new(),
+                dynamic: false,
+            }],
+        );
+
+        assert!(
+            prefixes.iter().any(|prefix| prefix.text == " to "),
+            "{prefixes:#?}"
+        );
+    }
 }

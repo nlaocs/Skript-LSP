@@ -3,8 +3,8 @@ use skript_parser::{
     NoopPatternMatchHooks, PatternCandidate, PatternCapture, PatternFailureReason,
     PatternHookControl, PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
     PatternMatchError, PatternMatchHooks, PatternMatchLimit, PatternMatcherConfig,
-    RejectTypeExpressions, TextRange, TypeExpressionRequest, TypeExpressionResolution,
-    TypeExpressionResolver, match_pattern_candidates,
+    RejectTypeExpressions, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
+    TypeExpressionResolution, TypeExpressionResolver, match_pattern_candidates,
 };
 use syntax_pattern_parser::syntax::{
     self, ParseResult, PatternElement, PluralRules, Span, Spanned,
@@ -56,7 +56,7 @@ fn matches_structural_variants_and_skript_literal_rules() {
     for input in ["active group", "active-models", ""] {
         let result = match_one(input, source, &pattern).unwrap();
         assert!(result.selected.is_some(), "{input:?}");
-        assert!(result.failure.is_none());
+        assert!(result.primary_failure().is_none());
     }
     assert!(
         match_one("active thing", source, &pattern)
@@ -120,14 +120,15 @@ fn delegates_types_only_at_legal_skript_boundaries() {
         fn resolve(
             &mut self,
             request: TypeExpressionRequest<'_>,
-        ) -> Result<Vec<TypeExpressionResolution>, String> {
+        ) -> Result<TypeExpressionOutcome, String> {
             assert_eq!(request.expression.alternatives[0].name, "string");
             assert_eq!(request.candidate_ends, &[13]);
             Ok(vec![TypeExpressionResolution {
                 range: TextRange::new(request.remaining.start, 13),
                 alternative_index: Some(0),
                 resolution_id: Some("expr:1".to_owned()),
-            }])
+            }]
+            .into())
         }
     }
 
@@ -162,13 +163,14 @@ fn carries_type_boundary_lookahead_out_of_nested_groups() {
         fn resolve(
             &mut self,
             request: TypeExpressionRequest<'_>,
-        ) -> Result<Vec<TypeExpressionResolution>, String> {
+        ) -> Result<TypeExpressionOutcome, String> {
             assert_eq!(request.candidate_ends, &[13]);
             Ok(vec![TypeExpressionResolution {
                 range: TextRange::new(request.remaining.start, 13),
                 alternative_index: Some(0),
                 resolution_id: None,
-            }])
+            }]
+            .into())
         }
     }
 
@@ -195,13 +197,14 @@ fn keeps_both_optional_tail_paths_for_type_boundaries() {
         fn resolve(
             &mut self,
             request: TypeExpressionRequest<'_>,
-        ) -> Result<Vec<TypeExpressionResolution>, String> {
+        ) -> Result<TypeExpressionOutcome, String> {
             assert_eq!(request.candidate_ends, &[9, 13]);
             Ok(vec![TypeExpressionResolution {
                 range: TextRange::new(request.remaining.start, 9),
                 alternative_index: Some(0),
                 resolution_id: None,
-            }])
+            }]
+            .into())
         }
     }
 
@@ -228,7 +231,7 @@ fn keeps_all_boundaries_before_a_dynamic_type_tail() {
         fn resolve(
             &mut self,
             request: TypeExpressionRequest<'_>,
-        ) -> Result<Vec<TypeExpressionResolution>, String> {
+        ) -> Result<TypeExpressionOutcome, String> {
             let end = match request.remaining.start {
                 6 => {
                     assert_eq!(request.candidate_ends, &[7, 8]);
@@ -244,7 +247,8 @@ fn keeps_all_boundaries_before_a_dynamic_type_tail() {
                 range: TextRange::new(request.remaining.start, end),
                 alternative_index: Some(0),
                 resolution_id: None,
-            }])
+            }]
+            .into())
         }
     }
 
@@ -348,11 +352,9 @@ fn ranks_candidates_and_preserves_pattern_index() {
 #[test]
 fn reports_farthest_failure_invalid_regex_and_limits() {
     let pattern = parse("abc(def|xyz)");
-    let failure = match_one("abcxyQ", "abc(def|xyz)", &pattern)
-        .unwrap()
-        .failure
-        .unwrap();
-    assert_eq!(failure.offset, 5);
+    let result = match_one("abcxyQ", "abc(def|xyz)", &pattern).unwrap();
+    let failure = &result.primary_failure().unwrap().failure;
+    assert_eq!(failure.span.mapped.virtual_range.start, 5);
     assert!(
         failure
             .reasons
@@ -575,7 +577,7 @@ fn near_match_requires_a_literal_anchor_before_dynamic_elements() {
         PatternMatcherConfig::default(),
     )
     .unwrap();
-    assert!(result.best_failure.is_some());
+    assert!(result.failures.primary().is_some());
 
     let generic_source = "<.+> if <.+>";
     let generic = parse(generic_source);
@@ -589,7 +591,51 @@ fn near_match_requires_a_literal_anchor_before_dynamic_elements() {
         PatternMatcherConfig::default(),
     )
     .unwrap();
-    assert!(result.best_failure.is_none());
+    assert!(result.failures.primary().is_none());
+}
+
+#[test]
+fn near_match_recognizes_literal_anchors_inside_a_leading_group() {
+    let source = "(message|send [message[s]]) %objects% [to %audiences%]";
+    let pattern = parse(source);
+    let input = "send invalid";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    assert!(result.failures.primary().is_some());
+    assert_eq!(result.failures.candidates.len(), 1);
+}
+
+#[test]
+fn failed_type_span_stops_before_the_next_literal_separator() {
+    let source = "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]";
+    let pattern = parse(source);
+    let input = "teleport all player to location(1, 2, 3)";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    let failure = result
+        .failures
+        .primary()
+        .expect("teleport remains recognizable");
+    assert_eq!(
+        failure.trace.root_cause().failure.span.local_range,
+        TextRange::new(9, 19)
+    );
 }
 
 #[test]
@@ -616,7 +662,13 @@ fn near_match_prefers_a_concrete_failed_capture_at_the_same_offset() {
     )
     .unwrap();
 
-    let failure = result.best_failure.expect("anchored candidate expected");
+    let failure = result
+        .failures
+        .primary()
+        .expect("anchored candidate expected");
     assert_eq!(failure.registration_id, "effect:test#1");
-    assert_eq!(failure.failure.span.local_range, TextRange::new(9, 11));
+    assert_eq!(
+        failure.trace.root_cause().failure.span.local_range,
+        TextRange::new(9, 11)
+    );
 }

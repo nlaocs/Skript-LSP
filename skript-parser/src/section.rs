@@ -4,10 +4,10 @@
 use crate::{
     CandidateMatch, ConditionParseError, EffectMatches, EffectParseError, ExpressionNode,
     ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
-    ExpressionParserConfig, ExpressionSession, MappedSource, MatchPattern, MatchSpan,
-    MatchSyntaxKind, PatternCandidate, PatternCapture, PatternFailure, RawNode, RawNodeId,
-    RawNodeKind, RawTree, RegisteredCaptureKind, RegisteredConditionCapture,
-    SectionChildrenDecision, SectionChildrenRequest, TextRange,
+    ExpressionParserConfig, ExpressionSession, FailureTrace, MappedSource, MatchPattern, MatchSpan,
+    MatchSyntaxKind, PatternCandidate, PatternCapture, RawNode, RawNodeId, RawNodeKind, RawTree,
+    RegisteredCaptureKind, RegisteredConditionCapture, SectionChildrenDecision,
+    SectionChildrenRequest, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{
@@ -68,7 +68,7 @@ pub struct UnknownSectionNode {
     pub raw_node_id: RawNodeId,
     pub source: String,
     pub span: MatchSpan,
-    pub failure: Option<PatternFailure>,
+    pub failure: Option<FailureTrace>,
     pub body: Vec<SectionBodyNode>,
 }
 
@@ -161,6 +161,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     let mut candidates = section_pattern_candidates(session);
     session.retain_viable_patterns(range, &mut candidates)?;
     let matched = session.match_candidates_at_depth(range, &candidates, depth)?;
+    let failure = matched.primary_failure().cloned();
     let mut ranked = matched
         .selected
         .into_iter()
@@ -223,7 +224,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
                     raw_node_id: node.id,
                     source,
                     span: session.map_range(range)?,
-                    failure: matched.failure,
+                    failure: failure.clone(),
                     body,
                 }),
                 diagnostics,
@@ -268,7 +269,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             raw_node_id: node.id,
             source,
             span: session.map_range(range)?,
-            failure: matched.failure,
+            failure,
             body,
         }),
         diagnostics,

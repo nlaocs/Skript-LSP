@@ -1,8 +1,9 @@
 use serde::Deserialize;
 use skript_parser::{
     MappedSource, MatchInput, MatchPattern, MatchSyntaxKind, NoopPatternMatchHooks,
-    PatternCandidate, PatternMatcherConfig, TextRange, TypeExpressionRequest,
-    TypeExpressionResolution, TypeExpressionResolver, match_pattern_candidates,
+    PatternCandidate, PatternMatcherConfig, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver,
+    match_pattern_candidates,
 };
 use std::path::{Path, PathBuf};
 use syntax_pattern_parser::syntax::{
@@ -34,7 +35,7 @@ impl TypeExpressionResolver for AcceptFirstType {
     fn resolve(
         &mut self,
         request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
+    ) -> Result<TypeExpressionOutcome, String> {
         Ok(request
             .candidate_ends
             .first()
@@ -45,7 +46,8 @@ impl TypeExpressionResolver for AcceptFirstType {
                 resolution_id: None,
             })
             .into_iter()
-            .collect())
+            .collect::<Vec<_>>()
+            .into())
     }
 }
 

@@ -143,21 +143,42 @@ fn follows_skript_named_optional_and_list_parameter_rules() {
     assert_eq!(call.arguments[0].child_count, 2);
     assert_eq!(list.children.len(), 2);
 
-    for (revision, text) in [(4, "sum(1 and 2)"), (5, "sum((1, 2))")] {
+    for (revision, text, expected_values) in [
+        (4, "sum(1 and 2)", 2),
+        (5, "sum((1, 2))", 2),
+        (6, "sum(1 nor 2)", 2),
+        (7, "sum(1 and 2 or 3)", 3),
+        (8, "sum(((1, 2)))", 2),
+    ] {
         let list = parse(&mut host, revision, text)
             .selected
             .unwrap_or_else(|| panic!("{text:?} must remain one list parameter"))
             .node;
-        assert_eq!(list.function.unwrap().arguments[0].child_count, 2);
-        assert_eq!(list.children.len(), 2);
+        assert_eq!(
+            list.function.unwrap().arguments[0].child_count,
+            expected_values,
+            "{text:?} must expand into the expected parameter values"
+        );
+        assert_eq!(list.children.len(), expected_values);
     }
 
-    let quoted_comma = parse(&mut host, 6, "concat(\"a,b\", \"c\")")
+    let quoted_comma = parse(&mut host, 9, "concat(\"a,b\", \"c\")")
         .selected
         .expect("commas inside quoted strings must not split arguments")
         .node;
     assert_eq!(quoted_comma.function.unwrap().arguments[0].child_count, 2);
     assert_eq!(quoted_comma.children.len(), 2);
+
+    let clamp = parse(&mut host, 10, "clamp((1,2), 3, 4)")
+        .selected
+        .expect("a plural parameter in a fixed signature must accept one grouped list")
+        .node;
+    let call = clamp.function.unwrap();
+    assert_eq!(call.arguments.len(), 3);
+    assert_eq!(call.arguments[0].child_count, 2);
+    assert_eq!(call.arguments[1].child_count, 1);
+    assert_eq!(call.arguments[2].child_count, 1);
+    assert_eq!(clamp.children.len(), 4);
 }
 
 #[test]
@@ -186,6 +207,9 @@ fn rejects_unknown_wrong_arity_and_wrong_type_calls() {
         (4, "sin(\"not a number\")"),
         (5, "sum(1 or 2)"),
         (6, "log(n: 8, n: 2)"),
+        (7, "sum((1,2), 3)"),
+        (8, "clamp(1, 2, 3, 4)"),
+        (9, "sum(((1 or 2)))"),
     ] {
         assert!(
             parse(&mut host, revision, text).selected.is_none(),

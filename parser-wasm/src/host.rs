@@ -20,15 +20,15 @@ use skript_parser::{
     ConditionParserConfig, EffectCandidate, EffectCandidateFailure, EffectMatches,
     EffectParseError, EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate,
     ExpressionLeafKind, ExpressionLeafRequest, ExpressionMatches, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParseRequest, ExpressionParserConfig, MatchInput, MatchSpan,
-    MatchSyntaxKind, PatternCandidate, PatternCapture, PatternFailure, PatternFailureReason,
-    PatternHookControl, PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
-    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatcherConfig,
-    PatternPathSegment, RegisteredCaptureKind, RegisteredExpressionDecision,
-    RegisteredExpressionRequest, SectionChildrenDecision, SectionChildrenRequest, SectionMatches,
-    SectionParseError, SectionParseRequest, SectionParserConfig, TypeExpressionRequest,
-    TypeExpressionResolution, TypeExpressionResolver, UnknownEffectNode,
-    match_pattern_candidates as run_pattern_matcher,
+    ExpressionParseError, ExpressionParseRequest, ExpressionParserConfig, FailureTrace, MatchInput,
+    MatchSpan, MatchSyntaxKind, PatternCandidate, PatternCapture, PatternFailure,
+    PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookOutcome,
+    PatternHookScope, PatternHookTiming, PatternMatchEnvironment, PatternMatchError,
+    PatternMatchHooks, PatternMatcherConfig, PatternPathSegment, RankedFailures,
+    RegisteredCaptureKind, RegisteredExpressionDecision, RegisteredExpressionRequest,
+    SectionChildrenDecision, SectionChildrenRequest, SectionMatches, SectionParseError,
+    SectionParseRequest, SectionParserConfig, TypeExpressionOutcome, TypeExpressionRequest,
+    TypeExpressionResolver, UnknownEffectNode, match_pattern_candidates as run_pattern_matcher,
     parse_condition_with_snapshot as run_condition_parser,
     parse_effect_with_snapshot as run_effect_parser,
     parse_expression_with_snapshot as run_expression_parser,
@@ -1454,8 +1454,8 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
@@ -2079,7 +2079,7 @@ fn effect_near_match_to_wit(candidate: &EffectCandidateFailure) -> WitEffectNear
                 value: value.clone(),
             })
             .collect(),
-        failure: effect_failure_to_wit(&candidate.matched.failure),
+        failure: effect_failure_to_wit(&candidate.matched.trace.root_cause().failure),
     }
 }
 
@@ -2212,16 +2212,31 @@ fn effect_candidate_to_wit(
 
 fn effect_failure_to_wit(failure: &PatternFailure) -> WitEffectFailure {
     WitEffectFailure {
-        offset: failure.offset as u64,
+        offset: failure.span.mapped.virtual_range.start as u64,
         span: mapped_span_to_wit(failure.span.mapped.clone()),
         reasons: failure.reasons.iter().map(effect_failure_reason).collect(),
     }
+}
+
+fn unknown_effect_failure(unknown: &UnknownEffectNode) -> Option<&PatternFailure> {
+    unknown
+        .failures
+        .primary()
+        .map(|candidate| &candidate.matched.trace.root_cause().failure)
+        .or_else(|| {
+            unknown
+                .failures
+                .fallback
+                .as_ref()
+                .map(|trace| &trace.root_cause().failure)
+        })
 }
 
 fn effect_failure_reason(reason: &PatternFailureReason) -> String {
     match reason {
         PatternFailureReason::Literal { expected } => format!("literal:{expected}"),
         PatternFailureReason::Regex { pattern } => format!("regex:{pattern}"),
+        PatternFailureReason::Expression => "expression:unrecognized".to_owned(),
         PatternFailureReason::TypeExpression { expected } => {
             format!("expression:{}", expected.join("/"))
         }
@@ -2478,8 +2493,10 @@ fn unknown_effect_matches(
                 local_range: range,
                 mapped: code_span,
             },
-            failure,
-            best_candidate: None,
+            failures: RankedFailures {
+                fallback: failure.map(FailureTrace::leaf),
+                candidates: Vec::new(),
+            },
         }),
     })
 }
@@ -2758,14 +2775,12 @@ fn common_child_return_type(
     catalog: Option<&Catalog>,
 ) -> Option<String> {
     let catalog = catalog?;
-    let mut types = children
+    let types = children
         .iter()
-        .filter_map(|child| child.return_type.as_ref());
-    let first = types.next()?.clone();
-    types
-        .try_fold(first, |common, next| {
-            catalog.common_assignable_class(common.as_str(), next.as_str())
-        })
+        .map(|child| child.return_type.clone())
+        .collect::<Option<Vec<_>>>()?;
+    catalog
+        .common_skript_class(&types)
         .map(|value| value.as_str().to_owned())
 }
 
@@ -3665,7 +3680,7 @@ impl ParserHost {
                 matches
                     .unknown
                     .as_ref()
-                    .and_then(|unknown| unknown.best_candidate.as_ref())
+                    .and_then(|unknown| unknown.failures.primary())
                     .map(|candidate| candidate.matched.registration_id.clone())
             })
             .map_or(
@@ -3682,14 +3697,11 @@ impl ParserHost {
             timing: WitEffectTiming::After,
             candidate: matches.selected.as_ref(),
             alternatives: &matches.alternatives,
-            failure: matches
-                .unknown
-                .as_ref()
-                .and_then(|unknown| unknown.failure.as_ref()),
+            failure: matches.unknown.as_ref().and_then(unknown_effect_failure),
             near_match: matches
                 .unknown
                 .as_ref()
-                .and_then(|unknown| unknown.best_candidate.as_ref()),
+                .and_then(|unknown| unknown.failures.primary()),
             catalog: catalog.as_ref(),
         });
         let after = match self.dispatch_in_parse(
@@ -3726,7 +3738,6 @@ impl ParserHost {
             transaction.rollback_to(&base)?;
             if let Some(selected) = matches.selected.as_ref() {
                 let failure = Some(PatternFailure {
-                    offset: selected.matched.matched.span.local_range.start,
                     span: selected.matched.matched.span.clone(),
                     reasons: vec![PatternFailureReason::HookRejected {
                         reason: rejection.reason,

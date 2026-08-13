@@ -5,12 +5,13 @@
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
 use crate::{
-    CandidateFailure, CandidateMatch, ConditionParseError, ExpressionNode, ExpressionParseContext,
-    ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
-    MappedSource, MatchSpan, PatternCapture, PatternFailure, RawNode, RawNodeId, RawNodeKind,
-    RegisteredCaptureKind, RegisteredConditionCapture, TextRange,
+    CandidateFailure, CandidateMatch, CandidateMatches, ConditionParseError, ExpressionNode,
+    ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
+    ExpressionParserConfig, ExpressionSession, FailureFrame, FailureFrameRole, FailureTrace,
+    MappedSource, MatchSpan, PatternCapture, PatternFailure, RankedFailures, RawNode, RawNodeId,
+    RawNodeKind, RegisteredCaptureKind, RegisteredConditionCapture, TextRange,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
 use thiserror::Error;
 
@@ -47,9 +48,8 @@ pub struct UnknownEffectNode {
     pub raw_node_id: RawNodeId,
     pub source: String,
     pub span: MatchSpan,
-    pub failure: Option<PatternFailure>,
-    /// Registration that matched a meaningful prefix but failed in one of its captures.
-    pub best_candidate: Option<EffectCandidateFailure>,
+    /// Ranked rejected registrations and the aggregate matcher fallback.
+    pub failures: RankedFailures<EffectCandidateFailure>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,13 +205,17 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     let mut candidates = session.syntax_candidates(SyntaxKind::Effect);
     session.retain_viable_patterns(range, &mut candidates)?;
     let matches = session.match_candidates_at_depth(range, &candidates, depth)?;
-    let mut ranked = matches
-        .selected
+    let CandidateMatches {
+        selected: matched_selected,
+        alternatives: matched_alternatives,
+        failures: matcher_failures,
+    } = matches;
+    let mut ranked = matched_selected
         .into_iter()
-        .chain(matches.alternatives)
+        .chain(matched_alternatives)
         .collect::<Vec<_>>();
     let mut accepted = Vec::new();
-    let mut semantic_best_failure = None;
+    let mut candidate_failures = Vec::new();
     for matched in ranked.drain(..) {
         let resolved_order = candidates
             .iter()
@@ -237,7 +241,7 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         match candidate? {
             EffectCandidateResolution::Accepted(candidate) => accepted.push(candidate),
             EffectCandidateResolution::Rejected(candidate) => {
-                semantic_best_failure.get_or_insert(candidate);
+                candidate_failures.push(candidate);
             }
         }
     }
@@ -255,15 +259,34 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
                 .map_err(|error| EffectParseError::SourceMap {
                     message: error.to_string(),
                 })?;
-        let best_candidate = semantic_best_failure.or_else(|| {
-            matches
-                .best_failure
-                .map(|matched| effect_candidate_failure(session, matched))
+        candidate_failures.extend(
+            matcher_failures
+                .candidates
+                .into_iter()
+                .map(|matched| effect_candidate_failure(session, matched)),
+        );
+        candidate_failures.sort_by_key(|candidate| {
+            let trace = &candidate.matched.trace;
+            let root = trace.root_cause();
+            let range = root.failure.span.mapped.virtual_range;
+            (
+                std::cmp::Reverse(trace.specificity()),
+                std::cmp::Reverse(range.end),
+                std::cmp::Reverse(range.end.saturating_sub(range.start)),
+                std::cmp::Reverse(candidate.matched.literal_anchor),
+                candidate.matched.resolved_order.is_none(),
+                candidate.matched.resolved_order.unwrap_or(usize::MAX),
+                candidate.matched.priority,
+                candidate.matched.registration_order,
+            )
         });
-        let failure = best_candidate
-            .as_ref()
-            .map(|candidate| candidate.matched.failure.clone())
-            .or(matches.failure);
+        let mut seen = HashSet::new();
+        candidate_failures.retain(|candidate| {
+            seen.insert((
+                candidate.matched.registration_id.clone(),
+                candidate.matched.pattern_index,
+            ))
+        });
         Some(UnknownEffectNode {
             raw_node_id,
             source,
@@ -271,8 +294,10 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
                 local_range: range,
                 mapped,
             },
-            failure,
-            best_candidate,
+            failures: RankedFailures {
+                fallback: matcher_failures.fallback,
+                candidates: candidate_failures,
+            },
         })
     } else {
         None
@@ -362,7 +387,13 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         .zip(capture_kinds)
         .enumerate()
     {
-        let PatternCapture::Regex { value, span, .. } = capture else {
+        let PatternCapture::Regex {
+            pattern_span,
+            value,
+            span,
+            ..
+        } = capture
+        else {
             unreachable!("regex captures were filtered")
         };
         let local = span.local_range;
@@ -373,20 +404,23 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                 let parsed =
                     crate::condition::parse_condition_with_session(session, range, depth + 1)?;
                 let Some(selected) = parsed.selected else {
-                    let failure = parsed
+                    let cause = parsed
                         .unknown
-                        .map(|unknown| {
-                            unknown.failure.map_or_else(
-                                || nested_failure_from_span(unknown.span, frame_start),
-                                |failure| rebase_nested_failure(failure, range.start - frame_start),
-                            )
-                        })
-                        .unwrap_or_else(|| nested_failure_from_capture(span.clone()));
+                        .map(condition_failure_trace)
+                        .unwrap_or_else(|| nested_failure_trace(span.clone()));
+                    let trace = cause.with_parent(semantic_failure_frame(
+                        &matched,
+                        *pattern_span,
+                        span.clone(),
+                        FailureFrameRole::ConditionCapture {
+                            index: capture_index,
+                        },
+                    ));
                     return Ok(EffectCandidateResolution::Rejected(
                         semantic_effect_candidate_failure(
                             &matched,
                             resolved_order,
-                            failure,
+                            trace,
                             element_class.clone(),
                             handler.clone(),
                             metadata.clone(),
@@ -402,26 +436,23 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                 let parsed =
                     parse_effect_range_with_session(session, range, raw_node_id, depth + 1)?;
                 let Some(selected) = parsed.selected else {
-                    let failure = parsed
+                    let cause = parsed
                         .unknown
-                        .map(|unknown| {
-                            unknown
-                                .best_candidate
-                                .map(|candidate| candidate.matched.failure)
-                                .or(unknown.failure)
-                                .map_or_else(
-                                    || nested_failure_from_span(unknown.span, frame_start),
-                                    |failure| {
-                                        rebase_nested_failure(failure, range.start - frame_start)
-                                    },
-                                )
-                        })
-                        .unwrap_or_else(|| nested_failure_from_capture(span.clone()));
+                        .map(effect_failure_trace)
+                        .unwrap_or_else(|| nested_failure_trace(span.clone()));
+                    let trace = cause.with_parent(semantic_failure_frame(
+                        &matched,
+                        *pattern_span,
+                        span.clone(),
+                        FailureFrameRole::EffectCapture {
+                            index: capture_index,
+                        },
+                    ));
                     return Ok(EffectCandidateResolution::Rejected(
                         semantic_effect_candidate_failure(
                             &matched,
                             resolved_order,
-                            failure,
+                            trace,
                             element_class.clone(),
                             handler.clone(),
                             metadata.clone(),
@@ -451,7 +482,7 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
 fn semantic_effect_candidate_failure(
     matched: &CandidateMatch,
     resolved_order: Option<usize>,
-    failure: PatternFailure,
+    trace: FailureTrace,
     element_class: Option<syntaxes::ClassName>,
     handler: Option<String>,
     metadata: BTreeMap<String, String>,
@@ -464,7 +495,10 @@ fn semantic_effect_candidate_failure(
             priority: matched.priority,
             registration_order: matched.registration_order,
             resolved_order,
-            failure,
+            literal_anchor: matched.literal_anchor,
+            pattern_index: Some(matched.pattern_index),
+            pattern: Some(matched.pattern.clone()),
+            trace,
         },
         element_class,
         handler,
@@ -472,31 +506,47 @@ fn semantic_effect_candidate_failure(
     }
 }
 
-fn rebase_nested_failure(mut failure: PatternFailure, offset: usize) -> PatternFailure {
-    failure.offset = failure.offset.saturating_add(offset);
-    failure.span.local_range = TextRange::new(
-        failure.span.local_range.start.saturating_add(offset),
-        failure.span.local_range.end.saturating_add(offset),
-    );
-    failure
-}
-
-fn nested_failure_from_span(mut span: MatchSpan, frame_start: usize) -> PatternFailure {
-    span.local_range = TextRange::new(
-        span.local_range.start.saturating_sub(frame_start),
-        span.local_range.end.saturating_sub(frame_start),
-    );
-    PatternFailure {
-        offset: span.local_range.start,
-        span,
-        reasons: vec![crate::PatternFailureReason::TrailingInput],
+fn semantic_failure_frame(
+    matched: &CandidateMatch,
+    pattern_span: syntax_pattern_parser::syntax::Span,
+    input_span: MatchSpan,
+    role: FailureFrameRole,
+) -> FailureFrame {
+    FailureFrame {
+        kind: matched.kind,
+        definition_id: matched.definition_id.clone(),
+        registration_id: matched.registration_id.clone(),
+        pattern_index: matched.pattern_index,
+        pattern: matched.pattern.clone(),
+        element_path: Vec::new(),
+        pattern_span: Some(pattern_span),
+        input_span,
+        role,
     }
 }
 
-fn nested_failure_from_capture(span: MatchSpan) -> PatternFailure {
-    PatternFailure {
-        offset: span.local_range.start,
+fn condition_failure_trace(unknown: crate::UnknownCondition) -> FailureTrace {
+    unknown
+        .failure
+        .unwrap_or_else(|| nested_failure_trace(unknown.span))
+}
+
+fn effect_failure_trace(unknown: UnknownEffectNode) -> FailureTrace {
+    let RankedFailures {
+        fallback,
+        candidates,
+    } = unknown.failures;
+    candidates
+        .into_iter()
+        .next()
+        .map(|candidate| candidate.matched.trace)
+        .or(fallback)
+        .unwrap_or_else(|| nested_failure_trace(unknown.span))
+}
+
+fn nested_failure_trace(span: MatchSpan) -> FailureTrace {
+    FailureTrace::leaf(PatternFailure {
         span,
         reasons: vec![crate::PatternFailureReason::TrailingInput],
-    }
+    })
 }

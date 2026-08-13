@@ -7,6 +7,8 @@ mod condition;
 mod effect;
 mod expansion;
 mod expression;
+mod expression_list;
+mod failure;
 mod function;
 mod pattern_match;
 mod raw_tree;
@@ -25,6 +27,10 @@ pub use effect::*;
 pub use expansion::*;
 /// Recursive Expression parsing over SSG registrations and parser extensions.
 pub use expression::*;
+/// Skript Expression-list conjunction semantics.
+pub use expression_list::*;
+/// Nested parse-failure provenance shared by diagnostics and LSP adapters.
+pub use failure::*;
 /// Registered and future document-defined Function call parsing.
 pub use function::*;
 /// Registered-pattern matching and typed extension points.

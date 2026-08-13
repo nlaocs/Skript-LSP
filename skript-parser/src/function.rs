@@ -345,11 +345,15 @@ fn parse_list_definition<E: ExpressionParseEnvironment>(
             .then(|| argument.name.clone())
             .flatten()
     });
+    // Skript parses all outer arguments of a one-parameter plural Function as
+    // one Expression list. Keeping the commas here is what makes `(1,2),3`
+    // a nested list (invalid) while allowing both `1,2` and `(1,2)`.
     let values = call
         .arguments
-        .iter()
-        .map(|argument| argument.value)
-        .collect::<Vec<_>>();
+        .first()
+        .zip(call.arguments.last())
+        .map(|(first, last)| vec![TextRange::new(first.value.start, last.value.end)])
+        .unwrap_or_default();
     build_candidate(
         session,
         call,
@@ -525,44 +529,47 @@ fn parse_parameter_value<E: ExpressionParseEnvironment>(
     if range.is_empty() {
         return Ok(None);
     }
-    if let Some(node) = parse_one(session, range, parameter, depth)? {
-        return Ok(Some(vec![node]));
-    }
-    if parameter.single {
-        return Ok(None);
-    }
-
-    let input = session.source().virtual_source();
-    let list_range = unwrapped_list_range(input, range).unwrap_or(range);
-    let Some(parts) = split_expression_list(input, list_range) else {
-        return Ok(None);
-    };
-    if parts.len() < 2 {
-        return Ok(None);
-    }
-    let mut nodes = Vec::with_capacity(parts.len());
-    for part in parts {
-        let Some(node) = parse_one(session, part, parameter, depth)? else {
-            return Ok(None);
-        };
-        nodes.push(node);
-    }
-    Ok(Some(nodes))
-}
-
-fn parse_one<E: ExpressionParseEnvironment>(
-    session: &mut ExpressionSession<'_, E>,
-    range: TextRange,
-    parameter: &FunctionParameterDefinition,
-    depth: usize,
-) -> Result<Option<ExpressionNode>, ExpressionParseError> {
     let expected = [ExpressionExpectedType {
         class_name: parameter.parameter_type.clone(),
         plural: !parameter.single,
     }];
     let mut candidates =
         session.parse_prefixes(range, &[range.end], &expected, true, true, 0, depth)?;
-    Ok((!candidates.is_empty()).then(|| candidates.remove(0).node))
+    let Some(node) = (!candidates.is_empty()).then(|| candidates.remove(0).node) else {
+        return Ok(None);
+    };
+    if parameter.single {
+        return Ok(Some(vec![node]));
+    }
+    Ok(flatten_function_list(node))
+}
+
+fn flatten_function_list(mut node: ExpressionNode) -> Option<Vec<ExpressionNode>> {
+    if !is_expression_list(&node) {
+        return Some(vec![node]);
+    }
+    while matches!(node.kind, ExpressionNodeKind::Grouped) && node.children.len() == 1 {
+        node = node.children.remove(0);
+    }
+    match node.kind {
+        ExpressionNodeKind::List {
+            conjunction: crate::ExpressionListConjunction::And,
+        } if node.children.iter().any(is_expression_list) => None,
+        ExpressionNodeKind::List {
+            conjunction: crate::ExpressionListConjunction::And,
+        } => Some(node.children),
+        ExpressionNodeKind::List {
+            conjunction: crate::ExpressionListConjunction::Or,
+        } => None,
+        _ => Some(vec![node]),
+    }
+}
+
+fn is_expression_list(node: &ExpressionNode) -> bool {
+    matches!(node.kind, ExpressionNodeKind::List { .. })
+        || (matches!(node.kind, ExpressionNodeKind::Grouped)
+            && node.children.len() == 1
+            && is_expression_list(&node.children[0]))
 }
 
 fn parse_call_syntax(
@@ -686,101 +693,6 @@ fn duplicate_named_argument(arguments: &[ParsedArgument]) -> bool {
                 .as_ref()
                 .is_some_and(|name| !names.insert(name))
     })
-}
-
-fn unwrapped_list_range(input: &str, range: TextRange) -> Option<TextRange> {
-    if !range.slice(input)?.starts_with('(') {
-        return None;
-    }
-    let close = find_parenthesis_end(input, range.start + '('.len_utf8(), range.end)?;
-    if close + ')'.len_utf8() != range.end {
-        return None;
-    }
-    let raw = TextRange::new(range.start + '('.len_utf8(), close);
-    let local = java_trim_range(raw.slice(input)?);
-    Some(TextRange::new(
-        raw.start + local.start,
-        raw.start + local.end,
-    ))
-}
-
-fn split_expression_list(input: &str, range: TextRange) -> Option<Vec<TextRange>> {
-    let mut parts = Vec::new();
-    let mut start = range.start;
-    let mut cursor = range.start;
-    let mut depth = 0usize;
-    while cursor < range.end {
-        let ch = input.get(cursor..range.end)?.chars().next()?;
-        match ch {
-            '"' => {
-                cursor = find_quote_end(input, cursor + ch.len_utf8(), range.end)? + ch.len_utf8();
-                continue;
-            }
-            '{' => {
-                cursor =
-                    find_variable_end(input, cursor + ch.len_utf8(), range.end)? + '}'.len_utf8();
-                continue;
-            }
-            '(' => depth = depth.saturating_add(1),
-            ')' if depth > 0 => depth -= 1,
-            ',' if depth == 0 => {
-                push_trimmed(input, TextRange::new(start, cursor), &mut parts)?;
-                start = cursor + ch.len_utf8();
-            }
-            _ if depth == 0 => {
-                if let Some((separator_start, separator_end, is_or)) =
-                    conjunction_at(input, cursor, range.end)
-                {
-                    if is_or {
-                        return None;
-                    }
-                    push_trimmed(input, TextRange::new(start, separator_start), &mut parts)?;
-                    start = separator_end;
-                    cursor = separator_end;
-                    continue;
-                }
-            }
-            _ => {}
-        }
-        cursor += ch.len_utf8();
-    }
-    push_trimmed(input, TextRange::new(start, range.end), &mut parts)?;
-    Some(parts)
-}
-
-fn conjunction_at(input: &str, cursor: usize, end: usize) -> Option<(usize, usize, bool)> {
-    let text = input.get(cursor..end)?;
-    for (word, is_or) in [("and", false), ("or", true)] {
-        let Some(prefix) = text.get(..word.len()) else {
-            continue;
-        };
-        if prefix.eq_ignore_ascii_case(word)
-            && cursor > 0
-            && input[..cursor]
-                .chars()
-                .next_back()
-                .is_some_and(char::is_whitespace)
-            && text[word.len()..]
-                .chars()
-                .next()
-                .is_some_and(char::is_whitespace)
-        {
-            return Some((cursor, cursor + word.len(), is_or));
-        }
-    }
-    None
-}
-
-fn push_trimmed(input: &str, range: TextRange, parts: &mut Vec<TextRange>) -> Option<()> {
-    let local = java_trim_range(range.slice(input)?);
-    if local.is_empty() {
-        return None;
-    }
-    parts.push(TextRange::new(
-        range.start + local.start,
-        range.start + local.end,
-    ));
-    Some(())
 }
 
 fn component_type(class_name: &ClassName) -> ClassName {

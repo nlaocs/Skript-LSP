@@ -2,7 +2,7 @@ use skript_parser::{
     ConditionNodeKind, ConditionParseRequest, ConditionParserConfig, ExpressionLeafCandidate,
     ExpressionLeafKind, ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment,
     MappedSource, PatternHookControl, PatternHookEvent, PatternMatchEnvironment, TextRange,
-    TypeExpressionRequest, TypeExpressionResolution, parse_condition,
+    TypeExpressionOutcome, TypeExpressionRequest, parse_condition,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -112,8 +112,8 @@ impl PatternMatchEnvironment for LiteralEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(

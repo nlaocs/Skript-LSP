@@ -1,15 +1,15 @@
 use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
-    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionNodeKind,
-    ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig, MappedSource,
-    RawTreeOptions, TextRange, parse_raw_tree,
+    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionListConjunction,
+    ExpressionNodeKind, ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig,
+    MappedSource, RawTreeOptions, TextRange, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use syntaxes::{
-    Catalog, CatalogParts, ClassName, FunctionParameter, PossibleReturnTypesState, RegistrationId,
-    ReturnTypeState, Syntax,
+    Catalog, CatalogParts, ClassName, FunctionParameter, Multiplicity, PossibleReturnTypesState,
+    RegistrationId, ReturnTypeState, Syntax,
 };
 
 const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
@@ -178,6 +178,269 @@ fn common_effects_parse_with_collection_and_nested_expression_inputs() {
 }
 
 #[test]
+fn invalid_ternary_condition_retains_parent_effect_interpretations() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 15)
+        .unwrap();
+
+    let result = parse_effect(&mut host, &transaction, 15, "send 1 if a < 5 else 2");
+    let unknown = result
+        .matches
+        .unknown
+        .expect("the invalid nested condition must keep a recoverable Effect");
+    let classes = unknown
+        .failures
+        .candidates
+        .iter()
+        .filter_map(|candidate| candidate.element_class.as_ref())
+        .map(|class| class.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        classes.contains(&"org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"),
+        "EffMessage must remain available beside EffDoIf: {classes:#?}"
+    );
+    assert!(classes.contains(&"ch.njol.skript.effects.EffDoIf"));
+    let best = unknown
+        .failures
+        .primary()
+        .expect("EffMessage must be the primary interpretation");
+    let ranked = unknown
+        .failures
+        .candidates
+        .iter()
+        .map(|candidate| {
+            let mut depth = 0;
+            let mut trace = Some(&candidate.matched.trace);
+            while let Some(current) = trace {
+                depth += usize::from(current.frame.is_some());
+                trace = current.cause.as_deref();
+            }
+            (
+                candidate.element_class.as_ref().map(|class| class.as_str()),
+                candidate
+                    .matched
+                    .trace
+                    .root_cause()
+                    .failure
+                    .span
+                    .mapped
+                    .virtual_range,
+                depth,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        best.element_class.as_ref().map(|class| class.as_str()),
+        Some("org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"),
+        "ranked failures: {ranked:#?}"
+    );
+    assert_eq!(
+        best.matched.pattern.as_deref(),
+        Some("(message|send [message[s]]) %objects% [to %audiences%]")
+    );
+    let root = best.matched.trace.root_cause();
+    assert_eq!(
+        root.failure.span.mapped.virtual_range,
+        TextRange::new(10, 11)
+    );
+
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 17)
+        .unwrap();
+
+    for (source, conjunction, multiplicity) in [
+        (
+            "send 1,2,3",
+            ExpressionListConjunction::And,
+            Multiplicity::Multiple,
+        ),
+        (
+            "send 1 or 2",
+            ExpressionListConjunction::Or,
+            Multiplicity::Single,
+        ),
+        (
+            "send 1 and 2 or 3",
+            ExpressionListConjunction::And,
+            Multiplicity::Multiple,
+        ),
+        (
+            "send 1 nor 2",
+            ExpressionListConjunction::And,
+            Multiplicity::Multiple,
+        ),
+        (
+            "send 1, 2 or 3",
+            ExpressionListConjunction::Or,
+            Multiplicity::Single,
+        ),
+        (
+            "send (1 and 2) or 3",
+            ExpressionListConjunction::Or,
+            Multiplicity::Multiple,
+        ),
+    ] {
+        let result = parse_effect(&mut host, &transaction, 17, source);
+        let selected = result
+            .matches
+            .selected
+            .unwrap_or_else(|| panic!("{source:?} must parse as an Expression list"));
+        let expression = &selected.expressions[0];
+        assert_eq!(expression.kind, ExpressionNodeKind::List { conjunction });
+        assert_eq!(expression.multiplicity, Some(multiplicity));
+        assert!(expression.children.len() >= 2);
+    }
+
+    let source = "send spherical vector radius 1, yaw 45, pitch 90 and 2";
+    let selected = parse_effect(&mut host, &transaction, 17, source)
+        .matches
+        .selected
+        .expect("a comma-bearing vector must remain one child in an outer list");
+    let expression = &selected.expressions[0];
+    assert_eq!(
+        expression.kind,
+        ExpressionNodeKind::List {
+            conjunction: ExpressionListConjunction::And,
+        }
+    );
+    assert_eq!(expression.children.len(), 2);
+    assert_eq!(
+        expression.children[0].span.local_range.slice(source),
+        Some("spherical vector radius 1, yaw 45, pitch 90")
+    );
+
+    let numeric = parse_effect(&mut host, &transaction, 17, "send 1, 2.5")
+        .matches
+        .selected
+        .expect("numeric list must parse");
+    assert_eq!(
+        numeric.expressions[0]
+            .return_type
+            .as_ref()
+            .map(|ty| ty.as_str()),
+        Some("java.lang.Number")
+    );
+
+    assert!(
+        parse_effect(&mut host, &transaction, 17, "send 1,and 2")
+            .matches
+            .selected
+            .is_none(),
+        "comma-adjacent `and` is part of the next piece, not the delimiter"
+    );
+
+    let invalid_utf8_child = parse_effect(&mut host, &transaction, 17, "send 1 and あ")
+        .matches
+        .unknown
+        .expect("the invalid UTF-8 list child must retain its failure");
+    assert_eq!(
+        invalid_utf8_child
+            .failures
+            .primary()
+            .expect("EffMessage remains recognizable")
+            .matched
+            .trace
+            .root_cause()
+            .failure
+            .span
+            .mapped
+            .virtual_range,
+        TextRange::new(11, 14)
+    );
+
+    for source in ["send location(1,2,3)", "send \"a,b\""] {
+        let result = parse_effect(&mut host, &transaction, 17, source);
+        let selected = result
+            .matches
+            .selected
+            .unwrap_or_else(|| panic!("commas nested in {source:?} must not create a list"));
+        assert!(!matches!(
+            selected.expressions[0].kind,
+            ExpressionNodeKind::List { .. }
+        ));
+    }
+
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn failed_typed_capture_covers_the_complete_expression_before_its_separator() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 18)
+        .unwrap();
+    let source = "teleport all player to location(1,2,3)";
+    let unknown = parse_effect(&mut host, &transaction, 18, source)
+        .matches
+        .unknown
+        .expect("invalid entity expression must retain EffTeleport");
+
+    let failures = unknown
+        .failures
+        .candidates
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.element_class.as_ref().map(|class| class.as_str()),
+                candidate
+                    .matched
+                    .trace
+                    .root_cause()
+                    .failure
+                    .span
+                    .mapped
+                    .virtual_range,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unknown
+            .failures
+            .primary()
+            .expect("EffTeleport remains recognizable")
+            .matched
+            .trace
+            .root_cause()
+            .failure
+            .span
+            .mapped
+            .virtual_range,
+        TextRange::new(9, 19),
+        "ranked failures: {failures:#?}"
+    );
+    transaction.cancel().unwrap();
+}
+
+#[test]
 fn core_library_resolves_sets_only_for_supplier_backed_types() {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
@@ -220,7 +483,7 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
     let best = invalid
         .matches
         .unknown
-        .and_then(|unknown| unknown.best_candidate)
+        .and_then(|unknown| unknown.failures.candidates.into_iter().next())
         .expect("the parent Effect must remain identifiable after ExprSets rejects the type");
     assert_eq!(
         best.element_class.as_ref().map(|class| class.as_str()),
@@ -328,7 +591,7 @@ fn wasm_effect_reject_restores_nested_expression_and_hook_state() {
         .matches
         .unknown
         .expect("rejected Effect becomes unknown");
-    assert!(unknown.failure.is_some());
+    assert!(unknown.failures.primary().is_some() || unknown.failures.fallback.is_some());
     assert!(
         result
             .effects
@@ -360,10 +623,9 @@ fn wasm_effect_reject_preserves_incomplete_near_match_and_rolls_back() {
         .matches
         .unknown
         .expect("incomplete Effect must remain unknown");
-    assert!(baseline_unknown.failure.is_some());
-    assert!(baseline_unknown.best_candidate.is_some());
-    let baseline_failure = baseline_unknown.failure.clone();
-    let baseline_best_candidate = baseline_unknown.best_candidate.clone();
+    assert!(baseline_unknown.failures.fallback.is_some());
+    assert!(baseline_unknown.failures.primary().is_some());
+    let baseline_failures = baseline_unknown.failures.clone();
     baseline_transaction.cancel().unwrap();
 
     let mut host = ParserHost::new(
@@ -385,8 +647,7 @@ fn wasm_effect_reject_preserves_incomplete_near_match_and_rolls_back() {
         .matches
         .unknown
         .expect("rejected incomplete Effect must remain unknown");
-    assert_eq!(unknown.failure, baseline_failure);
-    assert_eq!(unknown.best_candidate, baseline_best_candidate);
+    assert_eq!(unknown.failures, baseline_failures);
     assert!(
         result
             .effects

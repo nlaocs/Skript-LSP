@@ -5,15 +5,18 @@
 //! as variables and literals through [`ExpressionParseEnvironment`].
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
+use crate::expression_list::{ExpressionListConjunction, split_expression_list};
 use crate::pattern_match::{
     find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
 };
 use crate::{
-    CandidateMatch, ConditionNode, MappedSource, MatchInput, MatchPattern, MatchSpan,
-    ParseTagCapture, PatternCandidate, PatternCapture, PatternHookControl, PatternHookEvent,
+    CandidateMatch, ConditionNode, FailureFrame, FailureFrameRole, FailureTrace, MappedSource,
+    MatchInput, MatchPattern, MatchSpan, ParseTagCapture, PatternCandidate, PatternCapture,
+    PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
     PatternMatchEnvironment, PatternMatchError, PatternMatcherConfig, TextRange,
-    TypeExpressionRequest, TypeExpressionResolution, catalog_pattern_candidates,
-    match_pattern_candidates_with_environment, snapshot_pattern_candidates,
+    TypeExpressionOutcome, TypeExpressionRequest, TypeExpressionResolution,
+    catalog_pattern_candidates, choose_failure_trace, match_pattern_candidates_with_environment,
+    snapshot_pattern_candidates,
 };
 use crate::{FunctionCall, FunctionDefinition, FunctionLookupRequest};
 use std::borrow::Cow;
@@ -74,6 +77,10 @@ impl Default for ExpressionParserConfig {
 pub enum ExpressionNodeKind {
     /// A complete child Expression wrapped in one pair of parentheses.
     Grouped,
+    /// A top-level Skript Expression list joined by commas, `and`, `or`, or `nor`.
+    List {
+        conjunction: ExpressionListConjunction,
+    },
     Registered {
         definition_id: String,
         registration_id: String,
@@ -359,8 +366,8 @@ impl PatternMatchEnvironment for NoopExpressionEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -412,6 +419,7 @@ struct MemoKey {
     allow_literals: bool,
     allow_expressions: bool,
     time: i32,
+    allow_lists: bool,
     state_revision: u64,
 }
 
@@ -426,6 +434,17 @@ struct RegistrationMetadata {
     multiplicity: Option<Multiplicity>,
     multiplicity_state: ResolutionState,
     metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PrefixParse {
+    candidates: Vec<ExpressionCandidate>,
+    failure: Option<FailureTrace>,
+}
+
+enum RegisteredNodeResolution {
+    Accepted(ExpressionCandidate),
+    Rejected(Option<FailureTrace>),
 }
 
 pub(crate) struct ExpressionSession<'a, E> {
@@ -443,7 +462,7 @@ pub(crate) struct ExpressionSession<'a, E> {
     environment: &'a mut E,
     context: ExpressionParseContext,
     config: ExpressionParserConfig,
-    memo: HashMap<MemoKey, Vec<ExpressionCandidate>>,
+    memo: HashMap<MemoKey, PrefixParse>,
     active: HashSet<MemoKey>,
     resolved_nodes: HashMap<String, ExpressionNode>,
     frame_starts: Vec<usize>,
@@ -754,6 +773,32 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         time: i32,
         depth: usize,
     ) -> Result<Vec<ExpressionCandidate>, ExpressionParseError> {
+        Ok(self
+            .parse_prefixes_mode(
+                range,
+                candidate_ends,
+                expected_types,
+                allow_literals,
+                allow_expressions,
+                time,
+                depth,
+                true,
+            )?
+            .candidates)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn parse_prefixes_mode(
+        &mut self,
+        range: TextRange,
+        candidate_ends: &[usize],
+        expected_types: &[ExpressionExpectedType],
+        allow_literals: bool,
+        allow_expressions: bool,
+        time: i32,
+        depth: usize,
+        allow_lists: bool,
+    ) -> Result<PrefixParse, ExpressionParseError> {
         if depth > self.config.max_depth {
             return Err(ExpressionParseError::DepthLimit {
                 limit: self.config.max_depth,
@@ -768,6 +813,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             allow_literals,
             allow_expressions,
             time,
+            allow_lists,
             state_revision: self
                 .environment
                 .state_revision()
@@ -777,7 +823,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             return Ok(cached.clone());
         }
         if !self.active.insert(key.clone()) {
-            return Ok(Vec::new());
+            return Ok(PrefixParse::default());
         }
         if self.memo.len() >= self.config.max_memo_entries {
             self.active.remove(&key);
@@ -797,10 +843,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 depth,
                 RegisteredPass::Base,
                 true,
+                allow_lists,
             )?;
             let mut candidates = Vec::new();
-            self.extend_unique_candidates(&mut candidates, base)?;
-            self.memo.insert(key.clone(), candidates.clone());
+            self.extend_unique_candidates(&mut candidates, base.candidates)?;
+            let mut failure = base.failure;
+            self.memo.insert(
+                key.clone(),
+                PrefixParse {
+                    candidates: candidates.clone(),
+                    failure: failure.clone(),
+                },
+            );
 
             for _ in 0..=self.config.max_depth {
                 let recursive = self.parse_prefixes_uncached(
@@ -813,14 +867,25 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     depth,
                     RegisteredPass::LeftRecursive,
                     false,
+                    allow_lists,
                 )?;
-                let added = self.extend_unique_candidates(&mut candidates, recursive)?;
-                self.memo.insert(key.clone(), candidates.clone());
+                let added = self.extend_unique_candidates(&mut candidates, recursive.candidates)?;
+                failure = choose_failure_trace(failure, recursive.failure);
+                self.memo.insert(
+                    key.clone(),
+                    PrefixParse {
+                        candidates: candidates.clone(),
+                        failure: failure.clone(),
+                    },
+                );
                 if added == 0 {
                     break;
                 }
             }
-            Ok(candidates)
+            Ok(PrefixParse {
+                candidates,
+                failure,
+            })
         })();
         self.active.remove(&key);
         if result.is_err() {
@@ -841,8 +906,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         depth: usize,
         registered_pass: RegisteredPass,
         include_leaves: bool,
-    ) -> Result<Vec<ExpressionCandidate>, ExpressionParseError> {
+        allow_lists: bool,
+    ) -> Result<PrefixParse, ExpressionParseError> {
         let mut candidates = Vec::new();
+        let mut failure = None;
         let mut ordinary_candidate_ends = candidate_ends.to_vec();
         if self
             .source
@@ -869,15 +936,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         raw_inner.start + local_inner.end,
                     );
                     if !inner.is_empty() {
-                        let inner_candidates = self.parse_prefixes(
-                            inner,
-                            &[inner.end],
-                            expected_types,
-                            allow_literals,
-                            allow_expressions,
-                            time,
-                            depth + 1,
-                        )?;
+                        let inner_candidates = self
+                            .parse_prefixes_mode(
+                                inner,
+                                &[inner.end],
+                                expected_types,
+                                allow_literals,
+                                allow_expressions,
+                                time,
+                                depth + 1,
+                                allow_lists,
+                            )?
+                            .candidates;
                         let group_span = self.map_range(TextRange::new(range.start, group_end))?;
                         for inner_candidate in inner_candidates {
                             let child = inner_candidate.node;
@@ -1007,29 +1077,168 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_depths.pop();
                 self.frame_starts.pop();
                 let matched = matched?;
-                if let Some(selected) = matched.selected
-                    && let Some(candidate) = self.registered_node(
+                failure = choose_failure_trace(failure, matched.primary_failure().cloned());
+                if let Some(selected) = matched.selected {
+                    match self.registered_node(
                         selected,
                         candidate_range.start,
                         expected_types,
                         depth,
-                    )?
-                {
-                    candidates.push(candidate);
+                    )? {
+                        RegisteredNodeResolution::Accepted(candidate) => candidates.push(candidate),
+                        RegisteredNodeResolution::Rejected(trace) => {
+                            failure = choose_failure_trace(failure, trace);
+                        }
+                    }
                 }
                 for alternative in matched.alternatives {
-                    if let Some(candidate) = self.registered_node(
+                    match self.registered_node(
                         alternative,
                         candidate_range.start,
                         expected_types,
                         depth,
                     )? {
-                        candidates.push(candidate);
+                        RegisteredNodeResolution::Accepted(candidate) => candidates.push(candidate),
+                        RegisteredNodeResolution::Rejected(trace) => {
+                            failure = choose_failure_trace(failure, trace);
+                        }
                     }
                 }
             }
+
+            if include_leaves && allow_lists {
+                let lists = self.parse_expression_lists(
+                    range,
+                    candidate_ends,
+                    expected_types,
+                    allow_literals,
+                    time,
+                    depth,
+                )?;
+                candidates.extend(lists.candidates);
+                failure = choose_failure_trace(failure, lists.failure);
+            }
         }
-        Ok(candidates)
+        Ok(PrefixParse {
+            candidates,
+            failure,
+        })
+    }
+
+    fn parse_expression_lists(
+        &mut self,
+        range: TextRange,
+        candidate_ends: &[usize],
+        expected_types: &[ExpressionExpectedType],
+        allow_literals: bool,
+        time: i32,
+        depth: usize,
+    ) -> Result<PrefixParse, ExpressionParseError> {
+        let mut lists = Vec::new();
+        let mut failure = None;
+        for end in candidate_ends.iter().copied() {
+            let list_range = TextRange::new(range.start, end);
+            let Some(raw) = split_expression_list(self.source.virtual_source(), list_range) else {
+                continue;
+            };
+
+            let mut children = Vec::with_capacity(raw.pieces.len());
+            let mut child_starts = Vec::with_capacity(raw.pieces.len());
+            let mut first = 0;
+            let mut valid = true;
+            while first < raw.pieces.len() {
+                let mut accepted = None;
+                let mut current_failure = None;
+                let mut attempted_range = None;
+                for last in first..raw.pieces.len() {
+                    if first == 0 && last + 1 == raw.pieces.len() {
+                        continue;
+                    }
+                    let candidate_range =
+                        TextRange::new(raw.pieces[first].start, raw.pieces[last].end);
+                    attempted_range = Some(candidate_range);
+                    let nested_lists =
+                        completely_parenthesized(self.source.virtual_source(), candidate_range);
+                    let mut parsed = self.parse_prefixes_mode(
+                        candidate_range,
+                        &[candidate_range.end],
+                        expected_types,
+                        allow_literals,
+                        true,
+                        time,
+                        depth + 1,
+                        nested_lists,
+                    )?;
+                    if !parsed.candidates.is_empty() {
+                        accepted = Some((last, parsed.candidates.remove(0).node));
+                        break;
+                    }
+                    current_failure = choose_failure_trace(current_failure, parsed.failure);
+                }
+                let Some((last, node)) = accepted else {
+                    if current_failure.is_none()
+                        && let Some(range) = attempted_range
+                    {
+                        current_failure = Some(FailureTrace::leaf(PatternFailure {
+                            span: self.map_range(range)?,
+                            reasons: vec![PatternFailureReason::Expression],
+                        }));
+                    }
+                    failure = choose_failure_trace(failure, current_failure);
+                    valid = false;
+                    break;
+                };
+                child_starts.push(first);
+                children.push(node);
+                first = last + 1;
+            }
+            if !valid || children.len() < 2 {
+                continue;
+            }
+
+            let conjunction = raw.conjunction_for_children(&child_starts);
+            if conjunction == ExpressionListConjunction::And
+                && expected_types.iter().all(|expected| !expected.plural)
+            {
+                continue;
+            }
+
+            let return_type = list_return_type(self.catalog, &children);
+            let multiplicity = match conjunction {
+                ExpressionListConjunction::And => Multiplicity::Multiple,
+                ExpressionListConjunction::Or
+                    if children.iter().all(|child| {
+                        matches!(
+                            child.multiplicity,
+                            None | Some(Multiplicity::Single | Multiplicity::Both)
+                        )
+                    }) =>
+                {
+                    Multiplicity::Single
+                }
+                ExpressionListConjunction::Or => Multiplicity::Multiple,
+            };
+            lists.push(ExpressionCandidate {
+                node: ExpressionNode {
+                    kind: ExpressionNodeKind::List { conjunction },
+                    function: None,
+                    span: self.map_range(list_range)?,
+                    return_type,
+                    multiplicity: Some(multiplicity),
+                    captures: Vec::new(),
+                    tags: Vec::new(),
+                    mark: 0,
+                    children,
+                    conditions: Vec::new(),
+                    metadata: BTreeMap::new(),
+                },
+                expected_alternative: None,
+            });
+        }
+        Ok(PrefixParse {
+            candidates: lists,
+            failure,
+        })
     }
 
     fn extend_unique_candidates(
@@ -1200,7 +1409,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         frame_start: usize,
         expected_types: &[ExpressionExpectedType],
         depth: usize,
-    ) -> Result<Option<ExpressionCandidate>, ExpressionParseError> {
+    ) -> Result<RegisteredNodeResolution, ExpressionParseError> {
         let metadata = self
             .registration_metadata(&matched.registration_id)
             .cloned();
@@ -1246,7 +1455,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             if kind != RegisteredCaptureKind::Condition {
                 continue;
             }
-            let PatternCapture::Regex { span, .. } = capture else {
+            let PatternCapture::Regex {
+                pattern_span, span, ..
+            } = capture
+            else {
                 unreachable!("regex captures were filtered")
             };
             let local = span.local_range;
@@ -1256,7 +1468,23 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     message: error.to_string(),
                 })?;
             let Some(selected) = parsed.selected else {
-                return Ok(None);
+                let cause = parsed.unknown.and_then(|unknown| unknown.failure);
+                let frame = FailureFrame {
+                    kind: matched.kind,
+                    definition_id: matched.definition_id.clone(),
+                    registration_id: matched.registration_id.clone(),
+                    pattern_index: matched.pattern_index,
+                    pattern: matched.pattern.clone(),
+                    element_path: Vec::new(),
+                    pattern_span: Some(*pattern_span),
+                    input_span: span.clone(),
+                    role: FailureFrameRole::ConditionCapture {
+                        index: capture_index,
+                    },
+                };
+                return Ok(RegisteredNodeResolution::Rejected(
+                    cause.map(|cause| cause.with_parent(frame)),
+                ));
             };
             conditions.push(RegisteredConditionCapture {
                 capture_index,
@@ -1311,7 +1539,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     self.environment
                         .finish_registered_expression(false)
                         .map_err(|message| ExpressionParseError::Environment { message })?;
-                    return Ok(None);
+                    return Ok(RegisteredNodeResolution::Rejected(None));
                 }
             }
         }
@@ -1323,9 +1551,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .map_err(|message| ExpressionParseError::Environment { message })?;
         }
         if !accepted {
-            return Ok(None);
+            return Ok(RegisteredNodeResolution::Rejected(None));
         }
-        Ok(Some(ExpressionCandidate {
+        Ok(RegisteredNodeResolution::Accepted(ExpressionCandidate {
             node: ExpressionNode {
                 kind: ExpressionNodeKind::Registered {
                     definition_id: matched.definition_id,
@@ -1350,6 +1578,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     fn registration_metadata(&self, registration_id: &str) -> Option<&RegistrationMetadata> {
         self.registrations.get(registration_id)
     }
+
     fn valid_leaf(
         &self,
         leaf: &ExpressionLeafCandidate,
@@ -2035,6 +2264,22 @@ fn expression_failure_ranges(
     )
 }
 
+fn completely_parenthesized(input: &str, range: TextRange) -> bool {
+    range
+        .slice(input)
+        .is_some_and(|value| value.starts_with('('))
+        && find_parenthesis_end(input, range.start + '('.len_utf8(), range.end)
+            .is_some_and(|close| close + ')'.len_utf8() == range.end)
+}
+
+fn list_return_type(catalog: &Catalog, children: &[ExpressionNode]) -> Option<ClassName> {
+    let types = children
+        .iter()
+        .map(|child| child.return_type.clone())
+        .collect::<Option<Vec<_>>>()?;
+    catalog.common_skript_class(&types)
+}
+
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
     fn begin_pattern_match(&mut self) -> Result<(), String> {
         self.environment.begin_pattern_match()
@@ -2059,7 +2304,7 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
     fn resolve_type(
         &mut self,
         request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
+    ) -> Result<TypeExpressionOutcome, String> {
         self.resolve_type_inner(request)
             .map_err(|error| error.to_string())
     }
@@ -2073,7 +2318,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
     fn resolve_type_inner(
         &mut self,
         request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, ExpressionParseError> {
+    ) -> Result<TypeExpressionOutcome, ExpressionParseError> {
         let frame_start = *self
             .frame_starts
             .last()
@@ -2089,6 +2334,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             .map(|end| frame_start + *end)
             .collect::<Vec<_>>();
         let mut resolutions = Vec::new();
+        let mut failure = None;
         if request.expression.nullable && candidate_ends.contains(&remaining.start) {
             resolutions.push(TypeExpressionResolution {
                 range: TextRange::empty(request.remaining.start),
@@ -2104,7 +2350,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 class_name: value_type.original_class.clone(),
                 plural: alternative.plural,
             }];
-            let candidates = self.parse_prefixes(
+            let parsed = self.parse_prefixes_mode(
                 remaining,
                 &candidate_ends,
                 &expected,
@@ -2112,11 +2358,13 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 request.expression.allow_expressions,
                 request.expression.time,
                 depth,
+                true,
             )?;
+            failure = choose_failure_trace(failure, parsed.failure);
             // Skript keeps the first successful registration. The parent matcher only
             // needs one AST for each amount of input this capture can consume.
             let mut resolved_ends = HashSet::new();
-            for mut candidate in candidates {
+            for mut candidate in parsed.candidates {
                 candidate.expected_alternative = Some(alternative_index);
                 let absolute = candidate.node.span.local_range;
                 if !resolved_ends.insert(absolute.end) {
@@ -2132,7 +2380,10 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 });
             }
         }
-        Ok(resolutions)
+        Ok(TypeExpressionOutcome {
+            resolutions,
+            failure,
+        })
     }
 }
 

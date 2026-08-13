@@ -3,7 +3,7 @@ use skript_parser::{
     ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment, MappedSource,
     MatchSyntaxKind, NoopExpressionEnvironment, PatternHookControl, PatternHookEvent,
     PatternHookScope, PatternHookTiming, PatternMatchEnvironment, RawTreeOptions, TextRange,
-    TypeExpressionRequest, TypeExpressionResolution, parse_effect, parse_effect_with_snapshot,
+    TypeExpressionOutcome, TypeExpressionRequest, parse_effect, parse_effect_with_snapshot,
     parse_raw_tree,
 };
 use std::collections::BTreeMap;
@@ -99,8 +99,8 @@ impl PatternMatchEnvironment for StringLiteralEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -260,8 +260,8 @@ fn unknown_effect_retains_exact_code_and_farthest_failure() {
     let unknown = result.unknown.expect("unknown node must be retained");
     assert_eq!(unknown.source, "run dummy fixture effect with nope");
     let best = unknown
-        .best_candidate
-        .as_ref()
+        .failures
+        .primary()
         .expect("the Effect registration must remain recognizable");
     assert!(
         best.matched
@@ -270,22 +270,33 @@ fn unknown_effect_retains_exact_code_and_farthest_failure() {
     );
     assert_eq!(
         best.matched
+            .trace
+            .root_cause()
             .failure
             .span
             .local_range
             .slice(source.virtual_source()),
         Some("nope")
     );
-    assert!(best.matched.failure.reasons.iter().any(|reason| matches!(
-        reason,
-        skript_parser::PatternFailureReason::TypeExpression { expected }
-            if expected == &["string".to_owned()]
-    )));
+    assert!(
+        best.matched
+            .trace
+            .root_cause()
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(
+                reason,
+                skript_parser::PatternFailureReason::TypeExpression { expected }
+                    if expected == &["string".to_owned()]
+            ))
+    );
     let failure = unknown
-        .failure
+        .failures
+        .fallback
         .expect("matcher must retain a farthest failure");
-    assert!(failure.offset > 0);
-    assert!(!failure.reasons.is_empty());
+    assert!(failure.failure.span.mapped.virtual_range.start > 0);
+    assert!(!failure.failure.reasons.is_empty());
 }
 
 #[derive(Default)]
@@ -299,8 +310,8 @@ impl PatternMatchEnvironment for SyntheticEffectEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {

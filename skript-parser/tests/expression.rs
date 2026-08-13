@@ -3,8 +3,8 @@ use skript_parser::{
     ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment,
     ExpressionParseRequest, ExpressionParserConfig, MappedSource, NoopExpressionEnvironment,
     PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
-    RegisteredExpressionDecision, RegisteredExpressionRequest, TextRange, TypeExpressionRequest,
-    TypeExpressionResolution, parse_expression, parse_expression_with_snapshot,
+    RegisteredExpressionDecision, RegisteredExpressionRequest, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -824,8 +824,8 @@ impl PatternMatchEnvironment for DynamicReturnEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -870,8 +870,8 @@ impl PatternMatchEnvironment for MultipleEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -913,8 +913,8 @@ impl PatternMatchEnvironment for LiteralEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(

@@ -4,8 +4,8 @@
 use crate::pattern_match::{find_parenthesis_end, java_trim_range};
 use crate::{
     CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParserConfig, ExpressionSession, MappedSource, MatchSpan,
-    ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure, TextRange,
+    ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureTrace, MappedSource,
+    MatchSpan, ParseMarkCapture, ParseTagCapture, PatternCapture, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -63,7 +63,7 @@ pub struct ConditionCandidate {
 pub struct UnknownCondition {
     pub source: String,
     pub span: MatchSpan,
-    pub failure: Option<PatternFailure>,
+    pub failure: Option<FailureTrace>,
 }
 
 /// Selected Condition, later alternatives, or a source-preserving unknown value.
@@ -168,6 +168,7 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
     let mut candidates = session.syntax_candidates(SyntaxKind::Condition);
     session.retain_viable_patterns(trimmed, &mut candidates)?;
     let matched = session.match_candidates_at_depth(trimmed, &candidates, depth)?;
+    let failure = matched.primary_failure().cloned();
     let selected = matched
         .selected
         .map(|value| condition_candidate(session, value, trimmed))
@@ -178,7 +179,7 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
         .map(|value| condition_candidate(session, value, trimmed))
         .collect::<Result<Vec<_>, _>>()?;
     if selected.is_none() {
-        unknown_condition(session, trimmed, matched.failure)
+        unknown_condition(session, trimmed, failure)
     } else {
         Ok(ConditionMatches {
             selected,
@@ -255,7 +256,7 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
 fn unknown_condition<E: ExpressionParseEnvironment>(
     session: &ExpressionSession<'_, E>,
     range: TextRange,
-    failure: Option<PatternFailure>,
+    failure: Option<FailureTrace>,
 ) -> Result<ConditionMatches, ConditionParseError> {
     let source = range
         .slice(session.source().virtual_source())
