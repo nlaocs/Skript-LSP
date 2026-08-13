@@ -376,6 +376,141 @@ fn indexes_functions_converters_registration_ids_and_aliases() {
 }
 
 #[test]
+fn common_assignable_class_prefers_a_shared_interface_over_object() {
+    let mut interface = class("test.Shared", None, &[]);
+    interface.kind = ClassKind::Interface;
+    let mut parts = parts();
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        interface,
+        class("test.Left", Some("java.lang.Object"), &["test.Shared"]),
+        class("test.Right", Some("java.lang.Object"), &["test.Shared"]),
+    ];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.common_assignable_class("test.Left", "test.Right"),
+        Some(class_name("test.Shared"))
+    );
+}
+
+#[test]
+fn common_assignable_classes_folds_more_than_two_types_in_order() {
+    let mut interface = class("test.Shared", None, &[]);
+    interface.kind = ClassKind::Interface;
+    let mut parts = parts();
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        interface,
+        class("test.A", Some("java.lang.Object"), &["test.Shared"]),
+        class("test.B", Some("java.lang.Object"), &["test.Shared"]),
+        class("test.C", Some("java.lang.Object"), &["test.Shared"]),
+    ];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.common_assignable_classes(&[
+            class_name("test.A"),
+            class_name("test.B"),
+            class_name("test.C"),
+        ]),
+        Some(class_name("test.Shared"))
+    );
+}
+
+#[test]
+fn common_assignable_class_does_not_expose_cloneable() {
+    let mut cloneable = class("java.lang.Cloneable", None, &[]);
+    cloneable.kind = ClassKind::Interface;
+    let mut left = class(
+        "test.LeftArray",
+        Some("java.lang.Object"),
+        &["java.lang.Cloneable"],
+    );
+    left.kind = ClassKind::Array;
+    let mut right = class(
+        "test.RightArray",
+        Some("java.lang.Object"),
+        &["java.lang.Cloneable"],
+    );
+    right.kind = ClassKind::Array;
+    let mut parts = parts();
+    parts.classes = vec![class("java.lang.Object", None, &[]), cloneable, left, right];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.common_assignable_class("test.LeftArray", "test.RightArray"),
+        Some(class_name("java.lang.Object"))
+    );
+}
+
+#[test]
+fn common_skript_class_normalizes_an_unregistered_interface() {
+    let mut interface = class("test.Shared", None, &[]);
+    interface.kind = ClassKind::Interface;
+    let mut object_syntax = type_syntax("object", &[], 0);
+    let Syntax::Type(object_type) = &mut object_syntax else {
+        unreachable!()
+    };
+    object_type.original_class = class_name("java.lang.Object");
+    let mut parts = parts();
+    parts.syntaxes = vec![object_syntax];
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        interface,
+        class("test.Left", Some("java.lang.Object"), &["test.Shared"]),
+        class("test.Right", Some("java.lang.Object"), &["test.Shared"]),
+    ];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.common_skript_class(&[class_name("test.Left"), class_name("test.Right"),]),
+        Some(class_name("java.lang.Object"))
+    );
+}
+
+#[test]
+fn common_skript_class_uses_skript_type_parse_order() {
+    let mut base = class("test.Base", None, &[]);
+    base.kind = ClassKind::Interface;
+    let mut shared = class("test.Shared", None, &["test.Base"]);
+    shared.kind = ClassKind::Interface;
+
+    let mut object_syntax = type_syntax("object", &[], 10);
+    let Syntax::Type(object_type) = &mut object_syntax else {
+        unreachable!()
+    };
+    object_type.original_class = class_name("java.lang.Object");
+
+    let mut base_syntax = type_syntax("base", &[], 1);
+    let Syntax::Type(base_type) = &mut base_syntax else {
+        unreachable!()
+    };
+    base_type.original_class = class_name("test.Base");
+
+    let mut parts = parts();
+    parts.syntaxes = vec![object_syntax, base_syntax];
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        base,
+        shared,
+        class("test.Left", Some("java.lang.Object"), &["test.Shared"]),
+        class("test.Right", Some("java.lang.Object"), &["test.Shared"]),
+    ];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.common_assignable_class("test.Left", "test.Right"),
+        Some(class_name("test.Shared")),
+        "the raw common interface is intentionally not registered as a Skript Type"
+    );
+    assert_eq!(
+        catalog.common_skript_class(&[class_name("test.Left"), class_name("test.Right"),]),
+        Some(class_name("test.Base"))
+    );
+}
+
+#[test]
 fn indexes_only_parseable_type_literals_in_type_order() {
     let mut parts = parts();
     let mut later = match type_syntax("later", &[], 20) {

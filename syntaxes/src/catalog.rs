@@ -661,17 +661,84 @@ impl Catalog {
         false
     }
 
-    /// Finds the nearest captured Java type that can hold values from both classes.
+    /// Finds the Skript-compatible common Java type for two captured classes.
+    ///
+    /// Concrete superclasses are preferred over interfaces. When only unrelated
+    /// common interfaces remain, the selected interface follows Java declaration
+    /// order, matching Skript's `Utils.highestDenominator` behavior.
     pub fn common_assignable_class(&self, left: &str, right: &str) -> Option<ClassName> {
-        self.class_lineage(left)
-            .into_iter()
-            .find(|candidate| self.is_class_assignable(right, candidate))
-            .map(|candidate| ClassName(candidate.to_owned()))
+        self.common_assignable_class_inner(left, right, &mut HashSet::new())
+    }
+
+    /// Finds the common Java type for every class in a non-empty list.
+    pub fn common_assignable_classes(&self, classes: &[ClassName]) -> Option<ClassName> {
+        let first = classes.first()?.clone();
+        classes.iter().skip(1).try_fold(first, |common, class| {
+            self.common_assignable_class(common.as_str(), class.as_str())
+        })
+    }
+
+    /// Finds the registered Skript type class used for a list of Java return types.
+    ///
+    /// Skript first computes the Java common type, then resolves its exact or
+    /// first assignable `ClassInfo` in registration order.
+    pub fn common_skript_class(&self, classes: &[ClassName]) -> Option<ClassName> {
+        let common = self.common_assignable_classes(classes)?;
+        self.types()
+            .find(|ty| ty.original_class == common)
             .or_else(|| {
-                (self.is_class_assignable(left, "java.lang.Object")
-                    && self.is_class_assignable(right, "java.lang.Object"))
-                .then(|| ClassName("java.lang.Object".to_owned()))
+                self.types()
+                    .enumerate()
+                    .filter(|(_, ty)| {
+                        self.is_class_assignable(common.as_str(), ty.original_class.as_str())
+                    })
+                    .min_by_key(|(index, ty)| (ty.type_parse_order, *index))
+                    .map(|(_, ty)| ty)
             })
+            .map(|ty| ty.original_class.clone())
+    }
+
+    fn common_assignable_class_inner(
+        &self,
+        left: &str,
+        right: &str,
+        visited: &mut HashSet<(String, String)>,
+    ) -> Option<ClassName> {
+        if !visited.insert((left.to_owned(), right.to_owned())) {
+            return None;
+        }
+        if self.is_class_assignable(right, left) {
+            return Some(common_class_result(left));
+        }
+
+        let mut current = Some(right);
+        let mut superclasses = HashSet::new();
+        while let Some(candidate) = current {
+            if !superclasses.insert(candidate) {
+                break;
+            }
+            if candidate != "java.lang.Object" && self.is_class_assignable(left, candidate) {
+                return Some(common_class_result(candidate));
+            }
+            current = self
+                .class(candidate)
+                .and_then(|class| class.super_class.as_ref())
+                .map(ClassName::as_str);
+        }
+
+        for interface in &self.class(right)?.interfaces {
+            let mut branch = visited.clone();
+            if let Some(common) =
+                self.common_assignable_class_inner(interface.as_str(), left, &mut branch)
+                && common.as_str() != "java.lang.Object"
+            {
+                return Some(common);
+            }
+        }
+
+        (self.is_class_assignable(left, "java.lang.Object")
+            && self.is_class_assignable(right, "java.lang.Object"))
+        .then(|| ClassName("java.lang.Object".to_owned()))
     }
 
     /// Tests assignability between the Java classes represented by two Skript types.
@@ -728,6 +795,17 @@ impl Catalog {
     pub fn plural_rules(&self) -> &PluralRules {
         &self.parts.plural_rules
     }
+}
+
+fn common_class_result(class_name: &str) -> ClassName {
+    ClassName(
+        if class_name == "java.lang.Cloneable" {
+            "java.lang.Object"
+        } else {
+            class_name
+        }
+        .to_owned(),
+    )
 }
 
 fn normalize_literal(text: &str) -> String {
