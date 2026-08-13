@@ -161,6 +161,22 @@ fn follows_skript_named_optional_and_list_parameter_rules() {
 }
 
 #[test]
+fn function_arguments_use_registered_skript_converters() {
+    let mut host = host();
+    let selected = parse(&mut host, 1, "location(1, 1, 1, world \"world\", 100, 0)")
+        .selected
+        .expect("number arguments must convert to Float parameters")
+        .node;
+
+    let call = selected.function.expect("Function must be structured");
+    assert_eq!(call.name, "location");
+    assert_eq!(call.arguments.len(), 6);
+    assert_eq!(selected.children.len(), 6);
+    assert_eq!(call.arguments[4].parameter_name, "yaw");
+    assert_eq!(call.arguments[5].parameter_name, "pitch");
+}
+
+#[test]
 fn rejects_unknown_wrong_arity_and_wrong_type_calls() {
     let mut host = host();
     for (revision, text) in [

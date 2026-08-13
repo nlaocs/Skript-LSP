@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.9.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.13.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -62,8 +62,9 @@ changed it to 0.4.0; Expression leaf requests and candidates changed it to
 post-match registered Expression resolution changed it to 0.7.0; declaring
 the registered Expression classes handled by a component changed it to 0.8.0;
 generic registered syntax handlers, semantic Condition/Effect captures, and
-the Section lifecycle changed it to 0.9.0. The manifest's current `abi` value
-is 1.8 and is a runtime handshake that
+the Section lifecycle changed it to 0.9.0; registered property axis metadata
+changed it to 0.10.0; finite type-literal candidates changed it to 0.11.0; structured literal metadata changed it to 0.12.0; SSG supplier metadata in expression type options changed it to 0.13.0. The manifest's current
+`abi` value is 1.12 and is a runtime handshake that
 requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -88,12 +89,15 @@ Expression subscriptions target `ParseStage` in the `Expression` phase with
 `Transform` mode and the `parser.expression` capability. Their typed payload
 contains the complete virtual source, remaining range and mapped span, expected
 Java types and plurality, legal split points, literal/expression flags, time
-state, depth, and accumulated leaf candidates.
+state, depth, matching finite type-literal options, and accumulated leaf candidates. The host
+builds the finite literal index once from SSG type metadata and aliases, then sends only options
+matching the current legal split points to avoid copying the complete registry into WASM.
 
 CoreLibrary and addons may append Variable, Literal, Function, or Custom leaf
 candidates. After a registered Expression and its typed children match,
 the host sends a second payload containing parse tags, children, known return
-types, and applicable property metadata. CoreLibrary or an addon may resolve
+types, and applicable property metadata, including supported component axes.
+CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
 Components declare the syntax kind, Java class suffix, and meaning of regex
 captures in `registered-syntax-handlers`. The native parser considers an

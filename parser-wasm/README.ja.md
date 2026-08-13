@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.9.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.13.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -58,7 +58,8 @@ status、spanの追加で0.4.0、Expression leaf request/candidateの追加で0.
 lifecycle candidate/failureの追加で0.6.0、登録Expressionのmatch後の意味解決追加で0.7.0、
 componentが解決する登録Expression classの宣言追加で0.8.0へ変わりました。
 汎用registered syntax handler、意味付きCondition/Effect capture、Section lifecycleの追加で
-0.9.0へ変わりました。manifestの現在の`abi`値は1.8で、
+0.9.0へ変わり、登録propertyのcomponent axis情報追加で0.10.0、有限type literal候補の追加で
+0.11.0へ、構造化type literal metadataで0.12.0へ、SSG supplier metadataのexpression type option追加で0.13.0へ変わりました。manifestの現在の`abi`値は1.12で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -79,11 +80,14 @@ hostはText macroとTree macroをadvertiseし、実行します。AST macroはco
 transactional WASM environmentで`skript-parser`を実行します。Expression subscriptionは
 `parser.expression` capabilityを宣言し、`ParseStage` / `Expression` phase / `Transform` modeを
 使用します。型付きpayloadにはvirtual source全体、remaining rangeとmapped span、expected Java
-classとplural、合法split位置、literal/expression flag、time state、depth、蓄積leaf候補が含まれます。
+classとplural、合法split位置、literal/expression flag、time state、depth、一致した有限type literal候補、
+蓄積leaf候補が含まれます。hostはSSGのtype metadataとaliasから有限literal indexを一度だけ作り、
+現在の合法split位置に一致する候補だけをWASMへ渡すため、registry全体を毎回copyしません。
 
 CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加できます。登録
 Expressionと型付きの子Expressionが一致した後、hostはparse tag、子Expression、既知の返値候補、
-適用可能なproperty情報を含む2段目のpayloadを送ります。CoreLibraryまたはaddonは実効Java返値型と
+適用可能なproperty情報と対応component axisを含む2段目のpayloadを送ります。
+CoreLibraryまたはaddonは実効Java返値型と
 Multiplicityを確定するか、候補をrejectできます。componentはsyntax kind、Java class suffix、
 regex captureの意味を`registered-syntax-handlers`へ宣言します。native parserは有効なcomponentが宣言した
 場合だけ、通常は期待型と互換しないdynamic登録を候補へ含めます。これにより、未解決登録をすべての

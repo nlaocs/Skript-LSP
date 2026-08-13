@@ -17,6 +17,11 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
+    assert_eq!(
+        parser_wasm::ABI_VERSION,
+        parser_wasm::AbiVersion::new(1, 12)
+    );
+
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
     let (package, _) = resolve.push_dir(&wit).expect("WIT package must resolve");
@@ -31,7 +36,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.9.0")
+        Some("0.13.0")
     );
 
     let world = package
@@ -65,8 +70,8 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
 #[test]
 fn host_bindings_expose_typed_hook_contract() {
     use host::nlaocs::skript_parser_addon::types::{
-        AbiVersion, CapabilityRequirement, ComponentManifest, HookMode, HookPhase,
-        HookSubscription, HookTarget, SyntaxKind,
+        AbiVersion, CapabilityRequirement, ComponentManifest, ExpressionTypeOption, HookMode,
+        HookPhase, HookSubscription, HookTarget, SyntaxKind,
     };
 
     let subscription = HookSubscription {
@@ -96,6 +101,16 @@ fn host_bindings_expose_typed_hook_contract() {
     assert_eq!(manifest.subscriptions[0].id, "observe-expressions");
     assert_eq!(manifest.subscriptions[0].priority, -20);
     assert_eq!(manifest.abi.major, 1);
+
+    let type_option = ExpressionTypeOption {
+        code_name: "weather type".to_owned(),
+        class_name: "ch.njol.skript.util.weather.WeatherType".to_owned(),
+        singular: "weather type".to_owned(),
+        plural: "weather types".to_owned(),
+        has_parser: true,
+        has_supplier: true,
+    };
+    assert!(type_option.has_supplier);
 }
 
 #[test]

@@ -45,7 +45,7 @@ fn parser_context() -> ExpressionParseContext {
 }
 
 #[test]
-fn condition_pipeline_uses_core_expression_leaves() {
+fn condition_pipeline_uses_core_expression_candidates() {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
         HostConfig {
@@ -70,7 +70,7 @@ fn condition_pipeline_uses_core_expression_leaves() {
             },
             ConditionParserConfig::default(),
         )
-        .expect("Condition must parse through CoreLibrary leaves");
+        .expect("Condition must parse through CoreLibrary Expression candidates");
 
     let selected = result.matches.selected.expect("Condition must be selected");
     assert!(matches!(
@@ -80,7 +80,7 @@ fn condition_pipeline_uses_core_expression_leaves() {
     assert_eq!(selected.node.expressions.len(), 1);
     assert!(result.calls.iter().any(|call| {
         call.component_id == "nlaocs.core-library"
-            && call.subscription_id == "core.expression-leaves"
+            && call.subscription_id == "core.expression-candidates"
     }));
     transaction.cancel().unwrap();
 }

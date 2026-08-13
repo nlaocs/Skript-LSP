@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.9.0;
+package nlaocs:skript-parser-addon@0.13.0;
 
 interface types {
     record abi-version {
@@ -352,6 +352,33 @@ interface types {
         singular: string,
         plural: string,
         has-parser: bool,
+        has-supplier: bool,
+    }
+
+    enum expression-literal-source {
+        parser-pattern,
+        supplier,
+        enum-constant,
+        alias,
+    }
+
+    record expression-literal-option {
+        code-name: string,
+        class-name: string,
+        type-parse-order: u64,
+        range: text-range,
+        canonical-value: string,
+        source: expression-literal-source,
+        plural: bool,
+        addon-name: string,
+        addon-version: string,
+        parser-class: option<string>,
+        parse-contexts: list<string>,
+        value-class: option<string>,
+        represented-class: option<string>,
+        variable-name: option<string>,
+        debug-text: option<string>,
+        enum-constant: option<string>,
     }
 
     record expression-payload {
@@ -365,6 +392,7 @@ interface types {
         time: s32,
         depth: u32,
         type-options: list<expression-type-option>,
+        literal-options: list<expression-literal-option>,
         candidates: list<expression-leaf-candidate>,
     }
 
@@ -396,6 +424,7 @@ interface types {
     record registered-expression-property-option {
         input-class: string,
         return-types: list<string>,
+        supported-axes: list<string>,
     }
 
     record registered-condition-capture {
@@ -509,6 +538,18 @@ interface types {
         reasons: list<string>,
     }
 
+    record effect-near-match {
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        priority: s32,
+        registration-order: u64,
+        resolved-order: option<u64>,
+        handler: option<string>,
+        metadata: list<metadata-entry>,
+        failure: effect-failure,
+    }
+
     record effect-payload {
         input: string,
         raw-node-id: node-id,
@@ -517,6 +558,7 @@ interface types {
         candidate: option<effect-candidate>,
         alternatives: list<effect-candidate>,
         failure: option<effect-failure>,
+        near-match: option<effect-near-match>,
     }
 
     enum section-timing {

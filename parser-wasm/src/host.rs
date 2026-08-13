@@ -17,17 +17,18 @@ use std::{
 
 use skript_parser::{
     CandidateMatches, ConditionMatches, ConditionParseError, ConditionParseRequest,
-    ConditionParserConfig, EffectCandidate, EffectMatches, EffectParseError, EffectParseRequest,
-    EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
-    ExpressionMatches, ExpressionParseEnvironment, ExpressionParseError, ExpressionParseRequest,
-    ExpressionParserConfig, MatchInput, MatchSpan, MatchSyntaxKind, PatternCandidate,
-    PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
-    PatternHookOutcome, PatternHookScope, PatternHookTiming, PatternMatchEnvironment,
-    PatternMatchError, PatternMatchHooks, PatternMatcherConfig, PatternPathSegment,
-    RegisteredCaptureKind, RegisteredExpressionDecision, RegisteredExpressionRequest,
-    SectionChildrenDecision, SectionChildrenRequest, SectionMatches, SectionParseError,
-    SectionParseRequest, SectionParserConfig, TypeExpressionRequest, TypeExpressionResolution,
-    TypeExpressionResolver, UnknownEffectNode, match_pattern_candidates as run_pattern_matcher,
+    ConditionParserConfig, EffectCandidate, EffectCandidateFailure, EffectMatches,
+    EffectParseError, EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate,
+    ExpressionLeafKind, ExpressionLeafRequest, ExpressionMatches, ExpressionParseEnvironment,
+    ExpressionParseError, ExpressionParseRequest, ExpressionParserConfig, MatchInput, MatchSpan,
+    MatchSyntaxKind, PatternCandidate, PatternCapture, PatternFailure, PatternFailureReason,
+    PatternHookControl, PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
+    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatcherConfig,
+    PatternPathSegment, RegisteredCaptureKind, RegisteredExpressionDecision,
+    RegisteredExpressionRequest, SectionChildrenDecision, SectionChildrenRequest, SectionMatches,
+    SectionParseError, SectionParseRequest, SectionParserConfig, TypeExpressionRequest,
+    TypeExpressionResolution, TypeExpressionResolver, UnknownEffectNode,
+    match_pattern_candidates as run_pattern_matcher,
     parse_condition_with_snapshot as run_condition_parser,
     parse_effect_with_snapshot as run_effect_parser,
     parse_expression_with_snapshot as run_expression_parser,
@@ -68,11 +69,14 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     DynamicSyntaxReference as WitDynamicSyntaxReference, EffectCandidate as WitEffectCandidate,
     EffectCapture as WitEffectCapture, EffectExpressionCapture as WitEffectExpressionCapture,
     EffectFailure as WitEffectFailure, EffectMark as WitEffectMark,
-    EffectPayload as WitEffectPayload, EffectRegexCapture as WitEffectRegexCapture,
-    EffectTag as WitEffectTag, EffectTiming as WitEffectTiming,
-    ExpressionExpectedType as WitExpressionExpectedType,
+    EffectNearMatch as WitEffectNearMatch, EffectPayload as WitEffectPayload,
+    EffectRegexCapture as WitEffectRegexCapture, EffectTag as WitEffectTag,
+    EffectTiming as WitEffectTiming, ExpressionExpectedType as WitExpressionExpectedType,
     ExpressionLeafCandidate as WitExpressionLeafCandidate,
-    ExpressionLeafKind as WitExpressionLeafKind, ExpressionPayload as WitExpressionPayload,
+    ExpressionLeafKind as WitExpressionLeafKind,
+    ExpressionLiteralOption as WitExpressionLiteralOption,
+    ExpressionLiteralSource as WitExpressionLiteralSource,
+    ExpressionPayload as WitExpressionPayload,
     ExpressionPossibleReturnTypesState as WitPossibleReturnTypesState,
     ExpressionReturnTypeState as WitReturnTypeState,
     ExpressionTypeOption as WitExpressionTypeOption,
@@ -110,11 +114,11 @@ use crate::{
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     AstNode, AstTree, Capture, CaptureValue, ComponentManifest, ContextUpdate, Diagnostic,
-    DiagnosticSeverity, ExpressionExpectedType, ExpressionPossibleReturnTypesState,
-    ExpressionReturnTypeState, ExpressionTypeOption, HookDecision, HookEffects, HookMode,
-    HookOutput, HookPayload, HookPhase, HookSubscription, HookTarget, InvocationContext,
-    MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope, MatchingStatus,
-    MatchingTiming, ParseRequest, RawTree, RawTreeNode, RegisteredExpressionChild,
+    DiagnosticSeverity, ExpressionExpectedType, ExpressionLiteralOption,
+    ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
+    HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
+    HookTarget, InvocationContext, MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope,
+    MatchingStatus, MatchingTiming, ParseRequest, RawTree, RawTreeNode, RegisteredExpressionChild,
     RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
     Rejection, RelatedSpan, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
     TreeMacroOutput,
@@ -1256,6 +1260,17 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
             ))
     }
 
+    fn may_override_pattern(&self, kind: MatchSyntaxKind, registration_id: &str) -> bool {
+        self.matching_hooks_registered
+            && self.host.registry.has_active_matching_handler(
+                &self.host.components,
+                &DispatchTarget::ExactRegistration {
+                    registration_id: registration_id.to_owned(),
+                    syntax_kind: wit_syntax_kind(kind),
+                },
+            )
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
@@ -1432,6 +1447,10 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
         self.hooks.allows_regex_pattern(kind, registration_id)
     }
 
+    fn may_override_pattern(&self, kind: MatchSyntaxKind, registration_id: &str) -> bool {
+        self.hooks.may_override_pattern(kind, registration_id)
+    }
+
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
@@ -1512,6 +1531,13 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks.host.config.syntax_catalog.as_deref(),
             request.expected_types,
         );
+        let literal_options = expression_literal_options(
+            self.hooks.host.config.syntax_catalog.as_deref(),
+            request.input,
+            request.remaining,
+            request.candidate_ends,
+            request.expected_types,
+        );
         let payload = WitExpressionPayload {
             input: request.input.to_owned(),
             remaining,
@@ -1523,6 +1549,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             time: request.time,
             depth,
             type_options: type_options.clone(),
+            literal_options: literal_options.clone(),
             candidates: Vec::new(),
         };
         let result = self
@@ -1564,6 +1591,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             || output.time != request.time
             || output.depth != depth
             || !same_expression_type_options(&output.type_options, &type_options)
+            || !same_expression_literal_options(&output.literal_options, &literal_options)
         {
             return Err("Expression hook changed immutable request fields".to_owned());
         }
@@ -1643,27 +1671,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         } else {
             Vec::new()
         };
-        let size_count = request.element_class.as_str().ends_with(".PropExprSize")
-            && !request
-                .tags
-                .iter()
-                .any(|tag| tag.value == "s" && !tag.implicit)
-            && !matches!(
-                request
-                    .children
-                    .first()
-                    .and_then(|child| child.multiplicity),
-                Some(Multiplicity::Single)
-            );
-        let property_options = if size_count {
-            Vec::new()
-        } else {
-            registered_property_options(
-                self.hooks.host.config.syntax_catalog.as_deref(),
-                request.related_property,
-                request.children,
-            )
-        };
+        let property_options = registered_property_options(
+            self.hooks.host.config.syntax_catalog.as_deref(),
+            request.related_property,
+            request.children,
+        );
         let payload = WitRegisteredExpressionPayload {
             input: request.input.to_owned(),
             definition_id: request.definition_id.to_owned(),
@@ -1978,6 +1990,7 @@ struct EffectHookPayloadView<'a> {
     candidate: Option<&'a EffectCandidate>,
     alternatives: &'a [EffectCandidate],
     failure: Option<&'a PatternFailure>,
+    near_match: Option<&'a EffectCandidateFailure>,
     catalog: &'a Catalog,
 }
 
@@ -2039,6 +2052,34 @@ fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
             .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input))
             .collect(),
         failure: view.failure.map(effect_failure_to_wit),
+        near_match: view.near_match.map(effect_near_match_to_wit),
+    }
+}
+
+fn effect_near_match_to_wit(candidate: &EffectCandidateFailure) -> WitEffectNearMatch {
+    WitEffectNearMatch {
+        definition_id: candidate.matched.definition_id.clone(),
+        registration_id: candidate.matched.registration_id.clone(),
+        element_class: candidate
+            .element_class
+            .as_ref()
+            .map(|class| class.as_str().to_owned()),
+        priority: candidate.matched.priority,
+        registration_order: u64::try_from(candidate.matched.registration_order).unwrap_or(u64::MAX),
+        resolved_order: candidate
+            .matched
+            .resolved_order
+            .and_then(|order| u64::try_from(order).ok()),
+        handler: candidate.handler.clone(),
+        metadata: candidate
+            .metadata
+            .iter()
+            .map(|(key, value)| WitMetadataEntry {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+        failure: effect_failure_to_wit(&candidate.matched.failure),
     }
 }
 
@@ -2200,6 +2241,7 @@ fn validate_effect_payload_identity(
         || output.timing != original.timing
         || !same_effect_candidates(&output.alternatives, &original.alternatives)
         || !same_effect_failure(output.failure.as_ref(), original.failure.as_ref())
+        || !same_effect_near_match(output.near_match.as_ref(), original.near_match.as_ref())
     {
         return Err(HostError::InvalidEffectHookOutput {
             message: "hook changed immutable Effect input, alternatives, or failure fields"
@@ -2225,6 +2267,27 @@ fn validate_effect_payload_identity(
                     .to_owned(),
             })
         }
+    }
+}
+
+fn same_effect_near_match(
+    left: Option<&WitEffectNearMatch>,
+    right: Option<&WitEffectNearMatch>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.definition_id == right.definition_id
+                && left.registration_id == right.registration_id
+                && left.element_class == right.element_class
+                && left.priority == right.priority
+                && left.registration_order == right.registration_order
+                && left.resolved_order == right.resolved_order
+                && left.handler == right.handler
+                && same_metadata_entries(&left.metadata, &right.metadata)
+                && same_effect_failure(Some(&left.failure), Some(&right.failure))
+        }
+        (None, Some(_)) | (Some(_), None) => false,
     }
 }
 
@@ -2416,6 +2479,7 @@ fn unknown_effect_matches(
                 mapped: code_span,
             },
             failure,
+            best_candidate: None,
         }),
     })
 }
@@ -2481,8 +2545,131 @@ fn all_expression_type_options(catalog: Option<&Catalog>) -> Vec<WitExpressionTy
             singular: value.noun.singular.clone(),
             plural: value.noun.plural.clone(),
             has_parser: value.has_parser,
+            has_supplier: value.has_supplier,
         })
         .collect()
+}
+
+fn expression_literal_options(
+    catalog: Option<&Catalog>,
+    input: &str,
+    remaining: ParserTextRange,
+    candidate_ends: &[usize],
+    expected_types: &[skript_parser::ExpressionExpectedType],
+) -> Vec<WitExpressionLiteralOption> {
+    let Some(catalog) = catalog else {
+        return Vec::new();
+    };
+    let mut options = Vec::new();
+    for end in candidate_ends.iter().copied().rev() {
+        let Some(text) = input.get(remaining.start..end) else {
+            continue;
+        };
+        let mut inputs = vec![(remaining.start, text)];
+        if let Some(offset) = prefixed_literal_suffix_offset(text) {
+            inputs.push((remaining.start + offset, &text[offset..]));
+        }
+        for (start, literal_text) in inputs {
+            for matched in catalog.type_literal_matches(literal_text) {
+                let value = matched.type_info;
+                if !expected_types.is_empty()
+                    && !expected_types.iter().any(|expected| {
+                        catalog.can_convert(
+                            value.original_class.as_str(),
+                            expected.class_name.as_str(),
+                        )
+                    })
+                {
+                    continue;
+                }
+                let literal = matched.literal;
+                options.push(WitExpressionLiteralOption {
+                    code_name: value.code_name.as_str().to_owned(),
+                    class_name: value.original_class.as_str().to_owned(),
+                    type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
+                    range: WitTextRange {
+                        start: u64::try_from(start).unwrap_or(u64::MAX),
+                        end: u64::try_from(end).unwrap_or(u64::MAX),
+                    },
+                    canonical_value: matched.canonical_value.to_owned(),
+                    source: match matched.source {
+                        syntaxes::TypeLiteralSource::ParserPattern => {
+                            WitExpressionLiteralSource::ParserPattern
+                        }
+                        syntaxes::TypeLiteralSource::Supplier => {
+                            WitExpressionLiteralSource::Supplier
+                        }
+                        syntaxes::TypeLiteralSource::EnumConstant => {
+                            WitExpressionLiteralSource::EnumConstant
+                        }
+                        syntaxes::TypeLiteralSource::Alias => WitExpressionLiteralSource::Alias,
+                    },
+                    plural: matched.plural,
+                    addon_name: value.addon.name.clone(),
+                    addon_version: value.addon.version.clone(),
+                    parser_class: value
+                        .parser_class
+                        .as_ref()
+                        .map(|class| class.as_str().to_owned()),
+                    parse_contexts: value.parse_contexts.clone(),
+                    value_class: literal.map(|literal| literal.value_class.as_str().to_owned()),
+                    represented_class: literal
+                        .and_then(|literal| literal.represented_class.as_ref())
+                        .map(|class| class.as_str().to_owned()),
+                    variable_name: literal.and_then(|literal| literal.variable_name.clone()),
+                    debug_text: literal.and_then(|literal| literal.debug_text.clone()),
+                    enum_constant: literal.and_then(|literal| literal.enum_constant.clone()),
+                });
+            }
+        }
+    }
+    options
+}
+
+fn prefixed_literal_suffix_offset(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let digits = bytes
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    let mut offset = if digits > 0 {
+        skip_ascii_spaces(text, digits)?
+    } else {
+        0
+    };
+    let mut prefixed = digits > 0;
+
+    if digits > 0
+        && let Some(next) = skip_ascii_word(text, offset, "of")
+    {
+        offset = next;
+    }
+    for word in ["all", "every", "a", "an"] {
+        if let Some(next) = skip_ascii_word(text, offset, word) {
+            offset = next;
+            prefixed = true;
+            break;
+        }
+    }
+    (prefixed && offset < text.len()).then_some(offset)
+}
+
+fn skip_ascii_word(text: &str, offset: usize, word: &str) -> Option<usize> {
+    let end = offset.checked_add(word.len())?;
+    if !text.get(offset..end)?.eq_ignore_ascii_case(word) {
+        return None;
+    }
+    skip_ascii_spaces(text, end)
+}
+
+fn skip_ascii_spaces(text: &str, offset: usize) -> Option<usize> {
+    let spaces = text
+        .as_bytes()
+        .get(offset..)?
+        .iter()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count();
+    (spaces > 0).then_some(offset + spaces)
 }
 
 fn registered_property_options(
@@ -2490,23 +2677,49 @@ fn registered_property_options(
     related_property: Option<&str>,
     children: &[skript_parser::ExpressionNode],
 ) -> Vec<WitRegisteredExpressionPropertyOption> {
-    let (Some(catalog), Some(property_name), Some(source_type)) = (
-        catalog,
-        related_property,
-        children
-            .first()
-            .and_then(|child| child.return_type.as_ref()),
-    ) else {
+    let (Some(catalog), Some(property_name)) = (catalog, related_property) else {
         return Vec::new();
     };
-    catalog
+    let source_types = children
+        .iter()
+        .filter_map(|child| child.return_type.as_ref())
+        .filter(|class| !class.as_str().ends_with(".ClassInfo"))
+        .collect::<Vec<_>>();
+    let related_types = catalog
         .properties()
         .iter()
         .filter(|property| property.name == property_name)
         .flat_map(|property| property.related_types.iter())
-        .filter(|option| {
-            catalog.is_class_assignable(source_type.as_str(), option.type_class.as_str())
-        })
+        .collect::<Vec<_>>();
+    let mut selected: Vec<&syntaxes::TypeProperty> = Vec::new();
+    for source_type in source_types {
+        let mut closest: Option<&syntaxes::TypeProperty> = None;
+        for option in &related_types {
+            if option.type_class.as_str() == source_type.as_str() {
+                closest = Some(*option);
+                break;
+            }
+            if catalog.is_class_assignable(source_type.as_str(), option.type_class.as_str())
+                && closest.is_none_or(|current| {
+                    catalog.is_class_assignable(
+                        option.type_class.as_str(),
+                        current.type_class.as_str(),
+                    )
+                })
+            {
+                closest = Some(*option);
+            }
+        }
+        if let Some(option) = closest
+            && selected
+                .iter()
+                .all(|selected| selected.type_class != option.type_class)
+        {
+            selected.push(option);
+        }
+    }
+    selected
+        .into_iter()
         .map(|option| WitRegisteredExpressionPropertyOption {
             input_class: option.type_class.as_str().to_owned(),
             return_types: option
@@ -2519,6 +2732,7 @@ fn registered_property_options(
                 .into_iter()
                 .map(|value| value.as_str().to_owned())
                 .collect(),
+            supported_axes: option.supported_axes.clone().unwrap_or_default(),
         })
         .collect()
 }
@@ -2566,6 +2780,20 @@ fn same_expression_type_options(
                 && left.singular == right.singular
                 && left.plural == right.plural
                 && left.has_parser == right.has_parser
+                && left.has_supplier == right.has_supplier
+        })
+}
+
+fn same_expression_literal_options(
+    left: &[WitExpressionLiteralOption],
+    right: &[WitExpressionLiteralOption],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.code_name == right.code_name
+                && left.class_name == right.class_name
+                && left.type_parse_order == right.type_parse_order
+                && same_wit_range(&left.range, &right.range)
         })
 }
 
@@ -2649,7 +2877,9 @@ fn same_registered_expression_identity(
             .iter()
             .zip(&right.property_options)
             .all(|(left, right)| {
-                left.input_class == right.input_class && left.return_types == right.return_types
+                left.input_class == right.input_class
+                    && left.return_types == right.return_types
+                    && left.supported_axes == right.supported_axes
             })
 }
 
@@ -3343,6 +3573,7 @@ impl ParserHost {
             candidate: None,
             alternatives: &[],
             failure: None,
+            near_match: None,
             catalog: catalog.as_ref(),
         });
         let before = match self.dispatch_in_parse(
@@ -3426,13 +3657,24 @@ impl ParserHost {
             }
         };
 
-        let target = matches.selected.as_ref().map_or(
-            DispatchTarget::SyntaxDefinition(SyntaxKind::Effect),
-            |selected| DispatchTarget::ExactRegistration {
-                registration_id: selected.matched.registration_id.clone(),
-                syntax_kind: SyntaxKind::Effect,
-            },
-        );
+        let target = matches
+            .selected
+            .as_ref()
+            .map(|selected| selected.matched.registration_id.clone())
+            .or_else(|| {
+                matches
+                    .unknown
+                    .as_ref()
+                    .and_then(|unknown| unknown.best_candidate.as_ref())
+                    .map(|candidate| candidate.matched.registration_id.clone())
+            })
+            .map_or(
+                DispatchTarget::SyntaxDefinition(SyntaxKind::Effect),
+                |registration_id| DispatchTarget::ExactRegistration {
+                    registration_id,
+                    syntax_kind: SyntaxKind::Effect,
+                },
+            );
         let after_payload = effect_hook_payload(EffectHookPayloadView {
             input: &input,
             raw_node_id: node.id,
@@ -3444,6 +3686,10 @@ impl ParserHost {
                 .unknown
                 .as_ref()
                 .and_then(|unknown| unknown.failure.as_ref()),
+            near_match: matches
+                .unknown
+                .as_ref()
+                .and_then(|unknown| unknown.best_candidate.as_ref()),
             catalog: catalog.as_ref(),
         });
         let after = match self.dispatch_in_parse(
@@ -3477,15 +3723,17 @@ impl ParserHost {
         }
 
         if let HookDecision::Reject(rejection) = after.decision {
-            let failure = matches.selected.as_ref().map(|selected| PatternFailure {
-                offset: selected.matched.matched.span.local_range.start,
-                span: selected.matched.matched.span.clone(),
-                reasons: vec![PatternFailureReason::HookRejected {
-                    reason: rejection.reason,
-                }],
-            });
             transaction.rollback_to(&base)?;
-            matches = unknown_effect_matches(source, node, failure)?;
+            if let Some(selected) = matches.selected.as_ref() {
+                let failure = Some(PatternFailure {
+                    offset: selected.matched.matched.span.local_range.start,
+                    span: selected.matched.matched.span.clone(),
+                    reasons: vec![PatternFailureReason::HookRejected {
+                        reason: rejection.reason,
+                    }],
+                });
+                matches = unknown_effect_matches(source, node, failure)?;
+            }
         } else if matches.selected.is_some() {
             if let Err(error) = apply_effect_hook_replacement(&mut matches, after_output) {
                 transaction.rollback_to(&base)?;
@@ -6215,13 +6463,23 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .property_options
                     .iter()
                     .map(|option| {
-                        option.input_class.len().saturating_add(
-                            option
-                                .return_types
-                                .iter()
-                                .map(String::len)
-                                .fold(0usize, usize::saturating_add),
-                        )
+                        option
+                            .input_class
+                            .len()
+                            .saturating_add(
+                                option
+                                    .return_types
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
+                            .saturating_add(
+                                option
+                                    .supported_axes
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
                     })
                     .fold(0usize, usize::saturating_add),
             )
@@ -6440,6 +6698,7 @@ fn parse_request_size(request: &ParseRequest) -> usize {
 mod tests {
     use super::*;
     use crate::bindings::nlaocs::skript_parser_addon::types::DocumentPayload;
+    use std::path::Path;
     use wasm_encoder::{
         BlockType, CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction,
         MemorySection, MemoryType, Module as EncodedModule, TypeSection, ValType,
@@ -6585,6 +6844,35 @@ mod tests {
                 CAPABILITY_SECTION_PARSER,
             ]
         );
+    }
+
+    #[test]
+    fn expression_type_options_preserve_supplier_metadata_and_identity() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let snapshot = ssg::load(path).expect("SSG fixture must load");
+        let catalog = snapshot.catalog();
+        let expected = catalog
+            .types()
+            .find(|value| value.has_supplier)
+            .expect("fixture must contain a supplier-backed type");
+        let options = all_expression_type_options(Some(catalog));
+        let actual = options
+            .iter()
+            .find(|value| value.code_name == expected.code_name.as_str())
+            .expect("supplier-backed type must be exposed");
+
+        assert_eq!(actual.has_parser, expected.has_parser);
+        assert_eq!(actual.has_supplier, expected.has_supplier);
+        assert!(same_expression_type_options(&options, &options));
+
+        let mut changed = options.clone();
+        changed
+            .iter_mut()
+            .find(|value| value.code_name == expected.code_name.as_str())
+            .expect("supplier-backed type must be exposed")
+            .has_supplier = false;
+        assert!(!same_expression_type_options(&options, &changed));
     }
 
     #[test]
@@ -7121,5 +7409,15 @@ mod tests {
         healthy
             .call(&mut store, ())
             .expect("a trapped call must not poison later calls");
+    }
+
+    #[test]
+    fn prefixed_literal_suffixes_follow_item_type_prefixes() {
+        assert_eq!(prefixed_literal_suffix_offset("2 stone"), Some(2));
+        assert_eq!(prefixed_literal_suffix_offset("2 of stone"), Some(5));
+        assert_eq!(prefixed_literal_suffix_offset("2 of every stone"), Some(11));
+        assert_eq!(prefixed_literal_suffix_offset("all stone"), Some(4));
+        assert_eq!(prefixed_literal_suffix_offset("stone"), None);
+        assert_eq!(prefixed_literal_suffix_offset("of stone"), None);
     }
 }

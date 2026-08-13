@@ -127,7 +127,7 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
         ));
         assert!(result.calls.iter().any(|call| {
             call.component_id == "nlaocs.core-library"
-                && call.subscription_id == "core.expression-leaves"
+                && call.subscription_id == "core.expression-candidates"
         }));
         transaction.cancel().unwrap();
     }
