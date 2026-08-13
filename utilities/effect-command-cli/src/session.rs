@@ -8,6 +8,7 @@ use skript_parser::{
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 use thiserror::Error;
 
 const PROJECT_URI: &str = "file:///effectcommandcli";
@@ -136,6 +137,7 @@ impl EffectCommandSession {
                 message: "Effect text is empty".to_owned(),
             });
         }
+        let started = Instant::now();
         let source = MappedSource::identity(input);
         let tree = parse_raw_tree(
             &source,
@@ -193,11 +195,13 @@ impl EffectCommandSession {
         let close = transaction.cancel();
         let result = result?;
         close?;
+        let parse_duration = started.elapsed();
         Ok(AnalysisReport::from_result(
             input,
             &self.snapshot,
             result,
             self.catalog.as_ref(),
+            parse_duration,
         ))
     }
 }

@@ -23,8 +23,11 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let report = session.analyze("send 1").expect("Effect must parse");
     assert!(report.matched());
 
-    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
-    assert_eq!(json["schemaVersion"], 1);
+    let json_text = report.to_json().unwrap();
+    assert!(!json_text.contains('\x1b'));
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["schemaVersion"], 3);
+    assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
     assert_eq!(
         json["result"]["effect"]["syntax"]["elementClass"],
@@ -163,6 +166,91 @@ fn reports_registered_function_identity_and_arguments() {
 }
 
 #[test]
+fn reports_arithmetic_operations_and_operands() {
+    let snapshot = modern_fixture();
+    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let report = session
+        .analyze("return 1 + 2 * 3")
+        .expect("arithmetic Effect must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let arithmetic = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(arithmetic["expression"]["kind"], "arithmetic");
+    assert_eq!(arithmetic["expression"]["operator"], "+");
+    assert_eq!(arithmetic["expression"]["addon"]["name"], "Skript");
+    assert_eq!(arithmetic["operands"][0]["source"], "1");
+    assert_eq!(arithmetic["operands"][1]["expression"]["operator"], "*");
+
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "return 1 + 2 * 3"]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let human = String::from_utf8(output).unwrap();
+    assert!(human.contains("parseTime:"));
+    assert!(human.contains("source: return 1 + 2 * 3"));
+    assert!(!human.contains('\x1b'));
+    assert!(human.contains("resolved: arithmetic (+)"));
+    assert!(human.contains("operands:"));
+}
+
+#[test]
+fn parses_boolean_conditions_and_item_alias_literals() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    for source in [
+        "send 2 if true is true",
+        "send 1 if 1 is true",
+        "send stone",
+    ] {
+        let report = session
+            .analyze(source)
+            .expect("Effect analysis must complete");
+        assert!(report.matched(), "{source:?} must parse");
+    }
+}
+
+#[test]
+fn reports_nested_condition_failure_as_incomplete_effect_candidate() {
+    let snapshot = modern_fixture();
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            snapshot.to_str().unwrap(),
+            "--json",
+            "send 2 if true",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_NO_MATCH);
+    assert!(error.is_empty());
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["result"]["status"], "incomplete");
+    assert_eq!(
+        json["result"]["effect"]["syntax"]["elementClass"],
+        "ch.njol.skript.effects.EffDoIf"
+    );
+    assert_eq!(json["result"]["failure"]["span"]["start"], 10);
+    assert_eq!(json["result"]["failure"]["span"]["end"], 14);
+    assert_eq!(
+        json["result"]["failure"]["reasons"][0]["kind"],
+        "trailingInput"
+    );
+}
+
+#[test]
 fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 
@@ -216,15 +304,42 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
         .analyze("send player's health")
         .expect("missing event context is a normal no-match");
     let contextual: Value = serde_json::from_str(&contextual.to_json().unwrap()).unwrap();
-    assert_eq!(contextual["result"]["status"], "unknown");
-    // ExprTernary now has a CoreLibrary handler, so its regex-backed ` if `
-    // branch is a legitimate farthest-failure candidate instead of a skipped fallback.
+    assert_eq!(contextual["result"]["status"], "incomplete");
+    assert_eq!(
+        contextual["result"]["effect"]["syntax"]["elementClass"],
+        "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"
+    );
     assert!(
         contextual["result"]["failure"]["reasons"]
             .as_array()
             .into_iter()
             .flatten()
-            .any(|reason| reason["expected"] == " if ")
+            .any(|reason| reason["kind"] == "typeExpression"
+                && reason["expected"]
+                    .as_array()
+                    .is_some_and(|expected| expected.iter().any(|value| value == "object")))
+    );
+
+    let teleport = session
+        .analyze("teleport あ to location(1,2,3)")
+        .expect("an invalid entity must retain the matching Effect candidate");
+    let teleport: Value = serde_json::from_str(&teleport.to_json().unwrap()).unwrap();
+    assert_eq!(teleport["result"]["status"], "incomplete");
+    assert_eq!(
+        teleport["result"]["effect"]["syntax"]["elementClass"],
+        "ch.njol.skript.effects.EffTeleport"
+    );
+    assert_eq!(teleport["result"]["failure"]["span"]["start"], 9);
+    assert_eq!(teleport["result"]["failure"]["span"]["end"], 12);
+    assert!(
+        teleport["result"]["failure"]["reasons"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|reason| reason["kind"] == "typeExpression"
+                && reason["expected"]
+                    .as_array()
+                    .is_some_and(|expected| expected.iter().any(|value| value == "entity")))
     );
 }
 
@@ -273,7 +388,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 1"));
+    assert!(output.contains("\"schemaVersion\": 3"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));

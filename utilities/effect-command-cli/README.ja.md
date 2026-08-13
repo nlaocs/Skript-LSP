@@ -43,7 +43,10 @@ effectcommandcli.exe "send sin(abs(-1))"
 人間向け出力では、採用Effect、addon、実装class、登録pattern、pattern AST、capture、
 期待されるSkript type、解決されたJava return type、multiplicity、再帰Expression、
 parse tag、parse mark、代替候補、最遠failureを表示します。JSON reportには
-`schemaVersion: 1`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
+`schemaVersion: 3`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
+人間向け出力の`parseTime`は、1 millisecond以上なら`ms`、それ未満なら`ns`で表示します。
+JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
+parse処理だけを含み、SSG snapshotの読み込みとindex構築は含みません。
 
 `patternElements`は、選択されなかったbranchも含む登録pattern全体のASTです。
 `elements`には、実際の照合へ参加したregexと型付きExpression captureだけを格納します。
@@ -51,6 +54,9 @@ parse tag、parse mark、代替候補、最遠failureを表示します。JSON r
 addonによっては意図的なcatch-all Effectを登録します。例えばskript-reflectのexpression
 statementは`[1:await] <.+>`であるため、このaddonを含むsnapshotでは空でない任意入力が
 正しいEffectになり得ます。その場合、CLIはunknownを作らず、採用されたcatch-allを表示します。
+
+登録Effectの意味のあるprefixまで一致し、型付きcaptureだけが失敗した場合は`incomplete`を返します。
+Effect identityと失敗captureのspanを保持し、候補自体を認識できない入力だけを`unknown`にします。
 
 終了codeは固定します。
 
