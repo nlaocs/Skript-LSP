@@ -48,6 +48,10 @@ parse tag、parse mark、代替候補、最遠failureを表示します。JSON r
 JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
 parse処理だけを含み、SSG snapshotの読み込みとindex構築は含みません。
 
+人間向けのparse失敗は`miette`で表示し、最も遠くまで解析できたfailure spanを
+source上へ直接示します。人間向けの書式は可読性のため変更される可能性があります。
+安定した機械向け契約はJSON出力であり、既存のreport構造は変更しません。
+
 `patternElements`は、選択されなかったbranchも含む登録pattern全体のASTです。
 `elements`には、実際の照合へ参加したregexと型付きExpression captureだけを格納します。
 

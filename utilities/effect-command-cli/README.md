@@ -53,6 +53,10 @@ at least one millisecond and in nanoseconds for shorter parses. JSON reports
 expose the duration as integer nanoseconds in `parseDurationNs`. The duration
 covers parsing only; loading and indexing the SSG snapshot is excluded.
 
+Human parse failures use `miette` to label the farthest failure span directly
+in the source. Human formatting may evolve for readability; JSON output is the
+stable machine-readable contract and keeps its existing report shape.
+
 `patternElements` is the complete AST of the selected registration pattern,
 including branches that were not selected. `elements` contains the regex and typed
 Expression captures that actually participated in the match.

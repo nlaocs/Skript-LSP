@@ -251,6 +251,31 @@ fn reports_nested_condition_failure_as_incomplete_effect_candidate() {
 }
 
 #[test]
+fn renders_human_failures_with_a_source_label() {
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            modern_fixture().to_str().unwrap(),
+            "send 2 if true",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+
+    assert_eq!(code, EXIT_NO_MATCH);
+    assert!(error.is_empty());
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Effect candidate is incomplete"));
+    assert!(output.contains("send 2 if true"));
+    assert!(output.contains("unexpected trailing input"));
+    assert!(!output.contains('\x1b'));
+}
+
+#[test]
 fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 

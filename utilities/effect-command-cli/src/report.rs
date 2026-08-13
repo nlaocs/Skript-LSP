@@ -1,4 +1,5 @@
 use crate::OutputFormat;
+use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, NamedSource};
 use parser_wasm::host::WasmEffectParseResult;
 use serde::Serialize;
 use skript_parser::{
@@ -285,14 +286,20 @@ impl AnalysisReport {
                 if !effect.metadata.is_empty() {
                     writeln!(writer, "  metadata: {:?}", effect.metadata)?;
                 }
-                writeln!(writer, "source: {source}")?;
-                write_failure(writer, failure)?;
+                write_failure(
+                    writer,
+                    source,
+                    failure,
+                    color,
+                    "Effect candidate is incomplete",
+                )?;
             }
             ParseResultReport::Unknown { source, failure } => {
                 writeln!(writer, "effect: unknown")?;
-                writeln!(writer, "source: {source}")?;
                 if let Some(failure) = failure {
-                    write_failure(writer, failure)?;
+                    write_failure(writer, source, failure, color, "No Effect matched")?;
+                } else {
+                    writeln!(writer, "source: {source}")?;
                 }
             }
         }
@@ -1379,14 +1386,39 @@ fn source_slice(input: &str, span: TextRange) -> String {
     span.slice(input).unwrap_or_default().to_owned()
 }
 
-fn write_failure(writer: &mut dyn Write, failure: &FailureReport) -> io::Result<()> {
-    writeln!(writer, "failure:")?;
-    writeln!(writer, "  offset: {}", failure.offset)?;
-    writeln!(writer, "  span: {}", failure.span)?;
-    for reason in &failure.reasons {
-        writeln!(writer, "  - {}", reason.human())?;
+fn write_failure(
+    writer: &mut dyn Write,
+    source: &str,
+    failure: &FailureReport,
+    color: bool,
+    message: &str,
+) -> io::Result<()> {
+    let mut reasons = failure.reasons.iter().map(FailureReasonReport::human);
+    let primary = reasons
+        .next()
+        .unwrap_or_else(|| "Effect parsing stopped here".to_owned());
+    let start = failure.span.start.min(source.len());
+    let end = failure.span.end.min(source.len()).max(start);
+    let mut diagnostic = MietteDiagnostic::new(message)
+        .with_code("effectcommandcli::parse")
+        .with_label(LabeledSpan::new(Some(primary), start, end - start));
+    let additional = reasons.collect::<Vec<_>>();
+    if !additional.is_empty() {
+        diagnostic = diagnostic.with_help(additional.join("\n"));
     }
-    Ok(())
+    let report = miette::Report::new(diagnostic)
+        .with_source_code(NamedSource::new("effect.sk", source.to_owned()));
+    let theme = if color {
+        GraphicalTheme::unicode()
+    } else {
+        GraphicalTheme::unicode_nocolor()
+    };
+    let mut rendered = String::new();
+    GraphicalReportHandler::new_themed(theme)
+        .with_urls(false)
+        .render_report(&mut rendered, report.as_ref())
+        .map_err(io::Error::other)?;
+    write!(writer, "{rendered}")
 }
 
 fn write_identity(
@@ -1668,6 +1700,31 @@ mod tests {
             .human(),
             "expected expression of type string or number"
         );
+    }
+
+    #[test]
+    fn failure_renderer_supports_unicode_spans_and_color() {
+        let source = "teleport あ";
+        let start = source.find('あ').unwrap();
+        let failure = FailureReport {
+            offset: start,
+            span: SpanReport {
+                start,
+                end: start + 'あ'.len_utf8(),
+            },
+            reasons: vec![FailureReasonReport::TypeExpression {
+                expected: vec!["entity".to_owned()],
+            }],
+        };
+        let mut output = Vec::new();
+
+        write_failure(&mut output, source, &failure, true, "No Effect matched").unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("No Effect matched"));
+        assert!(output.contains("teleport あ"));
+        assert!(output.contains("expected expression of type entity"));
+        assert!(output.contains('\x1b'));
     }
 
     #[test]
