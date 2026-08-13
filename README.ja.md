@@ -63,7 +63,7 @@ flowchart LR
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
 | [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、lossless RawTree、登録pattern照合、再帰Expression AST、sourceを保持するEffect候補を所有します。 |
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、transactional Expression/Effect pipeline、StateStore、dynamic syntax bridgeを実装します。 |
-| [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装する必須parser addonです。ABI negotiation、health hook、Expression leaf、動的な標準Expressionの意味解析を提供します。 |
+| [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装する必須parser addonです。ABI negotiation、health hook、primitive・ClassInfo由来のExpression候補、動的な標準Expressionの意味解析を提供します。 |
 | [`skripthub`](./skripthub/README.ja.md) | legacy library | 旧SkriptHub APIとflattenされたfunction文字列の互換readerです。新しい構文データには`ssg`と`syntaxes`を使用します。 |
 | [`text-macro-addon`](./test-components/text-macro-addon/README.ja.md) | test WASM component | 順序付きText macro展開、UTF-8 edit、anchor、StateStore rollback、trapを検証します。 |
 | [`tree-macro-addon`](./test-components/tree-macro-addon/README.ja.md) | test WASM component | 対象指定TreeEdit、再帰展開、provenance、cycle、StateStore rollback、quota、trapを検証します。 |

@@ -13,20 +13,26 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 - component ID `nlaocs.core-library`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Document phaseのcore.health-check subscription 1件
-- leafと登録Expressionの意味解析用core.expression-leaves Transform subscription 1件
+- primitive候補と登録Expressionの意味解析用core.expression-candidates Transform subscription 1件
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
 
 Expression hookは合法split位置にあるbrace付きvariable、quoted string literal、有限の符号付き
-integer/decimal literal、生成された`ClassInfo` literalを認識します。また、`PropExprSize`と
-`ExprParse`の2形式について、context依存の返値metadataを解決します。hostから渡された
+integer/decimal literal、boolean、SSG由来の有限type literal、entity-data literal、生成された
+`ClassInfo` literalを認識します。
+また、`ExprEntities`、`ExprParse`、`ExprTernary`、`ExprWhether`と、標準の
+`PropExprAmount`、`PropExprCustomName`、`PropExprName`、`PropExprNumber`、
+`PropExprScale`、`PropExprSize`、`PropExprValueOf`、`PropExprWXYZ`について、
+動的な意味と返値metadataを解決します。property handlerはSSG metadataからsource classに
+最も近いassignable classを選び、Skriptのproperty初期化規則に合わせます。hostから渡された
 expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
 責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
-text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。CoreLibraryは、
-Function call、Condition、Section、Structure、legacy解析の意味処理をまだ実装していません。
+EffectとSection hookは`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
+text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
+Function callの照合はnative parserが担当し、Structureとlegacy固有の意味処理は未実装です。
 
 ## WASM Componentである理由
 
@@ -45,7 +51,13 @@ hostはcomponent IDを特別に扱います。CoreLibraryがない場合やIDが
 ## Source構成
 
 `src/lib.rs`が`../parser-wasm/wit`からguest bindingを生成し、`parser-addon` worldがexport
-するすべてのinterfaceを実装します。
+するすべてのinterfaceを実装します。標準構文の処理はsyntax kind別に`src/expressions`、
+`src/effects`、`src/sections`へ配置します。候補終端の反復と候補生成の共通処理は
+`src/expression_candidates.rs`に置き、parser primitiveは`src/primitives`、ClassInfoと
+catalog由来のtype literalは`src/types`に置きます。クラス固有実装はSkriptのJava class名をsnake caseに
+したfileへ置きます。例えば`PropExprWXYZ.java`は`expressions/prop_expr_wxyz.rs`に対応し、
+そのfileがhandler登録と意味解決の両方を所有します。各directoryの`mod.rs`はdispatchと、
+複数classで本当に共有する処理だけを持ちます。
 
 crate typeは2種類あります。
 

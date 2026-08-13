@@ -3,6 +3,13 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 #![allow(missing_docs)] // `wit_bindgen` owns the generated guest surface.
 
+mod effects;
+mod expression_candidates;
+mod expressions;
+mod primitives;
+mod sections;
+mod types;
+
 wit_bindgen::generate!({
     path: "../parser-wasm/wit",
     world: "parser-addon",
@@ -12,12 +19,10 @@ wit_bindgen::generate!({
 use exports::nlaocs::skript_parser_addon::{addon, ast_macro, hooks, text_macro, tree_macro};
 use nlaocs::skript_parser_addon::types::{
     AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput, CapabilityRequirement,
-    CompatibilityError, CompatibilityErrorKind, ComponentManifest, ContextUpdate,
-    DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
-    ExpressionTypeOption, HookDecision, HookEffects, HookInvocation, HookMode, HookOutput,
-    HookPayload, HookPhase, HookSubscription, HookTarget, HostProfile, MetadataEntry,
-    RegisteredCaptureKind, RegisteredExpressionPayload, RegisteredSyntaxHandler, SectionTiming,
-    SyntaxKind, TextMacroInput, TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput,
+    CompatibilityError, CompatibilityErrorKind, ComponentManifest, ExpressionPayload, HookDecision,
+    HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
+    HookTarget, HostProfile, RegisteredExpressionPayload, SyntaxKind, TextMacroInput,
+    TextMacroOutput, TreeMacroInput, TreeMacroOutput,
 };
 use parser_wasm::{
     ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EFFECT_PARSER,
@@ -29,22 +34,11 @@ use parser_wasm::{
 const COMPONENT_ID: &str = "nlaocs.core-library";
 const COMPONENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const HEALTH_CHECK_SUBSCRIPTION_ID: &str = "core.health-check";
-const EXPRESSION_SUBSCRIPTION_ID: &str = "core.expression-leaves";
+const EXPRESSION_SUBSCRIPTION_ID: &str = "core.expression-candidates";
 const EFFECT_SUBSCRIPTION_ID: &str = "core.effect-semantics";
 const SECTION_SUBSCRIPTION_ID: &str = "core.section-semantics";
 
 struct CoreLibrary;
-
-fn expression_handler(
-    class_suffix: &str,
-    regex_captures: Vec<RegisteredCaptureKind>,
-) -> RegisteredSyntaxHandler {
-    RegisteredSyntaxHandler {
-        kind: SyntaxKind::Expression,
-        class_suffix: class_suffix.to_owned(),
-        regex_captures,
-    }
-}
 
 impl addon::Guest for CoreLibrary {
     fn manifest() -> ComponentManifest {
@@ -111,31 +105,12 @@ impl addon::Guest for CoreLibrary {
                     capability_id: CAPABILITY_SECTION_PARSER.to_owned(),
                 },
             ],
-            registered_syntax_handlers: vec![
-                expression_handler(".PropExprSize", Vec::new()),
-                expression_handler(".ExprParse", Vec::new()),
-                expression_handler(".ExprEntities", Vec::new()),
-                expression_handler(".ExprWhether", vec![RegisteredCaptureKind::Condition]),
-                expression_handler(".ExprTernary", vec![RegisteredCaptureKind::Condition]),
-                RegisteredSyntaxHandler {
-                    kind: SyntaxKind::Effect,
-                    class_suffix: ".EffDoIf".to_owned(),
-                    regex_captures: vec![
-                        RegisteredCaptureKind::Effect,
-                        RegisteredCaptureKind::Condition,
-                    ],
-                },
-                RegisteredSyntaxHandler {
-                    kind: SyntaxKind::Section,
-                    class_suffix: ".SecConditional".to_owned(),
-                    regex_captures: vec![RegisteredCaptureKind::Condition],
-                },
-                RegisteredSyntaxHandler {
-                    kind: SyntaxKind::Section,
-                    class_suffix: ".SecWhile".to_owned(),
-                    regex_captures: vec![RegisteredCaptureKind::Condition],
-                },
-            ],
+            registered_syntax_handlers: {
+                let mut handlers = expressions::handlers();
+                handlers.extend(effects::handlers());
+                handlers.extend(sections::handlers());
+                handlers
+            },
             state_namespaces: Vec::new(),
         }
     }
@@ -209,7 +184,7 @@ fn parse_expressions(input: HookInvocation) -> Result<HookOutput, AddonError> {
         ));
     }
     match input.payload {
-        HookPayload::Expression(payload) => parse_expression_leaves(payload),
+        HookPayload::Expression(payload) => parse_expression_candidates(payload),
         HookPayload::RegisteredExpression(payload) => resolve_registered_expression(payload),
         _ => Err(addon_error(
             AddonErrorKind::InvalidPayload,
@@ -219,115 +194,15 @@ fn parse_expressions(input: HookInvocation) -> Result<HookOutput, AddonError> {
 }
 
 fn parse_effect_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
-    if !matches!(input.phase, HookPhase::Effect) {
-        return Err(addon_error(
-            AddonErrorKind::InvalidPayload,
-            "CoreLibrary Effect semantics require the Effect phase",
-        ));
-    }
-    let HookPayload::Effect(payload) = input.payload else {
-        return Err(addon_error(
-            AddonErrorKind::InvalidPayload,
-            "CoreLibrary Effect semantics require an Effect payload",
-        ));
-    };
-    let Some(candidate) = payload.candidate.as_ref() else {
-        return Ok(continue_without_replacement());
-    };
-    if candidate
-        .element_class
-        .as_deref()
-        .is_none_or(|class| !class.ends_with(".EffDoIf"))
-    {
-        return Ok(continue_without_replacement());
-    }
-    let valid_condition = candidate
-        .conditions
-        .iter()
-        .any(|capture| capture.capture_index == 1);
-    let nested_effect = candidate
-        .effects
-        .iter()
-        .find(|capture| capture.capture_index == 0);
-    if !valid_condition || nested_effect.is_none() {
-        return Ok(reject(
-            "conditional Effect requires an Effect and a Condition",
-        ));
-    }
-    if nested_effect
-        .and_then(|capture| capture.element_class.as_deref())
-        .is_some_and(|class| class.ends_with(".EffDoIf"))
-    {
-        return Ok(reject("conditional Effects may not be nested"));
-    }
-    Ok(HookOutput {
-        decision: HookDecision::ContinueProcessing,
-        replacement: Some(HookPayload::Effect(payload)),
-        effects: empty_effects(),
-    })
+    effects::parse(input)
 }
 
 fn parse_section_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
-    if !matches!(input.phase, HookPhase::Section) {
-        return Err(addon_error(
-            AddonErrorKind::InvalidPayload,
-            "CoreLibrary Section semantics require the Section phase",
-        ));
-    }
-    let HookPayload::Section(payload) = input.payload else {
-        return Err(addon_error(
-            AddonErrorKind::InvalidPayload,
-            "CoreLibrary Section semantics require a Section payload",
-        ));
-    };
-    let recognized = payload
-        .candidate
-        .element_class
-        .as_deref()
-        .is_some_and(|class| class.ends_with(".SecConditional") || class.ends_with(".SecWhile"));
-    if !recognized {
-        return Ok(continue_without_replacement());
-    }
-    if matches!(payload.timing, SectionTiming::EnterChildren)
-        && !payload.candidate.regex_captures.is_empty()
-        && payload.candidate.conditions.len() != payload.candidate.regex_captures.len()
-    {
-        return Ok(reject("Section requires every condition capture to parse"));
-    }
-    let context_updates = if matches!(payload.timing, SectionTiming::EnterChildren) {
-        let mut updates = vec![ContextUpdate {
-            syntax_context: input.context.syntax_context,
-            key: "core.section.class".to_owned(),
-            value: payload
-                .candidate
-                .element_class
-                .as_ref()
-                .map(|class| class.as_bytes().to_vec()),
-        }];
-        if payload.candidate.loop_section {
-            updates.push(ContextUpdate {
-                syntax_context: input.context.syntax_context,
-                key: "core.section.loop".to_owned(),
-                value: Some(b"true".to_vec()),
-            });
-        }
-        updates
-    } else {
-        Vec::new()
-    };
-    Ok(HookOutput {
-        decision: HookDecision::ContinueProcessing,
-        replacement: Some(HookPayload::Section(payload)),
-        effects: HookEffects {
-            diagnostics: Vec::new(),
-            context_updates,
-            parse_requests: Vec::new(),
-        },
-    })
+    sections::parse(input)
 }
 
-fn parse_expression_leaves(mut payload: ExpressionPayload) -> Result<HookOutput, AddonError> {
-    if let Some(candidate) = core_expression_candidate(&payload) {
+fn parse_expression_candidates(mut payload: ExpressionPayload) -> Result<HookOutput, AddonError> {
+    if let Some(candidate) = expression_candidates::parse(&payload) {
         payload.candidates.push(candidate);
         Ok(HookOutput {
             decision: HookDecision::ContinueProcessing,
@@ -346,17 +221,7 @@ fn parse_expression_leaves(mut payload: ExpressionPayload) -> Result<HookOutput,
 fn resolve_registered_expression(
     mut payload: RegisteredExpressionPayload,
 ) -> Result<HookOutput, AddonError> {
-    let resolution = if payload.element_class.ends_with(".PropExprSize") {
-        resolve_size_expression(&payload)
-    } else if payload.element_class.ends_with(".ExprParse") {
-        resolve_parse_expression(&payload)
-    } else if payload.element_class.ends_with(".ExprEntities") {
-        resolve_entities_expression(&payload)
-    } else if payload.element_class.ends_with(".ExprWhether") {
-        resolve_whether_expression(&payload)
-    } else if payload.element_class.ends_with(".ExprTernary") {
-        resolve_ternary_expression(&payload)
-    } else {
+    let Some(resolution) = expressions::resolve(&payload) else {
         return Ok(HookOutput {
             decision: HookDecision::ContinueProcessing,
             replacement: None,
@@ -364,12 +229,12 @@ fn resolve_registered_expression(
         });
     };
     let (return_type, multiplicity, metadata) = match resolution {
-        SemanticResolution::Resolved {
+        expressions::SemanticResolution::Resolved {
             return_type,
             multiplicity,
             metadata,
         } => (return_type, multiplicity, metadata),
-        SemanticResolution::Reject(reason) => {
+        expressions::SemanticResolution::Reject(reason) => {
             return Ok(HookOutput {
                 decision: HookDecision::Reject(nlaocs::skript_parser_addon::types::Rejection {
                     reason,
@@ -390,432 +255,25 @@ fn resolve_registered_expression(
     })
 }
 
-fn resolve_whether_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
-    if payload.conditions.len() != 1 || payload.conditions[0].capture_index != 0 {
-        return SemanticResolution::Reject(
-            "whether Expression requires one parsed Condition".to_owned(),
-        );
-    }
-    resolved(
-        "java.lang.Boolean",
-        DynamicMultiplicity::Single,
-        "whether-condition",
-    )
-}
-
-fn resolve_ternary_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
-    if payload.conditions.len() != 1 || payload.conditions[0].capture_index != 0 {
-        return SemanticResolution::Reject(
-            "ternary Expression requires one parsed Condition".to_owned(),
-        );
-    }
-    if payload.children.len() != 2 {
-        return SemanticResolution::Reject(
-            "ternary Expression requires two result Expressions".to_owned(),
-        );
-    }
-    if payload.children.iter().any(|child| {
-        child
-            .element_class
-            .as_deref()
-            .is_some_and(|class| class.ends_with(".ExprTernary"))
-    }) {
-        return SemanticResolution::Reject("ternary Expressions may not be nested".to_owned());
-    }
-    let Some(return_type) = payload.common_child_return_type.as_deref() else {
-        return SemanticResolution::Reject(
-            "ternary result Expressions have no common return type".to_owned(),
-        );
-    };
-    resolved(
-        return_type,
-        if payload
-            .children
-            .iter()
-            .all(|child| matches!(child.multiplicity, Some(DynamicMultiplicity::Single)))
-        {
-            DynamicMultiplicity::Single
-        } else {
-            DynamicMultiplicity::Multiple
-        },
-        "ternary-condition",
-    )
-}
-
-fn resolve_entities_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
-    let Some(entity_data) = payload.children.first() else {
-        return SemanticResolution::Reject(
-            "entities Expression requires an entity data literal".to_owned(),
-        );
-    };
-    if metadata_value(&entity_data.metadata, "entity-plural") != Some("true") {
-        return SemanticResolution::Reject(
-            "entities Expression requires a plural entity data literal".to_owned(),
-        );
-    }
-    let Some(return_type) = metadata_value(&entity_data.metadata, "entity-class") else {
-        return SemanticResolution::Reject(
-            "entity data literal has no runtime entity class".to_owned(),
-        );
-    };
-    resolved(
-        return_type,
-        DynamicMultiplicity::Multiple,
-        "entities-literal-type",
-    )
-}
-
-enum SemanticResolution {
-    Resolved {
-        return_type: String,
-        multiplicity: DynamicMultiplicity,
-        metadata: Vec<MetadataEntry>,
-    },
-    Reject(String),
-}
-
-fn resolve_size_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
-    let Some(source) = payload.children.first() else {
-        return SemanticResolution::Reject(
-            "size Expression requires a source Expression".to_owned(),
-        );
-    };
-    let use_properties = payload
-        .tags
-        .iter()
-        .any(|tag| tag.value == "s" && !tag.implicit)
-        || matches!(source.multiplicity, Some(DynamicMultiplicity::Single));
-    if !use_properties {
-        return resolved("java.lang.Long", DynamicMultiplicity::Single, "size-count");
-    }
-    if matches!(source.multiplicity, None | Some(DynamicMultiplicity::Both)) {
-        return SemanticResolution::Reject(
-            "size Expression source multiplicity is unresolved".to_owned(),
-        );
-    }
-    let mut return_types = payload
-        .property_options
-        .iter()
-        .flat_map(|option| option.return_types.iter().cloned())
-        .collect::<Vec<_>>();
-    return_types.sort();
-    return_types.dedup();
-    let return_type = match return_types.as_slice() {
-        [] => {
-            return SemanticResolution::Reject(
-                "source type has no registered size property".to_owned(),
-            );
-        }
-        [only] => only.clone(),
-        _ => "java.lang.Object".to_owned(),
-    };
-    SemanticResolution::Resolved {
-        return_type,
-        multiplicity: source.multiplicity.unwrap_or(DynamicMultiplicity::Multiple),
-        metadata: vec![metadata("semantic-mode", "size-property")],
-    }
-}
-
-fn resolve_parse_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
-    if let Some(class_info) = payload.children.iter().find_map(|child| {
-        let target = metadata_value(&child.metadata, "target-class")?;
-        Some((
-            target,
-            metadata_value(&child.metadata, "has-parser") == Some("true"),
-        ))
-    }) {
-        if class_info.0 == "java.lang.String" {
-            return SemanticResolution::Reject("parsing text as text is not supported".to_owned());
-        }
-        if !class_info.1 {
-            return SemanticResolution::Reject("target type has no parser".to_owned());
-        }
-        return SemanticResolution::Resolved {
-            return_type: class_info.0.to_owned(),
-            multiplicity: DynamicMultiplicity::Single,
-            metadata: vec![metadata("semantic-mode", "parse-type")],
-        };
-    }
-    let Some(pattern) = payload.regex_captures.first().map(|value| unquote(value)) else {
-        return SemanticResolution::Reject("parse Expression has no static target".to_owned());
-    };
-    let placeholders = match parse_pattern_placeholders(&pattern, &payload.type_options) {
-        Ok(placeholders) => placeholders,
-        Err(reason) => return SemanticResolution::Reject(reason),
-    };
-    let plural = placeholders.iter().any(|placeholder| placeholder.plural);
-    let return_type = match placeholders.as_slice() {
-        [only] => only.class_name.clone(),
-        _ => "java.lang.Object".to_owned(),
-    };
-    SemanticResolution::Resolved {
-        return_type,
-        multiplicity: if placeholders.len() <= 1 && !plural {
-            DynamicMultiplicity::Single
-        } else {
-            DynamicMultiplicity::Multiple
-        },
-        metadata: vec![metadata("semantic-mode", "parse-pattern")],
-    }
-}
-
-struct ParsedPlaceholder {
-    class_name: String,
-    plural: bool,
-}
-
-fn parse_pattern_placeholders(
-    pattern: &str,
-    options: &[ExpressionTypeOption],
-) -> Result<Vec<ParsedPlaceholder>, String> {
-    let mut placeholders = Vec::new();
-    let mut remaining = pattern;
-    while let Some(start) = remaining.find('%') {
-        remaining = &remaining[start + 1..];
-        let Some(end) = remaining.find('%') else {
-            return Err("parse pattern has an unclosed type placeholder".to_owned());
-        };
-        let mut body = &remaining[..end];
-        remaining = &remaining[end + 1..];
-        body = body.trim_start_matches(['-', '*', '~']);
-        if let Some((without_time, _)) = body.split_once('@') {
-            body = without_time;
-        }
-        let alternatives = body.split('/').collect::<Vec<_>>();
-        if alternatives.len() != 1 {
-            placeholders.push(ParsedPlaceholder {
-                class_name: "java.lang.Object".to_owned(),
-                plural: alternatives
-                    .iter()
-                    .any(|name| type_option(name, options).is_some_and(|(_, plural)| plural)),
-            });
-            continue;
-        }
-        let (option, plural) = type_option(alternatives[0], options)
-            .ok_or_else(|| format!("unknown type in parse pattern: {}", alternatives[0]))?;
-        if !option.has_parser {
-            return Err(format!("type has no parser: {}", option.code_name));
-        }
-        placeholders.push(ParsedPlaceholder {
-            class_name: option.class_name.clone(),
-            plural,
-        });
-    }
-    Ok(placeholders)
-}
-
-fn type_option<'a>(
-    name: &str,
-    options: &'a [ExpressionTypeOption],
-) -> Option<(&'a ExpressionTypeOption, bool)> {
-    let name = name.trim();
-    options.iter().find_map(|option| {
-        if name.eq_ignore_ascii_case(&option.plural) {
-            Some((option, true))
-        } else if name.eq_ignore_ascii_case(&option.code_name)
-            || name.eq_ignore_ascii_case(&option.singular)
-        {
-            Some((option, false))
-        } else {
-            None
-        }
-    })
-}
-
-fn unquote(value: &str) -> String {
-    value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .unwrap_or(value)
-        .replace("\"\"", "\"")
-}
-
-fn resolved(
-    return_type: &str,
-    multiplicity: DynamicMultiplicity,
-    mode: &str,
-) -> SemanticResolution {
-    SemanticResolution::Resolved {
-        return_type: return_type.to_owned(),
-        multiplicity,
-        metadata: vec![metadata("semantic-mode", mode)],
-    }
-}
-
-fn metadata(key: &str, value: &str) -> MetadataEntry {
-    MetadataEntry {
+#[cfg(test)]
+fn metadata(key: &str, value: &str) -> nlaocs::skript_parser_addon::types::MetadataEntry {
+    nlaocs::skript_parser_addon::types::MetadataEntry {
         key: key.to_owned(),
         value: value.to_owned(),
     }
 }
 
-fn metadata_value<'a>(metadata: &'a [MetadataEntry], key: &str) -> Option<&'a str> {
+#[cfg(test)]
+fn metadata_value<'a>(
+    metadata: &'a [nlaocs::skript_parser_addon::types::MetadataEntry],
+    key: &str,
+) -> Option<&'a str> {
     metadata
         .iter()
         .find(|entry| entry.key == key)
         .map(|entry| entry.value.as_str())
 }
 
-fn core_expression_candidate(payload: &ExpressionPayload) -> Option<ExpressionLeafCandidate> {
-    let candidates = payload
-        .candidate_ends
-        .iter()
-        .copied()
-        .rev()
-        .filter_map(|end| expression_slice(payload, end).map(|text| (end, text)));
-
-    for (end, text) in candidates {
-        if payload.allow_expressions && is_variable(text) {
-            return Some(expression_candidate(
-                "core.variable",
-                ExpressionLeafKind::Variable,
-                payload.remaining.start,
-                end,
-                payload
-                    .expected_types
-                    .first()
-                    .map_or("java.lang.Object", |expected| expected.class_name.as_str()),
-                if is_list_variable(text) {
-                    DynamicMultiplicity::Multiple
-                } else {
-                    DynamicMultiplicity::Single
-                },
-            ));
-        }
-        if payload.allow_literals && is_string_literal(text) {
-            return Some(expression_candidate(
-                "core.literal.string",
-                ExpressionLeafKind::Literal,
-                payload.remaining.start,
-                end,
-                "java.lang.String",
-                DynamicMultiplicity::Single,
-            ));
-        }
-        if payload.allow_literals && is_number_literal(text) {
-            let return_type = if text.contains(['.', 'e', 'E']) {
-                "java.lang.Double"
-            } else {
-                "java.lang.Long"
-            };
-            return Some(expression_candidate(
-                "core.literal.number",
-                ExpressionLeafKind::Literal,
-                payload.remaining.start,
-                end,
-                return_type,
-                DynamicMultiplicity::Single,
-            ));
-        }
-        if payload.allow_literals
-            && payload
-                .expected_types
-                .iter()
-                .any(|expected| expected.class_name == "ch.njol.skript.entity.EntityData")
-            && matches!(text.to_ascii_lowercase().as_str(), "player" | "players")
-        {
-            let plural = text.eq_ignore_ascii_case("players");
-            let mut candidate = expression_candidate(
-                "core.literal.entity-data",
-                ExpressionLeafKind::Literal,
-                payload.remaining.start,
-                end,
-                "ch.njol.skript.entity.EntityData",
-                DynamicMultiplicity::Single,
-            );
-            candidate.metadata = vec![
-                metadata("entity-class", "org.bukkit.entity.Player"),
-                metadata("entity-plural", if plural { "true" } else { "false" }),
-            ];
-            return Some(candidate);
-        }
-        if payload.allow_literals
-            && let Some((option, plural)) = type_option(text, &payload.type_options)
-        {
-            let mut candidate = expression_candidate(
-                "core.literal.class-info",
-                ExpressionLeafKind::Literal,
-                payload.remaining.start,
-                end,
-                payload
-                    .expected_types
-                    .first()
-                    .map_or("ch.njol.skript.classes.ClassInfo", |expected| {
-                        expected.class_name.as_str()
-                    }),
-                DynamicMultiplicity::Single,
-            );
-            candidate.metadata = vec![
-                metadata("target-class", &option.class_name),
-                metadata("type-code-name", &option.code_name),
-                metadata("type-plural", if plural { "true" } else { "false" }),
-                metadata(
-                    "has-parser",
-                    if option.has_parser { "true" } else { "false" },
-                ),
-            ];
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-fn expression_slice(payload: &ExpressionPayload, end: u64) -> Option<&str> {
-    let start = usize::try_from(payload.remaining.start).ok()?;
-    let end = usize::try_from(end).ok()?;
-    let remaining_end = usize::try_from(payload.remaining.end).ok()?;
-    if start > end || end > remaining_end {
-        return None;
-    }
-    payload.input.get(start..end)
-}
-
-fn is_variable(text: &str) -> bool {
-    text.len() >= 3
-        && text.starts_with('{')
-        && text.ends_with('}')
-        && !text[1..text.len() - 1].trim().is_empty()
-}
-
-fn is_list_variable(text: &str) -> bool {
-    text[1..text.len() - 1].trim_end().ends_with("::*")
-}
-
-fn is_string_literal(text: &str) -> bool {
-    if text.len() < 2 || !text.starts_with('"') || !text.ends_with('"') {
-        return false;
-    }
-    let inner = &text[1..text.len() - 1];
-    let mut chars = inner.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '"' && chars.next_if_eq(&'"').is_none() {
-            return false;
-        }
-    }
-    true
-}
-
-fn is_number_literal(text: &str) -> bool {
-    !text.is_empty() && text.parse::<f64>().is_ok_and(|value| value.is_finite())
-}
-
-fn expression_candidate(
-    parser_id: &str,
-    kind: ExpressionLeafKind,
-    start: u64,
-    end: u64,
-    return_type: &str,
-    multiplicity: DynamicMultiplicity,
-) -> ExpressionLeafCandidate {
-    ExpressionLeafCandidate {
-        parser_id: parser_id.to_owned(),
-        kind,
-        range: TextRange { start, end },
-        return_type: Some(return_type.to_owned()),
-        multiplicity: Some(multiplicity),
-        metadata: Vec::<MetadataEntry>::new(),
-    }
-}
 impl text_macro::Guest for CoreLibrary {
     fn expand(_input: TextMacroInput) -> Result<TextMacroOutput, AddonError> {
         Err(unsupported_macro("text"))
@@ -907,10 +365,11 @@ export!(CoreLibrary);
 mod tests {
     use super::*;
     use nlaocs::skript_parser_addon::types::{
-        Capability, DocumentPayload, ExpressionExpectedType, ExpressionPossibleReturnTypesState,
-        ExpressionReturnTypeState, HookPayload, InvocationContext, MappedSpan, OriginKind,
-        RegisteredExpressionChild, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
-        SourceOrigin,
+        Capability, DocumentPayload, DynamicMultiplicity, ExpressionExpectedType,
+        ExpressionLeafKind, ExpressionLiteralOption, ExpressionLiteralSource,
+        ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
+        HookPayload, InvocationContext, MappedSpan, OriginKind, RegisteredExpressionChild,
+        RegisteredExpressionPropertyOption, RegisteredExpressionTag, SourceOrigin, TextRange,
     };
 
     #[test]
@@ -948,7 +407,7 @@ mod tests {
         assert_eq!(manifest.subscriptions[2].id, EFFECT_SUBSCRIPTION_ID);
         assert_eq!(manifest.capabilities[3].id, CAPABILITY_SECTION_PARSER);
         assert_eq!(manifest.subscriptions[3].id, SECTION_SUBSCRIPTION_ID);
-        assert_eq!(manifest.registered_syntax_handlers.len(), 8);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 19);
     }
 
     #[test]
@@ -995,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn expression_hook_recognizes_variable_string_and_number_leaves() {
+    fn expression_hook_recognizes_variable_string_and_number_candidates() {
         let cases = [
             ("{value}", "core.variable", ExpressionLeafKind::Variable),
             (
@@ -1016,6 +475,132 @@ mod tests {
             assert_eq!(payload.candidates[0].kind, kind);
             assert_eq!(payload.candidates[0].range.end, text.len() as u64);
         }
+    }
+
+    #[test]
+    fn boolean_literals_use_skript_english_spellings() {
+        for (text, value) in [("true", "true"), ("yes", "true"), ("off", "false")] {
+            let output =
+                <CoreLibrary as hooks::Guest>::invoke(expression_invocation(text)).unwrap();
+            let Some(HookPayload::Expression(payload)) = output.replacement else {
+                panic!("boolean literal must be returned");
+            };
+            assert_eq!(payload.candidates[0].parser_id, "core.literal.boolean");
+            assert_eq!(
+                payload.candidates[0].return_type.as_deref(),
+                Some("java.lang.Boolean")
+            );
+            assert_eq!(
+                metadata_value(&payload.candidates[0].metadata, "boolean-value"),
+                Some(value)
+            );
+        }
+    }
+
+    #[test]
+    fn finite_registered_literal_uses_the_earliest_type_parse_order() {
+        let mut invocation = expression_invocation("shared");
+        let HookPayload::Expression(payload) = &mut invocation.payload else {
+            unreachable!();
+        };
+        for (code_name, class_name, type_parse_order) in
+            [("later", "test.Later", 20), ("earlier", "test.Earlier", 10)]
+        {
+            payload.literal_options.push(ExpressionLiteralOption {
+                code_name: code_name.to_owned(),
+                class_name: class_name.to_owned(),
+                type_parse_order,
+                range: TextRange { start: 0, end: 6 },
+                canonical_value: "shared".to_owned(),
+                source: ExpressionLiteralSource::Supplier,
+                plural: false,
+                addon_name: "fixture".to_owned(),
+                addon_version: "1.0.0".to_owned(),
+                parser_class: None,
+                parse_contexts: Vec::new(),
+                value_class: None,
+                represented_class: None,
+                variable_name: None,
+                debug_text: None,
+                enum_constant: None,
+            });
+        }
+
+        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let Some(HookPayload::Expression(payload)) = output.replacement else {
+            panic!("finite type literal must be returned");
+        };
+        assert_eq!(payload.candidates[0].parser_id, "core.literal.type");
+        assert_eq!(
+            payload.candidates[0].return_type.as_deref(),
+            Some("test.Earlier")
+        );
+        assert_eq!(
+            metadata_value(&payload.candidates[0].metadata, "literal-canonical"),
+            Some("shared")
+        );
+        assert_eq!(
+            metadata_value(&payload.candidates[0].metadata, "literal-source"),
+            Some("supplier")
+        );
+    }
+
+    #[test]
+    fn item_type_literal_accepts_a_numeric_amount_prefix() {
+        let mut invocation = expression_invocation("2 stone");
+        let HookPayload::Expression(payload) = &mut invocation.payload else {
+            unreachable!();
+        };
+        payload.literal_options.push(ExpressionLiteralOption {
+            code_name: "itemtype".to_owned(),
+            class_name: "ch.njol.skript.aliases.ItemType".to_owned(),
+            type_parse_order: 10,
+            range: TextRange { start: 2, end: 7 },
+            canonical_value: "stone".to_owned(),
+            source: ExpressionLiteralSource::Alias,
+            plural: false,
+            addon_name: "Skript".to_owned(),
+            addon_version: "2.15.4".to_owned(),
+            parser_class: Some(
+                "org.skriptlang.skript.bukkit.base.types.ItemTypeClassInfo$ItemTypeParser"
+                    .to_owned(),
+            ),
+            parse_contexts: vec!["DEFAULT".to_owned()],
+            value_class: None,
+            represented_class: None,
+            variable_name: None,
+            debug_text: None,
+            enum_constant: None,
+        });
+
+        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let Some(HookPayload::Expression(payload)) = output.replacement else {
+            panic!("amount-prefixed item type must be returned");
+        };
+        let candidate = &payload.candidates[0];
+        assert_eq!(candidate.parser_id, "core.literal.item-type");
+        assert_eq!(candidate.range.start, 0);
+        assert_eq!(candidate.range.end, 7);
+        assert_eq!(
+            candidate.return_type.as_deref(),
+            Some("ch.njol.skript.aliases.ItemType")
+        );
+        assert_eq!(
+            metadata_value(&candidate.metadata, "literal-amount"),
+            Some("2")
+        );
+        assert_eq!(
+            metadata_value(&candidate.metadata, "literal-canonical"),
+            Some("stone")
+        );
+        assert_eq!(
+            metadata_value(&candidate.metadata, "literal-range-start"),
+            Some("2")
+        );
+        assert_eq!(
+            metadata_value(&candidate.metadata, "literal-range-end"),
+            Some("7")
+        );
     }
 
     #[test]
@@ -1040,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn expression_hook_leaves_unknown_input_untouched() {
+    fn expression_hook_candidates_leave_unknown_input_untouched() {
         let output = <CoreLibrary as hooks::Guest>::invoke(expression_invocation("not a leaf"))
             .expect("unknown input is a normal no-match");
         assert!(output.replacement.is_none());
@@ -1060,6 +645,7 @@ mod tests {
             singular: "number".to_owned(),
             plural: "numbers".to_owned(),
             has_parser: true,
+            has_supplier: true,
         });
 
         let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
@@ -1069,6 +655,57 @@ mod tests {
         assert_eq!(
             metadata_value(&payload.candidates[0].metadata, "target-class"),
             Some("java.lang.Number")
+        );
+        assert_eq!(
+            metadata_value(&payload.candidates[0].metadata, "has-supplier"),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn class_info_wins_when_a_type_literal_has_the_same_spelling() {
+        let mut invocation = expression_invocation("player");
+        let HookPayload::Expression(payload) = &mut invocation.payload else {
+            unreachable!();
+        };
+        payload.expected_types[0].class_name = "ch.njol.skript.classes.ClassInfo".to_owned();
+        payload.type_options.push(ExpressionTypeOption {
+            code_name: "player".to_owned(),
+            class_name: "org.bukkit.entity.Player".to_owned(),
+            singular: "player".to_owned(),
+            plural: "players".to_owned(),
+            has_parser: true,
+            has_supplier: false,
+        });
+        payload.literal_options.push(ExpressionLiteralOption {
+            code_name: "player".to_owned(),
+            // SSG's literal option describes the ClassInfo value itself. The
+            // represented runtime class is carried by type_options.
+            class_name: "ch.njol.skript.classes.ClassInfo".to_owned(),
+            type_parse_order: 117,
+            range: TextRange { start: 0, end: 6 },
+            canonical_value: "player".to_owned(),
+            source: ExpressionLiteralSource::Supplier,
+            plural: false,
+            addon_name: "Skript".to_owned(),
+            addon_version: "2.15.4".to_owned(),
+            parser_class: Some("ch.njol.skript.classes.data.SkriptClasses$2".to_owned()),
+            parse_contexts: Vec::new(),
+            value_class: Some("org.skriptlang.skript.bukkit.types.PlayerClassInfo".to_owned()),
+            represented_class: None,
+            variable_name: None,
+            debug_text: None,
+            enum_constant: None,
+        });
+
+        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let Some(HookPayload::Expression(payload)) = output.replacement else {
+            panic!("ClassInfo parser must win over a same-spelled value literal");
+        };
+        assert_eq!(payload.candidates[0].parser_id, "core.literal.class-info");
+        assert_eq!(
+            metadata_value(&payload.candidates[0].metadata, "target-class"),
+            Some("org.bukkit.entity.Player")
         );
     }
 
@@ -1107,11 +744,11 @@ mod tests {
             multiplicity: Some(DynamicMultiplicity::Multiple),
             metadata: Vec::new(),
         });
-        let SemanticResolution::Resolved {
+        let expressions::SemanticResolution::Resolved {
             return_type,
             multiplicity,
             ..
-        } = resolve_size_expression(&size)
+        } = expressions::resolve(&size).expect("PropExprSize handler must be registered")
         else {
             panic!("list size must resolve");
         };
@@ -1129,16 +766,196 @@ mod tests {
                 metadata("has-parser", "true"),
             ],
         });
-        let SemanticResolution::Resolved {
+        let expressions::SemanticResolution::Resolved {
             return_type,
             multiplicity,
             ..
-        } = resolve_parse_expression(&parse)
+        } = expressions::resolve(&parse).expect("ExprParse handler must be registered")
         else {
             panic!("typed parse must resolve");
         };
         assert_eq!(return_type, "java.lang.Number");
         assert_eq!(multiplicity, DynamicMultiplicity::Single);
+    }
+
+    #[test]
+    fn property_expressions_resolve_registered_types_and_axes() {
+        let mut wxyz = registered_expression(
+            "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+        );
+        wxyz.tags.push(RegisteredExpressionTag {
+            value: "x".to_owned(),
+            implicit: false,
+        });
+        wxyz.children.push(expression_child(
+            "player's location",
+            "org.bukkit.Location",
+            DynamicMultiplicity::Both,
+        ));
+        wxyz.property_options.push(property_option(
+            "org.bukkit.Location",
+            &["java.lang.Double"],
+            &["x", "y", "z"],
+        ));
+
+        let expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            metadata: resolved_metadata,
+        } = expressions::resolve(&wxyz).expect("PropExprWXYZ handler must be registered")
+        else {
+            panic!("location x coordinate must resolve");
+        };
+        assert_eq!(return_type, "java.lang.Double");
+        assert_eq!(multiplicity, DynamicMultiplicity::Both);
+        assert_eq!(metadata_value(&resolved_metadata, "wxyz-axis"), Some("x"));
+
+        wxyz.tags[0].value = "w".to_owned();
+        assert!(matches!(
+            expressions::resolve(&wxyz),
+            Some(expressions::SemanticResolution::Reject(_))
+        ));
+
+        for (class, source_type, return_type) in [
+            (
+                "PropExprCustomName",
+                "org.bukkit.entity.Player",
+                "net.kyori.adventure.text.Component",
+            ),
+            (
+                "PropExprName",
+                "org.bukkit.entity.Player",
+                "net.kyori.adventure.text.Component",
+            ),
+            (
+                "PropExprScale",
+                "org.bukkit.entity.Display",
+                "org.bukkit.util.Vector",
+            ),
+        ] {
+            let mut property = registered_expression(&format!(
+                "org.skriptlang.skript.common.properties.elements.expressions.{class}"
+            ));
+            property.children.push(expression_child(
+                "source",
+                source_type,
+                DynamicMultiplicity::Single,
+            ));
+            property
+                .property_options
+                .push(property_option(source_type, &[return_type], &[]));
+            let Some(expressions::SemanticResolution::Resolved {
+                return_type: actual,
+                multiplicity,
+                ..
+            }) = expressions::resolve(&property)
+            else {
+                panic!("{class} must resolve");
+            };
+            assert_eq!(actual, return_type);
+            assert_eq!(multiplicity, DynamicMultiplicity::Single);
+        }
+    }
+
+    #[test]
+    fn amount_and_typed_value_keep_their_java_specific_branches() {
+        let mut amount = registered_expression(
+            "org.skriptlang.skript.common.properties.elements.expressions.PropExprAmount",
+        );
+        amount.children.push(expression_child(
+            "all players",
+            "org.bukkit.entity.Player",
+            DynamicMultiplicity::Multiple,
+        ));
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        }) = expressions::resolve(&amount)
+        else {
+            panic!("singular amount of a list must count its elements");
+        };
+        assert_eq!(return_type, "java.lang.Long");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+
+        let mut number = registered_expression(
+            "org.skriptlang.skript.common.properties.elements.expressions.PropExprNumber",
+        );
+        number.children.push(expression_child(
+            "amount holder",
+            "ch.njol.skript.lang.util.common.AnyAmount",
+            DynamicMultiplicity::Single,
+        ));
+        number.property_options.push(property_option(
+            "ch.njol.skript.lang.util.common.AnyAmount",
+            &["java.lang.Number"],
+            &[],
+        ));
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        }) = expressions::resolve(&number)
+        else {
+            panic!("number of a single value must use its property handler");
+        };
+        assert_eq!(return_type, "java.lang.Number");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+
+        let mut size = registered_expression(
+            "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize",
+        );
+        size.tags.push(RegisteredExpressionTag {
+            value: "s".to_owned(),
+            implicit: false,
+        });
+        size.children.push(expression_child(
+            "amount holders",
+            "ch.njol.skript.lang.util.common.AnyAmount",
+            DynamicMultiplicity::Multiple,
+        ));
+        size.property_options.push(property_option(
+            "ch.njol.skript.lang.util.common.AnyAmount",
+            &["java.lang.Number"],
+            &[],
+        ));
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        }) = expressions::resolve(&size)
+        else {
+            panic!("plural sizes must use their property handlers");
+        };
+        assert_eq!(return_type, "java.lang.Number");
+        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+
+        let mut value = registered_expression(
+            "org.skriptlang.skript.common.properties.elements.expressions.PropExprValueOf",
+        );
+        value.children.push(RegisteredExpressionChild {
+            text: "number".to_owned(),
+            element_class: None,
+            return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
+            multiplicity: Some(DynamicMultiplicity::Single),
+            metadata: vec![metadata("target-class", "java.lang.Number")],
+        });
+        value.children.push(expression_child(
+            "{_node}",
+            "ch.njol.skript.config.Node",
+            DynamicMultiplicity::Single,
+        ));
+        value.property_options.push(property_option(
+            "ch.njol.skript.config.Node",
+            &["java.lang.String"],
+            &[],
+        ));
+        let Some(expressions::SemanticResolution::Resolved { return_type, .. }) =
+            expressions::resolve(&value)
+        else {
+            panic!("typed value target must determine its return type");
+        };
+        assert_eq!(return_type, "java.lang.Number");
     }
 
     #[test]
@@ -1150,21 +967,214 @@ mod tests {
             return_type: Some("ch.njol.skript.entity.EntityData".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![
-                metadata("entity-class", "org.bukkit.entity.Player"),
-                metadata("entity-plural", "true"),
+                metadata("literal-represented-class", "org.bukkit.entity.Player"),
+                metadata("literal-plural", "true"),
             ],
         });
 
-        let SemanticResolution::Resolved {
+        let expressions::SemanticResolution::Resolved {
             return_type,
             multiplicity,
             ..
-        } = resolve_entities_expression(&entities)
+        } = expressions::resolve(&entities).expect("ExprEntities handler must be registered")
         else {
             panic!("plural player entity data must resolve");
         };
         assert_eq!(return_type, "org.bukkit.entity.Player");
         assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+    }
+
+    #[test]
+    fn element_expression_preserves_the_source_type_and_selected_amount() {
+        let mut element = registered_expression("ch.njol.skript.expressions.ExprElement");
+        element.input = "a random element out of all players".to_owned();
+        element.span.virtual_range.end = u64::try_from(element.input.len()).unwrap();
+        element.children.push(expression_child(
+            "all players",
+            "org.bukkit.entity.Player",
+            DynamicMultiplicity::Multiple,
+        ));
+
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        }) = expressions::resolve(&element)
+        else {
+            panic!("ExprElement handler must resolve a typed source");
+        };
+        assert_eq!(return_type, "org.bukkit.entity.Player");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+
+        element.input = "the first 2 elements out of all players".to_owned();
+        element.pattern_index = 1;
+        element.span.virtual_range.end = u64::try_from(element.input.len()).unwrap();
+        let Some(expressions::SemanticResolution::Resolved { multiplicity, .. }) =
+            expressions::resolve(&element)
+        else {
+            panic!("plural ExprElement pattern must resolve");
+        };
+        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+    }
+
+    #[test]
+    fn inventory_slot_multiplicity_follows_the_number_expression() {
+        let mut slot = registered_expression("ch.njol.skript.expressions.ExprInventorySlot");
+        slot.children.push(expression_child(
+            "0",
+            "java.lang.Long",
+            DynamicMultiplicity::Single,
+        ));
+        slot.children.push(expression_child(
+            "player",
+            "org.bukkit.inventory.Inventory",
+            DynamicMultiplicity::Single,
+        ));
+
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        }) = expressions::resolve(&slot)
+        else {
+            panic!("ExprInventorySlot handler must resolve slot numbers");
+        };
+        assert_eq!(return_type, "ch.njol.skript.util.slot.Slot");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+
+        slot.pattern_index = 1;
+        slot.children.swap(0, 1);
+        slot.children[1].multiplicity = Some(DynamicMultiplicity::Multiple);
+        let Some(expressions::SemanticResolution::Resolved { multiplicity, .. }) =
+            expressions::resolve(&slot)
+        else {
+            panic!("reversed inventory slot pattern must resolve");
+        };
+        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+    }
+
+    #[test]
+    fn random_expression_uses_the_source_type_as_a_single_value() {
+        let mut random = registered_expression("ch.njol.skript.expressions.ExprRandom");
+        random.children.push(RegisteredExpressionChild {
+            text: "element".to_owned(),
+            element_class: None,
+            return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
+            multiplicity: Some(DynamicMultiplicity::Single),
+            metadata: vec![metadata("target-class", "java.lang.Object")],
+        });
+        random.children.push(expression_child(
+            "all players",
+            "org.bukkit.entity.Player",
+            DynamicMultiplicity::Multiple,
+        ));
+
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            metadata,
+        }) = expressions::resolve(&random)
+        else {
+            panic!("ExprRandom handler must resolve a typed source");
+        };
+        assert_eq!(return_type, "org.bukkit.entity.Player");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+        assert!(
+            metadata.iter().any(|entry| {
+                entry.key == "selection-class" && entry.value == "java.lang.Object"
+            })
+        );
+
+        random.children.pop();
+        assert!(matches!(
+            expressions::resolve(&random),
+            Some(expressions::SemanticResolution::Reject(_))
+        ));
+    }
+
+    #[test]
+    fn sets_expression_requires_a_supplied_plural_class_info() {
+        let class_info = |input: &str, plural: &str, supplier: &str| RegisteredExpressionChild {
+            text: input.to_owned(),
+            element_class: None,
+            return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
+            multiplicity: Some(DynamicMultiplicity::Single),
+            metadata: vec![
+                metadata("target-class", "java.awt.Color"),
+                metadata("type-plural", plural),
+                metadata("has-supplier", supplier),
+            ],
+        };
+
+        let mut sets = registered_expression("ch.njol.skript.expressions.ExprSets");
+        sets.input = "all colors".to_owned();
+        sets.span.virtual_range.end = u64::try_from(sets.input.len()).unwrap();
+        sets.children.push(class_info("colors", "true", "true"));
+        let Some(expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        }) = expressions::resolve(&sets)
+        else {
+            panic!("plural supplied ClassInfo must resolve");
+        };
+        assert_eq!(return_type, "java.awt.Color");
+        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+
+        sets.input = "every color".to_owned();
+        sets.span.virtual_range.end = u64::try_from(sets.input.len()).unwrap();
+        sets.children[0].metadata[1].value = "false".to_owned();
+        let Some(expressions::SemanticResolution::Resolved { .. }) = expressions::resolve(&sets)
+        else {
+            panic!("every singular ClassInfo must resolve");
+        };
+
+        for (input, return_type, type_plural, has_supplier, target_class) in [
+            (
+                "color",
+                Some("ch.njol.skript.classes.ClassInfo"),
+                "false",
+                "true",
+                Some("java.awt.Color"),
+            ),
+            (
+                "colors",
+                Some("ch.njol.skript.classes.ClassInfo"),
+                "true",
+                "false",
+                Some("java.awt.Color"),
+            ),
+            (
+                "colors",
+                Some("ch.njol.skript.classes.ClassInfo"),
+                "true",
+                "true",
+                None,
+            ),
+            ("colors", None, "true", "true", Some("java.awt.Color")),
+        ] {
+            let mut invalid = registered_expression("ch.njol.skript.expressions.ExprSets");
+            invalid.input = input.to_owned();
+            invalid.span.virtual_range.end = u64::try_from(invalid.input.len()).unwrap();
+            let mut child_metadata = vec![
+                metadata("type-plural", type_plural),
+                metadata("has-supplier", has_supplier),
+            ];
+            if let Some(target_class) = target_class {
+                child_metadata.insert(0, metadata("target-class", target_class));
+            }
+            invalid.children.push(RegisteredExpressionChild {
+                text: "color".to_owned(),
+                element_class: None,
+                return_type: return_type.map(str::to_owned),
+                multiplicity: Some(DynamicMultiplicity::Single),
+                metadata: child_metadata,
+            });
+            assert!(matches!(
+                expressions::resolve(&invalid),
+                Some(expressions::SemanticResolution::Reject(_))
+            ));
+        }
     }
 
     #[test]
@@ -1177,12 +1187,13 @@ mod tests {
             singular: "number".to_owned(),
             plural: "numbers".to_owned(),
             has_parser: true,
+            has_supplier: false,
         });
-        let SemanticResolution::Resolved {
+        let expressions::SemanticResolution::Resolved {
             return_type,
             multiplicity,
             ..
-        } = resolve_parse_expression(&parse)
+        } = expressions::resolve(&parse).expect("ExprParse handler must be registered")
         else {
             panic!("pattern parse must resolve");
         };
@@ -1236,6 +1247,7 @@ mod tests {
                 time: 0,
                 depth: 0,
                 type_options: Vec::new(),
+                literal_options: Vec::new(),
                 candidates: Vec::new(),
             }),
         }
@@ -1278,6 +1290,38 @@ mod tests {
             effective_return_type: Some("java.lang.Object".to_owned()),
             effective_multiplicity: Some(DynamicMultiplicity::Both),
             metadata: Vec::new(),
+        }
+    }
+
+    fn expression_child(
+        text: &str,
+        return_type: &str,
+        multiplicity: DynamicMultiplicity,
+    ) -> RegisteredExpressionChild {
+        RegisteredExpressionChild {
+            text: text.to_owned(),
+            element_class: None,
+            return_type: Some(return_type.to_owned()),
+            multiplicity: Some(multiplicity),
+            metadata: Vec::new(),
+        }
+    }
+
+    fn property_option(
+        input_class: &str,
+        return_types: &[&str],
+        supported_axes: &[&str],
+    ) -> RegisteredExpressionPropertyOption {
+        RegisteredExpressionPropertyOption {
+            input_class: input_class.to_owned(),
+            return_types: return_types
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
+            supported_axes: supported_axes
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
         }
     }
 
