@@ -6,7 +6,6 @@ use crate::{
     CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
     ExpressionParseError, ExpressionParserConfig, ExpressionSession, MappedSource, MatchSpan,
     ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure, TextRange,
-    catalog_pattern_candidates, snapshot_pattern_candidates,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -166,11 +165,8 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
         return Ok(matches);
     }
 
-    let candidates = if let Some(snapshot) = session.dynamic_snapshot() {
-        snapshot_pattern_candidates(session.catalog(), snapshot, SyntaxKind::Condition)
-    } else {
-        catalog_pattern_candidates(session.catalog(), SyntaxKind::Condition)
-    };
+    let mut candidates = session.syntax_candidates(SyntaxKind::Condition);
+    session.retain_viable_patterns(trimmed, &mut candidates)?;
     let matched = session.match_candidates_at_depth(trimmed, &candidates, depth)?;
     let selected = matched
         .selected

@@ -107,6 +107,8 @@ pub enum MatchSyntaxKind {
 #[derive(Debug, Clone, Copy)]
 /// Borrowed source and parsed AST for one registration pattern.
 pub struct MatchPattern<'a> {
+    /// Original pattern position in the syntax registration.
+    pub pattern_index: usize,
     pub source: &'a str,
     pub parsed: &'a ParseResult,
 }
@@ -241,6 +243,11 @@ pub trait PatternMatchHooks {
         Ok(true)
     }
 
+    /// Returns whether a matching hook may synthesize a result for this registration.
+    fn may_override_pattern(&self, _kind: MatchSyntaxKind, _registration_id: &str) -> bool {
+        false
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
 }
 
@@ -269,6 +276,11 @@ pub trait PatternMatchEnvironment {
         _registration_id: &str,
     ) -> Result<bool, String> {
         Ok(false)
+    }
+
+    /// Returns whether a matching hook may synthesize a result for this registration.
+    fn may_override_pattern(&self, _kind: MatchSyntaxKind, _registration_id: &str) -> bool {
+        false
     }
 
     /// Resolves one typed placeholder at the legal split points supplied by the matcher.
@@ -303,6 +315,10 @@ impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
         registration_id: &str,
     ) -> Result<bool, String> {
         self.hooks.allows_regex_pattern(kind, registration_id)
+    }
+
+    fn may_override_pattern(&self, kind: MatchSyntaxKind, registration_id: &str) -> bool {
+        self.hooks.may_override_pattern(kind, registration_id)
     }
 
     fn resolve_type(
@@ -423,6 +439,18 @@ pub struct PatternFailure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Highest-ranked registration that made meaningful progress before failing.
+pub struct CandidateFailure {
+    pub kind: MatchSyntaxKind,
+    pub definition_id: String,
+    pub registration_id: String,
+    pub priority: i32,
+    pub registration_order: usize,
+    pub resolved_order: Option<usize>,
+    pub failure: PatternFailure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// One numbered regex group and its optional matched span.
 pub struct RegexGroupCapture {
     pub index: usize,
@@ -496,6 +524,7 @@ pub struct CandidateMatches {
     pub selected: Option<CandidateMatch>,
     pub alternatives: Vec<CandidateMatch>,
     pub failure: Option<PatternFailure>,
+    pub best_failure: Option<CandidateFailure>,
 }
 
 #[derive(Debug, Clone)]
@@ -654,19 +683,49 @@ enum CachedTransition {
 #[derive(Debug, Default)]
 struct FailureTracker {
     offset: usize,
+    range: Option<TextRange>,
     reasons: BTreeSet<PatternFailureReason>,
     initialized: bool,
 }
 
 impl FailureTracker {
     fn record(&mut self, offset: usize, reason: PatternFailureReason) {
+        self.record_range(offset, None, reason);
+    }
+
+    fn record_range(
+        &mut self,
+        offset: usize,
+        range: Option<TextRange>,
+        reason: PatternFailureReason,
+    ) {
         if !self.initialized || offset > self.offset {
             self.offset = offset;
+            self.range = range;
             self.reasons.clear();
             self.initialized = true;
         }
         if offset == self.offset {
+            if self.range.is_none() {
+                self.range = range;
+            }
             self.reasons.insert(reason);
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        if !other.initialized {
+            return;
+        }
+        if !self.initialized || other.offset > self.offset {
+            *self = other;
+            return;
+        }
+        if other.offset == self.offset {
+            if self.range.is_none() {
+                self.range = other.range;
+            }
+            self.reasons.extend(other.reasons);
         }
     }
 }
@@ -731,6 +790,7 @@ struct MatchEngine<'input, 'candidate, 'ext, E> {
 ///     registration_order: 12,
 ///     resolved_order: None,
 ///     patterns: vec![MatchPattern {
+///         pattern_index: 0,
 ///         source: pattern_source,
 ///         parsed: &parsed,
 ///     }],
@@ -839,11 +899,45 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
     });
 
     let mut matches = Vec::new();
+    let mut aggregate_failure = FailureTracker::default();
+    let mut best_failure = None;
     for (_, candidate) in ranked {
-        if let Some(value) = engine.match_candidate(candidate)? {
+        engine.failure = FailureTracker::default();
+        let matched = engine.match_candidate(candidate)?;
+        let candidate_failure = std::mem::take(&mut engine.failure);
+        if matched.is_none()
+            && candidate_failure.initialized
+            && candidate_failure.offset > trim_range.start
+            && candidate_has_matching_literal_anchor(candidate, engine.input.text(), trim_range)
+            && best_failure.as_ref().is_none_or(|best: &CandidateFailure| {
+                candidate_failure_is_better(&candidate_failure, best)
+            })
+        {
+            best_failure = Some(CandidateFailure {
+                kind: candidate.kind,
+                definition_id: candidate.definition_id.clone(),
+                registration_id: candidate.registration_id.clone(),
+                priority: candidate.priority,
+                registration_order: candidate.registration_order,
+                resolved_order: candidate.resolved_order,
+                failure: PatternFailure {
+                    offset: candidate_failure.offset,
+                    span: engine.input.map_range(
+                        candidate_failure
+                            .range
+                            .unwrap_or_else(|| TextRange::empty(candidate_failure.offset)),
+                    )?,
+                    reasons: candidate_failure.reasons.iter().cloned().collect(),
+                },
+            });
+        }
+        aggregate_failure.merge(candidate_failure);
+        if let Some(value) = matched {
             matches.push(value);
         }
     }
+
+    engine.failure = aggregate_failure;
 
     let selected = (!matches.is_empty()).then(|| matches.remove(0));
     let failure = if selected.is_none() && engine.failure.initialized {
@@ -857,10 +951,34 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
     } else {
         None
     };
+    if selected.is_some() {
+        best_failure = None;
+    }
     Ok(CandidateMatches {
         selected,
         alternatives: matches,
         failure,
+        best_failure,
+    })
+}
+
+fn candidate_failure_is_better(candidate: &FailureTracker, current: &CandidateFailure) -> bool {
+    candidate.offset > current.failure.offset
+        || (candidate.offset == current.failure.offset
+            && candidate.range.is_some_and(|range| range.end > range.start)
+            && current.failure.span.local_range.start == current.failure.span.local_range.end)
+}
+
+fn candidate_has_matching_literal_anchor(
+    candidate: &PatternCandidate<'_>,
+    input: &str,
+    complete: TextRange,
+) -> bool {
+    candidate.patterns.iter().any(|pattern| {
+        leading_tail_prefixes(&pattern.parsed.elements)
+            .into_iter()
+            .filter(|prefix| prefix.text.chars().any(|character| character != ' '))
+            .any(|prefix| match_literal_at(input, complete, complete.start, &prefix.text).is_ok())
     })
 }
 
@@ -979,7 +1097,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         }
 
         let mut matched = None;
-        for (pattern_index, pattern) in candidate.patterns.iter().enumerate() {
+        for pattern in &candidate.patterns {
             if pattern_contains_regex(&pattern.parsed.elements)
                 && !self
                     .environment
@@ -990,7 +1108,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             }
             self.current = Some(CandidateContext {
                 candidate,
-                pattern_index: Some(pattern_index),
+                pattern_index: Some(pattern.pattern_index),
                 pattern: Some(pattern),
             });
 
@@ -1001,18 +1119,13 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         "pattern hook rejected the pattern",
                     )?;
                     if matches!(after, ScopeDecision::Matched(range) if range == self.trim_range) {
-                        matched = Some(self.synthetic_candidate_match(
-                            candidate,
-                            pattern_index,
-                            pattern,
-                        )?);
+                        matched = Some(self.synthetic_candidate_match(candidate, pattern)?);
                         break;
                     }
                     continue;
                 }
                 ScopeDecision::Matched(range) if range == self.trim_range => {
-                    let value =
-                        self.synthetic_candidate_match(candidate, pattern_index, pattern)?;
+                    let value = self.synthetic_candidate_match(candidate, pattern)?;
                     if self.scope_after_matched(PatternHookScope::Pattern, range)? {
                         matched = Some(value);
                         break;
@@ -1045,7 +1158,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     registration_id: candidate.registration_id.to_owned(),
                     priority: candidate.priority,
                     registration_order: candidate.registration_order,
-                    pattern_index,
+                    pattern_index: pattern.pattern_index,
                     pattern: pattern.source.to_owned(),
                     matched: PatternMatch {
                         span: self.input.map_range(self.trim_range)?,
@@ -1069,8 +1182,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     "pattern did not consume the complete input",
                 )?;
                 if matches!(after, ScopeDecision::Matched(range) if range == self.trim_range) {
-                    matched =
-                        Some(self.synthetic_candidate_match(candidate, pattern_index, pattern)?);
+                    matched = Some(self.synthetic_candidate_match(candidate, pattern)?);
                     break;
                 }
             }
@@ -1079,9 +1191,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         self.current = Some(CandidateContext {
             candidate,
             pattern_index: matched.as_ref().map(|value| value.pattern_index),
-            pattern: matched
-                .as_ref()
-                .and_then(|value| candidate.patterns.get(value.pattern_index)),
+            pattern: matched.as_ref().and_then(|value| {
+                candidate
+                    .patterns
+                    .iter()
+                    .find(|pattern| pattern.pattern_index == value.pattern_index)
+            }),
         });
 
         if let Some(matched) = matched {
@@ -1148,17 +1263,15 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         };
         self.current = Some(CandidateContext {
             candidate,
-            pattern_index: Some(0),
+            pattern_index: Some(pattern.pattern_index),
             pattern: Some(pattern),
         });
-        self.synthetic_candidate_match(candidate, 0, pattern)
-            .map(Some)
+        self.synthetic_candidate_match(candidate, pattern).map(Some)
     }
 
     fn synthetic_candidate_match(
         &self,
         candidate: &PatternCandidate<'_>,
-        pattern_index: usize,
         pattern: &MatchPattern<'_>,
     ) -> Result<CandidateMatch, PatternMatchError> {
         Ok(CandidateMatch {
@@ -1167,7 +1280,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             registration_id: candidate.registration_id.to_owned(),
             priority: candidate.priority,
             registration_order: candidate.registration_order,
-            pattern_index,
+            pattern_index: pattern.pattern_index,
             pattern: pattern.source.to_owned(),
             matched: PatternMatch {
                 span: self.input.map_range(self.trim_range)?,
@@ -1645,6 +1758,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 .into_iter()
                 .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
                 .collect::<Vec<_>>();
+        let failure_range = boundaries
+            .iter()
+            .copied()
+            .find(|end| *end > state.cursor)
+            .map(|end| TextRange::new(state.cursor, end));
         if expression.nullable && self.boundary_allows_tail(state.cursor, tail) {
             boundaries.insert(0, state.cursor);
         }
@@ -1693,8 +1811,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         }
 
         if matches.is_empty() {
-            self.failure.record(
+            self.failure.record_range(
                 state.cursor,
+                failure_range,
                 PatternFailureReason::TypeExpression {
                     expected: expression
                         .alternatives

@@ -102,6 +102,69 @@ fn parses_registered_expression_without_placeholders() {
 }
 
 #[test]
+fn filtered_expression_patterns_keep_their_registration_index() {
+    let catalog = expression_fixture();
+    let id = DynamicSyntaxId::new("test.dynamic", "filtered-patterns");
+    let patterns = ["first", "second", "third"]
+        .into_iter()
+        .map(|source| DynamicPattern {
+            source: source.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(source, catalog.plural_rules())
+                .expect("test pattern must parse"),
+        })
+        .collect();
+    let definition = DynamicSyntaxDefinition {
+        id: id.clone(),
+        kind: SyntaxKind::Expression,
+        patterns,
+        priority: -100,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: Some("java.lang.String".to_owned()),
+        return_multiplicity: Some(DynamicMultiplicity::Single),
+        handler: "test.dynamic.filtered-patterns".to_owned(),
+        metadata: BTreeMap::new(),
+        component_load_order: 1,
+        declaration_order: 0,
+    };
+    let snapshot = DynamicSyntaxSnapshot {
+        document_id: "file:///dynamic.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([(id.clone(), definition)]),
+        overrides: BTreeMap::new(),
+        candidates: vec![RankedSyntaxCandidate {
+            source: SyntaxCandidateSource::Dynamic(id),
+            kind: SyntaxKind::Expression,
+            overrides: Vec::new(),
+        }],
+    };
+    let text = "third";
+    let source = MappedSource::identity(text);
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("the third pattern must match");
+
+    let selected = result.selected.expect("one expression must be selected");
+    let ExpressionNodeKind::Registered { pattern_index, .. } = selected.node.kind else {
+        panic!("registered node expected");
+    };
+    // `matcher_candidates` keeps only the matching pattern in its temporary
+    // Vec, but the public result must retain the original registration index.
+    assert_eq!(pattern_index, 2);
+}
+
+#[test]
 fn expression_candidate_order_is_deterministic() {
     let catalog = expression_fixture();
     let source = MappedSource::identity("dummy supplier-backed expression");

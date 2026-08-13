@@ -74,7 +74,9 @@ pub fn snapshot_pattern_candidates<'a>(
                     patterns: definition
                         .patterns
                         .iter()
-                        .map(|pattern| MatchPattern {
+                        .enumerate()
+                        .map(|(pattern_index, pattern)| MatchPattern {
+                            pattern_index,
                             source: &pattern.source,
                             parsed: &pattern.parsed,
                         })
@@ -99,7 +101,9 @@ fn static_candidate(
         resolved_order,
         patterns: patterns
             .iter()
-            .map(|pattern| MatchPattern {
+            .enumerate()
+            .map(|(pattern_index, pattern)| MatchPattern {
+                pattern_index,
                 source: &pattern.source,
                 parsed: &pattern.parsed,
             })

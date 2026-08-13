@@ -9,13 +9,14 @@ use crate::pattern_match::{
     find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
 };
 use crate::{
-    CandidateMatch, ConditionNode, MappedSource, MatchInput, MatchSpan, ParseTagCapture,
-    PatternCandidate, PatternCapture, PatternHookControl, PatternHookEvent,
+    CandidateMatch, ConditionNode, MappedSource, MatchInput, MatchPattern, MatchSpan,
+    ParseTagCapture, PatternCandidate, PatternCapture, PatternHookControl, PatternHookEvent,
     PatternMatchEnvironment, PatternMatchError, PatternMatcherConfig, TextRange,
     TypeExpressionRequest, TypeExpressionResolution, catalog_pattern_candidates,
     match_pattern_candidates_with_environment, snapshot_pattern_candidates,
 };
 use crate::{FunctionCall, FunctionDefinition, FunctionLookupRequest};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
@@ -86,6 +87,10 @@ pub enum ExpressionNodeKind {
     },
     Function {
         parser_id: String,
+    },
+    Arithmetic {
+        operator: String,
+        operation_registration_id: String,
     },
     Custom {
         parser_id: String,
@@ -427,6 +432,7 @@ pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
     registered_candidates: Vec<PatternCandidate<'a>>,
+    syntax_candidate_templates: HashMap<SyntaxKind, Vec<PatternCandidate<'a>>>,
     pattern_prefilters: HashMap<&'a str, PatternPrefilter>,
     pattern_initials: PatternInitialIndex,
     expected_type_ids: RefCell<HashMap<Vec<ExpressionExpectedType>, usize>>,
@@ -573,6 +579,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             catalog,
             dynamic_snapshot,
             registered_candidates,
+            syntax_candidate_templates: HashMap::new(),
             pattern_prefilters,
             pattern_initials,
             expected_type_ids: RefCell::new(HashMap::new()),
@@ -614,8 +621,49 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         Ok(matched?)
     }
 
+    pub(crate) fn retain_viable_patterns(
+        &mut self,
+        range: TextRange,
+        candidates: &mut Vec<PatternCandidate<'a>>,
+    ) -> Result<(), ExpressionParseError> {
+        let input = range
+            .slice(self.source.virtual_source())
+            .ok_or(ExpressionParseError::InvalidInputRange { range })?;
+        for candidate in candidates.iter_mut() {
+            if self
+                .environment
+                .may_override_pattern(candidate.kind, &candidate.registration_id)
+            {
+                continue;
+            }
+            candidate.patterns.retain(|pattern| {
+                let prefilter = self
+                    .pattern_prefilters
+                    .entry(pattern.source)
+                    .or_insert_with(|| PatternPrefilter::new(pattern));
+                pattern_prefilter_matches(prefilter, input)
+            });
+        }
+        candidates.retain(|candidate| !candidate.patterns.is_empty());
+        Ok(())
+    }
+
     pub(crate) fn resolved_node(&self, id: &str) -> Option<&ExpressionNode> {
         self.resolved_nodes.get(id)
+    }
+
+    pub(crate) fn syntax_candidates(&mut self, kind: SyntaxKind) -> Vec<PatternCandidate<'a>> {
+        if let Some(candidates) = self.syntax_candidate_templates.get(&kind) {
+            return candidates.clone();
+        }
+        let candidates = if let Some(snapshot) = self.dynamic_snapshot {
+            snapshot_pattern_candidates(self.catalog, snapshot, kind)
+        } else {
+            catalog_pattern_candidates(self.catalog, kind)
+        };
+        self.syntax_candidate_templates
+            .insert(kind, candidates.clone());
+        candidates
     }
 
     pub(crate) const fn catalog(&self) -> &'a Catalog {
@@ -921,6 +969,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             candidates.extend(accepted_leaves);
 
             if allow_expressions {
+                candidates.extend(crate::arithmetic::parse_arithmetic(
+                    self,
+                    range,
+                    candidate_ends,
+                    expected_types,
+                    depth,
+                )?);
                 candidates.extend(crate::function::parse_function_call(
                     self,
                     range,
@@ -1000,6 +1055,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     ) -> bool {
         self.registration_metadata(&candidate.registration_id)
             .is_some_and(|metadata| {
+                if !self.catalog.operators().is_empty()
+                    && !self.catalog.operations().is_empty()
+                    && metadata.element_class.as_str().ends_with(".ExprArithmetic")
+                {
+                    return false;
+                }
                 let return_type_matches = match metadata.return_type_state {
                     ReturnTypeState::Static => {
                         self.environment
@@ -1030,7 +1091,6 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         expected_types: &[ExpressionExpectedType],
         registered_pass: RegisteredPass,
     ) -> Vec<PatternCandidate<'a>> {
-        let lowercase_input = input.to_lowercase();
         let initial = input
             .chars()
             .find(|character| *character != ' ')
@@ -1049,14 +1109,33 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             {
                 positions.extend_from_slice(indexed);
             }
+            for (candidate_index, candidate) in self.registered_candidates.iter().enumerate() {
+                if self
+                    .environment
+                    .may_override_pattern(candidate.kind, &candidate.registration_id)
+                {
+                    positions.extend(
+                        candidate
+                            .patterns
+                            .iter()
+                            .enumerate()
+                            .map(|(pattern_index, _)| (candidate_index, pattern_index)),
+                    );
+                }
+            }
             positions.sort_unstable();
             positions.dedup();
             positions.retain(|(candidate_index, pattern_index)| {
                 let candidate = &self.registered_candidates[*candidate_index];
                 let pattern = candidate.patterns[*pattern_index];
-                self.pattern_prefilters[pattern.source].left_recursive
-                    == matches!(registered_pass, RegisteredPass::LeftRecursive)
-                    && compatible[*candidate_index]
+                let overridden = self
+                    .environment
+                    .may_override_pattern(candidate.kind, &candidate.registration_id);
+                (overridden && matches!(registered_pass, RegisteredPass::Base))
+                    || (!overridden
+                        && self.pattern_prefilters[pattern.source].left_recursive
+                            == matches!(registered_pass, RegisteredPass::LeftRecursive)
+                        && compatible[*candidate_index])
             });
             self.matcher_position_cache
                 .borrow_mut()
@@ -1070,18 +1149,14 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         while cursor < positions.len() {
             let candidate_index = positions[cursor].0;
             let candidate = &self.registered_candidates[candidate_index];
+            let overridden = self
+                .environment
+                .may_override_pattern(candidate.kind, &candidate.registration_id);
             let mut patterns = Vec::new();
             while cursor < positions.len() && positions[cursor].0 == candidate_index {
                 let pattern = candidate.patterns[positions[cursor].1];
                 let prefilter = &self.pattern_prefilters[pattern.source];
-                if prefix_states_may_start_with(&prefilter.leading, input)
-                    && suffix_states_may_end_with(&prefilter.trailing, input)
-                    && prefilter.required_literal_branches.iter().any(|branch| {
-                        branch
-                            .iter()
-                            .all(|literal| lowercase_input.contains(literal))
-                    })
-                {
+                if overridden || pattern_prefilter_matches(prefilter, input) {
                     patterns.push(pattern);
                 }
                 cursor += 1;
@@ -1302,8 +1377,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         expected_types.is_empty()
             || return_type.is_some_and(|return_type| {
                 expected_types.iter().any(|expected| {
-                    self.catalog
-                        .is_class_assignable(return_type.as_str(), expected.class_name.as_str())
+                    let from = return_type.as_str();
+                    let to = expected.class_name.as_str();
+                    // Skript can attempt Object conversions using the runtime value. Static
+                    // candidates must first be narrowed by CoreLibrary or an addon, otherwise
+                    // a generic Object candidate hides a known Player, Number, and so on.
+                    (from != "java.lang.Object" || to == "java.lang.Object")
+                        && self.catalog.can_convert(from, to)
                 })
             })
     }
@@ -1448,9 +1528,22 @@ struct PrefixState {
 
 struct PatternPrefilter {
     left_recursive: bool,
+    minimum_input_len: usize,
     leading: Vec<PrefixState>,
     trailing: Vec<PrefixState>,
     required_literal_branches: Vec<Vec<String>>,
+}
+
+impl PatternPrefilter {
+    fn new(pattern: &MatchPattern<'_>) -> Self {
+        Self {
+            left_recursive: pattern_is_left_recursive(&pattern.parsed.elements),
+            minimum_input_len: minimum_pattern_input_len(&pattern.parsed.elements),
+            leading: leading_prefix_states(&pattern.parsed.elements),
+            trailing: trailing_suffix_states(&pattern.parsed.elements),
+            required_literal_branches: required_literal_branches(&pattern.parsed.elements),
+        }
+    }
 }
 
 type PatternPosition = (usize, usize);
@@ -1477,14 +1570,32 @@ fn pattern_prefilter_index<'a>(
     {
         result
             .entry(pattern.source)
-            .or_insert_with(|| PatternPrefilter {
-                left_recursive: pattern_is_left_recursive(&pattern.parsed.elements),
-                leading: leading_prefix_states(&pattern.parsed.elements),
-                trailing: trailing_suffix_states(&pattern.parsed.elements),
-                required_literal_branches: required_literal_branches(&pattern.parsed.elements),
-            });
+            .or_insert_with(|| PatternPrefilter::new(pattern));
     }
     result
+}
+
+fn minimum_pattern_input_len(elements: &[SpannedPatternElement]) -> usize {
+    elements.iter().fold(0usize, |length, element| {
+        let element_length = match &element.value {
+            // Skript may elide literal spaces at capture boundaries. Counting
+            // non-space characters is a conservative byte lower bound even for UTF-8.
+            PatternElement::Literal(value) => value.chars().filter(|ch| *ch != ' ').count(),
+            PatternElement::Group(children) => minimum_pattern_input_len(children),
+            PatternElement::Choice(branches) => branches
+                .iter()
+                .map(|branch| minimum_pattern_input_len(branch))
+                .min()
+                .unwrap_or(0),
+            PatternElement::Regex(_)
+            | PatternElement::TypeExpr(_)
+            | PatternElement::Option(_)
+            | PatternElement::ParseTag(_)
+            | PatternElement::ParseMark(_)
+            | PatternElement::Empty => 0,
+        };
+        length.saturating_add(element_length)
+    })
 }
 
 fn pattern_initial_index(
@@ -1609,18 +1720,48 @@ fn element_start(element: &PatternElement) -> (bool, bool) {
 
 fn prefix_states_may_start_with(states: &[PrefixState], input: &str) -> bool {
     states.iter().any(|state| {
-        state.text.is_empty()
-            || (state.text.bytes().any(|value| value != b' ')
-                && starts_with_skript_literal(input, &state.text))
+        state.text.bytes().all(|value| value == b' ')
+            || starts_with_skript_literal(input, &state.text)
     })
 }
 
 fn suffix_states_may_end_with(states: &[PrefixState], input: &str) -> bool {
     states.iter().any(|state| {
-        state.text.is_empty()
-            || (state.text.bytes().any(|value| value != b' ')
-                && ends_with_skript_literal(input, &state.text))
+        state.text.bytes().all(|value| value == b' ')
+            || ends_with_skript_literal(input, &state.text)
     })
+}
+
+fn pattern_prefilter_matches(prefilter: &PatternPrefilter, input: &str) -> bool {
+    if input.len() < prefilter.minimum_input_len
+        || !prefix_states_may_start_with(&prefilter.leading, input)
+        || !suffix_states_may_end_with(&prefilter.trailing, input)
+    {
+        return false;
+    }
+    let lowercase_input: Cow<'_, str> = if input.is_ascii() {
+        Cow::Borrowed(input)
+    } else {
+        Cow::Owned(input.to_lowercase())
+    };
+    prefilter.required_literal_branches.iter().any(|branch| {
+        branch
+            .iter()
+            .all(|literal| contains_literal_ignore_case(input, lowercase_input.as_ref(), literal))
+    })
+}
+
+fn contains_literal_ignore_case(input: &str, lowercase_input: &str, literal: &str) -> bool {
+    if literal.is_empty() {
+        return true;
+    }
+    if input.is_ascii() && literal.is_ascii() {
+        return input
+            .as_bytes()
+            .windows(literal.len())
+            .any(|window| window.eq_ignore_ascii_case(literal.as_bytes()));
+    }
+    lowercase_input.contains(literal)
 }
 
 fn trailing_suffix_states(elements: &[SpannedPatternElement]) -> Vec<PrefixState> {
@@ -1911,6 +2052,10 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
         self.environment.allows_regex_pattern(kind, registration_id)
     }
 
+    fn may_override_pattern(&self, kind: crate::MatchSyntaxKind, registration_id: &str) -> bool {
+        self.environment.may_override_pattern(kind, registration_id)
+    }
+
     fn resolve_type(
         &mut self,
         request: TypeExpressionRequest<'_>,
@@ -1988,5 +2133,30 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             }
         }
         Ok(resolutions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pattern_prefilter_matches_unicode_literals() {
+        let prefilter = PatternPrefilter {
+            left_recursive: false,
+            minimum_input_len: 0,
+            leading: vec![PrefixState {
+                text: String::new(),
+                terminal: false,
+            }],
+            trailing: vec![PrefixState {
+                text: String::new(),
+                terminal: false,
+            }],
+            required_literal_branches: vec![vec!["café".to_owned(), "über".to_owned()]],
+        };
+
+        assert!(pattern_prefilter_matches(&prefilter, "CAFÉ ÜBER"));
+        assert!(!pattern_prefilter_matches(&prefilter, "CAFE ÜBER"));
     }
 }

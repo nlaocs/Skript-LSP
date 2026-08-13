@@ -4,13 +4,15 @@
 use crate::{
     CandidateMatch, ConditionParseError, EffectMatches, EffectParseError, ExpressionNode,
     ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
-    ExpressionParserConfig, ExpressionSession, MappedSource, MatchSpan, MatchSyntaxKind,
-    PatternCandidate, PatternCapture, PatternFailure, RawNode, RawNodeId, RawNodeKind, RawTree,
-    RegisteredCaptureKind, RegisteredConditionCapture, SectionChildrenDecision,
-    SectionChildrenRequest, TextRange, catalog_pattern_candidates, snapshot_pattern_candidates,
+    ExpressionParserConfig, ExpressionSession, MappedSource, MatchPattern, MatchSpan,
+    MatchSyntaxKind, PatternCandidate, PatternCapture, PatternFailure, RawNode, RawNodeId,
+    RawNodeKind, RawTree, RegisteredCaptureKind, RegisteredConditionCapture,
+    SectionChildrenDecision, SectionChildrenRequest, TextRange,
 };
 use std::collections::BTreeMap;
-use syntaxes::{Catalog, ClassName, DynamicSyntaxSnapshot, SyntaxKind};
+use syntaxes::{
+    Catalog, ClassName, DynamicSyntaxSnapshot, Syntax, SyntaxCandidateSource, SyntaxKind,
+};
 use thiserror::Error;
 
 pub struct SectionParseRequest<'a> {
@@ -156,7 +158,8 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
 ) -> Result<SectionMatches, SectionParseError> {
     session.ensure_depth(depth)?;
     let range = section_header_range(session.source(), node)?;
-    let candidates = section_pattern_candidates(session.catalog(), session.dynamic_snapshot());
+    let mut candidates = section_pattern_candidates(session);
+    session.retain_viable_patterns(range, &mut candidates)?;
     let matched = session.match_candidates_at_depth(range, &candidates, depth)?;
     let mut ranked = matched
         .selected
@@ -362,32 +365,14 @@ fn section_candidate<E: ExpressionParseEnvironment>(
     }))
 }
 
-fn section_pattern_candidates<'a>(
-    catalog: &'a Catalog,
-    snapshot: Option<&'a DynamicSyntaxSnapshot>,
+fn section_pattern_candidates<'a, E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'a, E>,
 ) -> Vec<PatternCandidate<'a>> {
-    let mut candidates = if let Some(snapshot) = snapshot {
-        snapshot_pattern_candidates(catalog, snapshot, SyntaxKind::Section)
-    } else {
-        catalog_pattern_candidates(catalog, SyntaxKind::Section)
-    };
-    let section_expression_ids = catalog
-        .expressions()
-        .filter(|expression| expression.section_expression)
-        .map(|expression| expression.common.registration_id.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let expressions = if let Some(snapshot) = snapshot {
-        snapshot_pattern_candidates(catalog, snapshot, SyntaxKind::Expression)
-    } else {
-        catalog_pattern_candidates(catalog, SyntaxKind::Expression)
-    };
-    candidates.extend(expressions.into_iter().filter_map(|mut candidate| {
-        if !section_expression_ids.contains(candidate.registration_id.as_str()) {
-            return None;
-        }
-        candidate.kind = MatchSyntaxKind::Section;
-        Some(candidate)
-    }));
+    let mut candidates = session.syntax_candidates(SyntaxKind::Section);
+    candidates.extend(section_expression_pattern_candidates(
+        session.catalog(),
+        session.dynamic_snapshot(),
+    ));
     candidates.sort_by_key(|candidate| {
         (
             candidate.resolved_order.unwrap_or(usize::MAX),
@@ -395,6 +380,70 @@ fn section_pattern_candidates<'a>(
         )
     });
     candidates
+}
+
+fn section_expression_pattern_candidates<'a>(
+    catalog: &'a Catalog,
+    snapshot: Option<&'a DynamicSyntaxSnapshot>,
+) -> Vec<PatternCandidate<'a>> {
+    match snapshot {
+        Some(snapshot) => snapshot
+            .candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(resolved_order, candidate)| {
+                if candidate.kind != SyntaxKind::Expression {
+                    return None;
+                }
+                let SyntaxCandidateSource::Static(index) = &candidate.source else {
+                    return None;
+                };
+                let Some(Syntax::Expression(expression)) = catalog.syntax_at(*index) else {
+                    return None;
+                };
+                expression
+                    .section_expression
+                    .then(|| section_expression_pattern_candidate(expression, Some(resolved_order)))
+            })
+            .collect(),
+        None => catalog
+            .syntaxes()
+            .iter()
+            .filter_map(|syntax| {
+                let Syntax::Expression(expression) = syntax else {
+                    return None;
+                };
+                expression
+                    .section_expression
+                    .then(|| section_expression_pattern_candidate(expression, None))
+            })
+            .collect(),
+    }
+}
+
+fn section_expression_pattern_candidate<'a>(
+    expression: &'a syntaxes::Expression,
+    resolved_order: Option<usize>,
+) -> PatternCandidate<'a> {
+    PatternCandidate {
+        kind: MatchSyntaxKind::Section,
+        definition_id: expression.common.definition_id.as_str().to_owned(),
+        registration_id: expression.common.registration_id.as_str().to_owned(),
+        priority: 0,
+        registration_order: expression.common.registration_order,
+        resolved_order,
+        patterns: expression
+            .common
+            .patterns
+            .iter()
+            .enumerate()
+            .map(|(pattern_index, pattern)| MatchPattern {
+                pattern_index,
+                source: &pattern.source,
+                parsed: &pattern.parsed,
+            })
+            .collect(),
+    }
 }
 
 fn parse_section_body<E: ExpressionParseEnvironment>(

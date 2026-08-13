@@ -26,7 +26,11 @@ fn candidate<'a>(source: &'a str, parsed: &'a ParseResult, order: usize) -> Patt
         priority: 0,
         registration_order: order,
         resolved_order: None,
-        patterns: vec![MatchPattern { source, parsed }],
+        patterns: vec![MatchPattern {
+            pattern_index: 0,
+            source,
+            parsed,
+        }],
     }
 }
 
@@ -295,10 +299,12 @@ fn ranks_candidates_and_preserves_pattern_index() {
         priority: 1,
         patterns: vec![
             MatchPattern {
+                pattern_index: 0,
                 source: "other",
                 parsed: &other,
             },
             MatchPattern {
+                pattern_index: 1,
                 source: "test",
                 parsed: &first_match,
             },
@@ -553,4 +559,64 @@ fn failed_after_hooks_can_rescue_candidates_at_every_scope() {
             "{scope:?} after-hook should rescue the candidate"
         );
     }
+}
+
+#[test]
+fn near_match_requires_a_literal_anchor_before_dynamic_elements() {
+    let anchored_source = "teleport %entities% to %location%";
+    let anchored = parse(anchored_source);
+    let input = "teleport invalid";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(anchored_source, &anchored, 0)],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    assert!(result.best_failure.is_some());
+
+    let generic_source = "<.+> if <.+>";
+    let generic = parse(generic_source);
+    let input = "not an effect";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(generic_source, &generic, 0)],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    assert!(result.best_failure.is_none());
+}
+
+#[test]
+fn near_match_prefers_a_concrete_failed_capture_at_the_same_offset() {
+    let vague_source = "teleport %livingentity% towards %location%";
+    let vague = parse(vague_source);
+    let concrete_source = "teleport %entities% to %location%";
+    let concrete = parse(concrete_source);
+    let input = "teleport no to somewhere";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[
+            candidate(vague_source, &vague, 0),
+            PatternCandidate {
+                registration_id: "effect:test#1".to_owned(),
+                registration_order: 1,
+                ..candidate(concrete_source, &concrete, 1)
+            },
+        ],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    let failure = result.best_failure.expect("anchored candidate expected");
+    assert_eq!(failure.registration_id, "effect:test#1");
+    assert_eq!(failure.failure.span.local_range, TextRange::new(9, 11));
 }

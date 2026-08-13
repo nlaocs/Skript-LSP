@@ -1,9 +1,10 @@
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind,
     ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment, MappedSource,
-    NoopExpressionEnvironment, PatternHookControl, PatternHookEvent, PatternMatchEnvironment,
-    RawTreeOptions, TextRange, TypeExpressionRequest, TypeExpressionResolution, parse_effect,
-    parse_effect_with_snapshot, parse_raw_tree,
+    MatchSyntaxKind, NoopExpressionEnvironment, PatternHookControl, PatternHookEvent,
+    PatternHookScope, PatternHookTiming, PatternMatchEnvironment, RawTreeOptions, TextRange,
+    TypeExpressionRequest, TypeExpressionResolution, parse_effect, parse_effect_with_snapshot,
+    parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -258,9 +259,90 @@ fn unknown_effect_retains_exact_code_and_farthest_failure() {
 
     let unknown = result.unknown.expect("unknown node must be retained");
     assert_eq!(unknown.source, "run dummy fixture effect with nope");
+    let best = unknown
+        .best_candidate
+        .as_ref()
+        .expect("the Effect registration must remain recognizable");
+    assert!(
+        best.matched
+            .registration_id
+            .starts_with("effect:skriptdummyaddon:")
+    );
+    assert_eq!(
+        best.matched
+            .failure
+            .span
+            .local_range
+            .slice(source.virtual_source()),
+        Some("nope")
+    );
+    assert!(best.matched.failure.reasons.iter().any(|reason| matches!(
+        reason,
+        skript_parser::PatternFailureReason::TypeExpression { expected }
+            if expected == &["string".to_owned()]
+    )));
     let failure = unknown
         .failure
         .expect("matcher must retain a farthest failure");
     assert!(failure.offset > 0);
     assert!(!failure.reasons.is_empty());
+}
+
+#[derive(Default)]
+struct SyntheticEffectEnvironment;
+
+impl PatternMatchEnvironment for SyntheticEffectEnvironment {
+    fn may_override_pattern(&self, kind: MatchSyntaxKind, _registration_id: &str) -> bool {
+        kind == MatchSyntaxKind::Effect
+    }
+
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<Vec<TypeExpressionResolution>, String> {
+        Ok(Vec::new())
+    }
+
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
+        {
+            Ok(PatternHookControl::Match(event.input_range))
+        } else {
+            Ok(PatternHookControl::Continue)
+        }
+    }
+}
+
+impl ExpressionParseEnvironment for SyntheticEffectEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        _request: ExpressionLeafRequest<'_>,
+    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+        Ok(Vec::new())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+#[test]
+fn synthetic_effect_hook_bypasses_static_pattern_prefilters() {
+    let catalog = effect_fixture();
+    let source = MappedSource::identity("synthetic override");
+    let node = simple_node(&source);
+    let result = parse_effect(
+        &catalog,
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut SyntheticEffectEnvironment,
+        EffectParserConfig::default(),
+    )
+    .expect("matching hooks may synthesize an Effect before native matching");
+
+    assert!(result.selected.is_some());
+    assert!(result.unknown.is_none());
 }

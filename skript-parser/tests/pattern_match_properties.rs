@@ -26,7 +26,11 @@ fn run(input: &str, source: &str, parsed: &syntax_pattern_parser::syntax::ParseR
                 priority: 0,
                 registration_order: 0,
                 resolved_order: None,
-                patterns: vec![MatchPattern { source, parsed }],
+                patterns: vec![MatchPattern {
+                    pattern_index: 0,
+                    source,
+                    parsed,
+                }],
             }],
             &mut RejectTypeExpressions,
             &mut NoopPatternMatchHooks,

@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+mod arithmetic;
 mod catalog_match;
 mod condition;
 mod effect;
