@@ -690,7 +690,7 @@ impl SourceColor {
             Self::Effect => "38;2;88;196;221",
             Self::Expression => "38;2;131;193;103",
             Self::Condition => "38;2;252;98;85",
-            Self::Variable => "38;2;92;208;179",
+            Self::Variable => "38;2;0;255;255",
             Self::Literal => "38;2;255;255;255",
             Self::TypeName => "38;2;255;134;47",
             Self::Alias => "38;2;240;172;95",
@@ -1783,7 +1783,7 @@ mod tests {
             ),
             SourceColor::TypeName
         );
-        assert_eq!(SourceColor::Variable.ansi_code(), "38;2;92;208;179");
+        assert_eq!(SourceColor::Variable.ansi_code(), "38;2;0;255;255");
         assert_eq!(SourceColor::Literal.ansi_code(), "38;2;255;255;255");
     }
 }
