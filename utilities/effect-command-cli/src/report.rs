@@ -3,9 +3,10 @@ use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnost
 use parser_wasm::host::WasmEffectParseResult;
 use serde::Serialize;
 use skript_parser::{
-    CandidateMatch, ConditionNode, EffectCandidate, ExpressionNode, ExpressionNodeKind, MatchSpan,
-    ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure, PatternFailureReason,
-    TextRange,
+    CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
+    ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, FailureFrameRole, FailureTrace,
+    MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure,
+    PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -86,7 +87,7 @@ impl AnalysisReport {
                 .map_or_else(|| input.to_owned(), |unknown| unknown.source.clone());
             if let Some(candidate) = unknown
                 .as_ref()
-                .and_then(|unknown| unknown.best_candidate.as_ref())
+                .and_then(|unknown| unknown.failures.primary())
             {
                 let mut syntax = syntax_identity_from_ids(
                     &candidate.matched.definition_id,
@@ -103,6 +104,8 @@ impl AnalysisReport {
                 ParseResultReport::Incomplete {
                     effect: Box::new(IncompleteEffectReport {
                         syntax,
+                        pattern_index: candidate.matched.pattern_index,
+                        pattern: candidate.matched.pattern.clone(),
                         priority: candidate.matched.priority,
                         registration_order: candidate.matched.registration_order,
                         resolved_order: candidate.matched.resolved_order,
@@ -110,14 +113,20 @@ impl AnalysisReport {
                         metadata: candidate.metadata.clone(),
                     }),
                     source,
-                    failure: failure_report(candidate.matched.failure.clone()),
+                    failure: candidate_failure_report(
+                        candidate,
+                        unknown
+                            .as_ref()
+                            .map_or(&[][..], |unknown| unknown.failures.candidates.as_slice()),
+                        catalog,
+                    ),
                 }
             } else {
                 ParseResultReport::Unknown {
                     source,
                     failure: unknown
-                        .and_then(|unknown| unknown.failure)
-                        .map(failure_report),
+                        .and_then(|unknown| unknown.failures.fallback)
+                        .map(failure_trace_report),
                 }
             }
         };
@@ -275,6 +284,12 @@ impl AnalysisReport {
                 writeln!(writer, "effect:")?;
                 writeln!(writer, "  status: incomplete")?;
                 write_identity(writer, &effect.syntax, 1)?;
+                if let Some(index) = effect.pattern_index {
+                    writeln!(writer, "  patternIndex: {index}")?;
+                }
+                if let Some(pattern) = &effect.pattern {
+                    writeln!(writer, "  pattern: {pattern}")?;
+                }
                 writeln!(writer, "  priority: {}", effect.priority)?;
                 writeln!(writer, "  registrationOrder: {}", effect.registration_order)?;
                 if let Some(order) = effect.resolved_order {
@@ -540,6 +555,8 @@ struct ExpressionReport {
     arguments: Vec<FunctionArgumentReport>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     operands: Vec<ExpressionReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    items: Vec<ExpressionReport>,
     metadata: BTreeMap<String, String>,
     truncated: bool,
 }
@@ -562,6 +579,9 @@ struct FunctionArgumentReport {
 )]
 enum ExpressionIdentityReport {
     Grouped,
+    List {
+        conjunction: ExpressionListConjunctionReport,
+    },
     Registered {
         syntax: SyntaxIdentityReport,
     },
@@ -588,6 +608,13 @@ enum ExpressionIdentityReport {
     Custom {
         parser_id: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ExpressionListConjunctionReport {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -621,6 +648,48 @@ struct FailureReport {
     offset: usize,
     span: SpanReport,
     reasons: Vec<FailureReasonReport>,
+    contexts: Vec<FailureContextReport>,
+    interpretations: Vec<FailureInterpretationReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FailureContextReport {
+    syntax_kind: String,
+    definition_id: String,
+    registration_id: String,
+    pattern_index: usize,
+    pattern: String,
+    role: FailureContextRoleReport,
+    span: SpanReport,
+    pattern_span: Option<SpanReport>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum FailureContextRoleReport {
+    PatternElement,
+    ConditionCapture { index: usize },
+    EffectCapture { index: usize },
+}
+
+impl FailureContextRoleReport {
+    fn human(self, syntax_kind: &str) -> String {
+        match self {
+            Self::PatternElement => format!("typed capture in {syntax_kind}"),
+            Self::ConditionCapture { .. } => format!("condition capture in {syntax_kind}"),
+            Self::EffectCapture { .. } => format!("effect capture in {syntax_kind}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FailureInterpretationReport {
+    syntax: SyntaxIdentityReport,
+    pattern_index: Option<usize>,
+    pattern: Option<String>,
+    span: SpanReport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -632,6 +701,7 @@ struct FailureReport {
 enum FailureReasonReport {
     Literal { expected: String },
     Regex { pattern: String },
+    Expression,
     TypeExpression { expected: Vec<String> },
     TrailingInput,
     HookRejected { reason: String },
@@ -642,6 +712,7 @@ impl FailureReasonReport {
         match self {
             Self::Literal { expected } => format!("expected literal {expected:?}"),
             Self::Regex { pattern } => format!("expected regex <{pattern}>"),
+            Self::Expression => "could not parse an expression".to_owned(),
             Self::TypeExpression { expected } => {
                 format!("expected expression of type {}", expected.join(" or "))
             }
@@ -1139,6 +1210,15 @@ fn expression_report(
 ) -> ExpressionReport {
     let (expression, pattern) = match &node.kind {
         ExpressionNodeKind::Grouped => (ExpressionIdentityReport::Grouped, None),
+        ExpressionNodeKind::List { conjunction } => (
+            ExpressionIdentityReport::List {
+                conjunction: match conjunction {
+                    ExpressionListConjunction::And => ExpressionListConjunctionReport::And,
+                    ExpressionListConjunction::Or => ExpressionListConjunctionReport::Or,
+                },
+            },
+            None,
+        ),
         ExpressionNodeKind::Registered {
             definition_id,
             registration_id,
@@ -1265,6 +1345,14 @@ fn expression_report(
     } else {
         Vec::new()
     };
+    let items = if !truncated && matches!(node.kind, ExpressionNodeKind::List { .. }) {
+        node.children
+            .iter()
+            .map(|child| expression_report(child, input, catalog, depth + 1))
+            .collect()
+    } else {
+        Vec::new()
+    };
     ExpressionReport {
         source: source_slice(input, node.span.mapped.virtual_range),
         span,
@@ -1283,6 +1371,7 @@ fn expression_report(
         inner,
         arguments,
         operands,
+        items,
         metadata: node.metadata.clone(),
         truncated,
     }
@@ -1341,9 +1430,10 @@ fn mark_report(mark: &ParseMarkCapture) -> MarkReport {
 }
 
 fn failure_report(failure: PatternFailure) -> FailureReport {
+    let span = match_span(&failure.span);
     FailureReport {
-        offset: failure.offset,
-        span: match_span(&failure.span),
+        offset: span.start,
+        span,
         reasons: failure
             .reasons
             .into_iter()
@@ -1352,6 +1442,7 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                     FailureReasonReport::Literal { expected }
                 }
                 PatternFailureReason::Regex { pattern } => FailureReasonReport::Regex { pattern },
+                PatternFailureReason::Expression => FailureReasonReport::Expression,
                 PatternFailureReason::TypeExpression { expected } => {
                     FailureReasonReport::TypeExpression { expected }
                 }
@@ -1361,6 +1452,88 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                 }
             })
             .collect(),
+        contexts: Vec::new(),
+        interpretations: Vec::new(),
+    }
+}
+
+fn candidate_failure_report(
+    candidate: &EffectCandidateFailure,
+    candidates: &[EffectCandidateFailure],
+    catalog: &Catalog,
+) -> FailureReport {
+    let trace = &candidate.matched.trace;
+    let mut report = failure_trace_report(trace.clone());
+    report.interpretations = candidates
+        .iter()
+        .filter(|alternative| {
+            alternative.matched.registration_id != candidate.matched.registration_id
+                || alternative.matched.pattern_index != candidate.matched.pattern_index
+        })
+        .filter(|alternative| alternative.matched.pattern.is_some())
+        .take(3)
+        .map(|alternative| FailureInterpretationReport {
+            syntax: syntax_identity_from_ids(
+                &alternative.matched.definition_id,
+                &alternative.matched.registration_id,
+                catalog,
+                SyntaxCategory::Effect,
+            ),
+            pattern_index: alternative.matched.pattern_index,
+            pattern: alternative.matched.pattern.clone(),
+            span: match_span(&alternative.matched.trace.root_cause().failure.span),
+        })
+        .collect();
+    report
+}
+
+fn failure_trace_report(trace: FailureTrace) -> FailureReport {
+    let mut report = failure_report(trace.root_cause().failure.clone());
+    report.contexts = failure_contexts(&trace);
+    report
+}
+
+fn failure_contexts(trace: &FailureTrace) -> Vec<FailureContextReport> {
+    let mut contexts = Vec::new();
+    let mut current = Some(trace);
+    while let Some(trace) = current {
+        if let Some(frame) = &trace.frame {
+            contexts.push(FailureContextReport {
+                syntax_kind: match_syntax_kind(frame.kind).to_owned(),
+                definition_id: frame.definition_id.clone(),
+                registration_id: frame.registration_id.clone(),
+                pattern_index: frame.pattern_index,
+                pattern: frame.pattern.clone(),
+                role: match frame.role {
+                    FailureFrameRole::TypeExpressionCapture => {
+                        FailureContextRoleReport::PatternElement
+                    }
+                    FailureFrameRole::ConditionCapture { index } => {
+                        FailureContextRoleReport::ConditionCapture { index }
+                    }
+                    FailureFrameRole::EffectCapture { index } => {
+                        FailureContextRoleReport::EffectCapture { index }
+                    }
+                },
+                span: match_span(&frame.input_span),
+                pattern_span: frame.pattern_span.map(pattern_span),
+            });
+        }
+        current = trace.cause.as_deref();
+    }
+    contexts
+}
+
+fn match_syntax_kind(kind: MatchSyntaxKind) -> &'static str {
+    match kind {
+        MatchSyntaxKind::Event => "Event",
+        MatchSyntaxKind::Condition => "Condition",
+        MatchSyntaxKind::Effect => "Effect",
+        MatchSyntaxKind::Expression => "Expression",
+        MatchSyntaxKind::Type => "Type",
+        MatchSyntaxKind::Function => "Function",
+        MatchSyntaxKind::Section => "Section",
+        MatchSyntaxKind::Structure => "Structure",
     }
 }
 
@@ -1393,18 +1566,83 @@ fn write_failure(
     color: bool,
     message: &str,
 ) -> io::Result<()> {
-    let mut reasons = failure.reasons.iter().map(FailureReasonReport::human);
-    let primary = reasons
-        .next()
+    let primary_index = failure
+        .reasons
+        .iter()
+        .position(|reason| matches!(reason, FailureReasonReport::TypeExpression { .. }))
+        .or((!failure.reasons.is_empty()).then_some(0));
+    let primary = primary_index
+        .and_then(|index| failure.reasons.get(index))
+        .map(FailureReasonReport::human)
         .unwrap_or_else(|| "Effect parsing stopped here".to_owned());
     let start = failure.span.start.min(source.len());
     let end = failure.span.end.min(source.len()).max(start);
+    let mut labels = vec![LabeledSpan::new(Some(primary), start, end - start)];
+    let mut labeled_spans = vec![(start, end)];
+    for context in failure.contexts.iter().rev() {
+        let context_start = context.span.start.min(source.len());
+        let context_end = context.span.end.min(source.len()).max(context_start);
+        if labeled_spans.contains(&(context_start, context_end)) {
+            continue;
+        }
+        labels.push(LabeledSpan::new(
+            Some(context.role.human(&context.syntax_kind)),
+            context_start,
+            context_end - context_start,
+        ));
+        labeled_spans.push((context_start, context_end));
+        if labels.len() == 3 {
+            break;
+        }
+    }
     let mut diagnostic = MietteDiagnostic::new(message)
         .with_code("effectcommandcli::parse")
-        .with_label(LabeledSpan::new(Some(primary), start, end - start));
-    let additional = reasons.collect::<Vec<_>>();
-    if !additional.is_empty() {
-        diagnostic = diagnostic.with_help(additional.join("\n"));
+        .with_labels(labels);
+    let has_type_failure = matches!(
+        primary_index.and_then(|index| failure.reasons.get(index)),
+        Some(FailureReasonReport::TypeExpression { .. })
+    );
+    let mut help = failure
+        .reasons
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != primary_index)
+        .map(|(_, reason)| reason)
+        .filter(|reason| {
+            !has_type_failure
+                || !matches!(
+                    reason,
+                    FailureReasonReport::Literal { .. } | FailureReasonReport::Regex { .. }
+                )
+        })
+        .map(FailureReasonReport::human)
+        .collect::<Vec<_>>();
+    let mut patterns = Vec::new();
+    for context in &failure.contexts {
+        let value = format!("{} pattern: {}", context.syntax_kind, context.pattern);
+        if !patterns.contains(&value) {
+            patterns.push(value);
+        }
+    }
+    help.extend(patterns);
+    for interpretation in &failure.interpretations {
+        if let Some(pattern) = &interpretation.pattern {
+            help.push(format!(
+                "also considered {} pattern: {pattern}",
+                interpretation.syntax.display_name()
+            ));
+        }
+    }
+    let token = source.get(start..end).unwrap_or_default().trim();
+    if !token.is_empty()
+        && token
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        help.push(format!("if {token:?} is a variable, write {{{token}}}"));
+    }
+    if !help.is_empty() {
+        diagnostic = diagnostic.with_help(help.join("\n"));
     }
     let report = miette::Report::new(diagnostic)
         .with_source_code(NamedSource::new("effect.sk", source.to_owned()));
@@ -1550,6 +1788,16 @@ fn write_expression(
         ExpressionIdentityReport::Grouped => {
             writeln!(writer, "{prefix}resolved: groupedExpression")?;
         }
+        ExpressionIdentityReport::List { conjunction } => {
+            writeln!(
+                writer,
+                "{prefix}resolved: expressionList ({})",
+                match conjunction {
+                    ExpressionListConjunctionReport::And => "and",
+                    ExpressionListConjunctionReport::Or => "or",
+                }
+            )?;
+        }
         ExpressionIdentityReport::Registered { syntax } => {
             writeln!(writer, "{prefix}resolved: registeredExpression")?;
             write_identity(writer, syntax, indent + 1)?;
@@ -1640,6 +1888,12 @@ fn write_expression(
             writeln!(writer, "{prefix}  {side}:")?;
             write_expression(writer, operand, indent + 2)?;
         }
+    } else if !expression.items.is_empty() {
+        writeln!(writer, "{prefix}items:")?;
+        for (index, item) in expression.items.iter().enumerate() {
+            writeln!(writer, "{prefix}  item[{index}]:")?;
+            write_expression(writer, item, indent + 2)?;
+        }
     } else if let Some(inner) = &expression.inner {
         writeln!(writer, "{prefix}inner:")?;
         write_expression(writer, inner, indent + 1)?;
@@ -1672,6 +1926,8 @@ fn format_expected_types(expression: &TypeExpressionReport) -> String {
 #[serde(rename_all = "camelCase")]
 struct IncompleteEffectReport {
     syntax: SyntaxIdentityReport,
+    pattern_index: Option<usize>,
+    pattern: Option<String>,
     priority: i32,
     registration_order: usize,
     resolved_order: Option<usize>,
@@ -1715,6 +1971,8 @@ mod tests {
             reasons: vec![FailureReasonReport::TypeExpression {
                 expected: vec!["entity".to_owned()],
             }],
+            contexts: Vec::new(),
+            interpretations: Vec::new(),
         };
         let mut output = Vec::new();
 

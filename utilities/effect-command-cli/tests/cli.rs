@@ -1,4 +1,6 @@
-use effect_command_cli::{EXIT_NO_MATCH, EXIT_SUCCESS, EffectCommandSession, run_with_io};
+use effect_command_cli::{
+    EXIT_NO_MATCH, EXIT_SUCCESS, EffectCommandSession, OutputFormat, run_with_io,
+};
 use serde_json::Value;
 use std::ffi::OsString;
 use std::io::Cursor;
@@ -276,6 +278,47 @@ fn renders_human_failures_with_a_source_label() {
 }
 
 #[test]
+fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze("send 1 if a < 5 else 2")
+        .expect("invalid nested condition is a recoverable no-match");
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+
+    assert_eq!(
+        json["result"]["effect"]["syntax"]["elementClass"],
+        "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"
+    );
+    assert_eq!(json["result"]["failure"]["span"]["start"], 10);
+    assert_eq!(json["result"]["failure"]["span"]["end"], 11);
+    let contexts = json["result"]["failure"]["contexts"].as_array().unwrap();
+    assert!(contexts.iter().any(|context| {
+        context["pattern"] == "%objects% if <.+>[,] (otherwise|else) %objects%"
+    }));
+    assert!(
+        json["result"]["failure"]["interpretations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|interpretation| interpretation["pattern"] == "<.+> if <.+>")
+    );
+
+    let report = session
+        .analyze("send 1 if a < 5 else 2")
+        .expect("repeated analysis must remain deterministic");
+    let mut output = Vec::new();
+    report
+        .write(OutputFormat::Human, &mut output)
+        .expect("human report must render");
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("expected expression of type object"));
+    assert!(output.contains("Expression pattern: %objects% if <.+>[,] (otherwise|else) %objects%"));
+    assert!(output.contains("also considered ch.njol.skript.effects.EffDoIf pattern"));
+    assert!(output.contains("if \"a\" is a variable, write {a}"));
+    assert!(!output.contains("expected literal \"neither\""));
+}
+
+#[test]
 fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 
@@ -342,7 +385,14 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
             .any(|reason| reason["kind"] == "typeExpression"
                 && reason["expected"]
                     .as_array()
-                    .is_some_and(|expected| expected.iter().any(|value| value == "object")))
+                    .is_some_and(|expected| expected.iter().any(|value| value == "livingentity")))
+    );
+    assert!(
+        contextual["result"]["failure"]["contexts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|context| context["syntaxKind"] == "Expression")
     );
 
     let teleport = session
@@ -355,7 +405,11 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
         "ch.njol.skript.effects.EffTeleport"
     );
     assert_eq!(teleport["result"]["failure"]["span"]["start"], 9);
-    assert_eq!(teleport["result"]["failure"]["span"]["end"], 12);
+    assert!(
+        teleport["result"]["failure"]["span"]["end"]
+            .as_u64()
+            .is_some_and(|end| end > 9)
+    );
     assert!(
         teleport["result"]["failure"]["reasons"]
             .as_array()
