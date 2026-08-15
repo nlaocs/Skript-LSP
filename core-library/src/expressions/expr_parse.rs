@@ -1,4 +1,6 @@
-use super::{SemanticResolution, matches, metadata, metadata_value, register_handler};
+use super::{
+    SemanticResolution, matches, metadata, metadata_value, register_handler_with_all_type_options,
+};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionTypeOption, RegisteredExpressionPayload, RegisteredSyntaxHandler,
 };
@@ -6,7 +8,7 @@ use crate::nlaocs::skript_parser_addon::types::{
 const CLASS_SUFFIX: &str = ".ExprParse";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler(handlers, CLASS_SUFFIX, Vec::new());
+    register_handler_with_all_type_options(handlers, CLASS_SUFFIX, Vec::new());
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
@@ -66,37 +68,47 @@ fn parse_pattern_placeholders(
     options: &[ExpressionTypeOption],
 ) -> Result<Vec<ParsedPlaceholder>, String> {
     let mut placeholders = Vec::new();
-    let mut remaining = pattern;
-    while let Some(start) = remaining.find('%') {
-        remaining = &remaining[start + 1..];
-        let Some(end) = remaining.find('%') else {
-            return Err("parse pattern has an unclosed type placeholder".to_owned());
-        };
-        let mut body = &remaining[..end];
-        remaining = &remaining[end + 1..];
-        body = body.trim_start_matches(['-', '*', '~']);
-        if let Some((without_time, _)) = body.split_once('@') {
-            body = without_time;
+    let mut cursor = 0;
+    while cursor < pattern.len() {
+        let character = pattern[cursor..]
+            .chars()
+            .next()
+            .expect("cursor is on a character boundary");
+        let width = character.len_utf8();
+        match character {
+            '\\' => {
+                cursor += width;
+                let Some(escaped) = pattern[cursor..].chars().next() else {
+                    return Err("parse pattern ends in an unescaped backslash".to_owned());
+                };
+                cursor += escaped.len_utf8();
+            }
+            '<' => {
+                let Some(relative_end) = pattern[cursor + width..].find('>') else {
+                    return Err("parse pattern has an unclosed regex".to_owned());
+                };
+                cursor += width + relative_end + 1;
+            }
+            '%' => {
+                let body_start = cursor + width;
+                let Some(relative_end) = pattern[body_start..].find('%') else {
+                    return Err("parse pattern has an unclosed type placeholder".to_owned());
+                };
+                let body_end = body_start + relative_end;
+                let body = &pattern[body_start..body_end];
+                let (option, plural) = type_option(body, options)
+                    .ok_or_else(|| format!("unknown type in parse pattern: {body}"))?;
+                if !option.has_parser {
+                    return Err(format!("type has no parser: {}", option.code_name));
+                }
+                placeholders.push(ParsedPlaceholder {
+                    class_name: option.class_name.clone(),
+                    plural,
+                });
+                cursor = body_end + 1;
+            }
+            _ => cursor += width,
         }
-        let alternatives = body.split('/').collect::<Vec<_>>();
-        if alternatives.len() != 1 {
-            placeholders.push(ParsedPlaceholder {
-                class_name: "java.lang.Object".to_owned(),
-                plural: alternatives
-                    .iter()
-                    .any(|name| type_option(name, options).is_some_and(|(_, plural)| plural)),
-            });
-            continue;
-        }
-        let (option, plural) = type_option(alternatives[0], options)
-            .ok_or_else(|| format!("unknown type in parse pattern: {}", alternatives[0]))?;
-        if !option.has_parser {
-            return Err(format!("type has no parser: {}", option.code_name));
-        }
-        placeholders.push(ParsedPlaceholder {
-            class_name: option.class_name.clone(),
-            plural,
-        });
     }
     Ok(placeholders)
 }

@@ -12,6 +12,8 @@ The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
 - ABI and capability negotiation during `addon.initialize`
+- retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
+  versions and the enabled plugin list
 - one core.health-check subscription at the Document phase
 - one core.expression-candidates Transform subscription for primitive and registered Expression semantics
 - typed exports for hooks and text, tree, and AST macro interfaces
@@ -23,7 +25,12 @@ The Expression hook recognizes braced variables, quoted string literals,
 finite signed integer/decimal literals, booleans, SSG-supplied finite type literals,
 entity-data literals, and generated
 `ClassInfo` literals at legal split points. It also resolves the built-in
-dynamic semantics of `ExprEntities`, `ExprParse`, `ExprTernary`, `ExprWhether`,
+dynamic semantics of `ExprAllBannedEntries`, `ExprAnyOf`, `ExprDefaultValue`,
+`ExprCustomModelData`, `ExprElement`, `ExprEntities`, `ExprFromUUID`,
+`ExprInventoryInfo`, `ExprInventorySlot`,
+`ExprJoinSplit`, `ExprParse`, `ExprRandom`, `ExprRandomCharacter`,
+`ExprRandomNumber`, `ExprReversedList`, `ExprSets`, `ExprShuffledList`,
+`ExprSortedList`, `ExprTernary`, `ExprWhether`,
 and the standard `PropExprAmount`, `PropExprCustomName`, `PropExprName`,
 `PropExprNumber`, `PropExprScale`, `PropExprSize`, `PropExprValueOf`, and
 `PropExprWXYZ` classes. Property handlers are selected from SSG metadata by
@@ -34,8 +41,17 @@ the recursive native parser. Registered Expression matching, recursion, and
 ranking remain Rust host responsibilities; CoreLibrary owns only the built-in
 semantics that cannot be recovered from SSG registration data alone.
 
+Quoted strings and variables containing `%expression%` issue generic
+`host.expression` parse requests. The host parses those ranges transactionally
+and invokes CoreLibrary again with result graphs. CoreLibrary references the
+host-issued result tokens from its leaf candidate, so the selected roots become
+native child AST nodes with rebased spans instead of opaque metadata.
+
 The Effect and Section hooks provide the class-specific semantics for
-`EffDoIf`, `SecConditional`, and `SecWhile`. Text, tree, and AST macro exports
+`EffChange`, `EffDoIf`, `SecConditional`, and `SecWhile`. `EffChange` uses the
+already parsed child summaries to reject assigning an always-multiple value to
+a single variable, matching Skript's `acceptChange(SET)` check without parsing
+the child twice. Text, tree, and AST macro exports
 currently return `unsupported-capability`. Function-call matching remains in
 the native parser; Structure and legacy-specific semantics are not implemented.
 

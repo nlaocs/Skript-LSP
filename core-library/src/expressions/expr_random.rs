@@ -32,11 +32,12 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         };
 
         let mut output_metadata = vec![metadata("semantic-mode", "random-element")];
-        if let Some(selection_class) = metadata_value(&class_info.metadata, "target-class") {
+        let selection_class = metadata_value(&class_info.metadata, "target-class");
+        if let Some(selection_class) = selection_class {
             output_metadata.push(metadata("selection-class", selection_class));
         }
         SemanticResolution::Resolved {
-            return_type: source_type.to_owned(),
+            return_type: selection_class.unwrap_or(source_type).to_owned(),
             multiplicity: DynamicMultiplicity::Single,
             metadata: output_metadata,
         }

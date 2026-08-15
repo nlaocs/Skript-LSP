@@ -12,6 +12,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 
 - component ID `nlaocs.core-library`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
+- Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document phaseのcore.health-check subscription 1件
 - primitive候補と登録Expressionの意味解析用core.expression-candidates Transform subscription 1件
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
@@ -21,7 +22,11 @@ health hookはtarget、phase、payloadを検証したあと、documentを変更�
 Expression hookは合法split位置にあるbrace付きvariable、quoted string literal、有限の符号付き
 integer/decimal literal、boolean、SSG由来の有限type literal、entity-data literal、生成された
 `ClassInfo` literalを認識します。
-また、`ExprEntities`、`ExprParse`、`ExprTernary`、`ExprWhether`と、標準の
+また、`ExprAllBannedEntries`、`ExprAnyOf`、`ExprCustomModelData`、`ExprDefaultValue`、
+`ExprElement`、`ExprEntities`、`ExprFromUUID`、`ExprInventoryInfo`、
+`ExprInventorySlot`、`ExprJoinSplit`、`ExprParse`、`ExprRandom`、
+`ExprRandomCharacter`、`ExprRandomNumber`、`ExprReversedList`、`ExprSets`、
+`ExprShuffledList`、`ExprSortedList`、`ExprTernary`、`ExprWhether`と、標準の
 `PropExprAmount`、`PropExprCustomName`、`PropExprName`、`PropExprNumber`、
 `PropExprScale`、`PropExprSize`、`PropExprValueOf`、`PropExprWXYZ`について、
 動的な意味と返値metadataを解決します。property handlerはSSG metadataからsource classに
@@ -30,7 +35,14 @@ expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
 責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
-EffectとSection hookは`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
+`%expression%`を含むquoted stringとvariableは、汎用`host.expression` parse requestを返します。
+hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibraryを再度呼び出します。CoreLibraryは
+hostが発行したresult tokenをleaf候補から参照するため、選択されたrootはopaque metadataではなく、
+外側へspanを再配置したnative child ASTになります。
+
+EffectとSection hookは`EffChange`、`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
+`EffChange`は解析済みchild summaryを使い、常にMultipleな値をsingle variableへ設定する処理を、
+子を再解析せずSkriptの`acceptChange(SET)`判定に合わせて拒否します。
 text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
 Function callの照合はnative parserが担当し、Structureとlegacy固有の意味処理は未実装です。
 

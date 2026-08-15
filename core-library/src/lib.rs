@@ -7,6 +7,7 @@ mod effects;
 mod expression_candidates;
 mod expressions;
 mod primitives;
+mod runtime;
 mod sections;
 mod types;
 
@@ -21,9 +22,11 @@ use nlaocs::skript_parser_addon::types::{
     AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput, CapabilityRequirement,
     CompatibilityError, CompatibilityErrorKind, ComponentManifest, ExpressionPayload, HookDecision,
     HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
-    HookTarget, HostProfile, RegisteredExpressionPayload, SyntaxKind, TextMacroInput,
+    HookTarget, HostProfile, ParseResult, RegisteredExpressionPayload, SyntaxKind, TextMacroInput,
     TextMacroOutput, TreeMacroInput, TreeMacroOutput,
 };
+#[cfg(test)]
+use nlaocs::skript_parser_addon::types::{RuntimePlugin, RuntimeProfile};
 use parser_wasm::{
     ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EFFECT_PARSER,
     CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
@@ -128,13 +131,17 @@ impl addon::Guest for CoreLibrary {
             .map(|capability| ParserCapability::new(capability.id, capability.version))
             .collect::<Vec<_>>();
 
+        let runtime_profile = profile.runtime.clone();
         validate_compatibility(
             ABI_VERSION,
             ParserAbiVersion::new(profile.abi.major, profile.abi.minor),
             &requirements,
             &capabilities,
         )
-        .map_err(map_compatibility_error)
+        .map_err(map_compatibility_error)?;
+
+        runtime::replace(runtime_profile);
+        Ok(())
     }
 }
 
@@ -184,7 +191,9 @@ fn parse_expressions(input: HookInvocation) -> Result<HookOutput, AddonError> {
         ));
     }
     match input.payload {
-        HookPayload::Expression(payload) => parse_expression_candidates(payload),
+        HookPayload::Expression(payload) => {
+            parse_expression_candidates(payload, &input.parse_results)
+        }
         HookPayload::RegisteredExpression(payload) => resolve_registered_expression(payload),
         _ => Err(addon_error(
             AddonErrorKind::InvalidPayload,
@@ -201,7 +210,41 @@ fn parse_section_semantics(input: HookInvocation) -> Result<HookOutput, AddonErr
     sections::parse(input)
 }
 
-fn parse_expression_candidates(mut payload: ExpressionPayload) -> Result<HookOutput, AddonError> {
+fn parse_expression_candidates(
+    mut payload: ExpressionPayload,
+    parse_results: &[ParseResult],
+) -> Result<HookOutput, AddonError> {
+    if let Some(outcome) = primitives::interpolation::parse(&payload, parse_results) {
+        return Ok(match outcome {
+            primitives::interpolation::Outcome::Requests(parse_requests) => HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: None,
+                effects: HookEffects {
+                    parse_requests,
+                    ..empty_effects()
+                },
+            },
+            primitives::interpolation::Outcome::Candidate(candidate, parse_results) => {
+                payload.candidates.push(candidate);
+                HookOutput {
+                    decision: HookDecision::ContinueProcessing,
+                    replacement: Some(HookPayload::Expression(payload)),
+                    effects: HookEffects {
+                        parse_results,
+                        ..empty_effects()
+                    },
+                }
+            }
+            primitives::interpolation::Outcome::Invalid(diagnostic) => HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: None,
+                effects: HookEffects {
+                    diagnostics: vec![diagnostic],
+                    ..empty_effects()
+                },
+            },
+        });
+    }
     if let Some(candidate) = expression_candidates::parse(&payload) {
         payload.candidates.push(candidate);
         Ok(HookOutput {
@@ -297,6 +340,7 @@ fn empty_effects() -> HookEffects {
         diagnostics: Vec::new(),
         context_updates: Vec::new(),
         parse_requests: Vec::new(),
+        parse_results: Vec::new(),
     }
 }
 
@@ -368,8 +412,9 @@ mod tests {
         Capability, DocumentPayload, DynamicMultiplicity, ExpressionExpectedType,
         ExpressionLeafKind, ExpressionLiteralOption, ExpressionLiteralSource,
         ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
-        HookPayload, InvocationContext, MappedSpan, OriginKind, RegisteredExpressionChild,
-        RegisteredExpressionPropertyOption, RegisteredExpressionTag, SourceOrigin, TextRange,
+        HookPayload, InvocationContext, MappedSpan, OriginKind, ParseResultStatus,
+        RegisteredExpressionChild, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
+        SourceOrigin, TextRange,
     };
 
     #[test]
@@ -407,7 +452,7 @@ mod tests {
         assert_eq!(manifest.subscriptions[2].id, EFFECT_SUBSCRIPTION_ID);
         assert_eq!(manifest.capabilities[3].id, CAPABILITY_SECTION_PARSER);
         assert_eq!(manifest.subscriptions[3].id, SECTION_SUBSCRIPTION_ID);
-        assert_eq!(manifest.registered_syntax_handlers.len(), 19);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 32);
     }
 
     #[test]
@@ -418,6 +463,17 @@ mod tests {
                 minor: ABI_VERSION.minor,
             },
             capabilities: Vec::new(),
+            runtime: RuntimeProfile {
+                snapshot_schema_version: None,
+                snapshot_id: None,
+                server_name: None,
+                server_version: None,
+                minecraft_version: None,
+                java_version: None,
+                language: None,
+                skript_version: None,
+                plugins: Vec::new(),
+            },
         })
         .unwrap_err();
         assert!(matches!(
@@ -434,12 +490,77 @@ mod tests {
                 id: CAPABILITY_HOOKS.to_owned(),
                 version: 1,
             }],
+            runtime: RuntimeProfile {
+                snapshot_schema_version: None,
+                snapshot_id: None,
+                server_name: None,
+                server_version: None,
+                minecraft_version: None,
+                java_version: None,
+                language: None,
+                skript_version: None,
+                plugins: Vec::new(),
+            },
         })
         .unwrap_err();
         assert!(matches!(
             wrong_abi.kind,
             CompatibilityErrorKind::AbiVersionMismatch
         ));
+    }
+
+    #[test]
+    fn initialization_retains_runtime_version_and_plugins() {
+        let profile = HostProfile {
+            abi: AbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![
+                Capability {
+                    id: CAPABILITY_HOOKS.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_SECTION_PARSER.to_owned(),
+                    version: 1,
+                },
+            ],
+            runtime: RuntimeProfile {
+                snapshot_schema_version: Some(4),
+                snapshot_id: Some("snapshot-test".to_owned()),
+                server_name: Some("Paper".to_owned()),
+                server_version: Some("1.21.11".to_owned()),
+                minecraft_version: Some("1.21.11".to_owned()),
+                java_version: Some("21".to_owned()),
+                language: Some("en".to_owned()),
+                skript_version: Some("2.15.4".to_owned()),
+                plugins: vec![RuntimePlugin {
+                    load_order: 7,
+                    name: "Skript".to_owned(),
+                    version: "2.15.4".to_owned(),
+                    main: "ch.njol.skript.Skript".to_owned(),
+                }],
+            },
+        };
+
+        <CoreLibrary as addon::Guest>::initialize(profile).expect("profile must be accepted");
+
+        let retained = runtime::current().expect("accepted profile must be retained");
+        assert_eq!(retained.skript_version.as_deref(), Some("2.15.4"));
+        assert_eq!(retained.minecraft_version.as_deref(), Some("1.21.11"));
+        assert_eq!(retained.plugins.len(), 1);
+        assert_eq!(retained.plugins[0].load_order, 7);
+        assert_eq!(retained.plugins[0].name, "Skript");
+        assert_eq!(retained.plugins[0].main, "ch.njol.skript.Skript");
     }
 
     #[test]
@@ -475,6 +596,35 @@ mod tests {
             assert_eq!(payload.candidates[0].kind, kind);
             assert_eq!(payload.candidates[0].range.end, text.len() as u64);
         }
+    }
+
+    #[test]
+    fn interpolated_string_requests_and_accepts_its_embedded_expression() {
+        let mut invocation = expression_invocation("\"value: %42%\"");
+        let first = <CoreLibrary as hooks::Guest>::invoke(invocation.clone()).unwrap();
+        assert_eq!(first.effects.parse_requests.len(), 1);
+        assert!(first.replacement.is_none());
+
+        let request = first.effects.parse_requests[0].clone();
+        invocation.parse_results.push(ParseResult {
+            host_token: 7,
+            request_id: request.request_id,
+            parser_id: request.parser_id,
+            status: ParseResultStatus::Success,
+            roots: vec![0],
+            nodes: Vec::new(),
+            diagnostics: Vec::new(),
+        });
+        let second = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let Some(HookPayload::Expression(payload)) = second.replacement else {
+            panic!("successful interpolation must produce a leaf");
+        };
+        assert_eq!(
+            payload.candidates[0].parser_id,
+            "core.literal.variable-string"
+        );
+        assert_eq!(payload.candidates[0].children[0].host_token, 7);
+        assert_eq!(second.effects.parse_results.len(), 1);
     }
 
     #[test]
@@ -642,8 +792,10 @@ mod tests {
         payload.type_options.push(ExpressionTypeOption {
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
+            type_parse_order: 10,
             singular: "number".to_owned(),
             plural: "numbers".to_owned(),
+            user_input_patterns: vec!["number".to_owned(), "numbers".to_owned()],
             has_parser: true,
             has_supplier: true,
         });
@@ -672,8 +824,10 @@ mod tests {
         payload.type_options.push(ExpressionTypeOption {
             code_name: "player".to_owned(),
             class_name: "org.bukkit.entity.Player".to_owned(),
+            type_parse_order: 20,
             singular: "player".to_owned(),
             plural: "players".to_owned(),
+            user_input_patterns: vec!["player".to_owned(), "players".to_owned()],
             has_parser: true,
             has_supplier: false,
         });
@@ -739,6 +893,8 @@ mod tests {
         );
         size.children.push(RegisteredExpressionChild {
             text: "all offline players".to_owned(),
+            kind: "registered-expression".to_owned(),
+            parser_id: None,
             element_class: None,
             return_type: Some("org.bukkit.OfflinePlayer".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Multiple),
@@ -758,6 +914,8 @@ mod tests {
         let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
         parse.children.push(RegisteredExpressionChild {
             text: "number".to_owned(),
+            kind: "literal".to_owned(),
+            parser_id: Some("core.literal.class-info".to_owned()),
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -935,6 +1093,8 @@ mod tests {
         );
         value.children.push(RegisteredExpressionChild {
             text: "number".to_owned(),
+            kind: "literal".to_owned(),
+            parser_id: Some("core.literal.class-info".to_owned()),
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -963,6 +1123,8 @@ mod tests {
         let mut entities = registered_expression("ch.njol.skript.expressions.ExprEntities");
         entities.children.push(RegisteredExpressionChild {
             text: "players".to_owned(),
+            kind: "literal".to_owned(),
+            parser_id: Some("core.literal.entity-data".to_owned()),
             element_class: None,
             return_type: Some("ch.njol.skript.entity.EntityData".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -988,6 +1150,7 @@ mod tests {
     fn element_expression_preserves_the_source_type_and_selected_amount() {
         let mut element = registered_expression("ch.njol.skript.expressions.ExprElement");
         element.input = "a random element out of all players".to_owned();
+        element.pattern = "[a] random element (of|out of) %objects%".to_owned();
         element.span.virtual_range.end = u64::try_from(element.input.len()).unwrap();
         element.children.push(expression_child(
             "all players",
@@ -1008,6 +1171,7 @@ mod tests {
 
         element.input = "the first 2 elements out of all players".to_owned();
         element.pattern_index = 1;
+        element.pattern = "[the] first %integer% elements (of|out of) %objects%".to_owned();
         element.span.virtual_range.end = u64::try_from(element.input.len()).unwrap();
         let Some(expressions::SemanticResolution::Resolved { multiplicity, .. }) =
             expressions::resolve(&element)
@@ -1054,10 +1218,12 @@ mod tests {
     }
 
     #[test]
-    fn random_expression_uses_the_source_type_as_a_single_value() {
+    fn random_expression_uses_the_conversion_target_as_a_single_value() {
         let mut random = registered_expression("ch.njol.skript.expressions.ExprRandom");
         random.children.push(RegisteredExpressionChild {
             text: "element".to_owned(),
+            kind: "literal".to_owned(),
+            parser_id: Some("core.literal.class-info".to_owned()),
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1077,7 +1243,7 @@ mod tests {
         else {
             panic!("ExprRandom handler must resolve a typed source");
         };
-        assert_eq!(return_type, "org.bukkit.entity.Player");
+        assert_eq!(return_type, "java.lang.Object");
         assert_eq!(multiplicity, DynamicMultiplicity::Single);
         assert!(
             metadata.iter().any(|entry| {
@@ -1096,6 +1262,8 @@ mod tests {
     fn sets_expression_requires_a_supplied_plural_class_info() {
         let class_info = |input: &str, plural: &str, supplier: &str| RegisteredExpressionChild {
             text: input.to_owned(),
+            kind: "literal".to_owned(),
+            parser_id: Some("core.literal.class-info".to_owned()),
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1165,6 +1333,8 @@ mod tests {
             }
             invalid.children.push(RegisteredExpressionChild {
                 text: "color".to_owned(),
+                kind: "literal".to_owned(),
+                parser_id: Some("core.literal.class-info".to_owned()),
                 element_class: None,
                 return_type: return_type.map(str::to_owned),
                 multiplicity: Some(DynamicMultiplicity::Single),
@@ -1184,8 +1354,10 @@ mod tests {
         parse.type_options.push(ExpressionTypeOption {
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
+            type_parse_order: 10,
             singular: "number".to_owned(),
             plural: "numbers".to_owned(),
+            user_input_patterns: vec!["number".to_owned(), "numbers".to_owned()],
             has_parser: true,
             has_supplier: false,
         });
@@ -1199,6 +1371,56 @@ mod tests {
         };
         assert_eq!(return_type, "java.lang.Number");
         assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+    }
+
+    #[test]
+    fn parse_pattern_ignores_escaped_percent_signs() {
+        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
+        parse
+            .regex_captures
+            .push(r#""value: \%unknown\%""#.to_owned());
+
+        let expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        } = expressions::resolve(&parse).expect("escaped percent pattern must resolve")
+        else {
+            panic!("escaped percent signs must not create placeholders");
+        };
+        assert_eq!(return_type, "java.lang.Object");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+    }
+
+    #[test]
+    fn parse_pattern_ignores_percent_signs_inside_regexes() {
+        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
+        parse.regex_captures.push(r#""<%+>""#.to_owned());
+
+        let expressions::SemanticResolution::Resolved {
+            return_type,
+            multiplicity,
+            ..
+        } = expressions::resolve(&parse).expect("regex percent pattern must resolve")
+        else {
+            panic!("regex percent signs must not create placeholders");
+        };
+        assert_eq!(return_type, "java.lang.Object");
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+    }
+
+    #[test]
+    fn parse_pattern_rejects_unknown_types() {
+        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
+        parse
+            .regex_captures
+            .push(r#""value: %unknown%""#.to_owned());
+
+        let Some(expressions::SemanticResolution::Reject(reason)) = expressions::resolve(&parse)
+        else {
+            panic!("unknown parse pattern types must be rejected");
+        };
+        assert!(reason.contains("unknown type in parse pattern: unknown"));
     }
 
     #[test]
@@ -1226,6 +1448,7 @@ mod tests {
             },
             target: HookTarget::ParseStage,
             phase: HookPhase::Expression,
+            parse_results: Vec::new(),
             payload: HookPayload::Expression(ExpressionPayload {
                 input: text.to_owned(),
                 remaining: range,
@@ -1262,6 +1485,7 @@ mod tests {
             element_class: element_class.to_owned(),
             related_property: None,
             pattern_index: 0,
+            pattern: "x".to_owned(),
             span: MappedSpan {
                 virtual_range: range,
                 origins: vec![SourceOrigin {
@@ -1283,7 +1507,7 @@ mod tests {
             tags: Vec::<RegisteredExpressionTag>::new(),
             mark: 0,
             children: Vec::new(),
-            conditions: Vec::new(),
+            parsed_captures: Vec::new(),
             common_child_return_type: None,
             type_options: Vec::new(),
             property_options: Vec::<RegisteredExpressionPropertyOption>::new(),
@@ -1300,6 +1524,8 @@ mod tests {
     ) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
             text: text.to_owned(),
+            kind: "custom".to_owned(),
+            parser_id: None,
             element_class: None,
             return_type: Some(return_type.to_owned()),
             multiplicity: Some(multiplicity),
@@ -1337,6 +1563,7 @@ mod tests {
             },
             target: HookTarget::ParseStage,
             phase: HookPhase::Document,
+            parse_results: Vec::new(),
             payload: HookPayload::Document(DocumentPayload {
                 text: String::new(),
             }),

@@ -1,3 +1,4 @@
+pub(crate) mod interpolation;
 mod variable;
 
 use crate::nlaocs::skript_parser_addon::types::{ExpressionLeafCandidate, ExpressionPayload};

@@ -20,8 +20,10 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "element Expression requires a typed source Expression".to_owned(),
             );
         };
-        let queue = payload.pattern_index >= 5;
-        let multiple = matches!(payload.pattern_index, 1 | 4 | 6 | 9);
+        let queue = source_type == "org.skriptlang.skript.lang.util.SkriptQueue";
+        let multiple = payload.pattern.contains("%integer% elements")
+            || payload.pattern.contains("random [:distinct] elements")
+            || payload.pattern.contains("elements (from|between)");
 
         SemanticResolution::Resolved {
             return_type: if queue {

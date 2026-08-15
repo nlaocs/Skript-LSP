@@ -40,6 +40,7 @@ pub(crate) fn candidate(
         range: TextRange { start, end },
         return_type: Some(return_type.to_owned()),
         multiplicity: Some(multiplicity),
+        children: Vec::new(),
         metadata: Vec::new(),
     }
 }

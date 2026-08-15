@@ -1,3 +1,4 @@
+mod eff_change;
 mod eff_do_if;
 
 use crate::nlaocs::skript_parser_addon::types::{
@@ -8,6 +9,7 @@ use crate::{addon_error, continue_without_replacement};
 
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     let mut handlers = Vec::new();
+    eff_change::register(&mut handlers);
     eff_do_if::register(&mut handlers);
     handlers
 }
@@ -25,5 +27,7 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
             "CoreLibrary Effect semantics require an Effect payload",
         ));
     };
-    Ok(eff_do_if::resolve(payload).unwrap_or_else(continue_without_replacement))
+    Ok(eff_change::resolve(payload.clone())
+        .or_else(|| eff_do_if::resolve(payload))
+        .unwrap_or_else(continue_without_replacement))
 }

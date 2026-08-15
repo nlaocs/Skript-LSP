@@ -3,6 +3,14 @@ use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
     ExpressionTypeOption,
 };
+use fancy_regex::Regex;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static USER_INPUT_PATTERNS: RefCell<HashMap<String, Option<Regex>>> =
+        RefCell::new(HashMap::new());
+}
 
 pub(super) fn parse(
     payload: &ExpressionPayload,
@@ -18,12 +26,7 @@ pub(super) fn parse(
         ExpressionLeafKind::Literal,
         payload.remaining.start,
         end,
-        payload
-            .expected_types
-            .first()
-            .map_or("ch.njol.skript.classes.ClassInfo", |expected| {
-                expected.class_name.as_str()
-            }),
+        "ch.njol.skript.classes.ClassInfo",
         DynamicMultiplicity::Single,
     );
     candidate.metadata = vec![
@@ -47,7 +50,7 @@ fn type_option<'a>(
     options: &'a [ExpressionTypeOption],
 ) -> Option<(&'a ExpressionTypeOption, bool)> {
     let name = name.trim();
-    options.iter().find_map(|option| {
+    let exact = options.iter().find_map(|option| {
         if name.eq_ignore_ascii_case(&option.plural) {
             Some((option, true))
         } else if name.eq_ignore_ascii_case(&option.code_name)
@@ -57,5 +60,25 @@ fn type_option<'a>(
         } else {
             None
         }
+    });
+    exact.or_else(|| {
+        options.iter().find_map(|option| {
+            option
+                .user_input_patterns
+                .iter()
+                .any(|pattern| matches_user_input(pattern, name))
+                .then_some((option, name.ends_with('s')))
+        })
+    })
+}
+
+fn matches_user_input(pattern: &str, input: &str) -> bool {
+    USER_INPUT_PATTERNS.with(|patterns| {
+        let mut patterns = patterns.borrow_mut();
+        patterns
+            .entry(pattern.to_owned())
+            .or_insert_with(|| Regex::new(&format!("(?i)^(?:{pattern})$")).ok())
+            .as_ref()
+            .is_some_and(|pattern| pattern.is_match(input).unwrap_or(false))
     })
 }

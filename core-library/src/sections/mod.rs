@@ -38,12 +38,18 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
 }
 
 fn register_handler(handlers: &mut Vec<RegisteredSyntaxHandler>, class_suffix: &str) {
-    use crate::nlaocs::skript_parser_addon::types::{RegisteredCaptureKind, SyntaxKind};
+    use crate::nlaocs::skript_parser_addon::types::{CaptureParserBinding, SyntaxKind};
 
     handlers.push(RegisteredSyntaxHandler {
         kind: SyntaxKind::Section,
         class_suffix: class_suffix.to_owned(),
-        regex_captures: vec![RegisteredCaptureKind::Condition],
+        capture_parsers: vec![CaptureParserBinding {
+            capture_index: 0,
+            parser_id: "host.condition".to_owned(),
+            required: true,
+            options: Vec::new(),
+        }],
+        context_requirements: Vec::new(),
     });
 }
 
@@ -58,7 +64,13 @@ fn resolve_condition_section(
 
     if matches!(payload.timing, SectionTiming::EnterChildren)
         && !payload.candidate.regex_captures.is_empty()
-        && payload.candidate.conditions.len() != payload.candidate.regex_captures.len()
+        && payload
+            .candidate
+            .parsed_captures
+            .iter()
+            .filter(|capture| capture.parser_id == "host.condition")
+            .count()
+            != payload.candidate.regex_captures.len()
     {
         return reject("Section requires every condition capture to parse");
     }
@@ -90,6 +102,7 @@ fn resolve_condition_section(
             diagnostics: Vec::new(),
             context_updates,
             parse_requests: Vec::new(),
+            parse_results: Vec::new(),
         },
     }
 }
