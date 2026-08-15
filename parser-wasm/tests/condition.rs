@@ -155,7 +155,7 @@ fn whether_and_ternary_parse_condition_captures_through_core_library() {
         .matches
         .selected
         .expect("whether Expression must parse");
-    assert_eq!(parsed.node.conditions.len(), 1);
+    assert_eq!(parsed.node.conditions().count(), 1);
     assert_eq!(parsed.node.multiplicity, Some(Multiplicity::Single));
 
     let ternary = "\"yes\" if dummy fixture condition else \"no\"";
@@ -183,7 +183,7 @@ fn whether_and_ternary_parse_condition_captures_through_core_library() {
             ternary_matches.failure
         )
     });
-    assert_eq!(parsed.node.conditions.len(), 1);
+    assert_eq!(parsed.node.conditions().count(), 1);
     assert_eq!(parsed.node.children.len(), 2);
     assert_eq!(
         parsed.node.return_type.as_ref().map(ClassName::as_str),

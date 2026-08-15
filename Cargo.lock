@@ -170,6 +170,7 @@ dependencies = [
 name = "core-library"
 version = "0.1.0"
 dependencies = [
+ "fancy-regex",
  "parser-wasm",
  "wit-bindgen 0.59.0",
 ]
@@ -973,6 +974,7 @@ name = "parser-wasm"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "fancy-regex",
  "redb",
  "sha2",
  "skript-parser",

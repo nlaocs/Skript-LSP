@@ -63,8 +63,12 @@ post-match registered Expression resolution changed it to 0.7.0; declaring
 the registered Expression classes handled by a component changed it to 0.8.0;
 generic registered syntax handlers, semantic Condition/Effect captures, and
 the Section lifecycle changed it to 0.9.0; registered property axis metadata
-changed it to 0.10.0; finite type-literal candidates changed it to 0.11.0; structured literal metadata changed it to 0.12.0; SSG supplier metadata in expression type options changed it to 0.13.0. The manifest's current
-`abi` value is 1.12 and is a runtime handshake that
+changed it to 0.10.0; finite type-literal candidates changed it to 0.11.0;
+structured literal metadata changed it to 0.12.0; SSG supplier metadata in
+Expression type options changed it to 0.13.0; runtime profiles and open parser
+result graphs changed it to 0.15.0; host-token references from leaf candidates
+to parsed child roots changed it to 0.16.0; explicit child node kinds and parser
+IDs changed it to 0.17.0. The manifest's current `abi` value is 2.3 and is a runtime handshake that
 requires an exact `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -81,6 +85,29 @@ older host without failing while lifting its manifest.
 The host advertises and executes Text and Tree macros. The AST macro capability
 remains contract-only and is not advertised yet.
 
+`addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
+manifest. It includes snapshot/server/Skript/Minecraft/Java versions, language,
+and enabled plugins in load order. Components may use it to select semantics
+whose Java class or parse mark changed between releases without treating one
+Skript release as the implicit default.
+
+## Open Parser Requests
+
+Capture parsers use string IDs instead of a closed enum. Built-in routes use
+`host.expression`, `host.condition`, and `host.effect`; addon manifests may
+subscribe to their own `parser(...)` target. A hook returns one or more
+`parse-request` records and is invoked again with matching `parse-result`
+graphs after the host completes them. Graph nodes carry semantic summaries,
+children, mapped spans, diagnostics, metadata, and opaque versioned addon
+attachments. Each completed result receives a host-owned token. Expression
+leaf candidates may reference a token and root ID to adopt that parsed
+Expression as a native child AST without reparsing or relying on metadata keys.
+
+Nested work is bounded by round, request, result-node, call, and recursion
+quotas. Repeated active request keys produce a typed cycle failure. Writes made
+by a request are committed only with the accepting outer candidate; rejection,
+trap, cancellation, or invalid output rolls the complete continuation back.
+
 ## Expression Parsing
 
 `ParserHost::parse_expression_in_parse` freezes the document's dynamic syntax
@@ -94,13 +121,21 @@ builds the finite literal index once from SSG type metadata and aliases, then se
 matching the current legal split points to avoid copying the complete registry into WASM.
 
 CoreLibrary and addons may append Variable, Literal, Function, or Custom leaf
-candidates. After a registered Expression and its typed children match,
-the host sends a second payload containing parse tags, children, known return
-types, and applicable property metadata, including supported component axes.
+candidates and attach host-parsed child roots returned by the open parser
+protocol. After a registered Expression and its typed children match,
+the host sends a second payload containing parse tags, children, generic parsed
+captures, known return types, and applicable property metadata, including
+supported component axes.
 CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
 Components declare the syntax kind, Java class suffix, and meaning of regex
-captures in `registered-syntax-handlers`. The native parser considers an
+captures in `registered-syntax-handlers`. A handler may also request named
+host context; `expression.type-options.all` supplies every SSG Type option for
+constructs such as `ExprParse` without teaching the host that Java class name.
+Each registered child also carries its native node kind and optional parser ID,
+so a component can distinguish a parsed literal from a variable or function
+without guessing from source text.
+The native parser considers an
 otherwise incompatible dynamic registration only when an enabled component
 declares it, avoiding broad unresolved registrations during every type search.
 The host validates immutable request fields, UTF-8 ranges, parser
@@ -153,7 +188,7 @@ updates apply only to that body and its descendants. Unknown or multiply
 claimed body nodes remain in the partial tree with diagnostics.
 
 CoreLibrary declares semantic handlers for Skript's conditional and while
-Sections, `ExprWhether`, `ExprTernary`, and `EffDoIf`. Addons can use the same
+Sections, `ExprWhether`, `ExprTernary`, `EffChange`, and `EffDoIf`. Addons can use the same
 manifest declarations for their own raw, Condition, or nested Effect captures.
 ## Text Macros
 

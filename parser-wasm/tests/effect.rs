@@ -306,7 +306,7 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
             .matches
             .selected
             .unwrap_or_else(|| panic!("{source:?} must parse as an Expression list"));
-        let expression = &selected.expressions[0];
+        let expression = selected.expressions().next().expect("Expression capture");
         assert_eq!(expression.kind, ExpressionNodeKind::List { conjunction });
         assert_eq!(expression.multiplicity, Some(multiplicity));
         assert!(expression.children.len() >= 2);
@@ -317,7 +317,7 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
         .matches
         .selected
         .expect("a comma-bearing vector must remain one child in an outer list");
-    let expression = &selected.expressions[0];
+    let expression = selected.expressions().next().expect("Expression capture");
     assert_eq!(
         expression.kind,
         ExpressionNodeKind::List {
@@ -335,7 +335,10 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
         .selected
         .expect("numeric list must parse");
     assert_eq!(
-        numeric.expressions[0]
+        numeric
+            .expressions()
+            .next()
+            .expect("numeric Expression")
             .return_type
             .as_ref()
             .map(|ty| ty.as_str()),
@@ -376,7 +379,11 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
             .selected
             .unwrap_or_else(|| panic!("commas nested in {source:?} must not create a list"));
         assert!(!matches!(
-            selected.expressions[0].kind,
+            selected
+                .expressions()
+                .next()
+                .expect("Expression capture")
+                .kind,
             ExpressionNodeKind::List { .. }
         ));
     }
@@ -470,7 +477,10 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
         .selected
         .expect("strings must remain a valid ItemType alias");
     assert_eq!(
-        item_alias_candidate.expressions[0]
+        item_alias_candidate
+            .expressions()
+            .next()
+            .expect("item alias Expression")
             .metadata
             .get("literal-source")
             .map(String::as_str),
@@ -489,6 +499,75 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
         best.element_class.as_ref().map(|class| class.as_str()),
         Some("org.skriptlang.skript.bukkit.text.elements.effects.EffMessage")
     );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn eff_change_matches_skript_variable_multiplicity_rules() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 19)
+        .unwrap();
+
+    let single_variable = parse_effect(&mut host, &transaction, 19, "set {_value} to all players");
+    assert!(
+        single_variable.matches.selected.is_none(),
+        "a Multiple Expression must not be assigned to a single variable; selected pattern: {:?}",
+        single_variable
+            .matches
+            .selected
+            .as_ref()
+            .map(|candidate| candidate.matched.pattern.as_str())
+    );
+    let diagnostic = single_variable
+        .effects
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "core.eff-change.multiple-to-single-variable")
+        .expect("EffChange must report the multiplicity mismatch");
+    assert_eq!(diagnostic.span.virtual_range.start, 16);
+    assert_eq!(diagnostic.span.virtual_range.end, 27);
+    let rejected_span = single_variable
+        .matches
+        .unknown
+        .as_ref()
+        .and_then(|unknown| unknown.failures.primary())
+        .expect("the rejected EffChange candidate must remain diagnosable")
+        .matched
+        .trace
+        .root_cause()
+        .failure
+        .span
+        .mapped
+        .virtual_range;
+    assert_eq!(rejected_span, TextRange::new(16, 27));
+
+    let multiple_variable = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set {_values::*} to all players",
+    );
+    assert!(
+        multiple_variable.matches.selected.is_some(),
+        "a variable list must accept a Multiple Expression: {:#?}",
+        multiple_variable.matches.unknown
+    );
+
+    let single_value = parse_effect(&mut host, &transaction, 19, "set {_value} to 1");
+    assert!(
+        single_value.matches.selected.is_some(),
+        "a single value must be assignable to a single variable: {:#?}",
+        single_value.matches.unknown
+    );
+
     transaction.cancel().unwrap();
 }
 
@@ -694,7 +773,7 @@ fn dynamic_effect_uses_the_same_end_to_end_pipeline() {
         "dynamic:nlaocs.test.dynamic-syntax/initial-effect"
     );
     assert_eq!(selected.handler.as_deref(), Some("dynamic.initial-effect"));
-    assert_eq!(selected.expressions.len(), 1);
+    assert_eq!(selected.expressions().count(), 1);
     let writes = transaction.read_write_set().unwrap().writes;
     assert!(writes.iter().any(|write| write.key == "category-before"));
     assert!(writes.iter().any(|write| write.key == "category-after"));
@@ -808,7 +887,7 @@ fn nested_parenthesized_expressions_work_inside_effects() {
         )
     });
 
-    let grouped_vector = &selected.expressions[0];
+    let grouped_vector = selected.expressions().next().expect("grouped vector");
     assert!(matches!(grouped_vector.kind, ExpressionNodeKind::Grouped));
     let vector = &grouped_vector.children[0];
     assert!(matches!(vector.kind, ExpressionNodeKind::Registered { .. }));
@@ -877,7 +956,7 @@ fn arithmetic_uses_snapshot_operations_and_skript_precedence() {
         .matches
         .selected
         .expect("typed arithmetic must parse");
-    let root = &precedence.expressions[0];
+    let root = precedence.expressions().next().expect("arithmetic root");
     assert!(matches!(
         root.kind,
         ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "+"
@@ -891,7 +970,10 @@ fn arithmetic_uses_snapshot_operations_and_skript_precedence() {
         .matches
         .selected
         .expect("same-priority arithmetic must parse");
-    let root = &left_associative.expressions[0];
+    let root = left_associative
+        .expressions()
+        .next()
+        .expect("left-associative root");
     assert!(matches!(
         root.kind,
         ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "-"
@@ -906,7 +988,7 @@ fn arithmetic_uses_snapshot_operations_and_skript_precedence() {
         .selected
         .expect("negative literals must remain operands");
     assert!(matches!(
-        unary.expressions[0].kind,
+        unary.expressions().next().expect("unary root").kind,
         ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "*"
     ));
     transaction.cancel().unwrap();
@@ -931,7 +1013,7 @@ fn overloaded_function_accepts_multiple_arithmetic_arguments() {
         .selected
         .expect("vector(x, y, z) must accept arithmetic arguments");
 
-    let vector = &selected.expressions[0];
+    let vector = selected.expressions().next().expect("vector Expression");
     assert!(matches!(vector.kind, ExpressionNodeKind::Function { .. }));
     assert_eq!(vector.function.as_ref().unwrap().arguments.len(), 3);
     assert_eq!(vector.children.len(), 3);
@@ -962,8 +1044,7 @@ fn property_expression_return_type_flows_into_function_arguments() {
         .expect("Location coordinate must satisfy the Number function parameter");
 
     let location = selected
-        .expressions
-        .iter()
+        .expressions()
         .find(|expression| {
             expression
                 .function
@@ -1004,7 +1085,7 @@ fn property_expression_prefers_the_closest_source_handler() {
     .selected
     .expect("the Player name property must parse");
 
-    let name = &selected.expressions[0];
+    let name = selected.expressions().next().expect("name Expression");
     assert_eq!(
         name.metadata.get("semantic-mode").map(String::as_str),
         Some("name-property")
@@ -1042,8 +1123,8 @@ fn conditional_effect_retains_its_nested_effect_and_condition() {
         )
     });
 
-    assert_eq!(selected.effects.len(), 1);
-    assert_eq!(selected.conditions.len(), 1);
+    assert_eq!(selected.effects().count(), 1);
+    assert_eq!(selected.conditions().count(), 1);
     assert!(result.calls.iter().any(|call| {
         call.component_id == "nlaocs.core-library"
             && call.subscription_id == "core.effect-semantics"
@@ -1079,7 +1160,7 @@ fn dynamic_player_expressions_are_valid_audiences() {
             )
         });
         let recipient = selected
-            .expressions
+            .expressions()
             .last()
             .expect("message Effect has a recipient");
         assert_eq!(

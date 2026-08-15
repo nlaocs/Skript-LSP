@@ -113,14 +113,14 @@ fn conditional_and_loop_sections_recursively_claim_their_bodies() {
     .expect("nested Sections must parse");
     let outer = result.matches.selected.expect("conditional Section");
 
-    assert_eq!(outer.conditions.len(), 1);
+    assert_eq!(outer.conditions().count(), 1);
     assert_eq!(outer.body.len(), 2);
     let SectionBodyNode::Section(nested) = &outer.body[1] else {
         panic!("second child must be a nested Section");
     };
     let nested = nested.selected.as_ref().expect("while Section");
     assert!(nested.loop_section);
-    assert_eq!(nested.conditions.len(), 1);
+    assert_eq!(nested.conditions().count(), 1);
     assert!(result.matches.diagnostics.is_empty());
     assert!(result.effects.context_updates.iter().any(|update| {
         update.key == "core.section.loop" && update.value.as_deref() == Some(b"true")

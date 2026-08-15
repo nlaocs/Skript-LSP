@@ -198,6 +198,7 @@ fn invocation_effects(
             value: None,
         }],
         parse_requests: Vec::new(),
+        parse_results: Vec::new(),
     }
 }
 

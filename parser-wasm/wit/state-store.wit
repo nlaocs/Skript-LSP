@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.13.0;
+package nlaocs:skript-parser-addon@0.17.0;
 
 interface state-store {
     use types.{

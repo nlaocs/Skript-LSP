@@ -17,10 +17,7 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
-    assert_eq!(
-        parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(1, 12)
-    );
+    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(2, 3));
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
@@ -36,7 +33,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.13.0")
+        Some("0.17.0")
     );
 
     let world = package
@@ -105,8 +102,10 @@ fn host_bindings_expose_typed_hook_contract() {
     let type_option = ExpressionTypeOption {
         code_name: "weather type".to_owned(),
         class_name: "ch.njol.skript.util.weather.WeatherType".to_owned(),
+        type_parse_order: 0,
         singular: "weather type".to_owned(),
         plural: "weather types".to_owned(),
+        user_input_patterns: vec!["weather types?".to_owned()],
         has_parser: true,
         has_supplier: true,
     };
@@ -182,6 +181,7 @@ fn guest_bindings_expose_typed_macro_payloads() {
             diagnostics: Vec::new(),
             context_updates: Vec::new(),
             parse_requests: Vec::new(),
+            parse_results: Vec::new(),
         },
     };
 
@@ -227,6 +227,7 @@ fn guest_bindings_expose_typed_tree_edits() {
             diagnostics: Vec::new(),
             context_updates: Vec::new(),
             parse_requests: Vec::new(),
+            parse_results: Vec::new(),
         },
     };
 

@@ -5,7 +5,8 @@
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet, HashMap},
     mem,
     sync::{
         Arc,
@@ -15,17 +16,21 @@ use std::{
     time::Duration,
 };
 
+use fancy_regex::Regex;
+
 use skript_parser::{
-    CandidateMatches, ConditionMatches, ConditionParseError, ConditionParseRequest,
-    ConditionParserConfig, EffectCandidate, EffectCandidateFailure, EffectMatches,
-    EffectParseError, EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate,
-    ExpressionLeafKind, ExpressionLeafRequest, ExpressionMatches, ExpressionParseEnvironment,
+    CandidateFailure, CandidateMatches, ConditionMatches, ConditionNode, ConditionNodeKind,
+    ConditionParseError, ConditionParseRequest, ConditionParserConfig, EffectCandidate,
+    EffectCandidateFailure, EffectMatches, EffectParseError, EffectParseRequest,
+    EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
+    ExpressionMatches, ExpressionNode, ExpressionNodeKind, ExpressionParseEnvironment,
     ExpressionParseError, ExpressionParseRequest, ExpressionParserConfig, FailureTrace, MatchInput,
-    MatchSpan, MatchSyntaxKind, PatternCandidate, PatternCapture, PatternFailure,
-    PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookOutcome,
+    MatchSpan, MatchSyntaxKind, ParsedCapture as ParserParsedCapture,
+    ParsedCaptureStatus as ParserParsedCaptureStatus, PatternCandidate, PatternCapture,
+    PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookOutcome,
     PatternHookScope, PatternHookTiming, PatternMatchEnvironment, PatternMatchError,
     PatternMatchHooks, PatternMatcherConfig, PatternPathSegment, RankedFailures,
-    RegisteredCaptureKind, RegisteredExpressionDecision, RegisteredExpressionRequest,
+    RegisteredCaptureBinding, RegisteredExpressionDecision, RegisteredExpressionRequest,
     SectionChildrenDecision, SectionChildrenRequest, SectionMatches, SectionParseError,
     SectionParseRequest, SectionParserConfig, TypeExpressionOutcome, TypeExpressionRequest,
     TypeExpressionResolver, UnknownEffectNode, match_pattern_candidates as run_pattern_matcher,
@@ -61,7 +66,8 @@ use crate::bindings::ParserAddon;
 use crate::bindings::nlaocs::skript_parser_addon::dynamic_syntax_registry as wit_dynamic_registry;
 use crate::bindings::nlaocs::skript_parser_addon::state_store as wit_state_store;
 use crate::bindings::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity as WitDynamicMultiplicity, DynamicRegistryError as WitDynamicRegistryError,
+    AddonAttachment as WitAddonAttachment, DynamicMultiplicity as WitDynamicMultiplicity,
+    DynamicRegistryError as WitDynamicRegistryError,
     DynamicRegistryErrorKind as WitDynamicRegistryErrorKind,
     DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
     DynamicSyntaxOverride as WitDynamicSyntaxOverride,
@@ -82,11 +88,10 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionTypeOption as WitExpressionTypeOption,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
     LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry, OriginKind as WitOriginKind,
-    RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
-    RawInvalidReason as WitRawInvalidReason, RawNodeKind as WitRawNodeKind,
-    RawTriviaKind as WitRawTriviaKind, RegisteredCaptureKind as WitRegisteredCaptureKind,
-    RegisteredConditionCapture as WitRegisteredConditionCapture,
-    RegisteredEffectCapture as WitRegisteredEffectCapture,
+    ParseResultStatus as WitParseResultStatus, ParseSummary as WitParseSummary,
+    ParsedCapture as WitParsedCapture, RawDiagnosticCode as WitRawDiagnosticCode,
+    RawDiagnosticSeverity as WitRawDiagnosticSeverity, RawInvalidReason as WitRawInvalidReason,
+    RawNodeKind as WitRawNodeKind, RawTriviaKind as WitRawTriviaKind,
     RegisteredExpressionChild as WitRegisteredExpressionChild,
     RegisteredExpressionPayload as WitRegisteredExpressionPayload,
     RegisteredExpressionPropertyOption as WitRegisteredExpressionPropertyOption,
@@ -109,7 +114,7 @@ use crate::{
     CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
     CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
     CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
-    validate_compatibility,
+    REGISTERED_CONTEXT_ALL_TYPE_OPTIONS, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -118,10 +123,10 @@ pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
     HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
     HookTarget, InvocationContext, MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope,
-    MatchingStatus, MatchingTiming, ParseRequest, RawTree, RawTreeNode, RegisteredExpressionChild,
-    RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
-    Rejection, RelatedSpan, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
-    TreeMacroOutput,
+    MatchingStatus, MatchingTiming, ParseRequest, ParseResult, ParseResultNode, RawTree,
+    RawTreeNode, RegisteredExpressionChild, RegisteredExpressionPayload,
+    RegisteredExpressionPropertyOption, RegisteredExpressionTag, Rejection, RelatedSpan,
+    SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
 };
 
 /// Reserved component ID required for the first host component.
@@ -162,6 +167,9 @@ pub struct HostConfig {
     pub max_memories_per_component: usize,
     pub max_calls_per_dispatch: usize,
     pub max_generated_output_bytes: usize,
+    pub max_parser_rounds: usize,
+    pub max_parse_requests_per_hook: usize,
+    pub max_parse_result_nodes: usize,
     pub max_text_macro_expansions: usize,
     pub max_text_macro_generated_bytes: usize,
     pub max_virtual_source_bytes: usize,
@@ -171,6 +179,30 @@ pub struct HostConfig {
     pub max_tree_macro_calls: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
+    pub runtime_profile: RuntimeProfile,
+}
+
+/// Versioned server environment associated with the loaded SSG snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeProfile {
+    pub snapshot_schema_version: Option<u32>,
+    pub snapshot_id: Option<String>,
+    pub server_name: Option<String>,
+    pub server_version: Option<String>,
+    pub minecraft_version: Option<String>,
+    pub java_version: Option<String>,
+    pub language: Option<String>,
+    pub skript_version: Option<String>,
+    pub plugins: Vec<RuntimePlugin>,
+}
+
+/// One enabled plugin in deterministic server load order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimePlugin {
+    pub load_order: usize,
+    pub name: String,
+    pub version: String,
+    pub main: String,
 }
 
 impl Default for HostConfig {
@@ -186,6 +218,9 @@ impl Default for HostConfig {
             max_memories_per_component: 32,
             max_calls_per_dispatch: 1_024,
             max_generated_output_bytes: 8 * 1024 * 1024,
+            max_parser_rounds: 16,
+            max_parse_requests_per_hook: 256,
+            max_parse_result_nodes: 4_096,
             max_text_macro_expansions: 256,
             max_text_macro_generated_bytes: 8 * 1024 * 1024,
             max_virtual_source_bytes: 16 * 1024 * 1024,
@@ -195,6 +230,7 @@ impl Default for HostConfig {
             max_tree_macro_calls: 4_096,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
+            runtime_profile: RuntimeProfile::default(),
         }
     }
 }
@@ -211,6 +247,9 @@ impl HostConfig {
             || self.max_memories_per_component == 0
             || self.max_calls_per_dispatch == 0
             || self.max_generated_output_bytes == 0
+            || self.max_parser_rounds == 0
+            || self.max_parse_requests_per_hook == 0
+            || self.max_parse_result_nodes == 0
             || self.max_text_macro_expansions == 0
             || self.max_text_macro_generated_bytes == 0
             || self.max_virtual_source_bytes == 0
@@ -331,6 +370,16 @@ pub enum HostError {
     CallQuotaExceeded { limit: usize },
     #[error("dispatch exceeded the generated output quota of {limit} bytes")]
     GeneratedOutputQuotaExceeded { limit: usize },
+    #[error("hook exceeded the parser continuation quota of {limit} rounds")]
+    ParserRoundQuotaExceeded { limit: usize },
+    #[error("hook exceeded the parse request quota of {limit}")]
+    ParseRequestQuotaExceeded { limit: usize },
+    #[error("parse result exceeded the node quota of {limit}")]
+    ParseResultNodeQuotaExceeded { limit: usize },
+    #[error("host parse-result token space is exhausted")]
+    ParseResultTokenExhausted,
+    #[error("parser {parser_id} returned an invalid result: {message}")]
+    InvalidParseResult { parser_id: String, message: String },
     #[error("text macro pipeline exceeded the expansion quota of {limit}")]
     TextMacroExpansionQuotaExceeded { limit: usize },
     #[error("text macro pipeline exceeded the generated text quota of {limit} bytes")]
@@ -396,6 +445,7 @@ pub struct ComponentInfo {
 pub enum DispatchTarget {
     ParseStage,
     SyntaxDefinition(SyntaxKind),
+    Parser(String),
     ExactRegistration {
         registration_id: String,
         syntax_kind: SyntaxKind,
@@ -433,6 +483,13 @@ pub struct DispatchResult {
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
+    available_parse_results: BTreeMap<u64, ExecutedParseResult>,
+}
+
+#[derive(Debug, Clone)]
+struct ExecutedParseResult {
+    wire: ParseResult,
+    expression_roots: BTreeMap<u64, ExpressionNode>,
 }
 
 #[derive(Debug)]
@@ -1029,6 +1086,11 @@ impl SubscriptionRegistry {
 fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> Option<u8> {
     match (subscription, requested) {
         (HookTarget::ParseStage, DispatchTarget::ParseStage) => Some(0),
+        (HookTarget::Parser(subscription_id), DispatchTarget::Parser(requested_id))
+            if subscription_id == requested_id =>
+        {
+            Some(3)
+        }
         (
             HookTarget::SyntaxDefinition(subscription_kind),
             DispatchTarget::SyntaxDefinition(requested_kind),
@@ -1052,6 +1114,7 @@ struct HookEffectsCheckpoint {
     diagnostics: usize,
     context_updates: usize,
     parse_requests: usize,
+    parse_results: usize,
 }
 
 impl HookEffectsCheckpoint {
@@ -1060,6 +1123,7 @@ impl HookEffectsCheckpoint {
             diagnostics: effects.diagnostics.len(),
             context_updates: effects.context_updates.len(),
             parse_requests: effects.parse_requests.len(),
+            parse_results: effects.parse_results.len(),
         }
     }
 
@@ -1067,6 +1131,7 @@ impl HookEffectsCheckpoint {
         effects.diagnostics.truncate(self.diagnostics);
         effects.context_updates.truncate(self.context_updates);
         effects.parse_requests.truncate(self.parse_requests);
+        effects.parse_results.truncate(self.parse_results);
     }
 }
 
@@ -1530,6 +1595,9 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let type_options = expression_type_options(
             self.hooks.host.config.syntax_catalog.as_deref(),
             request.expected_types,
+            request.input,
+            request.remaining,
+            request.candidate_ends,
         );
         let literal_options = expression_literal_options(
             self.hooks.host.config.syntax_catalog.as_deref(),
@@ -1565,6 +1633,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 },
             )
             .map_err(|error| error.to_string())?;
+        let available_parse_results = result.available_parse_results;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -1599,7 +1668,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let candidates = output
             .candidates
             .into_iter()
-            .map(wit_expression_candidate)
+            .map(|candidate| wit_expression_candidate(candidate, &available_parse_results))
             .collect::<Result<Vec<_>, _>>()?;
         self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
         Ok(candidates)
@@ -1627,12 +1696,12 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         )
     }
 
-    fn registered_capture_kinds(
+    fn registered_capture_bindings(
         &self,
         kind: CatalogSyntaxKind,
         element_class: &ClassName,
-    ) -> Vec<RegisteredCaptureKind> {
-        registered_capture_kinds(&self.hooks.host.components, kind, element_class)
+    ) -> Vec<RegisteredCaptureBinding> {
+        registered_capture_bindings(&self.hooks.host.components, kind, element_class)
     }
 
     fn resolve_registered_expression(
@@ -1664,9 +1733,13 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PatternCapture::TypeExpression { .. } => None,
             })
             .collect::<Vec<_>>();
-        let type_options = if request.element_class.as_str().ends_with(".ExprParse")
-            && !regex_captures.is_empty()
-        {
+        let type_options = if !regex_captures.is_empty()
+            && registered_handler_requires_context(
+                &self.hooks.host.components,
+                CatalogSyntaxKind::Expression,
+                request.element_class,
+                REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+            ) {
             all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
         } else {
             Vec::new()
@@ -1684,6 +1757,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             related_property: request.related_property.map(str::to_owned),
             pattern_index: u64::try_from(request.pattern_index)
                 .map_err(|_| "Expression pattern index does not fit u64".to_owned())?,
+            pattern: request.pattern.to_owned(),
             span: mapped_span_to_wit(request.span.mapped.clone()),
             expected_types,
             declared_return_type: request
@@ -1718,36 +1792,41 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             children: request
                 .children
                 .iter()
-                .map(|child| WitRegisteredExpressionChild {
-                    text: child
-                        .span
-                        .local_range
-                        .slice(request.input)
-                        .unwrap_or_default()
-                        .to_owned(),
-                    element_class: expression_node_element_class(
-                        child,
-                        self.hooks.host.config.syntax_catalog.as_deref(),
-                    ),
-                    return_type: child
-                        .return_type
-                        .as_ref()
-                        .map(|value| value.as_str().to_owned()),
-                    multiplicity: child.multiplicity.map(multiplicity_to_wit),
-                    metadata: child
-                        .metadata
-                        .iter()
-                        .map(|(key, value)| WitMetadataEntry {
-                            key: key.clone(),
-                            value: value.clone(),
-                        })
-                        .collect(),
+                .map(|child| {
+                    let (kind, parser_id) = expression_node_identity(child);
+                    WitRegisteredExpressionChild {
+                        text: child
+                            .span
+                            .local_range
+                            .slice(request.input)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        kind: kind.to_owned(),
+                        parser_id: parser_id.map(str::to_owned),
+                        element_class: expression_node_element_class(
+                            child,
+                            self.hooks.host.config.syntax_catalog.as_deref(),
+                        ),
+                        return_type: child
+                            .return_type
+                            .as_ref()
+                            .map(|value| value.as_str().to_owned()),
+                        multiplicity: child.multiplicity.map(multiplicity_to_wit),
+                        metadata: child
+                            .metadata
+                            .iter()
+                            .map(|(key, value)| WitMetadataEntry {
+                                key: key.clone(),
+                                value: value.clone(),
+                            })
+                            .collect(),
+                    }
                 })
                 .collect(),
-            conditions: request
-                .conditions
+            parsed_captures: request
+                .parsed_captures
                 .iter()
-                .map(|capture| registered_condition_capture_to_wit(capture, request.input))
+                .map(|capture| parsed_capture_to_wit(capture, request.input))
                 .collect(),
             common_child_return_type: common_child_return_type(
                 request.children,
@@ -1952,10 +2031,10 @@ fn section_hook_payload(
                     PatternCapture::TypeExpression { .. } => None,
                 })
                 .collect(),
-            conditions: request
-                .conditions
+            parsed_captures: request
+                .parsed_captures
                 .iter()
-                .map(|capture| registered_condition_capture_to_wit(capture, request.input))
+                .map(|capture| parsed_capture_to_wit(capture, request.input))
                 .collect(),
         },
     }
@@ -1976,9 +2055,9 @@ fn same_section_payload(left: &WitSectionPayload, right: &WitSectionPayload) -> 
         && left.candidate.effect_section == right.candidate.effect_section
         && left.candidate.section_expression == right.candidate.section_expression
         && left.candidate.regex_captures == right.candidate.regex_captures
-        && same_registered_condition_captures(
-            &left.candidate.conditions,
-            &right.candidate.conditions,
+        && same_parsed_captures(
+            &left.candidate.parsed_captures,
+            &right.candidate.parsed_captures,
         )
 }
 
@@ -1994,46 +2073,104 @@ struct EffectHookPayloadView<'a> {
     catalog: &'a Catalog,
 }
 
-fn registered_condition_capture_to_wit(
-    capture: &skript_parser::RegisteredConditionCapture,
-    input: &str,
-) -> WitRegisteredConditionCapture {
-    let (definition_id, registration_id, pattern_index) =
-        condition_registration_identity(&capture.node);
-    WitRegisteredConditionCapture {
+fn parsed_capture_to_wit(capture: &ParserParsedCapture, input: &str) -> WitParsedCapture {
+    WitParsedCapture {
         capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
+        parser_id: capture.result.parser_id.clone(),
+        status: match capture.result.status {
+            ParserParsedCaptureStatus::Success => WitParseResultStatus::Success,
+            ParserParsedCaptureStatus::Partial => WitParseResultStatus::Partial,
+            ParserParsedCaptureStatus::Failed => WitParseResultStatus::Failed,
+        },
         text: capture
-            .node
+            .result
             .span
             .local_range
             .slice(input)
             .unwrap_or_default()
             .to_owned(),
-        span: mapped_span_to_wit(capture.node.span.mapped.clone()),
-        definition_id,
-        registration_id,
-        pattern_index: pattern_index.map(u64::try_from).transpose().unwrap_or(None),
-    }
-}
-
-fn condition_registration_identity(
-    node: &skript_parser::ConditionNode,
-) -> (Option<String>, Option<String>, Option<usize>) {
-    match &node.kind {
-        skript_parser::ConditionNodeKind::Registered {
-            definition_id,
-            registration_id,
-            pattern_index,
-        } => (
-            Some(definition_id.clone()),
-            Some(registration_id.clone()),
-            Some(*pattern_index),
-        ),
-        skript_parser::ConditionNodeKind::Grouped => node
-            .children
-            .first()
-            .map(condition_registration_identity)
+        span: mapped_span_to_wit(capture.result.span.mapped.clone()),
+        expected_types: capture
+            .result
+            .summary
+            .as_ref()
+            .and_then(|summary| summary.return_type.as_ref())
+            .map(|class_name| {
+                vec![WitExpressionExpectedType {
+                    class_name: class_name.as_str().to_owned(),
+                    plural: capture
+                        .result
+                        .summary
+                        .as_ref()
+                        .and_then(|summary| summary.multiplicity)
+                        == Some(Multiplicity::Multiple),
+                }]
+            })
             .unwrap_or_default(),
+        summary: capture
+            .result
+            .summary
+            .as_ref()
+            .map(|summary| WitParseSummary {
+                kind: summary.kind.clone(),
+                definition_id: summary.definition_id.clone(),
+                registration_id: summary.registration_id.clone(),
+                element_class: summary
+                    .element_class
+                    .as_ref()
+                    .map(|class_name| class_name.as_str().to_owned()),
+                pattern_index: summary
+                    .pattern_index
+                    .and_then(|index| u64::try_from(index).ok()),
+                return_type: summary
+                    .return_type
+                    .as_ref()
+                    .map(|class_name| class_name.as_str().to_owned()),
+                multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                metadata: summary
+                    .metadata
+                    .iter()
+                    .map(|(key, value)| WitMetadataEntry {
+                        key: key.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            }),
+        attachments: capture
+            .result
+            .attachments
+            .iter()
+            .map(|attachment| WitAddonAttachment {
+                owner_component_id: attachment.owner_component_id.clone(),
+                schema_id: attachment.schema_id.clone(),
+                schema_version: attachment.schema_version,
+                encoding: attachment.encoding.clone(),
+                bytes: attachment.bytes.clone(),
+            })
+            .collect(),
+        diagnostics: capture
+            .result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| Diagnostic {
+                code: diagnostic
+                    .metadata
+                    .get("code")
+                    .cloned()
+                    .unwrap_or_else(|| "parser.capture".to_owned()),
+                severity: DiagnosticSeverity::Error,
+                message: diagnostic.message.clone(),
+                span: mapped_span_to_wit(
+                    diagnostic
+                        .span
+                        .as_ref()
+                        .unwrap_or(&capture.result.span)
+                        .mapped
+                        .clone(),
+                ),
+                related: Vec::new(),
+            })
+            .collect(),
     }
 }
 
@@ -2182,30 +2319,10 @@ fn effect_candidate_to_wit(
                 value: value.clone(),
             })
             .collect(),
-        conditions: candidate
-            .conditions
+        parsed_captures: candidate
+            .parsed_captures
             .iter()
-            .map(|capture| registered_condition_capture_to_wit(capture, input))
-            .collect(),
-        effects: candidate
-            .effects
-            .iter()
-            .map(|capture| WitRegisteredEffectCapture {
-                capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
-                text: capture.value.clone(),
-                span: mapped_span_to_wit(capture.span.mapped.clone()),
-                definition_id: capture.candidate.matched.definition_id.clone(),
-                registration_id: capture.candidate.matched.registration_id.clone(),
-                pattern_index: u64::try_from(capture.candidate.matched.pattern_index)
-                    .unwrap_or(u64::MAX),
-                element_class: catalog
-                    .effects()
-                    .find(|effect| {
-                        effect.common.registration_id.as_str()
-                            == capture.candidate.matched.registration_id
-                    })
-                    .map(|effect| effect.common.element_class.as_str().to_owned()),
-            })
+            .map(|capture| parsed_capture_to_wit(capture, input))
             .collect(),
     }
 }
@@ -2323,8 +2440,7 @@ fn same_effect_candidate_identity(
         && same_effect_tags(&output.tags, &original.tags)
         && output.mark == original.mark
         && same_effect_marks(&output.marks, &original.marks)
-        && same_registered_condition_captures(&output.conditions, &original.conditions)
-        && same_registered_effect_captures(&output.effects, &original.effects)
+        && same_parsed_captures(&output.parsed_captures, &original.parsed_captures)
 }
 
 fn same_effect_candidate_full(left: &WitEffectCandidate, right: &WitEffectCandidate) -> bool {
@@ -2405,34 +2521,71 @@ fn same_metadata_entries(left: &[WitMetadataEntry], right: &[WitMetadataEntry]) 
             .all(|(left, right)| left.key == right.key && left.value == right.value)
 }
 
-fn same_registered_condition_captures(
-    left: &[WitRegisteredConditionCapture],
-    right: &[WitRegisteredConditionCapture],
-) -> bool {
+fn same_parsed_captures(left: &[WitParsedCapture], right: &[WitParsedCapture]) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
             left.capture_index == right.capture_index
+                && left.parser_id == right.parser_id
+                && left.status == right.status
                 && left.text == right.text
                 && same_mapped_span(&left.span, &right.span)
-                && left.definition_id == right.definition_id
-                && left.registration_id == right.registration_id
-                && left.pattern_index == right.pattern_index
+                && left.expected_types.len() == right.expected_types.len()
+                && left
+                    .expected_types
+                    .iter()
+                    .zip(&right.expected_types)
+                    .all(|(left, right)| {
+                        left.class_name == right.class_name && left.plural == right.plural
+                    })
+                && same_parse_summary(left.summary.as_ref(), right.summary.as_ref())
+                && left.attachments.len() == right.attachments.len()
+                && left
+                    .attachments
+                    .iter()
+                    .zip(&right.attachments)
+                    .all(|(left, right)| {
+                        left.owner_component_id == right.owner_component_id
+                            && left.schema_id == right.schema_id
+                            && left.schema_version == right.schema_version
+                            && left.encoding == right.encoding
+                            && left.bytes == right.bytes
+                    })
+                && same_diagnostics(&left.diagnostics, &right.diagnostics)
         })
 }
 
-fn same_registered_effect_captures(
-    left: &[WitRegisteredEffectCapture],
-    right: &[WitRegisteredEffectCapture],
-) -> bool {
-    left.len() == right.len()
-        && left.iter().zip(right).all(|(left, right)| {
-            left.capture_index == right.capture_index
-                && left.text == right.text
-                && same_mapped_span(&left.span, &right.span)
+fn same_parse_summary(left: Option<&WitParseSummary>, right: Option<&WitParseSummary>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.kind == right.kind
                 && left.definition_id == right.definition_id
                 && left.registration_id == right.registration_id
-                && left.pattern_index == right.pattern_index
                 && left.element_class == right.element_class
+                && left.pattern_index == right.pattern_index
+                && left.return_type == right.return_type
+                && left.multiplicity == right.multiplicity
+                && same_metadata_entries(&left.metadata, &right.metadata)
+        }
+        _ => false,
+    }
+}
+
+fn same_diagnostics(left: &[Diagnostic], right: &[Diagnostic]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.code == right.code
+                && left.message == right.message
+                && left.severity == right.severity
+                && same_mapped_span(&left.span, &right.span)
+                && left.related.len() == right.related.len()
+                && left
+                    .related
+                    .iter()
+                    .zip(&right.related)
+                    .all(|(left, right)| {
+                        left.message == right.message && same_mapped_span(&left.span, &right.span)
+                    })
         })
 }
 fn apply_effect_hook_replacement(
@@ -2473,6 +2626,7 @@ fn unknown_effect_matches(
     source: &MappedSource,
     node: &skript_parser::RawNode,
     failure: Option<PatternFailure>,
+    candidate: Option<EffectCandidateFailure>,
 ) -> Result<EffectMatches, HostError> {
     let code_span = node
         .code_span
@@ -2495,13 +2649,14 @@ fn unknown_effect_matches(
             },
             failures: RankedFailures {
                 fallback: failure.map(FailureTrace::leaf),
-                candidates: Vec::new(),
+                candidates: candidate.into_iter().collect(),
             },
         }),
     })
 }
 fn wit_expression_candidate(
     candidate: WitExpressionLeafCandidate,
+    available_parse_results: &BTreeMap<u64, ExecutedParseResult>,
 ) -> Result<ExpressionLeafCandidate, String> {
     if candidate.parser_id.trim().is_empty() {
         return Err("Expression candidate parser ID is blank".to_owned());
@@ -2519,6 +2674,33 @@ fn wit_expression_candidate(
             ));
         }
     }
+    let mut children = Vec::with_capacity(candidate.children.len());
+    for reference in candidate.children {
+        let result = available_parse_results
+            .get(&reference.host_token)
+            .ok_or_else(|| {
+                format!(
+                    "Expression candidate {} references unavailable parse-result token {}",
+                    candidate.parser_id, reference.host_token
+                )
+            })?;
+        if result.wire.parser_id != skript_parser::HOST_EXPRESSION_PARSER_ID {
+            return Err(format!(
+                "Expression candidate {} references non-Expression parser {}",
+                candidate.parser_id, result.wire.parser_id
+            ));
+        }
+        let child = result
+            .expression_roots
+            .get(&reference.root_id)
+            .ok_or_else(|| {
+                format!(
+                    "Expression candidate {} references unavailable root {} from token {}",
+                    candidate.parser_id, reference.root_id, reference.host_token
+                )
+            })?;
+        children.push(child.clone());
+    }
     Ok(ExpressionLeafCandidate {
         parser_id: candidate.parser_id,
         kind: match candidate.kind {
@@ -2534,6 +2716,7 @@ fn wit_expression_candidate(
             WitDynamicMultiplicity::Multiple => Multiplicity::Multiple,
             WitDynamicMultiplicity::Both => Multiplicity::Both,
         }),
+        children,
         metadata,
     })
 }
@@ -2541,30 +2724,79 @@ fn wit_expression_candidate(
 fn expression_type_options(
     catalog: Option<&Catalog>,
     expected_types: &[skript_parser::ExpressionExpectedType],
+    input: &str,
+    remaining: ParserTextRange,
+    candidate_ends: &[usize],
 ) -> Vec<WitExpressionTypeOption> {
-    if expected_types
-        .iter()
-        .any(|expected| expected.class_name.as_str().ends_with(".ClassInfo"))
+    let Some(catalog) = catalog else {
+        return Vec::new();
+    };
+    let Some(class_info) = catalog.type_by_code_name("classinfo") else {
+        return Vec::new();
+    };
+    if !expected_types.is_empty()
+        && !expected_types.iter().any(|expected| {
+            catalog.can_convert(
+                class_info.original_class.as_str(),
+                expected.class_name.as_str(),
+            )
+        })
     {
-        all_expression_type_options(catalog)
-    } else {
-        Vec::new()
+        return Vec::new();
     }
+    let candidate_texts = candidate_ends
+        .iter()
+        .filter_map(|end| input.get(remaining.start..*end))
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    all_expression_type_options(Some(catalog))
+        .into_iter()
+        .filter(|option| {
+            candidate_texts
+                .iter()
+                .any(|text| expression_type_option_matches(option, text))
+        })
+        .collect()
+}
+
+thread_local! {
+    static TYPE_USER_INPUT_PATTERNS: RefCell<HashMap<String, Option<Regex>>> =
+        RefCell::new(HashMap::new());
+}
+
+fn expression_type_option_matches(option: &WitExpressionTypeOption, input: &str) -> bool {
+    input.eq_ignore_ascii_case(&option.code_name)
+        || input.eq_ignore_ascii_case(&option.singular)
+        || input.eq_ignore_ascii_case(&option.plural)
+        || option.user_input_patterns.iter().any(|pattern| {
+            TYPE_USER_INPUT_PATTERNS.with(|patterns| {
+                patterns
+                    .borrow_mut()
+                    .entry(pattern.clone())
+                    .or_insert_with(|| Regex::new(&format!("(?i)^(?:{pattern})$")).ok())
+                    .as_ref()
+                    .is_some_and(|pattern| pattern.is_match(input).unwrap_or(false))
+            })
+        })
 }
 
 fn all_expression_type_options(catalog: Option<&Catalog>) -> Vec<WitExpressionTypeOption> {
-    catalog
+    let mut options = catalog
         .into_iter()
         .flat_map(Catalog::types)
         .map(|value| WitExpressionTypeOption {
             code_name: value.code_name.as_str().to_owned(),
             class_name: value.original_class.as_str().to_owned(),
+            type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
             singular: value.noun.singular.clone(),
             plural: value.noun.plural.clone(),
+            user_input_patterns: value.user_input_patterns.clone(),
             has_parser: value.has_parser,
             has_supplier: value.has_supplier,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    options.sort_by_key(|option| option.type_parse_order);
+    options
 }
 
 fn expression_literal_options(
@@ -2770,6 +3002,19 @@ fn expression_node_element_class(
         .map(|expression| expression.common.element_class.as_str().to_owned())
 }
 
+fn expression_node_identity(node: &ExpressionNode) -> (&'static str, Option<&str>) {
+    match &node.kind {
+        ExpressionNodeKind::Grouped => ("grouped-expression", None),
+        ExpressionNodeKind::List { .. } => ("expression-list", None),
+        ExpressionNodeKind::Registered { .. } => ("registered-expression", None),
+        ExpressionNodeKind::Variable { parser_id } => ("variable", Some(parser_id)),
+        ExpressionNodeKind::Literal { parser_id } => ("literal", Some(parser_id)),
+        ExpressionNodeKind::Function { parser_id } => ("function", Some(parser_id)),
+        ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None),
+        ExpressionNodeKind::Custom { parser_id } => ("custom", Some(parser_id)),
+    }
+}
+
 fn common_child_return_type(
     children: &[skript_parser::ExpressionNode],
     catalog: Option<&Catalog>,
@@ -2792,8 +3037,10 @@ fn same_expression_type_options(
         && left.iter().zip(right).all(|(left, right)| {
             left.code_name == right.code_name
                 && left.class_name == right.class_name
+                && left.type_parse_order == right.type_parse_order
                 && left.singular == right.singular
                 && left.plural == right.plural
+                && left.user_input_patterns == right.user_input_patterns
                 && left.has_parser == right.has_parser
                 && left.has_supplier == right.has_supplier
         })
@@ -2851,6 +3098,7 @@ fn same_registered_expression_identity(
         && left.element_class == right.element_class
         && left.related_property == right.related_property
         && left.pattern_index == right.pattern_index
+        && left.pattern == right.pattern
         && same_mapped_span(&left.span, &right.span)
         && left.expected_types.len() == right.expected_types.len()
         && left
@@ -2883,7 +3131,7 @@ fn same_registered_expression_identity(
                     && left.multiplicity == right.multiplicity
                     && same_metadata_entries(&left.metadata, &right.metadata)
             })
-        && same_registered_condition_captures(&left.conditions, &right.conditions)
+        && same_parsed_captures(&left.parsed_captures, &right.parsed_captures)
         && left.common_child_return_type == right.common_child_return_type
         && same_expression_type_options(&left.type_options, &right.type_options)
         && left.property_options.len() == right.property_options.len()
@@ -2965,11 +3213,11 @@ fn wit_syntax_kind(kind: MatchSyntaxKind) -> SyntaxKind {
     }
 }
 
-fn registered_capture_kinds(
+fn registered_capture_bindings(
     components: &[ComponentEntry],
     kind: CatalogSyntaxKind,
     element_class: &ClassName,
-) -> Vec<RegisteredCaptureKind> {
+) -> Vec<RegisteredCaptureBinding> {
     components
         .iter()
         .rev()
@@ -2981,12 +3229,17 @@ fn registered_capture_kinds(
         })
         .map_or_else(Vec::new, |handler| {
             handler
-                .regex_captures
+                .capture_parsers
                 .iter()
-                .map(|kind| match kind {
-                    WitRegisteredCaptureKind::Raw => RegisteredCaptureKind::Raw,
-                    WitRegisteredCaptureKind::Condition => RegisteredCaptureKind::Condition,
-                    WitRegisteredCaptureKind::Effect => RegisteredCaptureKind::Effect,
+                .map(|binding| RegisteredCaptureBinding {
+                    capture_index: usize::try_from(binding.capture_index).unwrap_or(usize::MAX),
+                    parser_id: binding.parser_id.clone(),
+                    required: binding.required,
+                    options: binding
+                        .options
+                        .iter()
+                        .map(|entry| (entry.key.clone(), entry.value.clone()))
+                        .collect(),
                 })
                 .collect()
         })
@@ -3004,6 +3257,29 @@ fn has_registered_syntax_handler(
         .any(|handler| {
             catalog_syntax_kind(handler.kind) == kind
                 && element_class.as_str().ends_with(&handler.class_suffix)
+        })
+}
+
+fn registered_handler_requires_context(
+    components: &[ComponentEntry],
+    kind: CatalogSyntaxKind,
+    element_class: &ClassName,
+    requirement: &str,
+) -> bool {
+    components
+        .iter()
+        .rev()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .flat_map(|component| &component.manifest.registered_syntax_handlers)
+        .find(|handler| {
+            catalog_syntax_kind(handler.kind) == kind
+                && element_class.as_str().ends_with(&handler.class_suffix)
+        })
+        .is_some_and(|handler| {
+            handler
+                .context_requirements
+                .iter()
+                .any(|declared| declared == requirement)
         })
 }
 
@@ -3106,7 +3382,38 @@ pub struct ParserHost {
     capabilities: Vec<Capability>,
     components: Vec<ComponentEntry>,
     registry: SubscriptionRegistry,
+    active_parse_requests: Vec<ParseRequestKey>,
+    next_parse_result_token: u64,
     _epoch_ticker: EpochTicker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParseRequestKey {
+    parser_id: String,
+    input: String,
+    expected_types: Vec<(String, bool)>,
+    options: Vec<(String, String)>,
+    syntax_context: u64,
+}
+
+impl ParseRequestKey {
+    fn new(request: &ParseRequest, context: &InvocationContext) -> Self {
+        Self {
+            parser_id: request.parser_id.clone(),
+            input: request.input.clone(),
+            expected_types: request
+                .expected_types
+                .iter()
+                .map(|expected| (expected.class_name.clone(), expected.plural))
+                .collect(),
+            options: request
+                .options
+                .iter()
+                .map(|entry| (entry.key.clone(), entry.value.clone()))
+                .collect(),
+            syntax_context: context.syntax_context,
+        }
+    }
 }
 
 impl ParserHost {
@@ -3145,6 +3452,8 @@ impl ParserHost {
             capabilities,
             components: Vec::new(),
             registry: SubscriptionRegistry::default(),
+            active_parse_requests: Vec::new(),
+            next_parse_result_token: 1,
             _epoch_ticker: ticker,
         };
         host.load_component(core_library, true)?;
@@ -3624,7 +3933,7 @@ impl ParserHost {
         if matches!(before.decision, HookDecision::Reject(_)) {
             transaction.rollback_to(&base)?;
             return Ok(WasmEffectParseResult {
-                matches: unknown_effect_matches(source, node, None)?,
+                matches: unknown_effect_matches(source, node, None, None)?,
                 effects,
                 calls,
                 failures,
@@ -3736,14 +4045,53 @@ impl ParserHost {
 
         if let HookDecision::Reject(rejection) = after.decision {
             transaction.rollback_to(&base)?;
-            if let Some(selected) = matches.selected.as_ref() {
-                let failure = Some(PatternFailure {
-                    span: selected.matched.matched.span.clone(),
+            if let Some(selected) = matches.selected.take() {
+                let span = rejection
+                    .diagnostics
+                    .first()
+                    .and_then(|diagnostic| {
+                        let start = usize::try_from(diagnostic.span.virtual_range.start).ok()?;
+                        let end = usize::try_from(diagnostic.span.virtual_range.end).ok()?;
+                        selected
+                            .parsed_captures
+                            .iter()
+                            .find(|capture| {
+                                capture.result.span.mapped.virtual_range
+                                    == ParserTextRange::new(start, end)
+                            })
+                            .map(|capture| capture.result.span.clone())
+                    })
+                    .unwrap_or_else(|| selected.matched.matched.span.clone());
+                let failure = PatternFailure {
+                    span,
                     reasons: vec![PatternFailureReason::HookRejected {
                         reason: rejection.reason,
                     }],
-                });
-                matches = unknown_effect_matches(source, node, failure)?;
+                };
+                let registration_id = selected.matched.registration_id.clone();
+                let element_class = catalog
+                    .effects()
+                    .find(|effect| effect.common.registration_id.as_str() == registration_id)
+                    .map(|effect| effect.common.element_class.clone());
+                let rejected = EffectCandidateFailure {
+                    matched: CandidateFailure {
+                        kind: selected.matched.kind,
+                        definition_id: selected.matched.definition_id,
+                        registration_id: selected.matched.registration_id,
+                        priority: selected.matched.priority,
+                        registration_order: selected.matched.registration_order,
+                        resolved_order: None,
+                        literal_anchor: selected.matched.literal_anchor,
+                        pattern_index: Some(selected.matched.pattern_index),
+                        pattern: Some(selected.matched.pattern),
+                        trace: FailureTrace::leaf(failure.clone()),
+                        related: Vec::new(),
+                    },
+                    element_class,
+                    handler: selected.handler,
+                    metadata: selected.metadata,
+                };
+                matches = unknown_effect_matches(source, node, Some(failure), Some(rejected))?;
             }
         } else if matches.selected.is_some() {
             if let Err(error) = apply_effect_hook_replacement(&mut matches, after_output) {
@@ -4874,6 +5222,212 @@ impl ParserHost {
 
         Ok(TreeWalk::Continue { sibling_count: 1 })
     }
+    fn execute_parse_requests(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        requests: Vec<ParseRequest>,
+    ) -> Result<Vec<ExecutedParseResult>, HostError> {
+        let mut results = Vec::with_capacity(requests.len());
+        let mut node_count = 0usize;
+        for request in requests {
+            let key = ParseRequestKey::new(&request, context);
+            let mut result = if self.active_parse_requests.contains(&key) {
+                ExecutedParseResult {
+                    wire: failed_parse_result(
+                        &request,
+                        "parser.request-cycle",
+                        "recursive parser request cycle detected",
+                    ),
+                    expression_roots: BTreeMap::new(),
+                }
+            } else {
+                self.active_parse_requests.push(key);
+                let result = self.execute_parse_request(transaction, context, &request);
+                self.active_parse_requests.pop();
+                result?
+            };
+            validate_parse_result(&request, &result.wire, None)?;
+            node_count = node_count.saturating_add(result.wire.nodes.len());
+            if node_count > self.config.max_parse_result_nodes {
+                return Err(HostError::ParseResultNodeQuotaExceeded {
+                    limit: self.config.max_parse_result_nodes,
+                });
+            }
+            result.wire.host_token = self.next_parse_result_token;
+            self.next_parse_result_token = self
+                .next_parse_result_token
+                .checked_add(1)
+                .ok_or(HostError::ParseResultTokenExhausted)?;
+            results.push(result);
+        }
+        Ok(results)
+    }
+
+    fn execute_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        match request.parser_id.as_str() {
+            skript_parser::HOST_EXPRESSION_PARSER_ID => {
+                self.execute_expression_parse_request(transaction, context, request)
+            }
+            skript_parser::HOST_CONDITION_PARSER_ID => {
+                self.execute_condition_parse_request(transaction, context, request)
+            }
+            _ => self.execute_addon_parse_request(transaction, context, request),
+        }
+    }
+
+    fn execute_expression_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let source = MappedSource::identity(request.input.clone());
+        let parsed = self.parse_expression_in_parse(
+            transaction,
+            context.clone(),
+            ExpressionParseRequest {
+                source: &source,
+                range: ParserTextRange::new(0, request.input.len()),
+                expected_types: request
+                    .expected_types
+                    .iter()
+                    .map(|expected| skript_parser::ExpressionExpectedType {
+                        class_name: ClassName(expected.class_name.clone()),
+                        plural: expected.plural,
+                    })
+                    .collect(),
+                context: skript_parser::ExpressionParseContext {
+                    syntax_context: context.syntax_context,
+                    ..Default::default()
+                },
+            },
+            ExpressionParserConfig::default(),
+        )?;
+        let Some(selected) = parsed.matches.selected else {
+            let message = parsed.matches.failure.as_ref().map_or_else(
+                || "input is not a valid Expression".to_owned(),
+                |failure| format!("Expression parse failed: {:?}", failure.kind),
+            );
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(request, "parser.expression-no-match", &message),
+                expression_roots: BTreeMap::new(),
+            });
+        };
+        let wire = expression_parse_result(
+            request,
+            &selected.node,
+            self.config.syntax_catalog.as_deref(),
+        );
+        let root_id = *wire
+            .roots
+            .first()
+            .expect("successful Expression results have one root");
+        let child = rebase_expression_node(selected.node, request)?;
+        Ok(ExecutedParseResult {
+            wire,
+            expression_roots: BTreeMap::from([(root_id, child)]),
+        })
+    }
+
+    fn execute_condition_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let source = MappedSource::identity(request.input.clone());
+        let parsed = self.parse_condition_in_parse(
+            transaction,
+            context.clone(),
+            ConditionParseRequest {
+                source: &source,
+                range: ParserTextRange::new(0, request.input.len()),
+                context: skript_parser::ExpressionParseContext {
+                    syntax_context: context.syntax_context,
+                    ..Default::default()
+                },
+            },
+            ConditionParserConfig::default(),
+        )?;
+        let Some(selected) = parsed.matches.selected else {
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(
+                    request,
+                    "parser.condition-no-match",
+                    "input is not a valid Condition",
+                ),
+                expression_roots: BTreeMap::new(),
+            });
+        };
+        Ok(ExecutedParseResult {
+            wire: condition_parse_result(
+                request,
+                &selected.node,
+                self.config.syntax_catalog.as_deref(),
+            ),
+            expression_roots: BTreeMap::new(),
+        })
+    }
+
+    fn execute_addon_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let mut result = self.dispatch_with_transaction(
+            transaction,
+            DispatchRequest {
+                context: context.clone(),
+                target: DispatchTarget::Parser(request.parser_id.clone()),
+                phase: HookPhase::Parser,
+                payload: HookPayload::Parser(request.clone()),
+            },
+        )?;
+        if !matches!(result.decision, HookDecision::Handled) {
+            if !result.effects.parse_results.is_empty() {
+                return Err(HostError::InvalidParseResult {
+                    parser_id: request.parser_id.clone(),
+                    message: "a parser returned results without handling the request".to_owned(),
+                });
+            }
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(
+                    request,
+                    "parser.unhandled",
+                    "no registered parser handled the request",
+                ),
+                expression_roots: BTreeMap::new(),
+            });
+        }
+        if result.effects.parse_results.len() != 1 {
+            return Err(HostError::InvalidParseResult {
+                parser_id: request.parser_id.clone(),
+                message: format!(
+                    "a handled request must return exactly one result, got {}",
+                    result.effects.parse_results.len()
+                ),
+            });
+        }
+        let parsed = result
+            .effects
+            .parse_results
+            .pop()
+            .expect("length was checked");
+        let provider = result.calls.last().map(|call| call.component_id.as_str());
+        validate_parse_result(request, &parsed, provider)?;
+        Ok(ExecutedParseResult {
+            wire: parsed,
+            expression_roots: BTreeMap::new(),
+        })
+    }
+
     fn dispatch_with_transaction(
         &mut self,
         transaction: &ParseTransaction,
@@ -4883,6 +5437,7 @@ impl ParserHost {
             HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
             HookPhase::Effect => CAPABILITY_EFFECT_PARSER,
             HookPhase::Section => CAPABILITY_SECTION_PARSER,
+            HookPhase::Parser => CAPABILITY_ADDITIONAL_PARSE,
             _ => CAPABILITY_HOOKS,
         };
         let candidates =
@@ -4894,19 +5449,15 @@ impl ParserHost {
         let mut effects = empty_effects();
         let mut calls = Vec::new();
         let mut failures = Vec::new();
+        let mut available_parse_results = BTreeMap::new();
         let mut generated_output = 0usize;
         let mut decision = HookDecision::ContinueProcessing;
 
-        for candidate in candidates {
+        'candidate: for candidate in candidates {
             if self.components[candidate.component_index].disabled
                 || self.components[candidate.component_index].unloaded
             {
                 continue;
-            }
-            if calls.len() >= self.config.max_calls_per_dispatch {
-                return Err(HostError::CallQuotaExceeded {
-                    limit: self.config.max_calls_per_dispatch,
-                });
             }
 
             let component_id = self.components[candidate.component_index]
@@ -4914,37 +5465,46 @@ impl ParserHost {
                 .component_id
                 .clone();
             let subscription_id = candidate.subscription.id.clone();
-            let mut context = request.context.clone();
-            context.subscription_id = subscription_id.clone();
-            let invocation = crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation {
-                context,
-                target: candidate.subscription.target.clone(),
-                phase: request.phase,
-                payload: payload.clone(),
-            };
-
-            calls.push(HookCall {
-                component_id: component_id.clone(),
-                subscription_id: subscription_id.clone(),
-            });
-            let state_invocation = transaction.begin_invocation(component_id.clone())?;
-            let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
-                self.dynamic_syntax_registry
-                    .as_ref()
-                    .map(|registry| {
-                        registry.begin_document_update(
-                            component_id.clone(),
-                            self.components[candidate.component_index].load_order,
-                            &document_id,
-                            document_revision,
-                        )
-                    })
-                    .transpose()?
-            } else {
-                None
-            };
-            let call =
-                {
+            let mut parse_results = Vec::new();
+            let mut candidate_parse_results = BTreeMap::new();
+            let mut continuation_base = None;
+            let (output, state_invocation, dynamic_update) = loop {
+                if calls.len() >= self.config.max_calls_per_dispatch {
+                    return Err(HostError::CallQuotaExceeded {
+                        limit: self.config.max_calls_per_dispatch,
+                    });
+                }
+                let mut context = request.context.clone();
+                context.subscription_id = subscription_id.clone();
+                let invocation =
+                    crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation {
+                        context,
+                        target: candidate.subscription.target.clone(),
+                        phase: request.phase,
+                        payload: payload.clone(),
+                        parse_results: mem::take(&mut parse_results),
+                    };
+                calls.push(HookCall {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                });
+                let state_invocation = transaction.begin_invocation(component_id.clone())?;
+                let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
+                    self.dynamic_syntax_registry
+                        .as_ref()
+                        .map(|registry| {
+                            registry.begin_document_update(
+                                component_id.clone(),
+                                self.components[candidate.component_index].load_order,
+                                &document_id,
+                                document_revision,
+                            )
+                        })
+                        .transpose()?
+                } else {
+                    None
+                };
+                let call = {
                     let entry = &mut self.components[candidate.component_index];
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
@@ -4987,62 +5547,121 @@ impl ParserHost {
                     let dynamic_update = entry.store.data_mut().dynamic_syntax_update.take();
                     (call, state_invocation, dynamic_update)
                 };
-
-            let (call, state_invocation, dynamic_update) = call;
-            let output = match call {
-                Ok(Ok(output)) => output,
-                Ok(Err(addon_error)) => {
-                    state_invocation.rollback();
-                    drop(dynamic_update);
-                    effects.diagnostics.extend(addon_error.diagnostics);
-                    failures.push(ComponentFailure {
-                        component_id: component_id.clone(),
-                        subscription_id: subscription_id.clone(),
-                        error: HostError::AddonFailure {
-                            component_id,
-                            message: addon_error.message,
-                        },
-                    });
-                    continue;
-                }
-                Err(error) => {
-                    state_invocation.rollback();
-                    drop(dynamic_update);
-                    let error = classify_wasmtime_error(component_id.clone(), "hook", error);
-                    if error.disables_component() {
-                        self.components[candidate.component_index].disabled = true;
-                        if let Some(registry) = &self.dynamic_syntax_registry {
-                            registry.remove_component(&component_id)?;
+                let (call, state_invocation, dynamic_update) = call;
+                let mut output = match call {
+                    Ok(Ok(output)) => output,
+                    Ok(Err(addon_error)) => {
+                        state_invocation.rollback();
+                        drop(dynamic_update);
+                        if let Some(base) = continuation_base.as_ref() {
+                            transaction.rollback_to(base)?;
                         }
+                        effects.diagnostics.extend(addon_error.diagnostics);
+                        failures.push(ComponentFailure {
+                            component_id: component_id.clone(),
+                            subscription_id: subscription_id.clone(),
+                            error: HostError::AddonFailure {
+                                component_id: component_id.clone(),
+                                message: addon_error.message,
+                            },
+                        });
+                        continue 'candidate;
                     }
-                    failures.push(ComponentFailure {
-                        component_id,
-                        subscription_id,
-                        error,
-                    });
-                    continue;
-                }
-            };
+                    Err(error) => {
+                        state_invocation.rollback();
+                        drop(dynamic_update);
+                        if let Some(base) = continuation_base.as_ref() {
+                            transaction.rollback_to(base)?;
+                        }
+                        let error = classify_wasmtime_error(component_id.clone(), "hook", error);
+                        if error.disables_component() {
+                            self.components[candidate.component_index].disabled = true;
+                            if let Some(registry) = &self.dynamic_syntax_registry {
+                                registry.remove_component(&component_id)?;
+                            }
+                        }
+                        failures.push(ComponentFailure {
+                            component_id: component_id.clone(),
+                            subscription_id: subscription_id.clone(),
+                            error,
+                        });
+                        continue 'candidate;
+                    }
+                };
 
-            generated_output = generated_output.saturating_add(hook_output_size(&output));
-            if generated_output > self.config.max_generated_output_bytes {
+                generated_output = generated_output.saturating_add(hook_output_size(&output));
+                if generated_output > self.config.max_generated_output_bytes {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    return Err(HostError::GeneratedOutputQuotaExceeded {
+                        limit: self.config.max_generated_output_bytes,
+                    });
+                }
+                if output.effects.parse_requests.is_empty() {
+                    break (output, state_invocation, dynamic_update);
+                }
+                if calls
+                    .iter()
+                    .rev()
+                    .take_while(|call| {
+                        call.component_id == component_id && call.subscription_id == subscription_id
+                    })
+                    .count()
+                    >= self.config.max_parser_rounds
+                {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    return Err(HostError::ParserRoundQuotaExceeded {
+                        limit: self.config.max_parser_rounds,
+                    });
+                }
+                let requests = mem::take(&mut output.effects.parse_requests);
+                if requests.len() > self.config.max_parse_requests_per_hook {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    return Err(HostError::ParseRequestQuotaExceeded {
+                        limit: self.config.max_parse_requests_per_hook,
+                    });
+                }
                 state_invocation.rollback();
                 drop(dynamic_update);
-                return Err(HostError::GeneratedOutputQuotaExceeded {
-                    limit: self.config.max_generated_output_bytes,
-                });
-            }
+                if continuation_base.is_none() {
+                    continuation_base = Some(transaction.savepoint()?);
+                }
+                parse_results =
+                    match self.execute_parse_requests(transaction, &request.context, requests) {
+                        Ok(results) => {
+                            for result in &results {
+                                candidate_parse_results
+                                    .insert(result.wire.host_token, result.clone());
+                            }
+                            results.into_iter().map(|result| result.wire).collect()
+                        }
+                        Err(error) => {
+                            transaction.rollback_to(
+                                continuation_base
+                                    .as_ref()
+                                    .expect("the continuation savepoint was just created"),
+                            )?;
+                            return Err(error);
+                        }
+                    };
+            };
 
             match apply_hook_output(candidate.subscription.mode, output, payload.clone()) {
                 Ok(applied) => {
                     if matches!(applied.decision, Some(HookDecision::Reject(_))) {
                         state_invocation.rollback();
                         drop(dynamic_update);
+                        if let Some(base) = continuation_base.as_ref() {
+                            transaction.rollback_to(base)?;
+                        }
                     } else {
                         state_invocation.commit()?;
                         if let Some(update) = dynamic_update {
                             update.commit()?;
                         }
+                        available_parse_results.append(&mut candidate_parse_results);
                     }
                     payload = applied.payload;
                     merge_effects(&mut effects, applied.effects);
@@ -5056,6 +5675,9 @@ impl ParserHost {
                 Err(message) => {
                     state_invocation.rollback();
                     drop(dynamic_update);
+                    if let Some(base) = continuation_base.as_ref() {
+                        transaction.rollback_to(base)?;
+                    }
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
@@ -5075,6 +5697,7 @@ impl ParserHost {
             effects,
             calls,
             failures,
+            available_parse_results,
         })
     }
 
@@ -5150,7 +5773,7 @@ impl ParserHost {
                 registry.begin_initial_update(manifest.component_id.clone(), load_order)
             })
             .transpose()?;
-        let profile = host_profile(&self.capabilities);
+        let profile = host_profile(&self.capabilities, &self.config.runtime_profile);
         let initialization = bindings
             .nlaocs_skript_parser_addon_addon()
             .call_initialize(&mut store, &profile)
@@ -5312,9 +5935,11 @@ fn configured_host_capabilities(dynamic_syntax_available: bool) -> Vec<Capabilit
 
 fn host_profile(
     capabilities: &[Capability],
+    runtime: &RuntimeProfile,
 ) -> crate::bindings::nlaocs::skript_parser_addon::types::HostProfile {
     use crate::bindings::nlaocs::skript_parser_addon::types::{
         AbiVersion as WitAbiVersion, Capability as WitCapability, HostProfile,
+        RuntimePlugin as WitRuntimePlugin, RuntimeProfile as WitRuntimeProfile,
     };
     HostProfile {
         abi: WitAbiVersion {
@@ -5328,6 +5953,26 @@ fn host_profile(
                 version: capability.version,
             })
             .collect(),
+        runtime: WitRuntimeProfile {
+            snapshot_schema_version: runtime.snapshot_schema_version,
+            snapshot_id: runtime.snapshot_id.clone(),
+            server_name: runtime.server_name.clone(),
+            server_version: runtime.server_version.clone(),
+            minecraft_version: runtime.minecraft_version.clone(),
+            java_version: runtime.java_version.clone(),
+            language: runtime.language.clone(),
+            skript_version: runtime.skript_version.clone(),
+            plugins: runtime
+                .plugins
+                .iter()
+                .map(|plugin| WitRuntimePlugin {
+                    load_order: u64::try_from(plugin.load_order).unwrap_or(u64::MAX),
+                    name: plugin.name.clone(),
+                    version: plugin.version.clone(),
+                    main: plugin.main.clone(),
+                })
+                .collect(),
+        },
     }
 }
 
@@ -5380,6 +6025,31 @@ fn validate_manifest(
         if subscription.id.trim().is_empty() {
             return Err(HostError::InvalidManifest {
                 message: format!("{} has a blank subscription ID", manifest.component_id),
+            });
+        }
+        if let HookTarget::Parser(parser_id) = &subscription.target {
+            if parser_id.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!("subscription {} has a blank parser ID", subscription.id),
+                });
+            }
+            if subscription.phase != HookPhase::Parser
+                || subscription.capability_id != CAPABILITY_ADDITIONAL_PARSE
+                || subscription.mode != HookMode::Override
+            {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "parser subscription {} must use the parser phase, additional-parse capability, and override mode",
+                        subscription.id
+                    ),
+                });
+            }
+        } else if subscription.phase == HookPhase::Parser {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "parser-phase subscription {} must target a parser ID",
+                    subscription.id
+                ),
             });
         }
         if !subscription_ids.insert(subscription.id.as_str()) {
@@ -5497,31 +6167,67 @@ fn validate_manifest(
             });
         }
         let kind = catalog_syntax_kind(handler.kind);
-        if !matches!(
-            kind,
-            CatalogSyntaxKind::Expression | CatalogSyntaxKind::Effect | CatalogSyntaxKind::Section
-        ) {
-            return Err(HostError::InvalidManifest {
-                message: format!(
-                    "{} declares a handler for an unsupported registered syntax kind",
-                    manifest.component_id
-                ),
-            });
+        let mut context_requirements = BTreeSet::new();
+        for requirement in &handler.context_requirements {
+            if requirement.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares a blank context requirement for handler {}",
+                        manifest.component_id, handler.class_suffix
+                    ),
+                });
+            }
+            if requirement != REGISTERED_CONTEXT_ALL_TYPE_OPTIONS {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares unsupported context requirement {} for handler {}",
+                        manifest.component_id, requirement, handler.class_suffix
+                    ),
+                });
+            }
+            if !context_requirements.insert(requirement.as_str()) {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats context requirement {} for handler {}",
+                        manifest.component_id, requirement, handler.class_suffix
+                    ),
+                });
+            }
         }
-        if matches!(
-            kind,
-            CatalogSyntaxKind::Expression | CatalogSyntaxKind::Section
-        ) && handler
-            .regex_captures
-            .iter()
-            .any(|capture| matches!(capture, WitRegisteredCaptureKind::Effect))
-        {
-            return Err(HostError::InvalidManifest {
-                message: format!(
-                    "{} declares an Effect capture for a syntax that cannot contain one",
-                    manifest.component_id
-                ),
-            });
+        let mut bindings = BTreeSet::new();
+        for binding in &handler.capture_parsers {
+            if binding.parser_id.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares a blank parser ID for handler {}",
+                        manifest.component_id, handler.class_suffix
+                    ),
+                });
+            }
+            if !bindings.insert((binding.capture_index, binding.parser_id.as_str())) {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats parser {} for capture {} in handler {}",
+                        manifest.component_id,
+                        binding.parser_id,
+                        binding.capture_index,
+                        handler.class_suffix
+                    ),
+                });
+            }
+            let mut option_keys = BTreeSet::new();
+            if let Some(option) = binding
+                .options
+                .iter()
+                .find(|option| !option_keys.insert(option.key.as_str()))
+            {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats option {} for parser {} in handler {}",
+                        manifest.component_id, option.key, binding.parser_id, handler.class_suffix
+                    ),
+                });
+            }
         }
         if !registered_handlers.insert((kind.order(), handler.class_suffix.as_str())) {
             return Err(HostError::InvalidManifest {
@@ -6277,11 +6983,470 @@ fn retain_known_span_expansions(source: &MappedSource, span: &mut MappedSpan) {
     }
 }
 
+fn failed_parse_result(request: &ParseRequest, code: &str, message: &str) -> ParseResult {
+    ParseResult {
+        host_token: 0,
+        request_id: request.request_id,
+        parser_id: request.parser_id.clone(),
+        status: WitParseResultStatus::Failed,
+        roots: Vec::new(),
+        nodes: Vec::new(),
+        diagnostics: vec![Diagnostic {
+            code: code.to_owned(),
+            message: message.to_owned(),
+            severity: DiagnosticSeverity::Error,
+            span: request.span.clone(),
+            related: Vec::new(),
+        }],
+    }
+}
+
+fn expression_parse_result(
+    request: &ParseRequest,
+    root: &ExpressionNode,
+    catalog: Option<&Catalog>,
+) -> ParseResult {
+    let mut arena = ParseResultArena::new(request, catalog);
+    let root_id = arena.push_expression(root);
+    arena.nodes[root_id as usize].expected_types = request.expected_types.clone();
+    ParseResult {
+        host_token: 0,
+        request_id: request.request_id,
+        parser_id: request.parser_id.clone(),
+        status: WitParseResultStatus::Success,
+        roots: vec![root_id],
+        nodes: arena.nodes,
+        diagnostics: Vec::new(),
+    }
+}
+
+fn rebase_expression_node(
+    mut node: ExpressionNode,
+    request: &ParseRequest,
+) -> Result<ExpressionNode, HostError> {
+    node.try_map_spans(&mut |span| rebase_match_span(span, request))?;
+    Ok(node)
+}
+
+fn rebase_match_span(span: &MatchSpan, request: &ParseRequest) -> Result<MatchSpan, HostError> {
+    let span = nested_span_to_request(span, request);
+    let invalid = |message| HostError::InvalidParseResult {
+        parser_id: request.parser_id.clone(),
+        message,
+    };
+    let start = usize::try_from(span.virtual_range.start)
+        .map_err(|_| invalid("rebased span start does not fit usize".to_owned()))?;
+    let end = usize::try_from(span.virtual_range.end)
+        .map_err(|_| invalid("rebased span end does not fit usize".to_owned()))?;
+    let origins = span
+        .origins
+        .into_iter()
+        .map(|origin| {
+            let original_start = usize::try_from(origin.original_range.start)
+                .map_err(|_| invalid("origin start does not fit usize".to_owned()))?;
+            let original_end = usize::try_from(origin.original_range.end)
+                .map_err(|_| invalid("origin end does not fit usize".to_owned()))?;
+            let expansion = origin
+                .expansion
+                .map(|value| {
+                    u32::try_from(value)
+                        .map(ExpansionId::new)
+                        .map_err(|_| invalid("expansion ID does not fit u32".to_owned()))
+                })
+                .transpose()?;
+            Ok(skript_parser::SourceOrigin {
+                original_range: ParserTextRange::new(original_start, original_end),
+                kind: match origin.kind {
+                    WitOriginKind::Exact => ParserOriginKind::Exact,
+                    WitOriginKind::Replaced => ParserOriginKind::Replaced,
+                    WitOriginKind::Anchored => ParserOriginKind::Anchored,
+                },
+                expansion,
+            })
+        })
+        .collect::<Result<Vec<_>, HostError>>()?;
+    let range = ParserTextRange::new(start, end);
+    Ok(MatchSpan {
+        local_range: range,
+        mapped: skript_parser::MappedSpan {
+            virtual_range: range,
+            origins,
+        },
+    })
+}
+
+fn condition_parse_result(
+    request: &ParseRequest,
+    root: &ConditionNode,
+    catalog: Option<&Catalog>,
+) -> ParseResult {
+    let mut arena = ParseResultArena::new(request, catalog);
+    let root_id = arena.push_condition(root);
+    ParseResult {
+        host_token: 0,
+        request_id: request.request_id,
+        parser_id: request.parser_id.clone(),
+        status: WitParseResultStatus::Success,
+        roots: vec![root_id],
+        nodes: arena.nodes,
+        diagnostics: Vec::new(),
+    }
+}
+
+struct ParseResultArena<'a> {
+    request: &'a ParseRequest,
+    catalog: Option<&'a Catalog>,
+    nodes: Vec<ParseResultNode>,
+}
+
+impl<'a> ParseResultArena<'a> {
+    fn new(request: &'a ParseRequest, catalog: Option<&'a Catalog>) -> Self {
+        Self {
+            request,
+            catalog,
+            nodes: Vec::new(),
+        }
+    }
+
+    fn push_expression(&mut self, node: &ExpressionNode) -> u64 {
+        let children = node
+            .parsed_captures()
+            .iter()
+            .filter_map(|capture| self.push_capture(capture))
+            .collect();
+        let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
+            ExpressionNodeKind::Grouped => ("grouped", None, None, None),
+            ExpressionNodeKind::List { .. } => ("list", None, None, None),
+            ExpressionNodeKind::Registered {
+                definition_id,
+                registration_id,
+                pattern_index,
+            } => (
+                "registered-expression",
+                Some(definition_id.clone()),
+                Some(registration_id.clone()),
+                Some(*pattern_index as u64),
+            ),
+            ExpressionNodeKind::Variable { .. } => ("variable", None, None, None),
+            ExpressionNodeKind::Literal { .. } => ("literal", None, None, None),
+            ExpressionNodeKind::Function { .. } => ("function", None, None, None),
+            ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None),
+            ExpressionNodeKind::Custom { .. } => ("custom", None, None, None),
+        };
+        self.push_node(ParseResultNode {
+            node_id: 0,
+            parser_id: skript_parser::HOST_EXPRESSION_PARSER_ID.to_owned(),
+            kind: kind.to_owned(),
+            status: WitParseResultStatus::Success,
+            text: node
+                .span
+                .local_range
+                .slice(&self.request.input)
+                .unwrap_or_default()
+                .to_owned(),
+            span: nested_span_to_request(&node.span, self.request),
+            expected_types: Vec::new(),
+            summary: Some(WitParseSummary {
+                kind: "expression".to_owned(),
+                definition_id,
+                registration_id,
+                element_class: expression_node_element_class(node, self.catalog),
+                pattern_index,
+                return_type: node
+                    .return_type
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                metadata: metadata_to_wit(&node.metadata),
+            }),
+            children,
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+            metadata: metadata_to_wit(&node.metadata),
+        })
+    }
+
+    fn push_condition(&mut self, node: &ConditionNode) -> u64 {
+        let mut children = node
+            .expressions
+            .iter()
+            .map(|child| self.push_expression(child))
+            .collect::<Vec<_>>();
+        children.extend(node.children.iter().map(|child| self.push_condition(child)));
+        let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
+            ConditionNodeKind::Grouped => ("grouped-condition", None, None, None),
+            ConditionNodeKind::Registered {
+                definition_id,
+                registration_id,
+                pattern_index,
+            } => (
+                "registered-condition",
+                Some(definition_id.clone()),
+                Some(registration_id.clone()),
+                Some(*pattern_index as u64),
+            ),
+        };
+        self.push_node(ParseResultNode {
+            node_id: 0,
+            parser_id: skript_parser::HOST_CONDITION_PARSER_ID.to_owned(),
+            kind: kind.to_owned(),
+            status: WitParseResultStatus::Success,
+            text: node
+                .span
+                .local_range
+                .slice(&self.request.input)
+                .unwrap_or_default()
+                .to_owned(),
+            span: nested_span_to_request(&node.span, self.request),
+            expected_types: Vec::new(),
+            summary: Some(WitParseSummary {
+                kind: "condition".to_owned(),
+                definition_id,
+                registration_id,
+                element_class: None,
+                pattern_index,
+                return_type: None,
+                multiplicity: None,
+                metadata: metadata_to_wit(&node.metadata),
+            }),
+            children,
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+            metadata: metadata_to_wit(&node.metadata),
+        })
+    }
+
+    fn push_capture(&mut self, capture: &ParserParsedCapture) -> Option<u64> {
+        let value = capture.result.value.as_ref()?;
+        let id = match value {
+            skript_parser::ParsedCaptureValue::Expression(node) => self.push_expression(node),
+            skript_parser::ParsedCaptureValue::Condition(node) => self.push_condition(node),
+            skript_parser::ParsedCaptureValue::Effect(_) => {
+                self.push_opaque_capture(capture, "effect", &capture.result.span)
+            }
+            skript_parser::ParsedCaptureValue::Section(_) => {
+                self.push_opaque_capture(capture, "section", &capture.result.span)
+            }
+            skript_parser::ParsedCaptureValue::Raw(_) => {
+                self.push_opaque_capture(capture, "raw", &capture.result.span)
+            }
+        };
+        let target = &mut self.nodes[id as usize];
+        target.parser_id.clone_from(&capture.result.parser_id);
+        target.attachments = capture
+            .result
+            .attachments
+            .iter()
+            .map(|attachment| WitAddonAttachment {
+                owner_component_id: attachment.owner_component_id.clone(),
+                schema_id: attachment.schema_id.clone(),
+                schema_version: attachment.schema_version,
+                encoding: attachment.encoding.clone(),
+                bytes: attachment.bytes.clone(),
+            })
+            .collect();
+        Some(id)
+    }
+
+    fn push_opaque_capture(
+        &mut self,
+        capture: &ParserParsedCapture,
+        kind: &str,
+        span: &MatchSpan,
+    ) -> u64 {
+        let summary = capture
+            .result
+            .summary
+            .as_ref()
+            .map(|summary| WitParseSummary {
+                kind: summary.kind.clone(),
+                definition_id: summary.definition_id.clone(),
+                registration_id: summary.registration_id.clone(),
+                element_class: summary
+                    .element_class
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                pattern_index: summary.pattern_index.map(|value| value as u64),
+                return_type: summary
+                    .return_type
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                metadata: metadata_to_wit(&summary.metadata),
+            });
+        self.push_node(ParseResultNode {
+            node_id: 0,
+            parser_id: capture.result.parser_id.clone(),
+            kind: kind.to_owned(),
+            status: match capture.result.status {
+                ParserParsedCaptureStatus::Success => WitParseResultStatus::Success,
+                ParserParsedCaptureStatus::Partial => WitParseResultStatus::Partial,
+                ParserParsedCaptureStatus::Failed => WitParseResultStatus::Failed,
+            },
+            text: span
+                .local_range
+                .slice(&self.request.input)
+                .unwrap_or_default()
+                .to_owned(),
+            span: nested_span_to_request(span, self.request),
+            expected_types: Vec::new(),
+            summary,
+            children: Vec::new(),
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+            metadata: Vec::new(),
+        })
+    }
+
+    fn push_node(&mut self, mut node: ParseResultNode) -> u64 {
+        let id = self.nodes.len() as u64;
+        node.node_id = id;
+        self.nodes.push(node);
+        id
+    }
+}
+
+fn metadata_to_wit(metadata: &BTreeMap<String, String>) -> Vec<WitMetadataEntry> {
+    metadata
+        .iter()
+        .map(|(key, value)| WitMetadataEntry {
+            key: key.clone(),
+            value: value.clone(),
+        })
+        .collect()
+}
+
+fn nested_span_to_request(span: &MatchSpan, request: &ParseRequest) -> MappedSpan {
+    // Nested matcher frames keep `local_range` relative to their own pattern
+    // input. The mapped range remains absolute within the parse-request input.
+    let start = span.mapped.virtual_range.start as u64;
+    let end = span.mapped.virtual_range.end as u64;
+    let virtual_start = request.span.virtual_range.start.saturating_add(start);
+    let virtual_end = request.span.virtual_range.start.saturating_add(end);
+    let input_len = request.input.len() as u64;
+    let origins = request
+        .span
+        .origins
+        .iter()
+        .map(|origin| {
+            let origin_len = origin
+                .original_range
+                .end
+                .saturating_sub(origin.original_range.start);
+            let original_range = if origin_len >= input_len {
+                WitTextRange {
+                    start: origin.original_range.start.saturating_add(start),
+                    end: origin.original_range.start.saturating_add(end),
+                }
+            } else {
+                origin.original_range
+            };
+            WitSourceOrigin {
+                original_range,
+                kind: origin.kind,
+                expansion: origin.expansion,
+            }
+        })
+        .collect();
+    MappedSpan {
+        virtual_range: WitTextRange {
+            start: virtual_start,
+            end: virtual_end,
+        },
+        origins,
+    }
+}
+
+fn validate_parse_result(
+    request: &ParseRequest,
+    result: &ParseResult,
+    provider: Option<&str>,
+) -> Result<(), HostError> {
+    let invalid = |message: String| HostError::InvalidParseResult {
+        parser_id: request.parser_id.clone(),
+        message,
+    };
+    if result.request_id != request.request_id || result.parser_id != request.parser_id {
+        return Err(invalid("request ID or parser ID does not match".to_owned()));
+    }
+    if matches!(result.status, WitParseResultStatus::Success) && result.roots.is_empty() {
+        return Err(invalid(
+            "a successful result must have at least one root".to_owned(),
+        ));
+    }
+    let mut nodes = HashMap::with_capacity(result.nodes.len());
+    for (index, node) in result.nodes.iter().enumerate() {
+        if nodes.insert(node.node_id, index).is_some() {
+            return Err(invalid(format!("duplicate node ID {}", node.node_id)));
+        }
+        if node.span.virtual_range.start > node.span.virtual_range.end
+            || node.span.virtual_range.start < request.span.virtual_range.start
+            || node.span.virtual_range.end > request.span.virtual_range.end
+        {
+            return Err(invalid(format!(
+                "node {} has a span outside the request",
+                node.node_id
+            )));
+        }
+        if let Some(provider) = provider
+            && node
+                .attachments
+                .iter()
+                .any(|attachment| attachment.owner_component_id != provider)
+        {
+            return Err(invalid(format!(
+                "node {} contains an attachment owned by another component",
+                node.node_id
+            )));
+        }
+    }
+    for root in &result.roots {
+        if !nodes.contains_key(root) {
+            return Err(invalid(format!("unknown root node ID {root}")));
+        }
+    }
+    for node in &result.nodes {
+        for child in &node.children {
+            if !nodes.contains_key(child) {
+                return Err(invalid(format!(
+                    "node {} references unknown child {child}",
+                    node.node_id
+                )));
+            }
+        }
+    }
+    let mut states = HashMap::<u64, u8>::new();
+    for node in &result.nodes {
+        let mut stack = vec![(node.node_id, false)];
+        while let Some((id, leaving)) = stack.pop() {
+            if leaving {
+                states.insert(id, 2);
+                continue;
+            }
+            match states.get(&id).copied().unwrap_or(0) {
+                2 => continue,
+                1 => {
+                    return Err(invalid(format!(
+                        "parse result graph contains a cycle at {id}"
+                    )));
+                }
+                _ => {}
+            }
+            states.insert(id, 1);
+            stack.push((id, true));
+            let node = &result.nodes[nodes[&id]];
+            stack.extend(node.children.iter().rev().map(|child| (*child, false)));
+        }
+    }
+    Ok(())
+}
+
 fn empty_effects() -> HookEffects {
     HookEffects {
         diagnostics: Vec::new(),
         context_updates: Vec::new(),
         parse_requests: Vec::new(),
+        parse_results: Vec::new(),
     }
 }
 
@@ -6289,6 +7454,7 @@ fn merge_effects(target: &mut HookEffects, source: HookEffects) {
     target.diagnostics.extend(source.diagnostics);
     target.context_updates.extend(source.context_updates);
     target.parse_requests.extend(source.parse_requests);
+    target.parse_results.extend(source.parse_results);
 }
 
 fn hook_output_size(output: &HookOutput) -> usize {
@@ -6368,9 +7534,9 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .saturating_add(
                 value
                     .candidate
-                    .conditions
+                    .parsed_captures
                     .iter()
-                    .map(registered_condition_capture_size)
+                    .map(parsed_capture_size)
                     .fold(0usize, usize::saturating_add),
             ),
         HookPayload::Expression(value) => value.input.len().saturating_add(
@@ -6398,6 +7564,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .saturating_add(value.definition_id.len())
             .saturating_add(value.registration_id.len())
             .saturating_add(value.element_class.len())
+            .saturating_add(value.pattern.len())
             .saturating_add(value.related_property.as_ref().map_or(0, String::len))
             .saturating_add(
                 value
@@ -6444,9 +7611,9 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             )
             .saturating_add(
                 value
-                    .conditions
+                    .parsed_captures
                     .iter()
-                    .map(registered_condition_capture_size)
+                    .map(parsed_capture_size)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -6466,6 +7633,13 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .saturating_add(option.class_name.len())
                             .saturating_add(option.singular.len())
                             .saturating_add(option.plural.len())
+                            .saturating_add(
+                                option
+                                    .user_input_patterns
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
                     })
                     .fold(0usize, usize::saturating_add),
             )
@@ -6526,6 +7700,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::Scope(_) => 0,
         HookPayload::Ast(value) => ast_tree_size(value),
         HookPayload::Diagnostic(value) => diagnostic_size(value),
+        HookPayload::Parser(value) => parse_request_size(value),
     }
 }
 
@@ -6563,16 +7738,9 @@ fn effect_candidate_size(
         .saturating_add(metadata_entries_size(&candidate.metadata))
         .saturating_add(
             candidate
-                .conditions
+                .parsed_captures
                 .iter()
-                .map(registered_condition_capture_size)
-                .fold(0usize, usize::saturating_add),
-        )
-        .saturating_add(
-            candidate
-                .effects
-                .iter()
-                .map(registered_effect_capture_size)
+                .map(parsed_capture_size)
                 .fold(0usize, usize::saturating_add),
         )
 }
@@ -6584,21 +7752,49 @@ fn metadata_entries_size(entries: &[WitMetadataEntry]) -> usize {
         .fold(0usize, usize::saturating_add)
 }
 
-fn registered_condition_capture_size(capture: &WitRegisteredConditionCapture) -> usize {
+fn parsed_capture_size(capture: &WitParsedCapture) -> usize {
     capture
         .text
         .len()
-        .saturating_add(capture.definition_id.as_ref().map_or(0, String::len))
-        .saturating_add(capture.registration_id.as_ref().map_or(0, String::len))
-}
-
-fn registered_effect_capture_size(capture: &WitRegisteredEffectCapture) -> usize {
-    capture
-        .text
-        .len()
-        .saturating_add(capture.definition_id.len())
-        .saturating_add(capture.registration_id.len())
-        .saturating_add(capture.element_class.as_ref().map_or(0, String::len))
+        .saturating_add(capture.parser_id.len())
+        .saturating_add(
+            capture
+                .expected_types
+                .iter()
+                .map(|expected| expected.class_name.len())
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(capture.summary.as_ref().map_or(0, |summary| {
+            summary
+                .kind
+                .len()
+                .saturating_add(summary.definition_id.as_ref().map_or(0, String::len))
+                .saturating_add(summary.registration_id.as_ref().map_or(0, String::len))
+                .saturating_add(summary.element_class.as_ref().map_or(0, String::len))
+                .saturating_add(summary.return_type.as_ref().map_or(0, String::len))
+                .saturating_add(metadata_entries_size(&summary.metadata))
+        }))
+        .saturating_add(
+            capture
+                .attachments
+                .iter()
+                .map(|attachment| {
+                    attachment
+                        .owner_component_id
+                        .len()
+                        .saturating_add(attachment.schema_id.len())
+                        .saturating_add(attachment.encoding.len())
+                        .saturating_add(attachment.bytes.len())
+                })
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            capture
+                .diagnostics
+                .iter()
+                .map(diagnostic_size)
+                .fold(0usize, usize::saturating_add),
+        )
 }
 fn raw_tree_size(tree: &RawTree) -> usize {
     tree.nodes
@@ -6662,6 +7858,13 @@ fn hook_effects_size(effects: &HookEffects) -> usize {
                 .map(parse_request_size)
                 .fold(0usize, usize::saturating_add),
         )
+        .saturating_add(
+            effects
+                .parse_results
+                .iter()
+                .map(parse_result_size)
+                .fold(0usize, usize::saturating_add),
+        )
 }
 
 fn diagnostic_size(diagnostic: &Diagnostic) -> usize {
@@ -6696,13 +7899,65 @@ fn context_update_size(update: &ContextUpdate) -> usize {
 }
 
 fn parse_request_size(request: &ParseRequest) -> usize {
-    request.input.len().saturating_add(
-        request
-            .expected_types
-            .iter()
-            .map(String::len)
-            .fold(0usize, usize::saturating_add),
-    )
+    request
+        .parser_id
+        .len()
+        .saturating_add(request.input.len())
+        .saturating_add(
+            request
+                .expected_types
+                .iter()
+                .map(|expected| expected.class_name.len())
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(metadata_entries_size(&request.options))
+}
+
+fn parse_result_size(result: &ParseResult) -> usize {
+    result
+        .parser_id
+        .len()
+        .saturating_add(
+            result
+                .nodes
+                .iter()
+                .map(parse_result_node_size)
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            result
+                .diagnostics
+                .iter()
+                .map(diagnostic_size)
+                .fold(0usize, usize::saturating_add),
+        )
+}
+
+fn parse_result_node_size(node: &ParseResultNode) -> usize {
+    node.parser_id
+        .len()
+        .saturating_add(node.kind.len())
+        .saturating_add(node.text.len())
+        .saturating_add(metadata_entries_size(&node.metadata))
+        .saturating_add(
+            node.attachments
+                .iter()
+                .map(|attachment| {
+                    attachment
+                        .owner_component_id
+                        .len()
+                        .saturating_add(attachment.schema_id.len())
+                        .saturating_add(attachment.encoding.len())
+                        .saturating_add(attachment.bytes.len())
+                })
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            node.diagnostics
+                .iter()
+                .map(diagnostic_size)
+                .fold(0usize, usize::saturating_add),
+        )
 }
 
 #[cfg(test)]
@@ -7056,7 +8311,8 @@ mod tests {
         with_handler.registered_syntax_handlers = vec![RegisteredSyntaxHandler {
             kind: SyntaxKind::Expression,
             class_suffix: ".ExprParse".to_owned(),
-            regex_captures: Vec::new(),
+            capture_parsers: Vec::new(),
+            context_requirements: vec![REGISTERED_CONTEXT_ALL_TYPE_OPTIONS.to_owned()],
         }];
         validate_manifest(&with_handler, &host_capabilities())
             .expect("an Expression transform may declare handled registrations");
@@ -7068,7 +8324,8 @@ mod tests {
                 .map(|suffix| RegisteredSyntaxHandler {
                     kind: SyntaxKind::Expression,
                     class_suffix: suffix.to_owned(),
-                    regex_captures: Vec::new(),
+                    capture_parsers: Vec::new(),
+                    context_requirements: Vec::new(),
                 })
                 .collect();
             assert!(matches!(
@@ -7156,7 +8413,7 @@ mod tests {
     fn section_subscriptions_use_section_targets_and_phase() {
         use crate::bindings::nlaocs::skript_parser_addon::types::{
             AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
-            RegisteredCaptureKind, RegisteredSyntaxHandler,
+            CaptureParserBinding, RegisteredSyntaxHandler,
         };
 
         let subscription = HookSubscription {
@@ -7183,7 +8440,13 @@ mod tests {
             registered_syntax_handlers: vec![RegisteredSyntaxHandler {
                 kind: SyntaxKind::Section,
                 class_suffix: ".SecConditional".to_owned(),
-                regex_captures: vec![RegisteredCaptureKind::Condition],
+                capture_parsers: vec![CaptureParserBinding {
+                    capture_index: 0,
+                    parser_id: "host.condition".to_owned(),
+                    required: true,
+                    options: Vec::new(),
+                }],
+                context_requirements: Vec::new(),
             }],
             state_namespaces: Vec::new(),
         };
@@ -7203,8 +8466,7 @@ mod tests {
         }
 
         let mut invalid_capture = manifest(subscription);
-        invalid_capture.registered_syntax_handlers[0].regex_captures =
-            vec![RegisteredCaptureKind::Effect];
+        invalid_capture.registered_syntax_handlers[0].capture_parsers[0].parser_id = " ".to_owned();
         assert!(matches!(
             validate_manifest(&invalid_capture, &host_capabilities()),
             Err(HostError::InvalidManifest { .. })

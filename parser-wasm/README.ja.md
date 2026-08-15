@@ -59,7 +59,10 @@ lifecycle candidate/failureの追加で0.6.0、登録Expressionのmatch後の意
 componentが解決する登録Expression classの宣言追加で0.8.0へ変わりました。
 汎用registered syntax handler、意味付きCondition/Effect capture、Section lifecycleの追加で
 0.9.0へ変わり、登録propertyのcomponent axis情報追加で0.10.0、有限type literal候補の追加で
-0.11.0へ、構造化type literal metadataで0.12.0へ、SSG supplier metadataのexpression type option追加で0.13.0へ変わりました。manifestの現在の`abi`値は1.12で、
+0.11.0へ、構造化type literal metadataで0.12.0へ、SSG supplier metadataのExpression type option追加で
+0.13.0へ変わりました。runtime profileとopen parser result graphで0.15.0、leaf候補から解析済みchild rootを
+参照するhost tokenで0.16.0、child node kindとparser IDの明示で0.17.0へ変わりました。
+manifestの現在の`abi`値は2.3で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -74,6 +77,23 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
 hostはText macroとTree macroをadvertiseし、実行します。AST macroはcontractだけが存在し、
 まだadvertiseされません。
 
+`addon.initialize`には、読み込んだSSG manifestから作った`RuntimeProfile`も渡します。snapshot、server、
+Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。componentは、Java classや
+parse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず処理できます。
+
+## Open parser request
+
+capture parserは閉じたenumではなく文字列IDを使います。標準routeは`host.expression`、
+`host.condition`、`host.effect`で、addon manifestは独自の`parser(...)` targetへsubscribeできます。
+hookが`parse-request`を返すと、hostは解析完了後、対応する`parse-result` graph付きで同じhookを再度呼びます。
+graph nodeは意味summary、child、mapped span、diagnostic、metadata、version付きopaque addon attachmentを保持します。
+完了したresultにはhost所有のtokenが付きます。Expression leaf候補はtokenとroot IDを参照し、再解析や
+metadata keyへの依存なしに、そのExpressionをnative child ASTとして所有できます。
+
+nested処理にはround、request、result node、call、recursion quotaがあります。現在実行中と同じrequest keyは
+cycle failureになります。request中のwriteは外側候補が採用された場合だけcommitされ、Reject、trap、cancel、
+不正outputではcontinuation全体をrollbackします。
+
 ## Expression解析
 
 `ParserHost::parse_expression_in_parse`はdocumentのdynamic syntax registryをfreezeし、1つの
@@ -84,12 +104,16 @@ classとplural、合法split位置、literal/expression flag、time state、dept
 蓄積leaf候補が含まれます。hostはSSGのtype metadataとaliasから有限literal indexを一度だけ作り、
 現在の合法split位置に一致する候補だけをWASMへ渡すため、registry全体を毎回copyしません。
 
-CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加できます。登録
-Expressionと型付きの子Expressionが一致した後、hostはparse tag、子Expression、既知の返値候補、
+CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追加し、open parser protocolから
+返された解析済みchild rootを所有できます。登録
+Expressionと型付きの子Expressionが一致した後、hostはparse tag、子Expression、generic parsed capture、既知の返値候補、
 適用可能なproperty情報と対応component axisを含む2段目のpayloadを送ります。
 CoreLibraryまたはaddonは実効Java返値型と
 Multiplicityを確定するか、候補をrejectできます。componentはsyntax kind、Java class suffix、
-regex captureの意味を`registered-syntax-handlers`へ宣言します。native parserは有効なcomponentが宣言した
+regex captureの意味を`registered-syntax-handlers`へ宣言します。handlerは名前付きhost contextも要求でき、
+`expression.type-options.all`は`ExprParse`のような構文へSSGの全Type optionを渡します。host側はJava class名を
+知る必要がありません。各childにはnative node kindと任意のparser IDも含まれるため、componentはsource文字列を
+推測せずliteral、variable、functionなどを区別できます。native parserは有効なcomponentが宣言した
 場合だけ、通常は期待型と互換しないdynamic登録を候補へ含めます。これにより、未解決登録をすべての
 型探索へ混ぜません。hostはnative
 parserでstatic/dynamic登録Expressionと順位付けする前に、変更不可request field、UTF-8 range、
@@ -131,7 +155,7 @@ Section、EffectSection、SectionExpression、frozen dynamic Sectionをまとめ
 context updateはそのbodyと子孫だけへ適用されます。未取得または複数取得されたbody nodeも、
 diagnostic付きpartial treeとして保持します。
 
-CoreLibraryはSkript標準のconditional/while Section、`ExprWhether`、`ExprTernary`、`EffDoIf`の
+CoreLibraryはSkript標準のconditional/while Section、`ExprWhether`、`ExprTernary`、`EffChange`、`EffDoIf`の
 semantic handlerを宣言します。addonも同じmanifest宣言を使い、独自のraw、Condition、nested
 Effect captureを処理できます。
 ## Text macro
