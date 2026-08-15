@@ -168,6 +168,34 @@ fn reports_registered_function_identity_and_arguments() {
 }
 
 #[test]
+fn reports_embedded_registered_expression_inside_variable_string() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze(r#"send "players: %size of all players%""#)
+        .expect("variable-string Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let outer = &json["result"]["effect"]["elements"][0]["resolved"];
+    let embedded = &outer["embeddedExpressions"][0];
+    assert_eq!(embedded["expression"]["kind"], "registered");
+    assert_eq!(
+        embedded["expression"]["syntax"]["elementClass"],
+        "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize"
+    );
+    assert_eq!(embedded["source"], "size of all players");
+
+    let elements = embedded["elements"]
+        .as_array()
+        .expect("PropExprSize captures must be an array");
+    assert!(
+        elements.iter().any(|element| {
+            element["kind"] == "expression" && element["source"] == "all players"
+        })
+    );
+}
+
+#[test]
 fn reports_arithmetic_operations_and_operands() {
     let snapshot = modern_fixture();
     let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
@@ -341,13 +369,13 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     );
 
     let offline = session
-        .analyze("set {_m} to all offline players")
+        .analyze("set {_m::*} to all offline players")
         .expect("interface return type must parse as Object");
     let offline: Value = serde_json::from_str(&offline.to_json().unwrap()).unwrap();
     assert_eq!(offline["result"]["status"], "matched");
     assert_eq!(
         offline["result"]["effect"]["elements"][0]["resolved"]["multiplicity"],
-        "single"
+        "multiple"
     );
     assert_eq!(
         offline["result"]["effect"]["elements"][1]["resolved"]["returnType"],

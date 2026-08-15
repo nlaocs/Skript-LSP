@@ -1,6 +1,6 @@
 use crate::args::snapshot_directory;
 use crate::report::{AnalysisReport, SnapshotDescription};
-use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
+use parser_wasm::host::{HostConfig, InvocationContext, ParserHost, RuntimePlugin, RuntimeProfile};
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionParseContext, MappedSource, RawNodeKind,
     RawTreeOptions, parse_raw_tree,
@@ -91,9 +91,31 @@ impl EffectCommandSession {
                 .filter(|plugin| plugin.enabled)
                 .count(),
         };
+        let runtime_profile = RuntimeProfile {
+            snapshot_schema_version: Some(manifest.schema_version),
+            snapshot_id: Some(manifest.snapshot_id.clone()),
+            server_name: Some(manifest.server.name.clone()),
+            server_version: Some(manifest.server.version.clone()),
+            minecraft_version: Some(manifest.server.minecraft_version.clone()),
+            java_version: Some(manifest.server.java_version.clone()),
+            language: Some(manifest.language.clone()),
+            skript_version: Some(skript_plugin.version.clone()),
+            plugins: manifest
+                .plugins
+                .iter()
+                .filter(|plugin| plugin.enabled)
+                .map(|plugin| RuntimePlugin {
+                    load_order: plugin.load_order,
+                    name: plugin.name.clone(),
+                    version: plugin.version.clone(),
+                    main: plugin.main.clone(),
+                })
+                .collect(),
+        };
         let catalog = Arc::new(loaded.into_catalog());
         let host = skript_lsp::new_parser_host(HostConfig {
             syntax_catalog: Some(Arc::clone(&catalog)),
+            runtime_profile,
             ..HostConfig::default()
         })?;
         Ok(Self {

@@ -5,8 +5,8 @@ use serde::Serialize;
 use skript_parser::{
     CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
     ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, FailureFrameRole, FailureTrace,
-    MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure,
-    PatternFailureReason, TextRange,
+    MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture, ParsedCapture,
+    ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -53,7 +53,11 @@ impl AnalysisReport {
             .map(|diagnostic| DiagnosticReport {
                 code: diagnostic.code,
                 message: diagnostic.message,
-                severity: format!("{:?}", diagnostic.severity).to_ascii_lowercase(),
+                severity: format!("{:?}", diagnostic.severity)
+                    .rsplit("::")
+                    .next()
+                    .expect("split always returns one segment")
+                    .to_ascii_lowercase(),
                 span: SpanReport {
                     start: usize::try_from(diagnostic.span.virtual_range.start)
                         .unwrap_or(usize::MAX),
@@ -557,6 +561,8 @@ struct ExpressionReport {
     operands: Vec<ExpressionReport>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     items: Vec<ExpressionReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    embedded_expressions: Vec<ExpressionReport>,
     metadata: BTreeMap<String, String>,
     truncated: bool,
 }
@@ -649,6 +655,7 @@ struct FailureReport {
     span: SpanReport,
     reasons: Vec<FailureReasonReport>,
     contexts: Vec<FailureContextReport>,
+    related: Vec<FailureReport>,
     interpretations: Vec<FailureInterpretationReport>,
 }
 
@@ -800,15 +807,7 @@ fn collect_effect_colors(effect: &EffectCandidate, spans: &mut Vec<SourceColorSp
         SourceColor::Effect,
         depth,
     );
-    for expression in &effect.expressions {
-        collect_expression_node_colors(expression, spans, depth + 1);
-    }
-    for condition in &effect.conditions {
-        collect_condition_colors(&condition.node, spans, depth + 1);
-    }
-    for nested in &effect.effects {
-        collect_effect_colors(&nested.candidate, spans, depth + 1);
-    }
+    collect_parsed_capture_colors(&effect.parsed_captures, spans, depth + 1);
 }
 
 fn collect_condition_colors(
@@ -850,11 +849,28 @@ fn collect_expression_node_colors(
         push_source_color_span(spans, alias_span, SourceColor::Alias, depth + 1);
     }
 
-    for child in &expression.children {
-        collect_expression_node_colors(child, spans, depth + 1);
-    }
-    for condition in &expression.conditions {
-        collect_condition_colors(&condition.node, spans, depth + 1);
+    collect_parsed_capture_colors(&expression.parsed_captures(), spans, depth + 1);
+}
+
+fn collect_parsed_capture_colors(
+    captures: &[ParsedCapture],
+    spans: &mut Vec<SourceColorSpan>,
+    depth: usize,
+) {
+    for capture in captures {
+        match capture.result.value.as_ref() {
+            Some(ParsedCaptureValue::Expression(expression)) => {
+                collect_expression_node_colors(expression, spans, depth)
+            }
+            Some(ParsedCaptureValue::Condition(condition)) => {
+                collect_condition_colors(condition, spans, depth)
+            }
+            Some(ParsedCaptureValue::Effect(effect)) => collect_effect_colors(effect, spans, depth),
+            Some(ParsedCaptureValue::Section(section)) => {
+                collect_parsed_capture_colors(&section.parsed_captures, spans, depth)
+            }
+            Some(ParsedCaptureValue::Raw(_)) | None => {}
+        }
     }
 }
 
@@ -958,11 +974,18 @@ fn effect_report(input: &str, candidate: EffectCandidate, catalog: &Catalog) -> 
     collect_effect_colors(&candidate, &mut source_colors, 0);
     let EffectCandidate {
         matched,
-        expressions,
+        parsed_captures,
         handler,
         metadata,
         ..
     } = candidate;
+    let expressions = parsed_captures
+        .into_iter()
+        .filter_map(|capture| match capture.result.value {
+            Some(ParsedCaptureValue::Expression(expression)) => Some(expression),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     let syntax = syntax_identity(&matched, catalog, SyntaxCategory::Effect);
     let pattern = pattern_report(matched.pattern_index, &matched.pattern, catalog, true);
     let span = match_span(&matched.matched.span);
@@ -1353,6 +1376,20 @@ fn expression_report(
     } else {
         Vec::new()
     };
+    let embedded_expressions = if !truncated
+        && matches!(
+            node.kind,
+            ExpressionNodeKind::Variable { .. }
+                | ExpressionNodeKind::Literal { .. }
+                | ExpressionNodeKind::Custom { .. }
+        ) {
+        node.children
+            .iter()
+            .map(|child| expression_report(child, input, catalog, depth + 1))
+            .collect()
+    } else {
+        Vec::new()
+    };
     ExpressionReport {
         source: source_slice(input, node.span.mapped.virtual_range),
         span,
@@ -1372,6 +1409,7 @@ fn expression_report(
         arguments,
         operands,
         items,
+        embedded_expressions,
         metadata: node.metadata.clone(),
         truncated,
     }
@@ -1453,6 +1491,7 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
             })
             .collect(),
         contexts: Vec::new(),
+        related: Vec::new(),
         interpretations: Vec::new(),
     }
 }
@@ -1464,6 +1503,13 @@ fn candidate_failure_report(
 ) -> FailureReport {
     let trace = &candidate.matched.trace;
     let mut report = failure_trace_report(trace.clone());
+    report.related = candidate
+        .matched
+        .related
+        .iter()
+        .cloned()
+        .map(failure_trace_report)
+        .collect();
     report.interpretations = candidates
         .iter()
         .filter(|alternative| {
@@ -1579,6 +1625,26 @@ fn write_failure(
     let end = failure.span.end.min(source.len()).max(start);
     let mut labels = vec![LabeledSpan::new(Some(primary), start, end - start)];
     let mut labeled_spans = vec![(start, end)];
+    for related in &failure.related {
+        let related_start = related.span.start.min(source.len());
+        let related_end = related.span.end.min(source.len()).max(related_start);
+        if labeled_spans.contains(&(related_start, related_end)) {
+            continue;
+        }
+        let label = related
+            .reasons
+            .iter()
+            .find(|reason| matches!(reason, FailureReasonReport::TypeExpression { .. }))
+            .or_else(|| related.reasons.first())
+            .map(FailureReasonReport::human)
+            .unwrap_or_else(|| "related parse failure".to_owned());
+        labels.push(LabeledSpan::new(
+            Some(label),
+            related_start,
+            related_end - related_start,
+        ));
+        labeled_spans.push((related_start, related_end));
+    }
     for context in failure.contexts.iter().rev() {
         let context_start = context.span.start.min(source.len());
         let context_end = context.span.end.min(source.len()).max(context_start);
@@ -1591,7 +1657,7 @@ fn write_failure(
             context_end - context_start,
         ));
         labeled_spans.push((context_start, context_end));
-        if labels.len() == 3 {
+        if labels.len() >= 8 {
             break;
         }
     }
@@ -1894,6 +1960,12 @@ fn write_expression(
             writeln!(writer, "{prefix}  item[{index}]:")?;
             write_expression(writer, item, indent + 2)?;
         }
+    } else if !expression.embedded_expressions.is_empty() {
+        writeln!(writer, "{prefix}embeddedExpressions:")?;
+        for (index, embedded) in expression.embedded_expressions.iter().enumerate() {
+            writeln!(writer, "{prefix}  expression[{index}]:")?;
+            write_expression(writer, embedded, indent + 2)?;
+        }
     } else if let Some(inner) = &expression.inner {
         writeln!(writer, "{prefix}inner:")?;
         write_expression(writer, inner, indent + 1)?;
@@ -1972,6 +2044,7 @@ mod tests {
                 expected: vec!["entity".to_owned()],
             }],
             contexts: Vec::new(),
+            related: Vec::new(),
             interpretations: Vec::new(),
         };
         let mut output = Vec::new();
@@ -1983,6 +2056,38 @@ mod tests {
         assert!(output.contains("teleport あ"));
         assert!(output.contains("expected expression of type entity"));
         assert!(output.contains('\x1b'));
+    }
+
+    #[test]
+    fn failure_renderer_keeps_two_related_typed_capture_labels() {
+        let source = "teleport a to location(b, 2, 3)";
+        let failure = FailureReport {
+            offset: 9,
+            span: SpanReport { start: 9, end: 10 },
+            reasons: vec![FailureReasonReport::TypeExpression {
+                expected: vec!["entities".to_owned()],
+            }],
+            contexts: Vec::new(),
+            related: vec![FailureReport {
+                offset: 14,
+                span: SpanReport { start: 14, end: 31 },
+                reasons: vec![FailureReasonReport::TypeExpression {
+                    expected: vec!["number".to_owned()],
+                }],
+                contexts: Vec::new(),
+                related: Vec::new(),
+                interpretations: Vec::new(),
+            }],
+            interpretations: Vec::new(),
+        };
+        let mut output = Vec::new();
+
+        write_failure(&mut output, source, &failure, false, "No Effect matched").unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("expected expression of type entities"));
+        assert!(output.contains("expected expression of type number"));
+        assert!(output.contains("teleport a to location(b, 2, 3)"));
     }
 
     #[test]
