@@ -5,11 +5,12 @@
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
 use crate::{
-    CandidateFailure, CandidateMatch, CandidateMatches, ConditionParseError, ExpressionNode,
+    CandidateFailure, CandidateMatch, CandidateMatches, ConditionParseError,
     ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
     ExpressionParserConfig, ExpressionSession, FailureFrame, FailureFrameRole, FailureTrace,
-    MappedSource, MatchSpan, PatternCapture, PatternFailure, RankedFailures, RawNode, RawNodeId,
-    RawNodeKind, RegisteredCaptureKind, RegisteredConditionCapture, TextRange,
+    HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchSpan, ParsedCapture,
+    ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure,
+    RankedFailures, RawNode, RawNodeId, RawNodeKind, TextRange,
 };
 use std::collections::{BTreeMap, HashSet};
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -33,13 +34,48 @@ pub struct EffectParserConfig {
 pub struct EffectCandidate {
     pub raw_node_id: RawNodeId,
     pub matched: CandidateMatch,
-    pub expressions: Vec<ExpressionNode>,
-    pub conditions: Vec<RegisteredConditionCapture>,
-    pub effects: Vec<RegisteredEffectCapture>,
+    /// All recursively parsed captures in pattern order.
+    pub parsed_captures: Vec<ParsedCapture>,
     /// Opaque handler name for dynamically registered Effects.
     pub handler: Option<String>,
     /// Addon-owned metadata attached to a dynamic registration.
     pub metadata: BTreeMap<String, String>,
+}
+
+impl EffectCandidate {
+    /// Iterates typed Expression captures without exposing parser-specific storage.
+    pub fn expressions(&self) -> impl Iterator<Item = &crate::ExpressionNode> {
+        self.parsed_captures.iter().filter_map(|capture| {
+            if let Some(ParsedCaptureValue::Expression(expression)) = capture.result.value.as_ref()
+            {
+                Some(expression)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Iterates Condition captures resolved by any registered parser binding.
+    pub fn conditions(&self) -> impl Iterator<Item = &crate::ConditionNode> {
+        self.parsed_captures.iter().filter_map(|capture| {
+            if let Some(ParsedCaptureValue::Condition(condition)) = capture.result.value.as_ref() {
+                Some(condition)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Iterates nested Effect captures resolved by any registered parser binding.
+    pub fn effects(&self) -> impl Iterator<Item = &EffectCandidate> {
+        self.parsed_captures.iter().filter_map(|capture| {
+            if let Some(ParsedCaptureValue::Effect(effect)) = capture.result.value.as_ref() {
+                Some(effect.as_ref())
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// A Simple node that no registered Effect accepted.
@@ -181,15 +217,6 @@ pub fn parse_effect_with_snapshot<E: ExpressionParseEnvironment>(
     parse_effect_range_with_session(&mut session, range, request.node.id, 0)
 }
 
-/// One regex capture that was recursively accepted as an Effect.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegisteredEffectCapture {
-    pub capture_index: usize,
-    pub value: String,
-    pub span: MatchSpan,
-    pub candidate: Box<EffectCandidate>,
-}
-
 enum EffectCandidateResolution {
     Accepted(EffectCandidate),
     Rejected(EffectCandidateFailure),
@@ -208,7 +235,7 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     let CandidateMatches {
         selected: matched_selected,
         alternatives: matched_alternatives,
-        failures: matcher_failures,
+        failures: mut matcher_failures,
     } = matches;
     let mut ranked = matched_selected
         .into_iter()
@@ -247,6 +274,36 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     }
     let selected = (!accepted.is_empty()).then(|| accepted.remove(0));
     let alternatives = accepted;
+    if selected.is_none()
+        && let Some(primary) = matcher_failures.primary().cloned()
+        && let Some(mut candidate) = candidates
+            .iter()
+            .find(|candidate| candidate.registration_id == primary.registration_id)
+            .cloned()
+    {
+        if let Some(pattern_index) = primary.pattern_index {
+            candidate
+                .patterns
+                .retain(|pattern| pattern.pattern_index == pattern_index);
+        }
+        if let Some(recovered) =
+            session.recover_candidate_failures_at_depth(range, &[candidate], depth)?
+            && let Some(target) = matcher_failures.candidates.iter_mut().find(|candidate| {
+                candidate.registration_id == recovered.registration_id
+                    && candidate.pattern_index == recovered.pattern_index
+            })
+        {
+            for trace in std::iter::once(recovered.trace).chain(recovered.related) {
+                if trace != target.trace && !target.related.contains(&trace) {
+                    target.related.push(trace);
+                }
+            }
+            target.related.sort_by_key(|trace| {
+                let range = trace.root_cause().failure.span.mapped.virtual_range;
+                (range.start, range.end)
+            });
+        }
+    }
     let unknown = if selected.is_none() {
         let source = range
             .slice(session.source().virtual_source())
@@ -333,6 +390,27 @@ fn effect_candidate_failure<E: ExpressionParseEnvironment>(
     }
 }
 
+pub(crate) fn effect_semantic_summary(
+    candidate: &EffectCandidate,
+    catalog: &Catalog,
+) -> crate::ParsedCaptureSemanticSummary {
+    crate::ParsedCaptureSemanticSummary {
+        kind: "effect".to_owned(),
+        definition_id: Some(candidate.matched.definition_id.clone()),
+        registration_id: Some(candidate.matched.registration_id.clone()),
+        element_class: catalog
+            .effects()
+            .find(|effect| {
+                effect.common.registration_id.as_str() == candidate.matched.registration_id
+            })
+            .map(|effect| effect.common.element_class.clone()),
+        pattern_index: Some(candidate.matched.pattern_index),
+        return_type: None,
+        multiplicity: None,
+        metadata: candidate.metadata.clone(),
+    }
+}
+
 fn effect_candidate<E: ExpressionParseEnvironment>(
     raw_node_id: RawNodeId,
     matched: CandidateMatch,
@@ -341,22 +419,6 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
     frame_start: usize,
     depth: usize,
 ) -> Result<EffectCandidateResolution, EffectParseError> {
-    let expressions = matched
-        .matched
-        .captures
-        .iter()
-        .filter_map(|capture| match capture {
-            PatternCapture::TypeExpression {
-                resolution_id: Some(id),
-                ..
-            } => session.resolved_node(id).cloned(),
-            PatternCapture::Regex { .. }
-            | PatternCapture::TypeExpression {
-                resolution_id: None,
-                ..
-            } => None,
-        })
-        .collect();
     let dynamic = session.dynamic_snapshot().and_then(|snapshot| {
         snapshot
             .definitions
@@ -370,84 +432,153 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         .map(|effect| effect.common.element_class.clone());
     let handler = dynamic.map(|definition| definition.handler.clone());
     let metadata = dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone());
-    let capture_kinds = element_class
+    let capture_bindings = element_class
         .as_ref()
         .map_or_else(Vec::new, |element_class| {
             session
                 .environment()
-                .registered_capture_kinds(SyntaxKind::Effect, element_class)
+                .registered_capture_bindings(SyntaxKind::Effect, element_class)
         });
-    let mut conditions = Vec::new();
-    let mut effects = Vec::new();
-    for (capture_index, (capture, kind)) in matched
-        .matched
-        .captures
-        .iter()
-        .filter(|capture| matches!(capture, PatternCapture::Regex { .. }))
-        .zip(capture_kinds)
-        .enumerate()
-    {
-        let PatternCapture::Regex {
-            pattern_span,
-            value,
-            span,
+    let mut parsed_captures = Vec::new();
+    for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+        if let PatternCapture::TypeExpression {
+            resolution_id: Some(id),
             ..
         } = capture
+            && let Some(node) = session.resolved_node(id).cloned()
+        {
+            parsed_captures.push(crate::expression_parsed_capture(capture_index, node));
+            continue;
+        }
+        let PatternCapture::Regex {
+            pattern_span, span, ..
+        } = capture
         else {
-            unreachable!("regex captures were filtered")
+            continue;
+        };
+        let Some(binding) = capture_bindings
+            .iter()
+            .find(|binding| binding.capture_index == capture_index)
+        else {
+            continue;
         };
         let local = span.local_range;
         let range = TextRange::new(frame_start + local.start, frame_start + local.end);
-        match kind {
-            RegisteredCaptureKind::Raw => {}
-            RegisteredCaptureKind::Condition => {
+        let parsed = match binding.parser_id.as_str() {
+            HOST_CONDITION_PARSER_ID => {
                 let parsed =
                     crate::condition::parse_condition_with_session(session, range, depth + 1)?;
-                let Some(selected) = parsed.selected else {
-                    let cause = parsed
-                        .unknown
-                        .map(condition_failure_trace)
-                        .unwrap_or_else(|| nested_failure_trace(span.clone()));
-                    let trace = cause.with_parent(semantic_failure_frame(
-                        &matched,
-                        *pattern_span,
-                        span.clone(),
-                        FailureFrameRole::ConditionCapture {
-                            index: capture_index,
-                        },
-                    ));
-                    return Ok(EffectCandidateResolution::Rejected(
-                        semantic_effect_candidate_failure(
+                match parsed.selected {
+                    Some(selected) => {
+                        let mut capture =
+                            crate::condition_parsed_capture(capture_index, selected.node);
+                        capture.binding = binding.clone();
+                        capture
+                    }
+                    None => {
+                        let cause = parsed
+                            .unknown
+                            .map(condition_failure_trace)
+                            .unwrap_or_else(|| nested_failure_trace(span.clone()));
+                        let trace = cause.with_parent(semantic_failure_frame(
                             &matched,
-                            resolved_order,
-                            trace,
-                            element_class.clone(),
-                            handler.clone(),
-                            metadata.clone(),
-                        ),
-                    ));
-                };
-                conditions.push(RegisteredConditionCapture {
-                    capture_index,
-                    node: selected.node,
-                });
+                            *pattern_span,
+                            span.clone(),
+                            FailureFrameRole::ConditionCapture {
+                                index: capture_index,
+                            },
+                        ));
+                        if binding.required {
+                            return Ok(EffectCandidateResolution::Rejected(
+                                semantic_effect_candidate_failure(
+                                    &matched,
+                                    resolved_order,
+                                    trace,
+                                    element_class.clone(),
+                                    handler.clone(),
+                                    metadata.clone(),
+                                ),
+                            ));
+                        }
+                        ParsedCapture {
+                            capture_index,
+                            binding: binding.clone(),
+                            result: ParsedCaptureResult::failure(
+                                binding.parser_id.clone(),
+                                span.clone(),
+                                "condition capture did not match",
+                            ),
+                        }
+                    }
+                }
             }
-            RegisteredCaptureKind::Effect => {
+            HOST_EFFECT_PARSER_ID => {
                 let parsed =
                     parse_effect_range_with_session(session, range, raw_node_id, depth + 1)?;
-                let Some(selected) = parsed.selected else {
-                    let cause = parsed
-                        .unknown
-                        .map(effect_failure_trace)
-                        .unwrap_or_else(|| nested_failure_trace(span.clone()));
-                    let trace = cause.with_parent(semantic_failure_frame(
-                        &matched,
-                        *pattern_span,
-                        span.clone(),
-                        FailureFrameRole::EffectCapture {
-                            index: capture_index,
-                        },
-                    ));
+                match parsed.selected {
+                    Some(selected) => ParsedCapture {
+                        capture_index,
+                        binding: binding.clone(),
+                        result: ParsedCaptureResult::success(
+                            binding.parser_id.clone(),
+                            span.clone(),
+                            Some(effect_semantic_summary(&selected, session.catalog())),
+                            ParsedCaptureValue::Effect(Box::new(selected)),
+                        ),
+                    },
+                    None => {
+                        let cause = parsed
+                            .unknown
+                            .map(effect_failure_trace)
+                            .unwrap_or_else(|| nested_failure_trace(span.clone()));
+                        let trace = cause.with_parent(semantic_failure_frame(
+                            &matched,
+                            *pattern_span,
+                            span.clone(),
+                            FailureFrameRole::EffectCapture {
+                                index: capture_index,
+                            },
+                        ));
+                        if binding.required {
+                            return Ok(EffectCandidateResolution::Rejected(
+                                semantic_effect_candidate_failure(
+                                    &matched,
+                                    resolved_order,
+                                    trace,
+                                    element_class.clone(),
+                                    handler.clone(),
+                                    metadata.clone(),
+                                ),
+                            ));
+                        }
+                        ParsedCapture {
+                            capture_index,
+                            binding: binding.clone(),
+                            result: ParsedCaptureResult::failure(
+                                binding.parser_id.clone(),
+                                span.clone(),
+                                "effect capture did not match",
+                            ),
+                        }
+                    }
+                }
+            }
+            _ => {
+                let result = ParsedCaptureResult::failure(
+                    binding.parser_id.clone(),
+                    span.clone(),
+                    format!("no native parser route for {}", binding.parser_id),
+                );
+                if binding.required {
+                    let trace =
+                        nested_failure_trace(span.clone()).with_parent(semantic_failure_frame(
+                            &matched,
+                            *pattern_span,
+                            span.clone(),
+                            FailureFrameRole::EffectCapture {
+                                index: capture_index,
+                            },
+                        ));
                     return Ok(EffectCandidateResolution::Rejected(
                         semantic_effect_candidate_failure(
                             &matched,
@@ -458,22 +589,22 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                             metadata.clone(),
                         ),
                     ));
-                };
-                effects.push(RegisteredEffectCapture {
+                }
+                ParsedCapture {
                     capture_index,
-                    value: value.clone(),
-                    span: span.clone(),
-                    candidate: Box::new(selected),
-                });
+                    binding: binding.clone(),
+                    result,
+                }
             }
+        };
+        if parsed.result.status != ParsedCaptureStatus::Failed || !binding.required {
+            parsed_captures.push(parsed);
         }
     }
     Ok(EffectCandidateResolution::Accepted(EffectCandidate {
         raw_node_id,
         matched,
-        expressions,
-        conditions,
-        effects,
+        parsed_captures,
         handler,
         metadata,
     }))
@@ -499,6 +630,7 @@ fn semantic_effect_candidate_failure(
             pattern_index: Some(matched.pattern_index),
             pattern: Some(matched.pattern.clone()),
             trace,
+            related: Vec::new(),
         },
         element_class,
         handler,
@@ -544,7 +676,7 @@ fn effect_failure_trace(unknown: UnknownEffectNode) -> FailureTrace {
         .unwrap_or_else(|| nested_failure_trace(unknown.span))
 }
 
-fn nested_failure_trace(span: MatchSpan) -> FailureTrace {
+pub(crate) fn nested_failure_trace(span: MatchSpan) -> FailureTrace {
     FailureTrace::leaf(PatternFailure {
         span,
         reasons: vec![crate::PatternFailureReason::TrailingInput],

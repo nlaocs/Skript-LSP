@@ -10,9 +10,9 @@ use crate::pattern_match::{
     find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
 };
 use crate::{
-    CandidateMatch, ConditionNode, FailureFrame, FailureFrameRole, FailureTrace, MappedSource,
-    MatchInput, MatchPattern, MatchSpan, ParseTagCapture, PatternCandidate, PatternCapture,
-    PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
+    CandidateFailure, CandidateMatch, ConditionNode, FailureFrame, FailureFrameRole, FailureTrace,
+    MappedSource, MatchInput, MatchPattern, MatchSpan, ParseTagCapture, PatternCandidate,
+    PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
     PatternMatchEnvironment, PatternMatchError, PatternMatcherConfig, TextRange,
     TypeExpressionOutcome, TypeExpressionRequest, TypeExpressionResolution,
     catalog_pattern_candidates, choose_failure_trace, match_pattern_candidates_with_environment,
@@ -116,23 +116,363 @@ pub struct ExpressionNode {
     pub tags: Vec<ParseTagCapture>,
     pub mark: i32,
     pub children: Vec<ExpressionNode>,
-    pub conditions: Vec<RegisteredConditionCapture>,
+    /// Non-Expression captures resolved through open parser IDs.
+    pub(crate) routed_captures: Vec<ParsedCapture>,
     pub metadata: BTreeMap<String, String>,
 }
 
-/// Semantic meaning assigned to one regex capture by a WASM registration handler.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegisteredCaptureKind {
-    Raw,
-    Condition,
-    Effect,
+/// Parser ID used by the built-in recursive Expression route.
+pub const HOST_EXPRESSION_PARSER_ID: &str = "host.expression";
+/// Parser ID used by the built-in recursive Condition route.
+pub const HOST_CONDITION_PARSER_ID: &str = "host.condition";
+/// Parser ID used by the built-in recursive Effect route.
+pub const HOST_EFFECT_PARSER_ID: &str = "host.effect";
+
+/// A parser binding for one registration capture.
+///
+/// Parser IDs are intentionally open strings. Built-in routes use the
+/// `host.*` IDs above, while addons may provide their own route without
+/// requiring a new Rust enum variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredCaptureBinding {
+    pub capture_index: usize,
+    pub parser_id: String,
+    pub required: bool,
+    pub options: BTreeMap<String, String>,
 }
 
-/// One regex capture that was recursively accepted as a Condition.
+/// Completeness of one generic capture result.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegisteredConditionCapture {
+pub enum ParsedCaptureStatus {
+    Success,
+    Partial,
+    Failed,
+}
+
+/// Optional semantic information attached to a generic capture result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCaptureSemanticSummary {
+    pub kind: String,
+    pub definition_id: Option<String>,
+    pub registration_id: Option<String>,
+    pub element_class: Option<ClassName>,
+    pub pattern_index: Option<usize>,
+    pub return_type: Option<ClassName>,
+    pub multiplicity: Option<Multiplicity>,
+    pub metadata: BTreeMap<String, String>,
+}
+
+/// Open diagnostic payload returned by a native parser or an addon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCaptureDiagnostic {
+    pub message: String,
+    pub span: Option<MatchSpan>,
+    pub metadata: BTreeMap<String, String>,
+}
+
+/// Opaque addon-owned data attached to a generic parse result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCaptureAttachment {
+    pub owner_component_id: String,
+    pub schema_id: String,
+    pub schema_version: u32,
+    pub encoding: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Native values that can be carried by a generic parsed capture.
+///
+/// Recursive candidate values are boxed so nested Effect and Section parses
+/// remain finite while retaining their complete native result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedCaptureValue {
+    Expression(ExpressionNode),
+    Condition(ConditionNode),
+    Effect(Box<crate::EffectCandidate>),
+    Section(Box<crate::SectionCandidate>),
+    Raw(String),
+}
+
+/// Result of routing one registration capture through a parser ID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCaptureResult {
+    pub parser_id: String,
+    pub status: ParsedCaptureStatus,
+    pub span: MatchSpan,
+    pub summary: Option<ParsedCaptureSemanticSummary>,
+    pub value: Option<ParsedCaptureValue>,
+    pub diagnostics: Vec<ParsedCaptureDiagnostic>,
+    pub attachments: Vec<ParsedCaptureAttachment>,
+}
+
+/// One ordered binding/result pair exposed by a syntax candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCapture {
     pub capture_index: usize,
-    pub node: ConditionNode,
+    pub binding: RegisteredCaptureBinding,
+    pub result: ParsedCaptureResult,
+}
+
+impl ParsedCaptureResult {
+    pub(crate) fn success(
+        parser_id: impl Into<String>,
+        span: MatchSpan,
+        summary: Option<ParsedCaptureSemanticSummary>,
+        value: ParsedCaptureValue,
+    ) -> Self {
+        Self {
+            parser_id: parser_id.into(),
+            status: ParsedCaptureStatus::Success,
+            span,
+            summary,
+            value: Some(value),
+            diagnostics: Vec::new(),
+            attachments: Vec::new(),
+        }
+    }
+
+    pub(crate) fn failure(
+        parser_id: impl Into<String>,
+        span: MatchSpan,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            parser_id: parser_id.into(),
+            status: ParsedCaptureStatus::Failed,
+            span: span.clone(),
+            summary: None,
+            value: None,
+            diagnostics: vec![ParsedCaptureDiagnostic {
+                message: message.into(),
+                span: Some(span),
+                metadata: BTreeMap::new(),
+            }],
+            attachments: Vec::new(),
+        }
+    }
+}
+
+impl ExpressionNode {
+    /// Rewrites this node and every nested Expression/Condition span.
+    pub fn try_map_spans<E>(
+        &mut self,
+        mapper: &mut impl FnMut(&MatchSpan) -> Result<MatchSpan, E>,
+    ) -> Result<(), E> {
+        self.span = mapper(&self.span)?;
+        try_map_pattern_captures(&mut self.captures, mapper)?;
+        for tag in &mut self.tags {
+            tag.input_span = mapper(&tag.input_span)?;
+        }
+        for child in &mut self.children {
+            child.try_map_spans(mapper)?;
+        }
+        for capture in &mut self.routed_captures {
+            capture.result.span = mapper(&capture.result.span)?;
+            for diagnostic in &mut capture.result.diagnostics {
+                if let Some(span) = diagnostic.span.as_mut() {
+                    *span = mapper(span)?;
+                }
+            }
+            match capture.result.value.as_mut() {
+                Some(ParsedCaptureValue::Expression(node)) => node.try_map_spans(mapper)?,
+                Some(ParsedCaptureValue::Condition(node)) => try_map_condition_spans(node, mapper)?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Iterates recursively parsed Condition captures.
+    pub fn conditions(&self) -> impl Iterator<Item = &ConditionNode> {
+        self.routed_captures.iter().filter_map(|capture| {
+            if let Some(ParsedCaptureValue::Condition(condition)) = capture.result.value.as_ref() {
+                Some(condition)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Returns all recursively parsed captures in source/pattern order.
+    ///
+    /// Typed children and routed captures use distinct compact storage
+    /// internally; this method presents both through one parser-neutral view.
+    pub fn parsed_captures(&self) -> Vec<ParsedCapture> {
+        let mut children = self.children.iter();
+        let routed = self.routed_captures.iter();
+        let mut captures = Vec::new();
+        if self.captures.is_empty() {
+            return self
+                .children
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(capture_index, node)| expression_parsed_capture(capture_index, node))
+                .collect();
+        }
+        for (capture_index, capture) in self.captures.iter().enumerate() {
+            match capture {
+                PatternCapture::TypeExpression {
+                    resolution_id: Some(_),
+                    span,
+                    ..
+                } => {
+                    if let Some(node) = children.next() {
+                        captures.push(expression_parsed_capture(capture_index, node.clone()));
+                    }
+                    let _ = span;
+                }
+                PatternCapture::Regex { .. } => {
+                    if let Some(capture) = routed
+                        .clone()
+                        .find(|capture| capture.capture_index == capture_index)
+                    {
+                        captures.push(capture.clone());
+                    }
+                }
+                PatternCapture::TypeExpression {
+                    resolution_id: None,
+                    ..
+                } => {}
+            }
+        }
+        captures
+    }
+}
+
+fn try_map_pattern_captures<E>(
+    captures: &mut [PatternCapture],
+    mapper: &mut impl FnMut(&MatchSpan) -> Result<MatchSpan, E>,
+) -> Result<(), E> {
+    for capture in captures {
+        match capture {
+            PatternCapture::Regex { span, groups, .. } => {
+                *span = mapper(span)?;
+                for group in groups {
+                    if let Some(span) = group.span.as_mut() {
+                        *span = mapper(span)?;
+                    }
+                }
+            }
+            PatternCapture::TypeExpression { span, .. } => *span = mapper(span)?,
+        }
+    }
+    Ok(())
+}
+
+fn try_map_condition_spans<E>(
+    node: &mut ConditionNode,
+    mapper: &mut impl FnMut(&MatchSpan) -> Result<MatchSpan, E>,
+) -> Result<(), E> {
+    node.span = mapper(&node.span)?;
+    try_map_pattern_captures(&mut node.captures, mapper)?;
+    for tag in &mut node.tags {
+        tag.input_span = mapper(&tag.input_span)?;
+    }
+    for mark in &mut node.marks {
+        mark.input_span = mapper(&mark.input_span)?;
+    }
+    for expression in &mut node.expressions {
+        expression.try_map_spans(mapper)?;
+    }
+    for child in &mut node.children {
+        try_map_condition_spans(child, mapper)?;
+    }
+    Ok(())
+}
+
+fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSummary {
+    let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
+        ExpressionNodeKind::Grouped => ("grouped-expression", None, None, None),
+        ExpressionNodeKind::List { .. } => ("expression-list", None, None, None),
+        ExpressionNodeKind::Registered {
+            definition_id,
+            registration_id,
+            pattern_index,
+        } => (
+            "registered-expression",
+            Some(definition_id.clone()),
+            Some(registration_id.clone()),
+            Some(*pattern_index),
+        ),
+        ExpressionNodeKind::Variable { .. } => ("variable", None, None, None),
+        ExpressionNodeKind::Literal { .. } => ("literal", None, None, None),
+        ExpressionNodeKind::Function { .. } => ("function", None, None, None),
+        ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None),
+        ExpressionNodeKind::Custom { .. } => ("custom", None, None, None),
+    };
+    ParsedCaptureSemanticSummary {
+        kind: kind.to_owned(),
+        definition_id,
+        registration_id,
+        element_class: None,
+        pattern_index,
+        return_type: node.return_type.clone(),
+        multiplicity: node.multiplicity,
+        metadata: node.metadata.clone(),
+    }
+}
+
+pub(crate) fn expression_parsed_capture(
+    capture_index: usize,
+    node: ExpressionNode,
+) -> ParsedCapture {
+    let span = node.span.clone();
+    ParsedCapture {
+        capture_index,
+        binding: RegisteredCaptureBinding {
+            capture_index,
+            parser_id: HOST_EXPRESSION_PARSER_ID.to_owned(),
+            required: true,
+            options: BTreeMap::new(),
+        },
+        result: ParsedCaptureResult::success(
+            HOST_EXPRESSION_PARSER_ID,
+            span,
+            Some(expression_semantic_summary(&node)),
+            ParsedCaptureValue::Expression(node),
+        ),
+    }
+}
+
+pub(crate) fn condition_parsed_capture(capture_index: usize, node: ConditionNode) -> ParsedCapture {
+    let span = node.span.clone();
+    let (definition_id, registration_id, pattern_index) = match &node.kind {
+        crate::condition::ConditionNodeKind::Registered {
+            definition_id,
+            registration_id,
+            pattern_index,
+        } => (
+            Some(definition_id.clone()),
+            Some(registration_id.clone()),
+            Some(*pattern_index),
+        ),
+        crate::condition::ConditionNodeKind::Grouped => (None, None, None),
+    };
+    ParsedCapture {
+        capture_index,
+        binding: RegisteredCaptureBinding {
+            capture_index,
+            parser_id: HOST_CONDITION_PARSER_ID.to_owned(),
+            required: true,
+            options: BTreeMap::new(),
+        },
+        result: ParsedCaptureResult::success(
+            HOST_CONDITION_PARSER_ID,
+            span,
+            Some(ParsedCaptureSemanticSummary {
+                kind: "condition".to_owned(),
+                definition_id,
+                registration_id,
+                element_class: None,
+                pattern_index,
+                return_type: None,
+                multiplicity: None,
+                metadata: node.metadata.clone(),
+            }),
+            ParsedCaptureValue::Condition(node),
+        ),
+    }
 }
 
 /// Selected Section identity supplied around recursive child parsing.
@@ -148,7 +488,7 @@ pub struct SectionChildrenRequest<'a> {
     pub effect_section: bool,
     pub section_expression: bool,
     pub captures: &'a [PatternCapture],
-    pub conditions: &'a [RegisteredConditionCapture],
+    pub parsed_captures: &'a [ParsedCapture],
     pub context: &'a ExpressionParseContext,
 }
 
@@ -163,6 +503,13 @@ pub enum SectionChildrenDecision {
 pub struct ExpressionCandidate {
     pub node: ExpressionNode,
     pub expected_alternative: Option<usize>,
+}
+
+impl ExpressionCandidate {
+    /// Returns the candidate's recursively parsed captures as one collection.
+    pub fn parsed_captures(&self) -> Vec<ParsedCapture> {
+        self.node.parsed_captures()
+    }
 }
 
 /// Selected Expression, later alternatives, or a no-match diagnostic.
@@ -229,6 +576,8 @@ pub struct ExpressionLeafCandidate {
     pub range: TextRange,
     pub return_type: Option<ClassName>,
     pub multiplicity: Option<Multiplicity>,
+    /// Expressions parsed through host requests and owned by this leaf.
+    pub children: Vec<ExpressionNode>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -240,6 +589,7 @@ pub struct RegisteredExpressionRequest<'a> {
     pub element_class: &'a ClassName,
     pub related_property: Option<&'a str>,
     pub pattern_index: usize,
+    pub pattern: &'a str,
     pub span: &'a MatchSpan,
     pub expected_types: &'a [ExpressionExpectedType],
     pub declared_return_type: Option<&'a ClassName>,
@@ -251,7 +601,7 @@ pub struct RegisteredExpressionRequest<'a> {
     pub tags: &'a [ParseTagCapture],
     pub mark: i32,
     pub children: &'a [ExpressionNode],
-    pub conditions: &'a [RegisteredConditionCapture],
+    pub parsed_captures: &'a [ParsedCapture],
     pub context: &'a ExpressionParseContext,
 }
 
@@ -305,11 +655,11 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     }
 
     /// Declares how regex captures for one registered syntax are recursively parsed.
-    fn registered_capture_kinds(
+    fn registered_capture_bindings(
         &self,
         _kind: SyntaxKind,
         _element_class: &ClassName,
-    ) -> Vec<RegisteredCaptureKind> {
+    ) -> Vec<RegisteredCaptureBinding> {
         Vec::new()
     }
 
@@ -437,9 +787,9 @@ struct RegistrationMetadata {
 }
 
 #[derive(Debug, Clone, Default)]
-struct PrefixParse {
-    candidates: Vec<ExpressionCandidate>,
-    failure: Option<FailureTrace>,
+pub(crate) struct PrefixParse {
+    pub(crate) candidates: Vec<ExpressionCandidate>,
+    pub(crate) failure: Option<FailureTrace>,
 }
 
 enum RegisteredNodeResolution {
@@ -640,6 +990,41 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         Ok(matched?)
     }
 
+    pub(crate) fn recover_candidate_failures_at_depth(
+        &mut self,
+        range: TextRange,
+        candidates: &[PatternCandidate<'_>],
+        depth: usize,
+    ) -> Result<Option<CandidateFailure>, ExpressionParseError> {
+        self.ensure_depth(depth)?;
+        if !range.is_valid_for(self.source.virtual_source()) {
+            return Err(ExpressionParseError::InvalidInputRange { range });
+        }
+        let input = MatchInput::from_source(self.source, range)?;
+        self.begin_semantic_candidate()
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        let first_resolution = self.next_resolution_id;
+        self.frame_starts.push(range.start);
+        self.frame_depths.push(depth);
+        let mut matcher_config = self.config.matcher.clone();
+        matcher_config.recover_type_expression_failures = true;
+        matcher_config.max_candidate_failures = 1;
+        let matched =
+            match_pattern_candidates_with_environment(input, candidates, self, matcher_config);
+        self.frame_depths.pop();
+        self.frame_starts.pop();
+        for id in first_resolution..self.next_resolution_id {
+            self.resolved_nodes.remove(&format!("expression:{id}"));
+        }
+        self.next_resolution_id = first_resolution;
+        let rollback = self
+            .finish_semantic_candidate(false)
+            .map_err(|message| ExpressionParseError::Environment { message });
+        let recovered = matched?.failures.candidates.into_iter().next();
+        rollback?;
+        Ok(recovered)
+    }
+
     pub(crate) fn retain_viable_patterns(
         &mut self,
         range: TextRange,
@@ -785,6 +1170,29 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 true,
             )?
             .candidates)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn parse_prefixes_detailed(
+        &mut self,
+        range: TextRange,
+        candidate_ends: &[usize],
+        expected_types: &[ExpressionExpectedType],
+        allow_literals: bool,
+        allow_expressions: bool,
+        time: i32,
+        depth: usize,
+    ) -> Result<PrefixParse, ExpressionParseError> {
+        self.parse_prefixes_mode(
+            range,
+            candidate_ends,
+            expected_types,
+            allow_literals,
+            allow_expressions,
+            time,
+            depth,
+            true,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -963,7 +1371,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                     mark: 0,
                                     metadata: child.metadata.clone(),
                                     children: vec![child],
-                                    conditions: Vec::new(),
+                                    routed_captures: Vec::new(),
                                 },
                                 expected_alternative: inner_candidate.expected_alternative,
                             });
@@ -1026,8 +1434,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         captures: Vec::new(),
                         tags: Vec::new(),
                         mark: 0,
-                        children: Vec::new(),
-                        conditions: Vec::new(),
+                        children: leaf.children,
+                        routed_captures: Vec::new(),
                         metadata: leaf.metadata,
                     },
                     expected_alternative: None,
@@ -1046,13 +1454,15 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     expected_types,
                     depth,
                 )?);
-                candidates.extend(crate::function::parse_function_call(
+                let functions = crate::function::parse_function_call(
                     self,
                     range,
                     candidate_ends,
                     expected_types,
                     depth,
-                )?);
+                )?;
+                candidates.extend(functions.candidates);
+                failure = choose_failure_trace(failure, functions.failure);
             }
         }
 
@@ -1229,7 +1639,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     tags: Vec::new(),
                     mark: 0,
                     children,
-                    conditions: Vec::new(),
+                    routed_captures: Vec::new(),
                     metadata: BTreeMap::new(),
                 },
                 expected_alternative: None,
@@ -1432,6 +1842,17 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 } => None,
             })
             .collect();
+        let mut parsed_captures = Vec::new();
+        for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+            if let PatternCapture::TypeExpression {
+                resolution_id: Some(id),
+                ..
+            } = capture
+                && let Some(node) = self.resolved_nodes.get(id).cloned()
+            {
+                parsed_captures.push(expression_parsed_capture(capture_index, node));
+            }
+        }
         let mut return_type = metadata
             .as_ref()
             .and_then(|value| value.return_type.clone());
@@ -1439,58 +1860,144 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let mut node_metadata = metadata
             .as_ref()
             .map_or_else(BTreeMap::new, |value| value.metadata.clone());
-        let capture_kinds = metadata.as_ref().map_or_else(Vec::new, |value| {
+        let capture_bindings = metadata.as_ref().map_or_else(Vec::new, |value| {
             self.environment
-                .registered_capture_kinds(SyntaxKind::Expression, &value.element_class)
+                .registered_capture_bindings(SyntaxKind::Expression, &value.element_class)
         });
-        let mut conditions = Vec::new();
-        for (capture_index, (capture, kind)) in matched
-            .matched
-            .captures
-            .iter()
-            .filter(|capture| matches!(capture, PatternCapture::Regex { .. }))
-            .zip(capture_kinds)
-            .enumerate()
-        {
-            if kind != RegisteredCaptureKind::Condition {
+        for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+            let Some(binding) = capture_bindings
+                .iter()
+                .find(|binding| binding.capture_index == capture_index)
+            else {
                 continue;
-            }
+            };
             let PatternCapture::Regex {
                 pattern_span, span, ..
             } = capture
             else {
-                unreachable!("regex captures were filtered")
+                continue;
             };
             let local = span.local_range;
             let range = TextRange::new(frame_start + local.start, frame_start + local.end);
-            let parsed = crate::condition::parse_condition_with_session(self, range, depth + 1)
-                .map_err(|error| ExpressionParseError::Environment {
-                    message: error.to_string(),
-                })?;
-            let Some(selected) = parsed.selected else {
-                let cause = parsed.unknown.and_then(|unknown| unknown.failure);
-                let frame = FailureFrame {
-                    kind: matched.kind,
-                    definition_id: matched.definition_id.clone(),
-                    registration_id: matched.registration_id.clone(),
-                    pattern_index: matched.pattern_index,
-                    pattern: matched.pattern.clone(),
-                    element_path: Vec::new(),
-                    pattern_span: Some(*pattern_span),
-                    input_span: span.clone(),
-                    role: FailureFrameRole::ConditionCapture {
-                        index: capture_index,
-                    },
-                };
-                return Ok(RegisteredNodeResolution::Rejected(
-                    cause.map(|cause| cause.with_parent(frame)),
-                ));
+            let parsed = match binding.parser_id.as_str() {
+                HOST_CONDITION_PARSER_ID => {
+                    let parsed =
+                        crate::condition::parse_condition_with_session(self, range, depth + 1)
+                            .map_err(|error| ExpressionParseError::Environment {
+                                message: error.to_string(),
+                            })?;
+                    match parsed.selected {
+                        Some(selected) => condition_parsed_capture(capture_index, selected.node),
+                        None => {
+                            let cause = parsed.unknown.and_then(|unknown| unknown.failure);
+                            let frame = FailureFrame {
+                                kind: matched.kind,
+                                definition_id: matched.definition_id.clone(),
+                                registration_id: matched.registration_id.clone(),
+                                pattern_index: matched.pattern_index,
+                                pattern: matched.pattern.clone(),
+                                element_path: Vec::new(),
+                                pattern_span: Some(*pattern_span),
+                                input_span: span.clone(),
+                                role: FailureFrameRole::ConditionCapture {
+                                    index: capture_index,
+                                },
+                            };
+                            if binding.required {
+                                return Ok(RegisteredNodeResolution::Rejected(
+                                    cause.map(|cause| cause.with_parent(frame)),
+                                ));
+                            }
+                            ParsedCapture {
+                                capture_index,
+                                binding: binding.clone(),
+                                result: ParsedCaptureResult::failure(
+                                    binding.parser_id.clone(),
+                                    span.clone(),
+                                    "condition capture did not match",
+                                ),
+                            }
+                        }
+                    }
+                }
+                HOST_EFFECT_PARSER_ID => {
+                    let parsed = crate::effect::parse_effect_range_with_session(
+                        self,
+                        range,
+                        crate::RawNodeId::new(0),
+                        depth + 1,
+                    )
+                    .map_err(|error| ExpressionParseError::Environment {
+                        message: error.to_string(),
+                    })?;
+                    match parsed.selected {
+                        Some(selected) => {
+                            let summary =
+                                crate::effect::effect_semantic_summary(&selected, self.catalog);
+                            ParsedCapture {
+                                capture_index,
+                                binding: binding.clone(),
+                                result: ParsedCaptureResult::success(
+                                    binding.parser_id.clone(),
+                                    span.clone(),
+                                    Some(summary),
+                                    ParsedCaptureValue::Effect(Box::new(selected)),
+                                ),
+                            }
+                        }
+                        None => {
+                            if binding.required {
+                                return Ok(RegisteredNodeResolution::Rejected(Some(
+                                    crate::effect::nested_failure_trace(span.clone()),
+                                )));
+                            }
+                            ParsedCapture {
+                                capture_index,
+                                binding: binding.clone(),
+                                result: ParsedCaptureResult::failure(
+                                    binding.parser_id.clone(),
+                                    span.clone(),
+                                    "effect capture did not match",
+                                ),
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    let result = ParsedCaptureResult::failure(
+                        binding.parser_id.clone(),
+                        span.clone(),
+                        format!("no native parser route for {}", binding.parser_id),
+                    );
+                    if binding.required {
+                        return Ok(RegisteredNodeResolution::Rejected(Some(
+                            crate::effect::nested_failure_trace(span.clone()),
+                        )));
+                    }
+                    ParsedCapture {
+                        capture_index,
+                        binding: binding.clone(),
+                        result,
+                    }
+                }
             };
-            conditions.push(RegisteredConditionCapture {
-                capture_index,
-                node: selected.node,
-            });
+            if let ParsedCaptureResult {
+                status: ParsedCaptureStatus::Failed,
+                ..
+            } = &parsed.result
+                && binding.required
+            {
+                return Ok(RegisteredNodeResolution::Rejected(Some(
+                    crate::effect::nested_failure_trace(span.clone()),
+                )));
+            }
+            parsed_captures.push(parsed);
         }
+        let routed_captures = parsed_captures
+            .iter()
+            .filter(|capture| capture.result.parser_id != HOST_EXPRESSION_PARSER_ID)
+            .cloned()
+            .collect::<Vec<_>>();
         let needs_resolution = metadata.as_ref().is_some_and(|value| {
             value.return_type_state != ReturnTypeState::Static
                 || value.multiplicity_state == ResolutionState::Unresolved
@@ -1509,6 +2016,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     element_class: &value.element_class,
                     related_property: value.related_property.as_deref(),
                     pattern_index: matched.pattern_index,
+                    pattern: &matched.pattern,
                     span: &span,
                     expected_types,
                     declared_return_type: value.return_type.as_ref(),
@@ -1520,7 +2028,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     tags: &matched.matched.tags,
                     mark: matched.matched.mark,
                     children: &children,
-                    conditions: &conditions,
+                    parsed_captures: &parsed_captures,
                     context: &self.context,
                 })
                 .map_err(|message| ExpressionParseError::Environment { message })?;
@@ -1568,7 +2076,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 tags: matched.matched.tags,
                 mark: matched.matched.mark,
                 children,
-                conditions,
+                routed_captures,
                 metadata: node_metadata,
             },
             expected_alternative: None,
@@ -1611,8 +2119,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     // Skript can attempt Object conversions using the runtime value. Static
                     // candidates must first be narrowed by CoreLibrary or an addon, otherwise
                     // a generic Object candidate hides a known Player, Number, and so on.
-                    (from != "java.lang.Object" || to == "java.lang.Object")
-                        && self.catalog.can_convert(from, to)
+                    to == "java.lang.Object"
+                        || (from != "java.lang.Object" && self.catalog.can_convert(from, to))
                 })
             })
     }
@@ -2409,5 +2917,33 @@ mod tests {
 
         assert!(pattern_prefilter_matches(&prefilter, "CAFÉ ÜBER"));
         assert!(!pattern_prefilter_matches(&prefilter, "CAFE ÜBER"));
+    }
+
+    #[test]
+    fn capture_summary_exposes_the_concrete_expression_kind() {
+        let source = MappedSource::identity("{value}");
+        let node = ExpressionNode {
+            kind: ExpressionNodeKind::Variable {
+                parser_id: "core.variable".to_owned(),
+            },
+            function: None,
+            span: MatchSpan {
+                local_range: TextRange::new(0, 7),
+                mapped: source.map_range(TextRange::new(0, 7)).unwrap(),
+            },
+            return_type: Some(ClassName("java.lang.Object".to_owned())),
+            multiplicity: Some(Multiplicity::Single),
+            captures: Vec::new(),
+            tags: Vec::new(),
+            mark: 0,
+            children: Vec::new(),
+            routed_captures: Vec::new(),
+            metadata: BTreeMap::new(),
+        };
+
+        let summary = expression_semantic_summary(&node);
+
+        assert_eq!(summary.kind, "variable");
+        assert_eq!(summary.multiplicity, Some(Multiplicity::Single));
     }
 }

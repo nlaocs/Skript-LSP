@@ -2,12 +2,12 @@
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
 use crate::{
-    CandidateMatch, ConditionParseError, EffectMatches, EffectParseError, ExpressionNode,
-    ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
-    ExpressionParserConfig, ExpressionSession, FailureTrace, MappedSource, MatchPattern, MatchSpan,
-    MatchSyntaxKind, PatternCandidate, PatternCapture, RawNode, RawNodeId, RawNodeKind, RawTree,
-    RegisteredCaptureKind, RegisteredConditionCapture, SectionChildrenDecision,
-    SectionChildrenRequest, TextRange,
+    CandidateMatch, ConditionParseError, EffectMatches, EffectParseError, ExpressionParseContext,
+    ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
+    FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchPattern,
+    MatchSpan, MatchSyntaxKind, ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus,
+    ParsedCaptureValue, PatternCandidate, PatternCapture, RawNode, RawNodeId, RawNodeKind, RawTree,
+    SectionChildrenDecision, SectionChildrenRequest, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{
@@ -32,14 +32,29 @@ pub struct SectionCandidate {
     pub raw_node_id: RawNodeId,
     pub matched: CandidateMatch,
     pub element_class: Option<ClassName>,
-    pub expressions: Vec<ExpressionNode>,
-    pub conditions: Vec<RegisteredConditionCapture>,
+    /// All recursively parsed captures in pattern order.
+    pub parsed_captures: Vec<ParsedCapture>,
     pub loop_section: bool,
     pub effect_section: bool,
     pub section_expression: bool,
     pub body: Vec<SectionBodyNode>,
     pub handler: Option<String>,
     pub metadata: BTreeMap<String, String>,
+}
+
+impl SectionCandidate {
+    /// Iterates Condition captures resolved through generic parser bindings.
+    pub fn conditions(&self) -> impl Iterator<Item = &crate::ConditionNode> {
+        self.parsed_captures.iter().filter_map(|capture| {
+            if let Some(crate::ParsedCaptureValue::Condition(condition)) =
+                capture.result.value.as_ref()
+            {
+                Some(condition)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,53 +309,105 @@ fn section_candidate<E: ExpressionParseEnvironment>(
     let element_class = section
         .map(|section| section.common.element_class.clone())
         .or_else(|| section_expression.map(|expression| expression.common.element_class.clone()));
-    let capture_kinds = element_class
+    let capture_bindings = element_class
         .as_ref()
         .map_or_else(Vec::new, |element_class| {
             session
                 .environment()
-                .registered_capture_kinds(SyntaxKind::Section, element_class)
+                .registered_capture_bindings(SyntaxKind::Section, element_class)
         });
-    let expressions = matched
-        .matched
-        .captures
-        .iter()
-        .filter_map(|capture| match capture {
-            PatternCapture::TypeExpression {
-                resolution_id: Some(id),
-                ..
-            } => session.resolved_node(id).cloned(),
-            _ => None,
-        })
-        .collect();
-    let mut conditions = Vec::new();
-    for (capture_index, (capture, kind)) in matched
-        .matched
-        .captures
-        .iter()
-        .filter(|capture| matches!(capture, PatternCapture::Regex { .. }))
-        .zip(capture_kinds)
-        .enumerate()
-    {
-        if kind != RegisteredCaptureKind::Condition {
+    let mut parsed_captures = Vec::new();
+    for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+        if let PatternCapture::TypeExpression {
+            resolution_id: Some(id),
+            ..
+        } = capture
+            && let Some(node) = session.resolved_node(id).cloned()
+        {
+            parsed_captures.push(crate::expression_parsed_capture(capture_index, node));
             continue;
         }
         let PatternCapture::Regex { span, .. } = capture else {
-            unreachable!("regex captures were filtered")
+            continue;
+        };
+        let Some(binding) = capture_bindings
+            .iter()
+            .find(|binding| binding.capture_index == capture_index)
+        else {
+            continue;
         };
         let local = span.local_range;
-        let parsed = crate::condition::parse_condition_with_session(
-            session,
-            TextRange::new(frame_start + local.start, frame_start + local.end),
-            depth + 1,
-        )?;
-        let Some(selected) = parsed.selected else {
-            return Ok(None);
+        let range = TextRange::new(frame_start + local.start, frame_start + local.end);
+        let parsed = match binding.parser_id.as_str() {
+            HOST_CONDITION_PARSER_ID => {
+                let parsed =
+                    crate::condition::parse_condition_with_session(session, range, depth + 1)?;
+                match parsed.selected {
+                    Some(selected) => {
+                        let mut capture =
+                            crate::condition_parsed_capture(capture_index, selected.node);
+                        capture.binding = binding.clone();
+                        capture
+                    }
+                    None if binding.required => return Ok(None),
+                    None => ParsedCapture {
+                        capture_index,
+                        binding: binding.clone(),
+                        result: ParsedCaptureResult::failure(
+                            binding.parser_id.clone(),
+                            span.clone(),
+                            "condition capture did not match",
+                        ),
+                    },
+                }
+            }
+            HOST_EFFECT_PARSER_ID => {
+                let parsed = crate::effect::parse_effect_range_with_session(
+                    session,
+                    range,
+                    raw_node_id,
+                    depth + 1,
+                )?;
+                match parsed.selected {
+                    Some(selected) => ParsedCapture {
+                        capture_index,
+                        binding: binding.clone(),
+                        result: ParsedCaptureResult::success(
+                            binding.parser_id.clone(),
+                            span.clone(),
+                            Some(crate::effect::effect_semantic_summary(
+                                &selected,
+                                session.catalog(),
+                            )),
+                            ParsedCaptureValue::Effect(Box::new(selected)),
+                        ),
+                    },
+                    None if binding.required => return Ok(None),
+                    None => ParsedCapture {
+                        capture_index,
+                        binding: binding.clone(),
+                        result: ParsedCaptureResult::failure(
+                            binding.parser_id.clone(),
+                            span.clone(),
+                            "effect capture did not match",
+                        ),
+                    },
+                }
+            }
+            _ if binding.required => return Ok(None),
+            _ => ParsedCapture {
+                capture_index,
+                binding: binding.clone(),
+                result: ParsedCaptureResult::failure(
+                    binding.parser_id.clone(),
+                    span.clone(),
+                    format!("no native parser route for {}", binding.parser_id),
+                ),
+            },
         };
-        conditions.push(RegisteredConditionCapture {
-            capture_index,
-            node: selected.node,
-        });
+        if parsed.result.status != ParsedCaptureStatus::Failed || !binding.required {
+            parsed_captures.push(parsed);
+        }
     }
     let dynamic = session.dynamic_snapshot().and_then(|snapshot| {
         snapshot
@@ -355,8 +422,7 @@ fn section_candidate<E: ExpressionParseEnvironment>(
         raw_node_id,
         matched,
         element_class,
-        expressions,
-        conditions,
+        parsed_captures,
         loop_section,
         effect_section,
         section_expression,
@@ -529,7 +595,7 @@ fn section_children_request<'a>(
         effect_section: candidate.effect_section,
         section_expression: candidate.section_expression,
         captures: &candidate.matched.matched.captures,
-        conditions: &candidate.conditions,
+        parsed_captures: &candidate.parsed_captures,
         context,
     }
 }

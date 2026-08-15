@@ -49,6 +49,28 @@ fn match_one(
     )
 }
 
+#[derive(Debug, Default)]
+struct AcceptTypeExpressions;
+
+impl TypeExpressionResolver for AcceptTypeExpressions {
+    fn resolve(
+        &mut self,
+        request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(request
+            .candidate_ends
+            .iter()
+            .copied()
+            .map(|end| TypeExpressionResolution {
+                range: TextRange::new(request.remaining.start, end),
+                alternative_index: Some(0),
+                resolution_id: None,
+            })
+            .collect::<Vec<_>>()
+            .into())
+    }
+}
+
 #[test]
 fn matches_structural_variants_and_skript_literal_rules() {
     let source = "active[ |-](group|model)[s]|";
@@ -636,6 +658,96 @@ fn failed_type_span_stops_before_the_next_literal_separator() {
         failure.trace.root_cause().failure.span.local_range,
         TextRange::new(9, 19)
     );
+    assert_eq!(
+        failure
+            .trace
+            .root_cause()
+            .failure
+            .span
+            .local_range
+            .slice(input),
+        Some("all player")
+    );
+}
+
+#[test]
+fn recovery_collects_two_typed_capture_failures_without_selecting_candidate() {
+    let source = "teleport %entities% to %location%";
+    let pattern = parse(source);
+    let input = "teleport a to location(b, 2, 3)";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig {
+            recover_type_expression_failures: true,
+            ..PatternMatcherConfig::default()
+        },
+    )
+    .unwrap();
+
+    assert!(result.selected.is_none());
+    assert_eq!(result.failures.candidates.len(), 1);
+    let failure = result
+        .failures
+        .primary()
+        .expect("recovered candidate failure");
+    assert_eq!(
+        failure.trace.root_cause().failure.span.local_range,
+        TextRange::new(9, 10)
+    );
+    assert_eq!(failure.related.len(), 1);
+    assert_eq!(
+        failure.related[0].root_cause().failure.span.local_range,
+        TextRange::new(14, 31)
+    );
+    assert_eq!(
+        failure.related[0]
+            .root_cause()
+            .failure
+            .span
+            .local_range
+            .slice(input),
+        Some("location(b, 2, 3)")
+    );
+    assert!(
+        failure
+            .trace
+            .root_cause()
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(reason, PatternFailureReason::TypeExpression { .. }))
+    );
+    assert!(
+        failure.related[0]
+            .root_cause()
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(reason, PatternFailureReason::TypeExpression { .. }))
+    );
+}
+
+#[test]
+fn successful_teleport_matching_is_unchanged_when_recovery_is_disabled() {
+    let source = "teleport %entities% to %location%";
+    let pattern = parse(source);
+    let input = "teleport all players to location(1, 2, 3)";
+    let mapped = MappedSource::identity(input);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut AcceptTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    assert!(result.selected.is_some());
+    assert!(result.failures.primary().is_none());
 }
 
 #[test]

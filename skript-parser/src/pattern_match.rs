@@ -381,6 +381,9 @@ pub struct PatternMatcherConfig {
     pub max_regex_evaluated_bytes: usize,
     pub max_regex_backtracks: usize,
     pub max_candidate_failures: usize,
+    /// Continues past failed typed captures to collect independent diagnostics.
+    /// Recovered matches are never returned as successful syntax candidates.
+    pub recover_type_expression_failures: bool,
 }
 
 impl Default for PatternMatcherConfig {
@@ -392,6 +395,7 @@ impl Default for PatternMatcherConfig {
             max_regex_evaluated_bytes: 8 * 1024 * 1024,
             max_regex_backtracks: 1_000_000,
             max_candidate_failures: 256,
+            recover_type_expression_failures: false,
         }
     }
 }
@@ -473,6 +477,8 @@ pub struct CandidateFailure {
     pub pattern_index: Option<usize>,
     pub pattern: Option<String>,
     pub trace: FailureTrace,
+    /// Additional independent failures found while recovering this same pattern.
+    pub related: Vec<FailureTrace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,6 +534,8 @@ pub struct PatternMatch {
     pub tags: Vec<ParseTagCapture>,
     pub mark: i32,
     pub marks: Vec<ParseMarkCapture>,
+    /// Typed captures skipped only during bounded diagnostic recovery.
+    pub recovered_failures: Vec<FailureTrace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -576,6 +584,7 @@ struct MatchState {
     mark: i32,
     marks: Vec<ParseMarkCapture>,
     pending_implicit_tag: Option<PendingImplicitTag>,
+    recovered_failures: Vec<FailureTrace>,
 }
 
 impl MatchState {
@@ -587,6 +596,7 @@ impl MatchState {
             mark: 0,
             marks: Vec::new(),
             pending_implicit_tag: None,
+            recovered_failures: Vec::new(),
         }
     }
 }
@@ -999,12 +1009,31 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
                     .as_ref()
                     .map(|frame| frame.pattern.clone()),
                 trace,
+                related: Vec::new(),
             };
             candidate_failures.push(value);
         }
         aggregate_failure.merge(candidate_failure);
         if let Some(value) = matched {
-            matches.push(value);
+            if value.matched.recovered_failures.is_empty() {
+                matches.push(value);
+            } else {
+                let mut recovered = value.matched.recovered_failures.clone();
+                let trace = recovered.remove(0);
+                candidate_failures.push(CandidateFailure {
+                    kind: value.kind,
+                    definition_id: value.definition_id,
+                    registration_id: value.registration_id,
+                    priority: value.priority,
+                    registration_order: value.registration_order,
+                    resolved_order: candidate.resolved_order,
+                    literal_anchor: value.literal_anchor,
+                    pattern_index: Some(value.pattern_index),
+                    pattern: Some(value.pattern),
+                    trace,
+                    related: recovered,
+                });
+            }
         }
     }
 
@@ -1266,6 +1295,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         tags: state.tags,
                         mark: state.mark,
                         marks: state.marks,
+                        recovered_failures: state.recovered_failures,
                     },
                 };
                 if self.scope_after_matched(PatternHookScope::Pattern, self.trim_range)? {
@@ -1393,6 +1423,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 tags: Vec::new(),
                 mark: 0,
                 marks: Vec::new(),
+                recovered_failures: Vec::new(),
             },
         })
     }
@@ -1903,6 +1934,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             })?;
         let cause = outcome.failure;
 
+        let recovery_boundaries = boundaries.clone();
         let legal = boundaries.into_iter().collect::<HashSet<_>>();
         let mut matches = Vec::new();
         for resolution in outcome.resolutions {
@@ -1955,19 +1987,54 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 input_range,
                 FailureFrameRole::TypeExpressionCapture,
             )?;
+            let reason = PatternFailureReason::TypeExpression {
+                expected: expression
+                    .alternatives
+                    .iter()
+                    .map(|alternative| alternative.name.clone())
+                    .collect(),
+            };
             self.failure.record_detailed(
                 state.cursor,
                 failure_range,
-                PatternFailureReason::TypeExpression {
-                    expected: expression
-                        .alternatives
-                        .iter()
-                        .map(|alternative| alternative.name.clone())
-                        .collect(),
-                },
-                frame,
-                cause,
+                reason.clone(),
+                frame.clone(),
+                cause.clone(),
             );
+            if matches.is_empty() && self.config.recover_type_expression_failures {
+                let failure_span = self
+                    .input
+                    .map_range(failure_range.unwrap_or_else(|| TextRange::empty(state.cursor)))?;
+                let trace = FailureTrace {
+                    failure: PatternFailure {
+                        span: failure_span,
+                        reasons: vec![reason],
+                    },
+                    frame,
+                    cause: cause.map(Box::new),
+                };
+                for end in recovery_boundaries {
+                    if end <= state.cursor {
+                        continue;
+                    }
+                    let range = TextRange::new(state.cursor, end);
+                    let mut next = state.clone();
+                    next.cursor = end;
+                    next.captures.push(PatternCapture::TypeExpression {
+                        pattern_span,
+                        expression: expression.clone(),
+                        value: range
+                            .slice(self.input.text())
+                            .expect("validated recovery range")
+                            .to_owned(),
+                        span: self.input.map_range(range)?,
+                        alternative_index: None,
+                        resolution_id: None,
+                    });
+                    next.recovered_failures.push(trace.clone());
+                    matches.push(next);
+                }
+            }
         }
         Ok(matches)
     }

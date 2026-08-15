@@ -149,7 +149,7 @@ fn parse_operation<E: ExpressionParseEnvironment>(
             tags: Vec::new(),
             mark: 0,
             children: vec![left, right],
-            conditions: Vec::new(),
+            routed_captures: Vec::new(),
             metadata,
         },
         expected_alternative: None,

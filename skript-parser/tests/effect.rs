@@ -1,10 +1,10 @@
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind,
     ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment, MappedSource,
-    MatchSyntaxKind, NoopExpressionEnvironment, PatternHookControl, PatternHookEvent,
-    PatternHookScope, PatternHookTiming, PatternMatchEnvironment, RawTreeOptions, TextRange,
-    TypeExpressionOutcome, TypeExpressionRequest, parse_effect, parse_effect_with_snapshot,
-    parse_raw_tree,
+    MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue, PatternHookControl,
+    PatternHookEvent, PatternHookScope, PatternHookTiming, PatternMatchEnvironment, RawTreeOptions,
+    TextRange, TypeExpressionOutcome, TypeExpressionRequest, parse_effect,
+    parse_effect_with_snapshot, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -88,7 +88,7 @@ fn parses_real_effect_without_placeholders_and_ignores_trailing_comment() {
             .registration_id
             .starts_with("effect:skriptdummyaddon:")
     );
-    assert!(selected.expressions.is_empty());
+    assert!(selected.parsed_captures.is_empty());
     assert!(result.unknown.is_none());
 }
 
@@ -137,6 +137,7 @@ impl ExpressionParseEnvironment for StringLiteralEnvironment {
                 range: TextRange::new(request.remaining.start, end),
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
+                children: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .collect())
@@ -169,12 +170,14 @@ fn parses_expression_placeholder_with_the_shared_recursive_session() {
         selected.matched.pattern,
         "run dummy fixture effect [with %-string%]"
     );
-    assert_eq!(selected.expressions.len(), 1);
+    assert_eq!(selected.parsed_captures.len(), 1);
+    let Some(ParsedCaptureValue::Expression(expression)) =
+        selected.parsed_captures[0].result.value.as_ref()
+    else {
+        panic!("typed Effect capture must retain its Expression value");
+    };
     assert_eq!(
-        selected.expressions[0]
-            .span
-            .local_range
-            .slice(source.virtual_source()),
+        expression.span.local_range.slice(source.virtual_source()),
         Some("\"metadata\"")
     );
 }

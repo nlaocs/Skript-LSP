@@ -893,6 +893,7 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
             range: request.remaining,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Multiple),
+            children: Vec::new(),
             metadata: BTreeMap::new(),
         }])
     }
@@ -942,6 +943,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
                 range,
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
+                children: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .into_iter()
