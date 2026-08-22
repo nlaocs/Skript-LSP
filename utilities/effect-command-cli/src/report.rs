@@ -878,15 +878,10 @@ fn literal_alias_span(
     metadata: &BTreeMap<String, String>,
     fallback: SpanReport,
 ) -> Option<SpanReport> {
-    (metadata.get("literal-source").map(String::as_str) == Some("alias")).then(|| {
-        metadata
-            .get("literal-range-start")
+    (metadata_value(metadata, "literal-source") == Some("alias")).then(|| {
+        metadata_value(metadata, "literal-range-start")
             .and_then(|start| start.parse().ok())
-            .zip(
-                metadata
-                    .get("literal-range-end")
-                    .and_then(|end| end.parse().ok()),
-            )
+            .zip(metadata_value(metadata, "literal-range-end").and_then(|end| end.parse().ok()))
             .map(|(start, end)| SpanReport { start, end })
             .unwrap_or(fallback)
     })
@@ -894,14 +889,23 @@ fn literal_alias_span(
 
 fn literal_source_color(parser_id: &str, metadata: &BTreeMap<String, String>) -> SourceColor {
     if parser_id == "core.literal.class-info"
-        || metadata
-            .get("type-code-name")
-            .is_some_and(|code_name| code_name == "classinfo")
+        || metadata_value(metadata, "type-code-name") == Some("classinfo")
     {
         SourceColor::TypeName
     } else {
         SourceColor::Literal
     }
+}
+
+fn metadata_value<'a>(metadata: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    metadata.get(key).map(String::as_str).or_else(|| {
+        metadata.iter().find_map(|(candidate, value)| {
+            candidate
+                .strip_suffix(key)
+                .is_some_and(|owner| owner.ends_with('/'))
+                .then_some(value.as_str())
+        })
+    })
 }
 
 fn push_source_color_span(
@@ -2155,9 +2159,18 @@ mod tests {
     #[test]
     fn alias_color_uses_the_literal_range_inside_an_item_type() {
         let metadata = BTreeMap::from([
-            ("literal-source".to_owned(), "alias".to_owned()),
-            ("literal-range-start".to_owned(), "2".to_owned()),
-            ("literal-range-end".to_owned(), "9".to_owned()),
+            (
+                "nlaocs.core-library/literal-source".to_owned(),
+                "alias".to_owned(),
+            ),
+            (
+                "nlaocs.core-library/literal-range-start".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "nlaocs.core-library/literal-range-end".to_owned(),
+                "9".to_owned(),
+            ),
         ]);
 
         let alias = literal_alias_span(&metadata, SpanReport { start: 0, end: 9 }).unwrap();
