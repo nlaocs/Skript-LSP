@@ -17,7 +17,7 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
-    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(2, 3));
+    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(3, 0));
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
@@ -33,7 +33,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.17.0")
+        Some("0.18.0")
     );
 
     let world = package
@@ -68,16 +68,26 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
 fn host_bindings_expose_typed_hook_contract() {
     use host::nlaocs::skript_parser_addon::types::{
         AbiVersion, CapabilityRequirement, ComponentManifest, ExpressionTypeOption, HookMode,
-        HookPhase, HookSubscription, HookTarget, SyntaxKind,
+        HookPhase, HookSelector, HookSubscription, HookTarget, SyntaxKind,
     };
 
     let subscription = HookSubscription {
         id: "observe-expressions".to_owned(),
-        target: HookTarget::SyntaxDefinition(SyntaxKind::Expression),
+        target: HookTarget::SyntaxKind(SyntaxKind::Expression),
         phase: HookPhase::Candidate,
         priority: -20,
         mode: HookMode::Observe,
         capability_id: "parser.hooks".to_owned(),
+        selector: HookSelector {
+            pattern_index: None,
+            pattern_source: None,
+            mark: None,
+            tags: Vec::new(),
+            captures: Vec::new(),
+            return_type: None,
+            multiplicity: None,
+            metadata: Vec::new(),
+        },
     };
     let manifest = ComponentManifest {
         component_id: "test.component".to_owned(),
@@ -90,6 +100,7 @@ fn host_bindings_expose_typed_hook_contract() {
         }],
         subscriptions: vec![subscription],
         registered_syntax_handlers: Vec::new(),
+        catalog_annotations: Vec::new(),
         state_namespaces: Vec::new(),
     };
 
@@ -137,6 +148,7 @@ fn bindings_expose_typed_dynamic_syntax_registration() {
         metadata: vec![MetadataEntry {
             key: "origin".to_owned(),
             value: "contract-test".to_owned(),
+            owner_component_id: None,
         }],
     };
 
@@ -299,6 +311,7 @@ fn bindings_expose_typed_matching_payload() {
         },
         status: MatchingStatus::Pending,
         failure_reason: None,
+        metadata: Vec::new(),
     };
 
     assert_eq!(payload.definition_id, "effect:send");

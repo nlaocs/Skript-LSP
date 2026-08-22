@@ -1,16 +1,18 @@
 use crate::empty_effects;
 use crate::nlaocs::skript_parser_addon::types::{
     Diagnostic, DiagnosticSeverity, DynamicMultiplicity, EffectPayload, HookDecision, HookOutput,
-    HookPayload, RegisteredSyntaxHandler, Rejection, SyntaxKind,
+    HookPayload, RegisteredSyntaxHandler, RegisteredSyntaxHandlerTarget, Rejection, SyntaxKind,
 };
 
 const CLASS_SUFFIX: &str = ".EffChange";
+const HANDLER_ID: &str = "core.effect.eff-change";
 const SET_PATTERN: u64 = 3;
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     handlers.push(RegisteredSyntaxHandler {
+        handler_id: HANDLER_ID.to_owned(),
         kind: SyntaxKind::Effect,
-        class_suffix: CLASS_SUFFIX.to_owned(),
+        target: RegisteredSyntaxHandlerTarget::ClassSuffix(CLASS_SUFFIX.to_owned()),
         capture_parsers: Vec::new(),
         context_requirements: Vec::new(),
     });
@@ -18,11 +20,7 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 
 pub(super) fn resolve(payload: EffectPayload) -> Option<HookOutput> {
     let candidate = payload.candidate.as_ref()?;
-    if candidate
-        .element_class
-        .as_deref()
-        .is_none_or(|class| !class.ends_with(CLASS_SUFFIX))
-    {
+    if !crate::runtime::handler_matches(HANDLER_ID, &candidate.registration_id) {
         return None;
     }
     if candidate.pattern_index != SET_PATTERN {

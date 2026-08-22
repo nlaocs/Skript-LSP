@@ -482,7 +482,7 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
             .next()
             .expect("item alias Expression")
             .metadata
-            .get("literal-source")
+            .get("nlaocs.core-library/literal-source")
             .map(String::as_str),
         Some("alias")
     );
@@ -628,8 +628,18 @@ fn wasm_effect_hook_replaces_metadata_and_keeps_selected_state() {
     );
     let selected = result.matches.selected.expect("Effect must be selected");
     assert_eq!(
-        selected.metadata.get("wasm").map(String::as_str),
+        selected
+            .metadata
+            .get("test.effect-addon/wasm")
+            .map(String::as_str),
         Some("replaced")
+    );
+    assert_eq!(
+        selected
+            .metadata
+            .get("test.effect-addon/catalog-annotation")
+            .map(String::as_str),
+        Some("replace")
     );
     assert!(
         result
@@ -637,9 +647,35 @@ fn wasm_effect_hook_replaces_metadata_and_keeps_selected_state() {
             .iter()
             .any(|call| call.subscription_id == "effect.replace")
     );
+    assert!(
+        result
+            .calls
+            .iter()
+            .any(|call| call.subscription_id == "effect.not-applicable")
+    );
+    let not_applicable_index = result
+        .calls
+        .iter()
+        .position(|call| call.subscription_id == "effect.not-applicable")
+        .expect("NotApplicable hook must run");
+    let replace_index = result
+        .calls
+        .iter()
+        .position(|call| call.subscription_id == "effect.replace")
+        .expect("replace hook must run after NotApplicable");
+    assert!(not_applicable_index < replace_index);
+    assert!(selected.metadata.get("temporary").is_none());
+    assert!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "effect-fixture-not-applicable")
+    );
     let writes = transaction.read_write_set().unwrap().writes;
     assert!(writes.iter().any(|write| write.key == "category-before"));
     assert!(writes.iter().any(|write| write.key == "replace"));
+    assert!(writes.iter().all(|write| write.key != "not-applicable"));
     assert!(writes.iter().all(|write| write.key != "reject"));
     transaction.cancel().unwrap();
 }
@@ -677,6 +713,20 @@ fn wasm_effect_reject_restores_nested_expression_and_hook_state() {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "effect-fixture-reject")
+    );
+    assert!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "effect-fixture-reject-effects")
+    );
+    assert!(
+        result
+            .effects
+            .context_updates
+            .iter()
+            .all(|update| update.key != "reject-effects-must-be-rolled-back")
     );
     assert_eq!(transaction.state_revision().unwrap(), 0);
     assert!(transaction.read_write_set().unwrap().writes.is_empty());
@@ -1058,7 +1108,12 @@ fn property_expression_return_type_flows_into_function_arguments() {
         x.return_type.as_ref().map(ClassName::as_str),
         Some("java.lang.Double")
     );
-    assert_eq!(x.metadata.get("wxyz-axis").map(String::as_str), Some("x"));
+    assert_eq!(
+        x.metadata
+            .get("nlaocs.core-library/wxyz-axis")
+            .map(String::as_str),
+        Some("x")
+    );
     transaction.cancel().unwrap();
 }
 
@@ -1087,7 +1142,9 @@ fn property_expression_prefers_the_closest_source_handler() {
 
     let name = selected.expressions().next().expect("name Expression");
     assert_eq!(
-        name.metadata.get("semantic-mode").map(String::as_str),
+        name.metadata
+            .get("nlaocs.core-library/semantic-mode")
+            .map(String::as_str),
         Some("name-property")
     );
     assert_eq!(

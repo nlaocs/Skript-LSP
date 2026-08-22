@@ -21,9 +21,9 @@ use exports::nlaocs::skript_parser_addon::{addon, ast_macro, hooks, text_macro, 
 use nlaocs::skript_parser_addon::types::{
     AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput, CapabilityRequirement,
     CompatibilityError, CompatibilityErrorKind, ComponentManifest, ExpressionPayload, HookDecision,
-    HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription,
-    HookTarget, HostProfile, ParseResult, RegisteredExpressionPayload, SyntaxKind, TextMacroInput,
-    TextMacroOutput, TreeMacroInput, TreeMacroOutput,
+    HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
+    HookSubscription, HookTarget, HostProfile, ParseResult, RegisteredExpressionPayload,
+    SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
 };
 #[cfg(test)]
 use nlaocs::skript_parser_addon::types::{RuntimePlugin, RuntimeProfile};
@@ -38,8 +38,22 @@ const COMPONENT_ID: &str = "nlaocs.core-library";
 const COMPONENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const HEALTH_CHECK_SUBSCRIPTION_ID: &str = "core.health-check";
 const EXPRESSION_SUBSCRIPTION_ID: &str = "core.expression-candidates";
+const REGISTERED_EXPRESSION_SUBSCRIPTION_ID: &str = "core.registered-expression-semantics";
 const EFFECT_SUBSCRIPTION_ID: &str = "core.effect-semantics";
 const SECTION_SUBSCRIPTION_ID: &str = "core.section-semantics";
+
+fn empty_hook_selector() -> HookSelector {
+    HookSelector {
+        pattern_index: None,
+        pattern_source: None,
+        mark: None,
+        tags: Vec::new(),
+        captures: Vec::new(),
+        return_type: None,
+        multiplicity: None,
+        metadata: Vec::new(),
+    }
+}
 
 struct CoreLibrary;
 
@@ -79,33 +93,46 @@ impl addon::Guest for CoreLibrary {
                     id: HEALTH_CHECK_SUBSCRIPTION_ID.to_owned(),
                     target: HookTarget::ParseStage,
                     phase: HookPhase::Document,
-                    priority: i32::MIN,
+                    priority: 0,
                     mode: HookMode::Observe,
                     capability_id: CAPABILITY_HOOKS.to_owned(),
+                    selector: empty_hook_selector(),
                 },
                 HookSubscription {
                     id: EXPRESSION_SUBSCRIPTION_ID.to_owned(),
                     target: HookTarget::ParseStage,
                     phase: HookPhase::Expression,
-                    priority: i32::MIN,
+                    priority: 0,
                     mode: HookMode::Transform,
                     capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
+                },
+                HookSubscription {
+                    id: REGISTERED_EXPRESSION_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Expression),
+                    phase: HookPhase::Expression,
+                    priority: 0,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
                 },
                 HookSubscription {
                     id: EFFECT_SUBSCRIPTION_ID.to_owned(),
-                    target: HookTarget::SyntaxDefinition(SyntaxKind::Effect),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Effect),
                     phase: HookPhase::Effect,
-                    priority: i32::MIN,
+                    priority: 0,
                     mode: HookMode::Transform,
                     capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
                 },
                 HookSubscription {
                     id: SECTION_SUBSCRIPTION_ID.to_owned(),
-                    target: HookTarget::SyntaxDefinition(SyntaxKind::Section),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Section),
                     phase: HookPhase::Section,
-                    priority: i32::MIN,
+                    priority: 0,
                     mode: HookMode::Transform,
                     capability_id: CAPABILITY_SECTION_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
                 },
             ],
             registered_syntax_handlers: {
@@ -114,6 +141,7 @@ impl addon::Guest for CoreLibrary {
                 handlers.extend(sections::handlers());
                 handlers
             },
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         }
     }
@@ -132,6 +160,7 @@ impl addon::Guest for CoreLibrary {
             .collect::<Vec<_>>();
 
         let runtime_profile = profile.runtime.clone();
+        let registered_handler_bindings = profile.registered_handler_bindings.clone();
         validate_compatibility(
             ABI_VERSION,
             ParserAbiVersion::new(profile.abi.major, profile.abi.minor),
@@ -140,7 +169,7 @@ impl addon::Guest for CoreLibrary {
         )
         .map_err(map_compatibility_error)?;
 
-        runtime::replace(runtime_profile);
+        runtime::replace(runtime_profile, registered_handler_bindings);
         Ok(())
     }
 }
@@ -150,6 +179,7 @@ impl hooks::Guest for CoreLibrary {
         match input.context.subscription_id.as_str() {
             HEALTH_CHECK_SUBSCRIPTION_ID => health_check(input),
             EXPRESSION_SUBSCRIPTION_ID => parse_expressions(input),
+            REGISTERED_EXPRESSION_SUBSCRIPTION_ID => parse_registered_expression(input),
             EFFECT_SUBSCRIPTION_ID => parse_effect_semantics(input),
             SECTION_SUBSCRIPTION_ID => parse_section_semantics(input),
             _ => Err(addon_error(
@@ -194,10 +224,27 @@ fn parse_expressions(input: HookInvocation) -> Result<HookOutput, AddonError> {
         HookPayload::Expression(payload) => {
             parse_expression_candidates(payload, &input.parse_results)
         }
-        HookPayload::RegisteredExpression(payload) => resolve_registered_expression(payload),
         _ => Err(addon_error(
             AddonErrorKind::InvalidPayload,
             "CoreLibrary Expression parser requires an Expression payload",
+        )),
+    }
+}
+
+fn parse_registered_expression(input: HookInvocation) -> Result<HookOutput, AddonError> {
+    if !matches!(input.target, HookTarget::SyntaxKind(SyntaxKind::Expression))
+        || !matches!(input.phase, HookPhase::Expression)
+    {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary registered Expression semantics require an Expression syntax target",
+        ));
+    }
+    match input.payload {
+        HookPayload::RegisteredExpression(payload) => resolve_registered_expression(payload),
+        _ => Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary registered Expression semantics require a registered Expression payload",
         )),
     }
 }
@@ -266,7 +313,7 @@ fn resolve_registered_expression(
 ) -> Result<HookOutput, AddonError> {
     let Some(resolution) = expressions::resolve(&payload) else {
         return Ok(HookOutput {
-            decision: HookDecision::ContinueProcessing,
+            decision: HookDecision::NotApplicable,
             replacement: None,
             effects: empty_effects(),
         });
@@ -303,6 +350,7 @@ fn metadata(key: &str, value: &str) -> nlaocs::skript_parser_addon::types::Metad
     nlaocs::skript_parser_addon::types::MetadataEntry {
         key: key.to_owned(),
         value: value.to_owned(),
+        owner_component_id: None,
     }
 }
 
@@ -344,9 +392,9 @@ fn empty_effects() -> HookEffects {
     }
 }
 
-fn continue_without_replacement() -> HookOutput {
+fn not_applicable() -> HookOutput {
     HookOutput {
-        decision: HookDecision::ContinueProcessing,
+        decision: HookDecision::NotApplicable,
         replacement: None,
         effects: empty_effects(),
     }
@@ -414,7 +462,7 @@ mod tests {
         ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
         HookPayload, InvocationContext, MappedSpan, OriginKind, ParseResultStatus,
         RegisteredExpressionChild, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
-        SourceOrigin, TextRange,
+        RegisteredHandlerBinding, SourceOrigin, TextRange,
     };
 
     #[test]
@@ -428,7 +476,7 @@ mod tests {
         assert_eq!(manifest.capabilities.len(), 4);
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
-        assert_eq!(manifest.subscriptions.len(), 4);
+        assert_eq!(manifest.subscriptions.len(), 5);
         assert_eq!(manifest.subscriptions[0].id, HEALTH_CHECK_SUBSCRIPTION_ID);
         assert!(matches!(
             manifest.subscriptions[0].target,
@@ -449,9 +497,9 @@ mod tests {
             HookMode::Transform
         ));
         assert_eq!(manifest.capabilities[2].id, CAPABILITY_EFFECT_PARSER);
-        assert_eq!(manifest.subscriptions[2].id, EFFECT_SUBSCRIPTION_ID);
+        assert_eq!(manifest.subscriptions[3].id, EFFECT_SUBSCRIPTION_ID);
         assert_eq!(manifest.capabilities[3].id, CAPABILITY_SECTION_PARSER);
-        assert_eq!(manifest.subscriptions[3].id, SECTION_SUBSCRIPTION_ID);
+        assert_eq!(manifest.subscriptions[4].id, SECTION_SUBSCRIPTION_ID);
         assert_eq!(manifest.registered_syntax_handlers.len(), 32);
     }
 
@@ -463,6 +511,7 @@ mod tests {
                 minor: ABI_VERSION.minor,
             },
             capabilities: Vec::new(),
+            registered_handler_bindings: Vec::new(),
             runtime: RuntimeProfile {
                 snapshot_schema_version: None,
                 snapshot_id: None,
@@ -490,6 +539,7 @@ mod tests {
                 id: CAPABILITY_HOOKS.to_owned(),
                 version: 1,
             }],
+            registered_handler_bindings: Vec::new(),
             runtime: RuntimeProfile {
                 snapshot_schema_version: None,
                 snapshot_id: None,
@@ -534,6 +584,11 @@ mod tests {
                     version: 1,
                 },
             ],
+            registered_handler_bindings: vec![RegisteredHandlerBinding {
+                handler_id: "core.expression.expr-parse".to_owned(),
+                definition_ids: vec!["expression:test".to_owned()],
+                registration_ids: vec!["expression:test:0".to_owned()],
+            }],
             runtime: RuntimeProfile {
                 snapshot_schema_version: Some(4),
                 snapshot_id: Some("snapshot-test".to_owned()),
@@ -561,6 +616,10 @@ mod tests {
         assert_eq!(retained.plugins[0].load_order, 7);
         assert_eq!(retained.plugins[0].name, "Skript");
         assert_eq!(retained.plugins[0].main, "ch.njol.skript.Skript");
+        assert!(runtime::handler_matches(
+            "core.expression.expr-parse",
+            "expression:test:0",
+        ));
     }
 
     #[test]

@@ -4,16 +4,17 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprInventoryInfo";
+const HANDLER_ID: &str = "core.expression.expr-inventory-info";
 const INVENTORY_HOLDER: &str = "org.bukkit.inventory.InventoryHolder";
 const PLAYER: &str = "org.bukkit.entity.Player";
 const NUMBER: &str = "java.lang.Number";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler(handlers, CLASS_SUFFIX, Vec::new());
+    register_handler(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| {
+    matches(payload, HANDLER_ID).then(|| {
         let modern = crate::runtime::skript_at_least(2, 16)
             .unwrap_or_else(|| !payload.pattern.contains("viewer"));
         let Some(source_multiplicity) = payload

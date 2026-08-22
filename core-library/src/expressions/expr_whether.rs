@@ -4,17 +4,19 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprWhether";
+const HANDLER_ID: &str = "core.expression.expr-whether";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     register_handler(
         handlers,
+        HANDLER_ID,
         CLASS_SUFFIX,
         vec![capture_parser(0, "host.condition")],
     );
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| {
+    matches(payload, HANDLER_ID).then(|| {
         if !payload.parsed_captures.iter().any(|capture| {
             capture.capture_index == 0
                 && capture.parser_id == "host.condition"

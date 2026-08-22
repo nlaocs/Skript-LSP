@@ -6,15 +6,16 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprRandomNumber";
+const HANDLER_ID: &str = "core.expression.expr-random-number";
 const INTEGER: &str = "java.lang.Long";
 const NUMBER: &str = "java.lang.Double";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler(handlers, CLASS_SUFFIX, Vec::new());
+    register_handler(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| {
+    matches(payload, HANDLER_ID).then(|| {
         let Some(multiplicity) = optional_integer_amount_multiplicity(&payload.children) else {
             return SemanticResolution::Reject(
                 "random number Expression has an unexpected child layout".to_owned(),

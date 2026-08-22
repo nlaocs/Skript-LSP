@@ -6,13 +6,14 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprParse";
+const HANDLER_ID: &str = "core.expression.expr-parse";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler_with_all_type_options(handlers, CLASS_SUFFIX, Vec::new());
+    register_handler_with_all_type_options(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| resolve_parse_expression(payload))
+    matches(payload, HANDLER_ID).then(|| resolve_parse_expression(payload))
 }
 
 fn resolve_parse_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {

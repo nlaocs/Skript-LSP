@@ -4,17 +4,19 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprTernary";
+const HANDLER_ID: &str = "core.expression.expr-ternary";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     register_handler(
         handlers,
+        HANDLER_ID,
         CLASS_SUFFIX,
         vec![capture_parser(1, "host.condition")],
     );
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| {
+    matches(payload, HANDLER_ID).then(|| {
         if !payload.parsed_captures.iter().any(|capture| {
             capture.capture_index == 1
                 && capture.parser_id == "host.condition"
@@ -28,14 +30,6 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             return SemanticResolution::Reject(
                 "ternary Expression requires two result Expressions".to_owned(),
             );
-        }
-        if payload.children.iter().any(|child| {
-            child
-                .element_class
-                .as_deref()
-                .is_some_and(|class| class.ends_with(CLASS_SUFFIX))
-        }) {
-            return SemanticResolution::Reject("ternary Expressions may not be nested".to_owned());
         }
         let Some(return_type) = payload.common_child_return_type.as_deref() else {
             return SemanticResolution::Reject(

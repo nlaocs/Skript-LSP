@@ -258,12 +258,18 @@ pub trait PatternMatchHooks {
         &mut self,
         _kind: MatchSyntaxKind,
         _registration_id: &str,
+        _pattern_index: usize,
     ) -> Result<bool, String> {
         Ok(true)
     }
 
     /// Returns whether a matching hook may synthesize a result for this registration.
-    fn may_override_pattern(&self, _kind: MatchSyntaxKind, _registration_id: &str) -> bool {
+    fn may_override_pattern(
+        &self,
+        _kind: MatchSyntaxKind,
+        _registration_id: &str,
+        _pattern_index: usize,
+    ) -> bool {
         false
     }
 
@@ -293,12 +299,18 @@ pub trait PatternMatchEnvironment {
         &mut self,
         _kind: MatchSyntaxKind,
         _registration_id: &str,
+        _pattern_index: usize,
     ) -> Result<bool, String> {
         Ok(false)
     }
 
     /// Returns whether a matching hook may synthesize a result for this registration.
-    fn may_override_pattern(&self, _kind: MatchSyntaxKind, _registration_id: &str) -> bool {
+    fn may_override_pattern(
+        &self,
+        _kind: MatchSyntaxKind,
+        _registration_id: &str,
+        _pattern_index: usize,
+    ) -> bool {
         false
     }
 
@@ -332,12 +344,20 @@ impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
         &mut self,
         kind: MatchSyntaxKind,
         registration_id: &str,
+        pattern_index: usize,
     ) -> Result<bool, String> {
-        self.hooks.allows_regex_pattern(kind, registration_id)
+        self.hooks
+            .allows_regex_pattern(kind, registration_id, pattern_index)
     }
 
-    fn may_override_pattern(&self, kind: MatchSyntaxKind, registration_id: &str) -> bool {
-        self.hooks.may_override_pattern(kind, registration_id)
+    fn may_override_pattern(
+        &self,
+        kind: MatchSyntaxKind,
+        registration_id: &str,
+        pattern_index: usize,
+    ) -> bool {
+        self.hooks
+            .may_override_pattern(kind, registration_id, pattern_index)
     }
 
     fn resolve_type(
@@ -1225,7 +1245,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             if pattern_contains_regex(&pattern.parsed.elements)
                 && !self
                     .environment
-                    .allows_regex_pattern(candidate.kind, &candidate.registration_id)
+                    .allows_regex_pattern(
+                        candidate.kind,
+                        &candidate.registration_id,
+                        pattern.pattern_index,
+                    )
                     .map_err(|message| PatternMatchError::Hook { message })?
             {
                 continue;

@@ -3,9 +3,9 @@ mod sec_while;
 
 use crate::nlaocs::skript_parser_addon::types::{
     AddonError, AddonErrorKind, HookInvocation, HookOutput, HookPayload, HookPhase,
-    RegisteredSyntaxHandler,
+    RegisteredSyntaxHandler, RegisteredSyntaxHandlerTarget,
 };
-use crate::{addon_error, continue_without_replacement};
+use crate::{addon_error, not_applicable};
 
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     let mut handlers = Vec::new();
@@ -32,17 +32,22 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
     } else if sec_while::matches(&payload) {
         sec_while::resolve(input.context, payload)
     } else {
-        continue_without_replacement()
+        not_applicable()
     };
     Ok(output)
 }
 
-fn register_handler(handlers: &mut Vec<RegisteredSyntaxHandler>, class_suffix: &str) {
+fn register_handler(
+    handlers: &mut Vec<RegisteredSyntaxHandler>,
+    handler_id: &str,
+    class_suffix: &str,
+) {
     use crate::nlaocs::skript_parser_addon::types::{CaptureParserBinding, SyntaxKind};
 
     handlers.push(RegisteredSyntaxHandler {
+        handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Section,
-        class_suffix: class_suffix.to_owned(),
+        target: RegisteredSyntaxHandlerTarget::ClassSuffix(class_suffix.to_owned()),
         capture_parsers: vec![CaptureParserBinding {
             capture_index: 0,
             parser_id: "host.condition".to_owned(),

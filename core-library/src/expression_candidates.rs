@@ -49,5 +49,6 @@ pub(crate) fn metadata(key: &str, value: &str) -> MetadataEntry {
     MetadataEntry {
         key: key.to_owned(),
         value: value.to_owned(),
+        owner_component_id: None,
     }
 }

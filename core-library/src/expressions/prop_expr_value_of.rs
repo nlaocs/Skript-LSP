@@ -4,13 +4,14 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".PropExprValueOf";
+const HANDLER_ID: &str = "core.expression.prop-expr-value-of";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler(handlers, CLASS_SUFFIX, Vec::new());
+    register_handler(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| {
+    matches(payload, HANDLER_ID).then(|| {
         if payload.property_options.is_empty() {
             return SemanticResolution::Reject(
                 "source type has no registered typed value property".to_owned(),

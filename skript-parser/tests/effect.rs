@@ -306,7 +306,12 @@ fn unknown_effect_retains_exact_code_and_farthest_failure() {
 struct SyntheticEffectEnvironment;
 
 impl PatternMatchEnvironment for SyntheticEffectEnvironment {
-    fn may_override_pattern(&self, kind: MatchSyntaxKind, _registration_id: &str) -> bool {
+    fn may_override_pattern(
+        &self,
+        kind: MatchSyntaxKind,
+        _registration_id: &str,
+        _pattern_index: usize,
+    ) -> bool {
         kind == MatchSyntaxKind::Effect
     }
 

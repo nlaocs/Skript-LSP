@@ -4,17 +4,14 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".SecConditional";
+const HANDLER_ID: &str = "core.section.sec-conditional";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler(handlers, CLASS_SUFFIX);
+    register_handler(handlers, HANDLER_ID, CLASS_SUFFIX);
 }
 
 pub(super) fn matches(payload: &SectionPayload) -> bool {
-    payload
-        .candidate
-        .element_class
-        .as_deref()
-        .is_some_and(|class| class.ends_with(CLASS_SUFFIX))
+    crate::runtime::handler_matches(HANDLER_ID, &payload.candidate.registration_id)
 }
 
 pub(super) fn resolve(context: InvocationContext, payload: SectionPayload) -> HookOutput {

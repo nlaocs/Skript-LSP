@@ -10,7 +10,7 @@ use crate::{
     ExpressionParserConfig, ExpressionSession, FailureFrame, FailureFrameRole, FailureTrace,
     HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchSpan, ParsedCapture,
     ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure,
-    RankedFailures, RawNode, RawNodeId, RawNodeKind, TextRange,
+    RankedFailures, RawNode, RawNodeId, RawNodeKind, RegisteredSyntaxIdentity, TextRange,
 };
 use std::collections::{BTreeMap, HashSet};
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -432,13 +432,17 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         .map(|effect| effect.common.element_class.clone());
     let handler = dynamic.map(|definition| definition.handler.clone());
     let metadata = dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone());
-    let capture_bindings = element_class
-        .as_ref()
-        .map_or_else(Vec::new, |element_class| {
-            session
-                .environment()
-                .registered_capture_bindings(SyntaxKind::Effect, element_class)
-        });
+    let capture_bindings = session
+        .environment()
+        .registered_capture_bindings(RegisteredSyntaxIdentity {
+            kind: SyntaxKind::Effect,
+            definition_id: &matched.definition_id,
+            registration_id: &matched.registration_id,
+            pattern_index: Some(matched.pattern_index),
+        })
+        .map_err(|message| {
+            EffectParseError::Expression(ExpressionParseError::Environment { message })
+        })?;
     let mut parsed_captures = Vec::new();
     for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
         if let PatternCapture::TypeExpression {

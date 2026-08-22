@@ -30,8 +30,10 @@ mod property;
 
 use crate::nlaocs::skript_parser_addon::types::{
     CaptureParserBinding, DynamicMultiplicity, MetadataEntry, RegisteredExpressionChild,
-    RegisteredExpressionPayload, RegisteredSyntaxHandler, SyntaxKind,
+    RegisteredExpressionPayload, RegisteredSyntaxHandler, RegisteredSyntaxHandlerTarget,
+    SyntaxKind,
 };
+use crate::runtime;
 use parser_wasm::REGISTERED_CONTEXT_ALL_TYPE_OPTIONS;
 
 pub(crate) enum SemanticResolution {
@@ -109,19 +111,28 @@ pub(crate) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
 
 fn register_handler(
     handlers: &mut Vec<RegisteredSyntaxHandler>,
-    class_suffix: &str,
-    capture_parsers: Vec<CaptureParserBinding>,
-) {
-    register_handler_with_context(handlers, class_suffix, capture_parsers, Vec::new());
-}
-
-fn register_handler_with_all_type_options(
-    handlers: &mut Vec<RegisteredSyntaxHandler>,
+    handler_id: &str,
     class_suffix: &str,
     capture_parsers: Vec<CaptureParserBinding>,
 ) {
     register_handler_with_context(
         handlers,
+        handler_id,
+        class_suffix,
+        capture_parsers,
+        Vec::new(),
+    );
+}
+
+fn register_handler_with_all_type_options(
+    handlers: &mut Vec<RegisteredSyntaxHandler>,
+    handler_id: &str,
+    class_suffix: &str,
+    capture_parsers: Vec<CaptureParserBinding>,
+) {
+    register_handler_with_context(
+        handlers,
+        handler_id,
         class_suffix,
         capture_parsers,
         vec![REGISTERED_CONTEXT_ALL_TYPE_OPTIONS.to_owned()],
@@ -130,13 +141,15 @@ fn register_handler_with_all_type_options(
 
 fn register_handler_with_context(
     handlers: &mut Vec<RegisteredSyntaxHandler>,
+    handler_id: &str,
     class_suffix: &str,
     capture_parsers: Vec<CaptureParserBinding>,
     context_requirements: Vec<String>,
 ) {
     handlers.push(RegisteredSyntaxHandler {
+        handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Expression,
-        class_suffix: class_suffix.to_owned(),
+        target: RegisteredSyntaxHandlerTarget::ClassSuffix(class_suffix.to_owned()),
         capture_parsers,
         context_requirements,
     });
@@ -151,8 +164,39 @@ fn capture_parser(capture_index: u64, parser_id: &str) -> CaptureParserBinding {
     }
 }
 
-fn matches(payload: &RegisteredExpressionPayload, class_suffix: &str) -> bool {
-    payload.element_class.ends_with(class_suffix)
+fn matches(payload: &RegisteredExpressionPayload, handler_id: &str) -> bool {
+    #[cfg(test)]
+    let class_matches = {
+        // Direct semantic unit tests do not run through HostProfile. Keep
+        // those tests independent from process-global runtime initialization.
+        let handler_name = handler_id.rsplit('.').next().unwrap_or(handler_id);
+        let class_name = payload.element_class.rsplit('.').next().unwrap_or_default();
+        normalize_test_name(handler_name) == normalize_test_name(class_name)
+    };
+    #[cfg(test)]
+    if payload.definition_id == "expression:test" {
+        return class_matches;
+    }
+    if runtime::handler_matches(handler_id, &payload.registration_id) {
+        return true;
+    }
+    #[cfg(test)]
+    {
+        class_matches
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+#[cfg(test)]
+fn normalize_test_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn resolved(
@@ -171,13 +215,20 @@ fn metadata(key: &str, value: &str) -> MetadataEntry {
     MetadataEntry {
         key: key.to_owned(),
         value: value.to_owned(),
+        owner_component_id: None,
     }
 }
 
 fn metadata_value<'a>(metadata: &'a [MetadataEntry], key: &str) -> Option<&'a str> {
     metadata
         .iter()
-        .find(|entry| entry.key == key)
+        .find(|entry| {
+            entry.key == key
+                || entry
+                    .key
+                    .rsplit_once('/')
+                    .is_some_and(|(_, suffix)| suffix == key)
+        })
         .map(|entry| entry.value.as_str())
 }
 

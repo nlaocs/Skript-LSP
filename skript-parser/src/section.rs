@@ -7,7 +7,7 @@ use crate::{
     FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchPattern,
     MatchSpan, MatchSyntaxKind, ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus,
     ParsedCaptureValue, PatternCandidate, PatternCapture, RawNode, RawNodeId, RawNodeKind, RawTree,
-    SectionChildrenDecision, SectionChildrenRequest, TextRange,
+    RegisteredSyntaxIdentity, SectionChildrenDecision, SectionChildrenRequest, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{
@@ -309,13 +309,15 @@ fn section_candidate<E: ExpressionParseEnvironment>(
     let element_class = section
         .map(|section| section.common.element_class.clone())
         .or_else(|| section_expression.map(|expression| expression.common.element_class.clone()));
-    let capture_bindings = element_class
-        .as_ref()
-        .map_or_else(Vec::new, |element_class| {
-            session
-                .environment()
-                .registered_capture_bindings(SyntaxKind::Section, element_class)
-        });
+    let capture_bindings = session
+        .environment()
+        .registered_capture_bindings(RegisteredSyntaxIdentity {
+            kind: SyntaxKind::Section,
+            definition_id: &matched.definition_id,
+            registration_id: &matched.registration_id,
+            pattern_index: Some(matched.pattern_index),
+        })
+        .map_err(|message| SectionParseError::Environment { message })?;
     let mut parsed_captures = Vec::new();
     for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
         if let PatternCapture::TypeExpression {

@@ -4,13 +4,14 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprEntities";
+const HANDLER_ID: &str = "core.expression.expr-entities";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
-    register_handler(handlers, CLASS_SUFFIX, Vec::new());
+    register_handler(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
 }
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
-    matches(payload, CLASS_SUFFIX).then(|| {
+    matches(payload, HANDLER_ID).then(|| {
         let Some(entity_data) = payload.children.first() else {
             return SemanticResolution::Reject(
                 "entities Expression requires an entity data literal".to_owned(),

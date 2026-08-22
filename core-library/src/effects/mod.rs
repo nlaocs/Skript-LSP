@@ -5,7 +5,7 @@ use crate::nlaocs::skript_parser_addon::types::{
     AddonError, AddonErrorKind, HookInvocation, HookOutput, HookPayload, HookPhase,
     RegisteredSyntaxHandler,
 };
-use crate::{addon_error, continue_without_replacement};
+use crate::{addon_error, not_applicable};
 
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     let mut handlers = Vec::new();
@@ -29,5 +29,5 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
     };
     Ok(eff_change::resolve(payload.clone())
         .or_else(|| eff_do_if::resolve(payload))
-        .unwrap_or_else(continue_without_replacement))
+        .unwrap_or_else(not_applicable))
 }

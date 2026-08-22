@@ -20,9 +20,9 @@ use nlaocs::skript_parser_addon::{
         CapabilityRequirement, CompatibilityError, CompatibilityErrorKind, ComponentManifest,
         DynamicSyntaxDefinition, DynamicSyntaxId, DynamicSyntaxOverride,
         DynamicSyntaxOverrideTarget, DynamicSyntaxReference, HookDecision, HookEffects,
-        HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSubscription, HookTarget,
-        HostProfile, Rejection, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
-        TreeMacroOutput,
+        HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
+        HookSubscription, HookTarget, HostProfile, Rejection, SyntaxKind, TextMacroInput,
+        TextMacroOutput, TreeMacroInput, TreeMacroOutput,
     },
 };
 use parser_wasm::{
@@ -37,6 +37,19 @@ const DELAY_DEFINITION_ID: &str =
     "effect:skript:751b28432979bd1f00e370ffe6f6c3279e4936b90071eda5ed732d7cda2c0504";
 
 struct DynamicSyntaxAddon;
+
+fn empty_selector() -> HookSelector {
+    HookSelector {
+        pattern_index: None,
+        pattern_source: None,
+        mark: None,
+        tags: Vec::new(),
+        captures: Vec::new(),
+        return_type: None,
+        multiplicity: None,
+        metadata: Vec::new(),
+    }
+}
 
 impl addon::Guest for DynamicSyntaxAddon {
     fn manifest() -> ComponentManifest {
@@ -66,8 +79,10 @@ impl addon::Guest for DynamicSyntaxAddon {
                 priority: 0,
                 mode: HookMode::Override,
                 capability_id: CAPABILITY_HOOKS.to_owned(),
+                selector: empty_selector(),
             }],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         }
     }

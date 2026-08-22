@@ -19,11 +19,11 @@ use nlaocs::skript_parser_addon::{
         AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput,
         CapabilityRequirement, CompatibilityError, CompatibilityErrorKind, ComponentManifest,
         ContextUpdate, Diagnostic, DiagnosticSeverity, ExpressionExpectedType, HookDecision,
-        HookEffects, HookInvocation, HookMode, HookOutput, HookPhase, HookSubscription, HookTarget,
-        HostProfile, MappedSpan, MetadataEntry, OriginKind, ParseRequest, Rejection, RelatedSpan,
-        SourceOrigin, StateEncoding, StateNamespaceDeclaration, StateNamespaceVisibility,
-        StateScope, StateValue, TextEdit, TextMacroInput, TextMacroOutput, TextRange,
-        TreeMacroInput, TreeMacroOutput,
+        HookEffects, HookInvocation, HookMode, HookOutput, HookPhase, HookSelector,
+        HookSubscription, HookTarget, HostProfile, MappedSpan, MetadataEntry, OriginKind,
+        ParseRequest, Rejection, RelatedSpan, SourceOrigin, StateEncoding,
+        StateNamespaceDeclaration, StateNamespaceVisibility, StateScope, StateValue, TextEdit,
+        TextMacroInput, TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput,
     },
 };
 use parser_wasm::{
@@ -39,6 +39,19 @@ const STATE_NAMESPACE: &str = "macro-state";
 const STATE_SCHEMA: &str = "nlaocs.test.text-macro-state";
 
 struct TextMacroAddon;
+
+fn empty_selector() -> HookSelector {
+    HookSelector {
+        pattern_index: None,
+        pattern_source: None,
+        mark: None,
+        tags: Vec::new(),
+        captures: Vec::new(),
+        return_type: None,
+        multiplicity: None,
+        metadata: Vec::new(),
+    }
+}
 
 impl addon::Guest for TextMacroAddon {
     fn manifest() -> ComponentManifest {
@@ -66,6 +79,7 @@ impl addon::Guest for TextMacroAddon {
                 macro_subscription(SECOND_SUBSCRIPTION, 10),
             ],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,
@@ -306,6 +320,7 @@ fn macro_subscription(id: &str, priority: i32) -> HookSubscription {
         priority,
         mode: HookMode::Transform,
         capability_id: CAPABILITY_TEXT_MACRO.to_owned(),
+        selector: empty_selector(),
     }
 }
 
@@ -361,6 +376,7 @@ fn parse_request(span: MappedSpan) -> ParseRequest {
         options: vec![MetadataEntry {
             key: "fixture".to_owned(),
             value: "text-macro".to_owned(),
+            owner_component_id: None,
         }],
     }
 }

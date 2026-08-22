@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.17.0;
+package nlaocs:skript-parser-addon@0.18.0;
 
 interface types {
     record abi-version {
@@ -50,10 +50,17 @@ interface types {
         plugins: list<runtime-plugin>,
     }
 
+    record registered-handler-binding {
+        handler-id: string,
+        definition-ids: list<string>,
+        registration-ids: list<string>,
+    }
+
     record host-profile {
         abi: abi-version,
         capabilities: list<capability>,
         runtime: runtime-profile,
+        registered-handler-bindings: list<registered-handler-binding>,
     }
 
     enum syntax-kind {
@@ -87,6 +94,7 @@ interface types {
     record metadata-entry {
         key: string,
         value: string,
+        owner-component-id: option<string>,
     }
 
     record dynamic-syntax-definition {
@@ -135,10 +143,17 @@ interface types {
     }
 
     variant hook-target {
-        syntax-definition(syntax-kind),
-        exact-registration(string),
+        syntax-kind(syntax-kind),
+        definition(string),
+        registration(string),
+        pattern(pattern-ref),
         parse-stage,
         parser(string),
+    }
+
+    record pattern-ref {
+        registration-id: string,
+        pattern-index: u64,
     }
 
     enum hook-phase {
@@ -166,6 +181,33 @@ interface types {
         override,
     }
 
+    enum selector-type-relation {
+        exact,
+        assignable,
+        convertible,
+    }
+
+    record return-type-selector {
+        class-name: string,
+        relation: selector-type-relation,
+    }
+
+    record capture-selector {
+        capture-index: u64,
+        status: option<parse-result-status>,
+    }
+
+    record hook-selector {
+        pattern-index: option<u64>,
+        pattern-source: option<string>,
+        mark: option<s32>,
+        tags: list<string>,
+        captures: list<capture-selector>,
+        return-type: option<return-type-selector>,
+        multiplicity: option<dynamic-multiplicity>,
+        metadata: list<metadata-entry>,
+    }
+
     record hook-subscription {
         id: string,
         target: hook-target,
@@ -173,6 +215,13 @@ interface types {
         priority: s32,
         mode: hook-mode,
         capability-id: string,
+        selector: hook-selector,
+    }
+
+    variant registered-syntax-handler-target {
+        definition(string),
+        registration(string),
+        class-suffix(string),
     }
 
     record capture-parser-binding {
@@ -183,10 +232,22 @@ interface types {
     }
 
     record registered-syntax-handler {
+        handler-id: string,
         kind: syntax-kind,
-        class-suffix: string,
+        target: registered-syntax-handler-target,
         capture-parsers: list<capture-parser-binding>,
         context-requirements: list<string>,
+    }
+
+    variant catalog-annotation-target {
+        definition(string),
+        registration(string),
+        pattern(pattern-ref),
+    }
+
+    record catalog-annotation {
+        target: catalog-annotation-target,
+        metadata: list<metadata-entry>,
     }
 
     record component-manifest {
@@ -196,6 +257,7 @@ interface types {
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
         registered-syntax-handlers: list<registered-syntax-handler>,
+        catalog-annotations: list<catalog-annotation>,
         state-namespaces: list<state-namespace-declaration>,
     }
 
@@ -317,6 +379,7 @@ interface types {
 
     variant hook-decision {
         continue-processing,
+        not-applicable,
         handled,
         reject(rejection),
     }
@@ -649,6 +712,7 @@ interface types {
         section-expression: bool,
         regex-captures: list<string>,
         parsed-captures: list<parsed-capture>,
+        metadata: list<metadata-entry>,
     }
 
     record section-payload {
@@ -902,6 +966,7 @@ interface types {
         span: mapped-span,
         status: matching-status,
         failure-reason: option<string>,
+        metadata: list<metadata-entry>,
     }
 
     record capture-payload {

@@ -19,7 +19,7 @@ use nlaocs::skript_parser_addon::{
         AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput,
         CapabilityRequirement, CompatibilityError, CompatibilityErrorKind, ComponentManifest,
         Diagnostic, DiagnosticSeverity, GeneratedRawNode, GeneratedRawNodeKind, GeneratedRawTree,
-        HookDecision, HookEffects, HookInvocation, HookMode, HookOutput, HookPhase,
+        HookDecision, HookEffects, HookInvocation, HookMode, HookOutput, HookPhase, HookSelector,
         HookSubscription, HookTarget, HostProfile, IndentKind, RawTriviaKind, Rejection,
         ReplaceNodeEdit, RetainedChildren, RetainedChildrenPlacement, StateEncoding,
         StateNamespaceDeclaration, StateNamespaceVisibility, StateScope, StateValue,
@@ -38,6 +38,19 @@ const STATE_NAMESPACE: &str = "tree-state";
 const STATE_SCHEMA: &str = "nlaocs.test.tree-macro-state";
 
 struct TreeMacroAddon;
+
+fn empty_selector() -> HookSelector {
+    HookSelector {
+        pattern_index: None,
+        pattern_source: None,
+        mark: None,
+        tags: Vec::new(),
+        captures: Vec::new(),
+        return_type: None,
+        multiplicity: None,
+        metadata: Vec::new(),
+    }
+}
 
 impl addon::Guest for TreeMacroAddon {
     fn manifest() -> ComponentManifest {
@@ -67,8 +80,10 @@ impl addon::Guest for TreeMacroAddon {
                 priority: 0,
                 mode: HookMode::Transform,
                 capability_id: CAPABILITY_TREE_MACRO.to_owned(),
+                selector: empty_selector(),
             }],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,

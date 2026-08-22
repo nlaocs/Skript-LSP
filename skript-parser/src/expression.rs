@@ -141,6 +141,19 @@ pub struct RegisteredCaptureBinding {
     pub options: BTreeMap<String, String>,
 }
 
+/// Stable SSG identity of one registered syntax pattern.
+///
+/// Semantic routing uses these identifiers exclusively. A WASM host may use a
+/// Java class suffix while loading a legacy manifest, but resolves that suffix
+/// to these identifiers before parsing begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegisteredSyntaxIdentity<'a> {
+    pub kind: SyntaxKind,
+    pub definition_id: &'a str,
+    pub registration_id: &'a str,
+    pub pattern_index: Option<usize>,
+}
+
 /// Completeness of one generic capture result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedCaptureStatus {
@@ -650,17 +663,16 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
 
     /// Returns whether a semantic handler may replace this registration's
     /// declared return type after its captures have matched.
-    fn can_resolve_registered_expression(&self, _element_class: &ClassName) -> bool {
+    fn can_resolve_registered_expression(&self, _syntax: RegisteredSyntaxIdentity<'_>) -> bool {
         false
     }
 
     /// Declares how regex captures for one registered syntax are recursively parsed.
     fn registered_capture_bindings(
         &self,
-        _kind: SyntaxKind,
-        _element_class: &ClassName,
-    ) -> Vec<RegisteredCaptureBinding> {
-        Vec::new()
+        _syntax: RegisteredSyntaxIdentity<'_>,
+    ) -> Result<Vec<RegisteredCaptureBinding>, String> {
+        Ok(Vec::new())
     }
 
     /// Starts speculative work for semantic regex captures of one candidate.
@@ -1034,13 +1046,14 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             .slice(self.source.virtual_source())
             .ok_or(ExpressionParseError::InvalidInputRange { range })?;
         for candidate in candidates.iter_mut() {
-            if self
-                .environment
-                .may_override_pattern(candidate.kind, &candidate.registration_id)
-            {
-                continue;
-            }
             candidate.patterns.retain(|pattern| {
+                if self.environment.may_override_pattern(
+                    candidate.kind,
+                    &candidate.registration_id,
+                    pattern.pattern_index,
+                ) {
+                    return true;
+                }
                 let prefilter = self
                     .pattern_prefilters
                     .entry(pattern.source)
@@ -1682,16 +1695,24 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 }
                 let return_type_matches = match metadata.return_type_state {
                     ReturnTypeState::Static => {
-                        self.environment
-                            .can_resolve_registered_expression(&metadata.element_class)
-                            || self
-                                .return_type_matches(metadata.return_type.as_ref(), expected_types)
+                        self.environment.can_resolve_registered_expression(
+                            RegisteredSyntaxIdentity {
+                                kind: SyntaxKind::Expression,
+                                definition_id: &candidate.definition_id,
+                                registration_id: &candidate.registration_id,
+                                pattern_index: None,
+                            },
+                        ) || self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                     }
                     ReturnTypeState::Dynamic | ReturnTypeState::Unresolved => {
-                        self.environment
-                            .can_resolve_registered_expression(&metadata.element_class)
-                            || self
-                                .return_type_matches(metadata.return_type.as_ref(), expected_types)
+                        self.environment.can_resolve_registered_expression(
+                            RegisteredSyntaxIdentity {
+                                kind: SyntaxKind::Expression,
+                                definition_id: &candidate.definition_id,
+                                registration_id: &candidate.registration_id,
+                                pattern_index: None,
+                            },
+                        ) || self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                             || metadata.possible_return_types.iter().any(|return_type| {
                                 self.return_type_matches(Some(return_type), expected_types)
                             })
@@ -1729,27 +1750,28 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 positions.extend_from_slice(indexed);
             }
             for (candidate_index, candidate) in self.registered_candidates.iter().enumerate() {
-                if self
-                    .environment
-                    .may_override_pattern(candidate.kind, &candidate.registration_id)
-                {
-                    positions.extend(
-                        candidate
-                            .patterns
-                            .iter()
-                            .enumerate()
-                            .map(|(pattern_index, _)| (candidate_index, pattern_index)),
-                    );
-                }
+                positions.extend(candidate.patterns.iter().enumerate().filter_map(
+                    |(pattern_position, pattern)| {
+                        self.environment
+                            .may_override_pattern(
+                                candidate.kind,
+                                &candidate.registration_id,
+                                pattern.pattern_index,
+                            )
+                            .then_some((candidate_index, pattern_position))
+                    },
+                ));
             }
             positions.sort_unstable();
             positions.dedup();
             positions.retain(|(candidate_index, pattern_index)| {
                 let candidate = &self.registered_candidates[*candidate_index];
                 let pattern = candidate.patterns[*pattern_index];
-                let overridden = self
-                    .environment
-                    .may_override_pattern(candidate.kind, &candidate.registration_id);
+                let overridden = self.environment.may_override_pattern(
+                    candidate.kind,
+                    &candidate.registration_id,
+                    pattern.pattern_index,
+                );
                 (overridden && matches!(registered_pass, RegisteredPass::Base))
                     || (!overridden
                         && self.pattern_prefilters[pattern.source].left_recursive
@@ -1768,13 +1790,15 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         while cursor < positions.len() {
             let candidate_index = positions[cursor].0;
             let candidate = &self.registered_candidates[candidate_index];
-            let overridden = self
-                .environment
-                .may_override_pattern(candidate.kind, &candidate.registration_id);
             let mut patterns = Vec::new();
             while cursor < positions.len() && positions[cursor].0 == candidate_index {
                 let pattern = candidate.patterns[positions[cursor].1];
                 let prefilter = &self.pattern_prefilters[pattern.source];
+                let overridden = self.environment.may_override_pattern(
+                    candidate.kind,
+                    &candidate.registration_id,
+                    pattern.pattern_index,
+                );
                 if overridden || pattern_prefilter_matches(prefilter, input) {
                     patterns.push(pattern);
                 }
@@ -1860,10 +1884,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let mut node_metadata = metadata
             .as_ref()
             .map_or_else(BTreeMap::new, |value| value.metadata.clone());
-        let capture_bindings = metadata.as_ref().map_or_else(Vec::new, |value| {
+        let capture_bindings = if metadata.is_some() {
             self.environment
-                .registered_capture_bindings(SyntaxKind::Expression, &value.element_class)
-        });
+                .registered_capture_bindings(RegisteredSyntaxIdentity {
+                    kind: SyntaxKind::Expression,
+                    definition_id: &matched.definition_id,
+                    registration_id: &matched.registration_id,
+                    pattern_index: Some(matched.pattern_index),
+                })
+                .map_err(|message| ExpressionParseError::Environment { message })?
+        } else {
+            Vec::new()
+        };
         for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
             let Some(binding) = capture_bindings
                 .iter()
@@ -2003,7 +2035,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 || value.multiplicity_state == ResolutionState::Unresolved
                 || self
                     .environment
-                    .can_resolve_registered_expression(&value.element_class)
+                    .can_resolve_registered_expression(RegisteredSyntaxIdentity {
+                        kind: SyntaxKind::Expression,
+                        definition_id: &matched.definition_id,
+                        registration_id: &matched.registration_id,
+                        pattern_index: Some(matched.pattern_index),
+                    })
         });
         if needs_resolution {
             let value = metadata.as_ref().expect("checked registered metadata");
@@ -2801,12 +2838,20 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
         &mut self,
         kind: crate::MatchSyntaxKind,
         registration_id: &str,
+        pattern_index: usize,
     ) -> Result<bool, String> {
-        self.environment.allows_regex_pattern(kind, registration_id)
+        self.environment
+            .allows_regex_pattern(kind, registration_id, pattern_index)
     }
 
-    fn may_override_pattern(&self, kind: crate::MatchSyntaxKind, registration_id: &str) -> bool {
-        self.environment.may_override_pattern(kind, registration_id)
+    fn may_override_pattern(
+        &self,
+        kind: crate::MatchSyntaxKind,
+        registration_id: &str,
+        pattern_index: usize,
+    ) -> bool {
+        self.environment
+            .may_override_pattern(kind, registration_id, pattern_index)
     }
 
     fn resolve_type(

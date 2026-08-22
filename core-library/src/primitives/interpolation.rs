@@ -56,6 +56,7 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                     options: vec![MetadataEntry {
                         key: "container".to_owned(),
                         value: container.kind.to_owned(),
+                        owner_component_id: None,
                     }],
                 }
             })
