@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.13.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.18.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -68,8 +68,10 @@ structured literal metadata changed it to 0.12.0; SSG supplier metadata in
 Expression type options changed it to 0.13.0; runtime profiles and open parser
 result graphs changed it to 0.15.0; host-token references from leaf candidates
 to parsed child roots changed it to 0.16.0; explicit child node kinds and parser
-IDs changed it to 0.17.0. The manifest's current `abi` value is 2.3 and is a runtime handshake that
-requires an exact `major.minor` match.
+IDs changed it to 0.17.0; SSG-ID hook targets, PatternRef routing, declarative
+selectors, and `NotApplicable` changed it to 0.18.0. The manifest's current
+`abi` value is 3.0 and is a runtime handshake that requires an exact
+`major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an
@@ -128,8 +130,13 @@ captures, known return types, and applicable property metadata, including
 supported component axes.
 CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
-Components declare the syntax kind, Java class suffix, and meaning of regex
-captures in `registered-syntax-handlers`. A handler may also request named
+Components give each semantic handler a stable handler ID and declare an SSG
+definition/registration target, or an explicit class-suffix discovery fallback,
+in `registered-syntax-handlers`. The host resolves discovery fallbacks against
+the loaded catalog once and sends the resulting definition and registration IDs
+in `HostProfile`. Runtime semantic selection never depends on the Java class
+suffix.
+A handler may also request named
 host context; `expression.type-options.all` supplies every SSG Type option for
 constructs such as `ExprParse` without teaching the host that Java class name.
 Each registered child also carries its native node kind and optional parser ID,
@@ -289,14 +296,37 @@ A subscription selects a target, phase, signed priority, and mode.
 - `transform` may return a replacement payload for later hooks.
 - `override` handles the target instead of its normal implementation.
 
+Targets may address a syntax kind, definition ID, registration ID, or an exact
+`registrationId + patternIndex` pair. A declarative selector can further test
+the current pattern, mark, tags, parsed captures, effective return type,
+multiplicity, and metadata. Selector predicates are ANDed. Type predicates use
+`Match`, `NoMatch`, and `Unknown`; `Unknown` still invokes WASM so the component
+can make the final applicability decision.
+
+`NotApplicable` means that the hook did not claim the current payload. Its
+replacement, effects, StateStore writes, and dynamic syntax changes are
+discarded before the next hook runs. `ContinueProcessing` keeps accepted
+changes and continues, `Handled` accepts and stops the chain, and `Reject`
+returns diagnostics while rolling back the rejecting call.
+
+Manifest `catalog-annotations` attach owner-tracked metadata to a definition,
+registration, or exact pattern. The host applies them before selector
+evaluation. Later hooks may read another component's metadata but cannot alter
+or remove it; metadata written by a hook is stamped with that hook's component
+ID.
+
+When metadata enters the native AST, an owned key is represented as
+`component-id/key`; converting it back to WIT restores the structured owner.
+`/` is therefore reserved as the namespace separator in component IDs.
+
 The host validates mode-specific behavior, payload variants, subscriptions, and
 capabilities when components are registered. Runtime limits and trap handling
 belong to the Wasmtime host implementation.
 
 Subscription ordering is deterministic:
 
-1. exact registration targets before syntax-kind targets before parse-stage
-   targets
+1. parser, exact pattern, registration, definition, syntax-kind, then
+   parse-stage target specificity
 2. signed subscription priority
 3. component load order
 4. declaration order inside the component manifest

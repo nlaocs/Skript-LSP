@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.13.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.18.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -62,7 +62,7 @@ componentが解決する登録Expression classの宣言追加で0.8.0へ変わ�
 0.11.0へ、構造化type literal metadataで0.12.0へ、SSG supplier metadataのExpression type option追加で
 0.13.0へ変わりました。runtime profileとopen parser result graphで0.15.0、leaf候補から解析済みchild rootを
 参照するhost tokenで0.16.0、child node kindとparser IDの明示で0.17.0へ変わりました。
-manifestの現在の`abi`値は2.3で、
+manifestの現在の`abi`値は3.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -80,6 +80,8 @@ hostはText macroとTree macroをadvertiseし、実行します。AST macroはco
 `addon.initialize`には、読み込んだSSG manifestから作った`RuntimeProfile`も渡します。snapshot、server、
 Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。componentは、Java classや
 parse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず処理できます。
+
+WIT 0.18.0では、SSG-IDのdefinition/registration/PatternRef target、宣言的selector、NotApplicableを追加し、ABIを3.0へ更新しました。
 
 ## Open parser request
 
@@ -109,8 +111,11 @@ CoreLibraryとaddonはVariable、Literal、Function、Customのleaf候補を追�
 Expressionと型付きの子Expressionが一致した後、hostはparse tag、子Expression、generic parsed capture、既知の返値候補、
 適用可能なproperty情報と対応component axisを含む2段目のpayloadを送ります。
 CoreLibraryまたはaddonは実効Java返値型と
-Multiplicityを確定するか、候補をrejectできます。componentはsyntax kind、Java class suffix、
-regex captureの意味を`registered-syntax-handlers`へ宣言します。handlerは名前付きhost contextも要求でき、
+Multiplicityを確定するか、候補をrejectできます。componentはsemantic handlerごとに安定したhandler IDを付け、
+SSG definition/registration target、または明示的なclass suffix discovery fallbackを
+`registered-syntax-handlers`へ宣言します。hostはfallbackを読み込み時に一度だけcatalogへ照合し、解決した
+definitionIdとregistrationIdを`HostProfile`でcomponentへ渡します。実行時のsemantic選択はJava class suffixへ
+依存しません。handlerは名前付きhost contextも要求でき、
 `expression.type-options.all`は`ExprParse`のような構文へSSGの全Type optionを渡します。host側はJava class名を
 知る必要がありません。各childにはnative node kindと任意のparser IDも含まれるため、componentはsource文字列を
 推測せずliteral、variable、functionなどを区別できます。native parserは有効なcomponentが宣言した
@@ -240,17 +245,31 @@ subscriptionはtarget、phase、signed priority、modeを指定します。
 - `transform`: 後続hookへ渡すreplacement payloadを返せます。
 - `override`: targetの通常処理に代わって処理します。
 
+targetはsyntax kind、definitionId、registrationId、または正確な
+`registrationId + patternIndex`を指定できます。宣言的selectorでは現在のpattern、mark、tag、解析済みcapture、
+実効return type、Multiplicity、metadataをAND条件で絞れます。型条件は`Match`、`NoMatch`、`Unknown`の三値で、
+`Unknown`はskipせずWASMを呼び、component自身が最終的な適用可否を判断します。
+
+`NotApplicable`は「このpayloadは対象外」です。そのhookのreplacement、effects、StateStore write、dynamic syntax変更を
+破棄して次へ進みます。`ContinueProcessing`は変更を採用して続行し、`Handled`は採用してchainを停止し、`Reject`は
+拒否したcallをrollbackしつつdiagnosticを返します。
+
+manifestの`catalog-annotations`はdefinition、registration、exact patternへ所有者付きmetadataを付けます。hostは
+selector評価前にannotationを適用します。後段hookは他componentのmetadataを読めますが変更・削除できず、hookが
+新規作成したmetadataにはhostがそのcomponent IDを記録します。
+
+所有者付きmetadataをnative ASTへ移すときは`component-id/key`で表し、WITへ戻すときに構造化されたownerを
+復元します。そのためcomponent ID内の`/`はnamespace separatorとして予約されています。
+
 hostはcomponent登録時に、mode固有の動作、payload variant、subscription、capabilityを
 検証します。runtime limitとtrap処理はWasmtime hostの責務です。
 
 subscriptionの順序は決定的です。
 
-1. exact registration target
-2. syntax-kind target
-3. parse-stage target
-4. signed subscription priority
-5. component load順
-6. component manifest内の宣言順
+1. parser、exact pattern、registration、definition、syntax-kind、parse-stageのtarget specificity
+2. signed subscription priority
+3. component load順
+4. component manifest内の宣言順
 
 実際の比較では、最初の3つをtarget specificityとして比較したあと、残りを順に比較します。
 overrideがhandledを返すと、後続の一致するhookを停止します。addon errorはcomponent failure
