@@ -203,6 +203,13 @@ placeholderを持たないpatternではExpression経路を起動しません。
 Expressionを保持します。unknown入力もmapped spanと最遠pattern failureを維持し、後続diagnosticに
 利用できます。
 
+## Event解析
+
+`parse_event`は、どのStructureが所有するかを仮定せずEvent headerを照合します。採用されたSSG ID、
+Event実装class、参照Bukkit Event class、cancellable、regex capture、addon metadataを保持します。
+これによりStructure hookは`host.event`をcapture parserとして使えますが、native parser自身は
+`StructEvent`などのSkript実装classに依存しません。
+
 ## Section解析
 
 `parse_section`は1件の`RawNodeKind::Section`を受け取り、子をnested SectionまたはEffectとして
@@ -214,6 +221,19 @@ Expression登録を統合します。採用nodeは3種類のmetadata flag、意�
 `exit_section_children`はbody完了後に同じcontextを参照します。その後parent contextへ戻ります。
 unknown header、未取得body line、複数候補に取得されたnodeはsubtree全体を中断せず、partial ASTと
 `SectionDiagnostic`として保持されます。
+
+## Structure解析
+
+`parse_structures`はSkriptと同じtop-level二段階処理を行います。最初にすべてのStructure headerを
+照合してenterし、その後で採用候補のbodyを解析します。native側はregistration順、`NodeType`、
+lossless RawTree走査、宣言的な`EntryValidator`を担当します。literal、Expression、Trigger、
+Container、Section、default、multiple entry、custom separator、nested validatorに対応します。
+未知のaddon固有`EntryData`は破棄せず、raw sourceとdiagnosticを保持します。
+
+`ExpressionParseEnvironment::enter_structure`と`exit_structure`が拡張境界です。environmentはheaderの
+reject、body contextの派生、`None`/`Raw`/`Entries`/`Trigger`の選択、metadata追加、解析済みbodyの
+参照を行えます。`StructEvent`、`StructFunction`、`StructCommand`のようなSkript固有の意味処理は
+native moduleではなくWASM componentへ実装します。
 
 ## Invariant
 
@@ -245,7 +265,9 @@ constructorは次の入力を拒否します。
 | `function` | 登録Function call、named/optional/list引数、overload、document lookup拡張 |
 | `effect` | Simple nodeのEffect候補、dynamic metadata、nested Expression、unknown回復 |
 | `condition` | registration順Condition照合、外側括弧処理、nested Expression |
+| `event` | Event header照合、参照Event class、cancellable、意味付きcapture |
 | `section` | 再帰Section/Effect body、scoped context、意味付きcapture、partial回復 |
+| `structure` | top-level二段階Structure解析、NodeType、EntryValidator、WASM lifecycle hook |
 | `catalog_match` | static Catalogとfrozen dynamic snapshotの候補adapter |
 
 公開itemはcrate rootからre-exportされます。
@@ -260,4 +282,4 @@ test suiteには、multibyte UTF-8 mapping、生成text、replacement range、�
 backtrace、multi-origin expansion、明示anchor、不正なsegment配置、identity mappingと任意
 UTF-8 Text edit適用のproperty testが含まれます。RawTreeについてはSkript公式comment case、
 LF/CRLF/最終改行なし、space/tab、nested Section、回復可能な不正indent、空Section、block
-comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、Function callとdocument shadow、multi-addon Catalog全体を検証します。Effect testでは実schema 3 DummyAddon登録を使い、placeholderなし、型付き、dynamic、unknown lineを検証します。
+comment、macro origin、任意UTF-8入力のlossless性を検証します。pattern matcherでは構造要素、Skriptのliteral/split規則、UTF-8 capture、tag、mark、候補順位、hook、quota、生成source mapping、SSG pattern corpus、任意UTF-8 property caseを検証します。Expression testではstatic/dynamic登録、Core形式leaf、expected typeとMultiplicity filter、nested/left recursion、決定的順序、Function callとdocument shadow、multi-addon Catalog全体を検証します。Effect testでは実schema 3 DummyAddon登録を使い、placeholderなし、型付き、dynamic、unknown lineを検証します。Structure testではNodeType filter、default、multiple/nested entry、custom separator、未知のaddon EntryData、body末尾diagnosticを検証します。

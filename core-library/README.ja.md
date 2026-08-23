@@ -15,6 +15,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document phaseのcore.health-check subscription 1件
 - primitive候補と登録Expressionの意味解析用core.expression-candidates Transform subscription 1件
+- class固有の意味処理を行うEffect、Section、Structure subscription
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
@@ -43,8 +44,15 @@ hostが発行したresult tokenをleaf候補から参照するため、選択さ
 EffectとSection hookは`EffChange`、`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
 `EffChange`は解析済みchild summaryを使い、常にMultipleな値をsingle variableへ設定する処理を、
 子を再解析せずSkriptの`acceptChange(SET)`判定に合わせて拒否します。
+
+Structure hookは`StructEvent`、`StructFunction`、`StructCommand`を実装します。登録handler IDを通じて
+意味付きcaptureを取得し、TriggerまたはEntryValidator body解析を選び、取得したSSG Event dataから
+Event contextを派生します。Structure照合、`NodeType`、EntryValidator、RawTree走査はnative parserの
+責務です。third-party addonも同じhookを使って独自Structureの内部を実装でき、CoreLibraryの変更は
+不要です。
+
 text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
-Function callの照合はnative parserが担当し、Structureとlegacy固有の意味処理は未実装です。
+Function callの照合はnative parserが担当し、legacy固有の意味処理は未実装です。
 
 ## WASM Componentである理由
 
@@ -64,7 +72,7 @@ hostはcomponent IDを特別に扱います。CoreLibraryがない場合やIDが
 
 `src/lib.rs`が`../parser-wasm/wit`からguest bindingを生成し、`parser-addon` worldがexport
 するすべてのinterfaceを実装します。標準構文の処理はsyntax kind別に`src/expressions`、
-`src/effects`、`src/sections`へ配置します。候補終端の反復と候補生成の共通処理は
+`src/effects`、`src/sections`、`src/structures`へ配置します。候補終端の反復と候補生成の共通処理は
 `src/expression_candidates.rs`に置き、parser primitiveは`src/primitives`、ClassInfoと
 catalog由来のtype literalは`src/types`に置きます。クラス固有実装はSkriptのJava class名をsnake caseに
 したfileへ置きます。例えば`PropExprWXYZ.java`は`expressions/prop_expr_wxyz.rs`に対応し、

@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.18.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.19.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -69,8 +69,9 @@ Expression type options changed it to 0.13.0; runtime profiles and open parser
 result graphs changed it to 0.15.0; host-token references from leaf candidates
 to parsed child roots changed it to 0.16.0; explicit child node kinds and parser
 IDs changed it to 0.17.0; SSG-ID hook targets, PatternRef routing, declarative
-selectors, and `NotApplicable` changed it to 0.18.0. The manifest's current
-`abi` value is 3.0 and is a runtime handshake that requires an exact
+selectors, and `NotApplicable` changed it to 0.18.0; the Structure lifecycle,
+EntryValidator results, Structure-scoped context, and body RawTree changed it
+to 0.19.0. The manifest's current `abi` value is 4.0 and is a runtime handshake that requires an exact
 `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -197,6 +198,25 @@ claimed body nodes remain in the partial tree with diagnostics.
 CoreLibrary declares semantic handlers for Skript's conditional and while
 Sections, `ExprWhether`, `ExprTernary`, `EffChange`, and `EffDoIf`. Addons can use the same
 manifest declarations for their own raw, Condition, or nested Effect captures.
+
+## Structure Parsing
+
+`ParserHost::parse_structures_in_parse` parses every top-level RawTree root in
+two passes. Native Rust owns Structure ordering, `NodeType`, declarative
+`EntryValidator` execution, body traversal, and transaction boundaries. The
+WIT `structure-payload` exposes stable definition/registration IDs, captures,
+parsed entries, Structure-scoped context, and a read-only subtree rooted at the
+candidate. Immutable fields are validated after each hook before another addon
+can observe the payload.
+
+The `parser.structure` capability dispatches exact registration hooks at
+`enter-body` and `exit-body`. Enter hooks may reject a candidate, update the
+body context, select `none`, `raw`, `entries`, or `trigger`, and attach owned
+metadata. Context updates are composed in hook order and become visible to the
+next addon. CoreLibrary implements Skript's `StructEvent`, `StructFunction`,
+and `StructCommand` through this same public ABI; addon-specific Structure
+semantics require no native parser changes.
+
 ## Text Macros
 
 A Text macro subscribes to `ParseStage` during `Preprocess` with `Transform`
@@ -396,6 +416,7 @@ The main entry points are:
 - `parse_condition_in_parse`: parse a Condition in registration order
 - `parse_effect_in_parse`: parse one simple RawTree node as an Effect
 - `parse_section_in_parse`: parse one Section and recursively claim its body
+- `parse_structures_in_parse`: parse all top-level Structures and their selected bodies
 - `dispatch`: convenience API for a one-dispatch transaction
 
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
@@ -418,6 +439,7 @@ optional syntax Catalog.
 | `tests/text_macro.rs` | ordered real-WASM expansion, diagnostic mapping, rollback, quotas, and traps |
 | `tests/tree_macro.rs` | real-WASM node/body edits, recursive provenance, cycles, rollback, quotas, and traps |
 | `tests/pattern_match.rs` | real-WASM element override and selected-candidate StateStore rollback |
+| `tests/structure.rs` | real CoreLibrary Structure lifecycle, Event capture, EntryValidator, and unknown addon entries |
 
 ## Testing
 

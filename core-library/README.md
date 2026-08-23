@@ -16,6 +16,7 @@ The component currently provides the integration foundation:
   versions and the enabled plugin list
 - one core.health-check subscription at the Document phase
 - one core.expression-candidates Transform subscription for primitive and registered Expression semantics
+- Effect, Section, and Structure subscriptions for class-specific semantics
 - typed exports for hooks and text, tree, and AST macro interfaces
 
 The health hook validates its target, phase, and payload, then continues
@@ -51,9 +52,19 @@ The Effect and Section hooks provide the class-specific semantics for
 `EffChange`, `EffDoIf`, `SecConditional`, and `SecWhile`. `EffChange` uses the
 already parsed child summaries to reject assigning an always-multiple value to
 a single variable, matching Skript's `acceptChange(SET)` check without parsing
-the child twice. Text, tree, and AST macro exports
-currently return `unsupported-capability`. Function-call matching remains in
-the native parser; Structure and legacy-specific semantics are not implemented.
+the child twice.
+
+The Structure hook implements `StructEvent`, `StructFunction`, and
+`StructCommand`. It claims semantic captures through registered handler IDs,
+selects Trigger or EntryValidator body parsing, and derives Event context from
+the captured SSG Event data. Structure matching, `NodeType`, EntryValidator,
+and RawTree traversal remain native parser responsibilities. Third-party addons
+can implement their own Structure internals through the same hook without a
+CoreLibrary change.
+
+Text, tree, and AST macro exports currently return `unsupported-capability`.
+Function-call matching remains in the native parser; legacy-specific semantics
+are not implemented.
 
 ## Why It Is a WASM Component
 
@@ -75,8 +86,8 @@ it.
 
 `src/lib.rs` generates guest bindings from `../parser-wasm/wit` and implements
 all interfaces exported by the `parser-addon` world. Built-in syntax behavior
-is grouped by syntax kind under `src/expressions`, `src/effects`, and
-`src/sections`. Candidate-end iteration and common candidate construction live in
+is grouped by syntax kind under `src/expressions`, `src/effects`,
+`src/sections`, and `src/structures`. Candidate-end iteration and common candidate construction live in
 `src/expression_candidates.rs`. Parser primitives live under `src/primitives`,
 while ClassInfo-backed and catalog-backed type literals live under `src/types`.
 Each class-specific implementation keeps the Skript Java class name in snake case,

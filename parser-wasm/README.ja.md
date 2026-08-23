@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.18.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.19.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -61,8 +61,10 @@ componentが解決する登録Expression classの宣言追加で0.8.0へ変わ�
 0.9.0へ変わり、登録propertyのcomponent axis情報追加で0.10.0、有限type literal候補の追加で
 0.11.0へ、構造化type literal metadataで0.12.0へ、SSG supplier metadataのExpression type option追加で
 0.13.0へ変わりました。runtime profileとopen parser result graphで0.15.0、leaf候補から解析済みchild rootを
-参照するhost tokenで0.16.0、child node kindとparser IDの明示で0.17.0へ変わりました。
-manifestの現在の`abi`値は3.0で、
+参照するhost tokenで0.16.0、child node kindとparser IDの明示で0.17.0、SSG ID hook target、
+PatternRef routing、宣言的selector、`NotApplicable`で0.18.0へ変わりました。Structure lifecycle、
+EntryValidator結果、Structure scoped context、body RawTreeの追加で0.19.0へ変わりました。
+manifestの現在の`abi`値は4.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -81,7 +83,7 @@ hostはText macroとTree macroをadvertiseし、実行します。AST macroはco
 Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。componentは、Java classや
 parse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず処理できます。
 
-WIT 0.18.0では、SSG-IDのdefinition/registration/PatternRef target、宣言的selector、NotApplicableを追加し、ABIを3.0へ更新しました。
+WIT 0.19.0ではStructure lifecycle、EntryValidator結果、Structure scoped context、body RawTreeを追加し、ABIを4.0へ更新しました。
 
 ## Open parser request
 
@@ -163,6 +165,21 @@ diagnostic付きpartial treeとして保持します。
 CoreLibraryはSkript標準のconditional/while Section、`ExprWhether`、`ExprTernary`、`EffChange`、`EffDoIf`の
 semantic handlerを宣言します。addonも同じmanifest宣言を使い、独自のraw、Condition、nested
 Effect captureを処理できます。
+
+## Structure解析
+
+`ParserHost::parse_structures_in_parse`はtop-level RawTree rootを二段階で解析します。native Rustは
+Structure順序、`NodeType`、宣言的`EntryValidator`、body走査、transaction境界を担当します。
+WIT `structure-payload`は安定したdefinition/registration ID、capture、解析済みentry、
+Structure scoped context、候補をrootとするread-only subtreeを公開します。不変fieldは各hookの
+直後に検証されるため、改変されたpayloadが次のaddonへ渡ることはありません。
+
+`parser.structure` capabilityはexact registration hookを`enter-body`と`exit-body`でdispatchします。
+enter hookは候補のreject、body context更新、`none`/`raw`/`entries`/`trigger`の選択、所有者付き
+metadata追加を行えます。context updateはhook順で合成され、次のaddonから参照できます。
+CoreLibraryの`StructEvent`、`StructFunction`、`StructCommand`も同じ公開ABIだけで実装されており、
+addon固有Structureのためにnative parserを変更する必要はありません。
+
 ## Text macro
 
 Text macroは`Preprocess` phaseの`ParseStage`へ`Transform` modeでsubscribeします。一致した
@@ -333,6 +350,7 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `parse_condition_in_parse`: registration順でConditionを解析する
 - `parse_effect_in_parse`: simple RawTree nodeをEffectとして解析する
 - `parse_section_in_parse`: Sectionとそのbodyを再帰解析する
+- `parse_structures_in_parse`: top-level Structureと選択されたbodyを解析する
 - `dispatch`: 1回のdispatch transaction用convenience API
 
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch
@@ -354,6 +372,7 @@ output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax 
 | `tests/text_macro.rs` | 順序付き実WASM展開、diagnostic mapping、rollback、quota、trap |
 | `tests/tree_macro.rs` | 実WASM node/body edit、再帰provenance、cycle、rollback、quota、trap |
 | `tests/pattern_match.rs` | 実WASM element overrideと採用候補だけを残すStateStore rollback |
+| `tests/structure.rs` | 実CoreLibrary Structure lifecycle、Event capture、EntryValidator、未知addon entry |
 
 ## テスト
 
