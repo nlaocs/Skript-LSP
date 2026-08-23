@@ -127,6 +127,8 @@ pub const HOST_EXPRESSION_PARSER_ID: &str = "host.expression";
 pub const HOST_CONDITION_PARSER_ID: &str = "host.condition";
 /// Parser ID used by the built-in recursive Effect route.
 pub const HOST_EFFECT_PARSER_ID: &str = "host.effect";
+/// Parser ID used by the built-in Event-header route.
+pub const HOST_EVENT_PARSER_ID: &str = "host.event";
 
 /// A parser binding for one registration capture.
 ///
@@ -202,6 +204,7 @@ pub enum ParsedCaptureValue {
     Expression(ExpressionNode),
     Condition(ConditionNode),
     Effect(Box<crate::EffectCandidate>),
+    Event(Box<crate::EventCandidate>),
     Section(Box<crate::SectionCandidate>),
     Raw(String),
 }
@@ -488,6 +491,48 @@ pub(crate) fn condition_parsed_capture(capture_index: usize, node: ConditionNode
     }
 }
 
+pub(crate) fn event_parsed_capture(
+    capture_index: usize,
+    binding: RegisteredCaptureBinding,
+    candidate: crate::EventCandidate,
+) -> ParsedCapture {
+    let span = candidate.span.clone();
+    let mut metadata = candidate.metadata.clone();
+    metadata.insert(
+        "parser.event.reference-classes".to_owned(),
+        candidate
+            .reference_events
+            .iter()
+            .map(|value| value.as_str())
+            .collect::<Vec<_>>()
+            .join(";"),
+    );
+    metadata.insert(
+        "parser.event.cancellable".to_owned(),
+        candidate.cancellable.to_string(),
+    );
+    let summary = ParsedCaptureSemanticSummary {
+        kind: "event".to_owned(),
+        definition_id: Some(candidate.matched.definition_id.clone()),
+        registration_id: Some(candidate.matched.registration_id.clone()),
+        element_class: candidate.element_class.clone(),
+        pattern_index: Some(candidate.matched.pattern_index),
+        return_type: None,
+        multiplicity: None,
+        metadata,
+    };
+    ParsedCapture {
+        capture_index,
+        binding,
+        result: ParsedCaptureResult::success(
+            HOST_EVENT_PARSER_ID,
+            span,
+            Some(summary),
+            ParsedCaptureValue::Event(Box::new(candidate)),
+        ),
+    }
+}
+
 /// Selected Section identity supplied around recursive child parsing.
 pub struct SectionChildrenRequest<'a> {
     pub input: &'a str,
@@ -699,6 +744,23 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         &mut self,
         _request: SectionChildrenRequest<'_>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Selects the body parser and context after a top-level Structure header matched.
+    fn enter_structure(
+        &mut self,
+        request: crate::StructureHookRequest<'_>,
+    ) -> Result<crate::StructureHookDecision, String> {
+        Ok(crate::StructureHookDecision::Accept {
+            context: request.context.clone(),
+            body_mode: request.default_body_mode,
+            metadata: request.candidate.metadata.clone(),
+        })
+    }
+
+    /// Observes the completed Structure body while its parse state is still transactional.
+    fn exit_structure(&mut self, _request: crate::StructureHookRequest<'_>) -> Result<(), String> {
         Ok(())
     }
 
@@ -941,6 +1003,48 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
 }
 
 impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
+    pub(crate) fn parse_complete_range(
+        &mut self,
+        range: TextRange,
+        expected_types: &[ExpressionExpectedType],
+        allow_literals: bool,
+        allow_expressions: bool,
+        depth: usize,
+    ) -> Result<ExpressionMatches, ExpressionParseError> {
+        let candidates = self.parse_prefixes_mode(
+            range,
+            &[range.end],
+            expected_types,
+            allow_literals,
+            allow_expressions,
+            0,
+            depth,
+            true,
+        )?;
+        let mut candidates = candidates
+            .candidates
+            .into_iter()
+            .filter(|candidate| candidate.node.span.local_range.end == range.end)
+            .collect::<Vec<_>>();
+        let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
+        let failure = if selected.is_none() {
+            let (kind, primary, related) =
+                expression_failure_ranges(self.source.virtual_source(), range);
+            Some(ExpressionFailure {
+                kind,
+                span: self.map_range(primary)?,
+                related_span: related.map(|range| self.map_range(range)).transpose()?,
+                expected_types: expected_types.to_vec(),
+            })
+        } else {
+            None
+        };
+        Ok(ExpressionMatches {
+            selected,
+            alternatives: candidates,
+            failure,
+        })
+    }
     pub(crate) fn new(
         catalog: &'a Catalog,
         dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,

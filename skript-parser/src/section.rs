@@ -515,7 +515,7 @@ fn section_expression_pattern_candidate<'a>(
     }
 }
 
-fn parse_section_body<E: ExpressionParseEnvironment>(
+pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
     session: &mut ExpressionSession<'_, E>,
     tree: &RawTree,
     node: &RawNode,
