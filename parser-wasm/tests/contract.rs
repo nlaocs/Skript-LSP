@@ -17,7 +17,7 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
-    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(3, 0));
+    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(4, 0));
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
@@ -33,7 +33,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.18.0")
+        Some("0.19.0")
     );
 
     let world = package

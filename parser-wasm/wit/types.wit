@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.18.0;
+package nlaocs:skript-parser-addon@0.19.0;
 
 interface types {
     record abi-version {
@@ -166,6 +166,7 @@ interface types {
         expression,
         effect,
         section,
+        structure,
         capture,
         syntax,
         candidate,
@@ -723,6 +724,97 @@ interface types {
         candidate: section-candidate,
     }
 
+    enum structure-node-type {
+        simple,
+        section,
+        both,
+    }
+
+    enum structure-body-mode {
+        none,
+        raw,
+        entries,
+        trigger,
+    }
+
+    enum structure-timing {
+        enter-body,
+        exit-body,
+    }
+
+    enum structure-entry-kind {
+        literal,
+        variable-string,
+        expression,
+        trigger,
+        container,
+        section,
+        key-value,
+        unknown,
+    }
+
+    enum structure-entry-value-kind {
+        raw,
+        expression,
+        trigger,
+        container,
+        section,
+        unknown,
+    }
+
+    record structure-entry {
+        raw-node-id: option<node-id>,
+        parent-entry: option<u64>,
+        key: string,
+        entry-data-class: string,
+        kind: structure-entry-kind,
+        source: string,
+        span: mapped-span,
+        defaulted: bool,
+        value-kind: structure-entry-value-kind,
+        value-summary: option<parse-summary>,
+    }
+
+    record structure-candidate {
+        raw-node-id: node-id,
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        priority: s32,
+        registration-order: u64,
+        pattern-index: u64,
+        pattern: string,
+        span: mapped-span,
+        declared-node-type: structure-node-type,
+        actual-node-type: structure-node-type,
+        regex-captures: list<string>,
+        parsed-captures: list<parsed-capture>,
+        body-mode: structure-body-mode,
+        child-node-ids: list<node-id>,
+        entries: list<structure-entry>,
+        handler: option<string>,
+        metadata: list<metadata-entry>,
+    }
+
+    record structure-context-value {
+        key: string,
+        value: string,
+    }
+
+    record structure-context {
+        syntax-context: syntax-context-id,
+        event-classes: list<string>,
+        values: list<structure-context-value>,
+    }
+
+    record structure-payload {
+        input: string,
+        body-tree: raw-tree,
+        context: structure-context,
+        timing: structure-timing,
+        candidate: structure-candidate,
+    }
+
     enum line-ending {
         none,
         lf,
@@ -999,6 +1091,7 @@ interface types {
         registered-expression(registered-expression-payload),
         effect(effect-payload),
         section(section-payload),
+        structure(structure-payload),
         capture(capture-payload),
         syntax(syntax-definition-payload),
         exact-registration(exact-registration-payload),

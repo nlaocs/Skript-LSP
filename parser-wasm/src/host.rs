@@ -23,22 +23,26 @@ use skript_parser::{
     ConditionParseError, ConditionParseRequest, ConditionParserConfig, EffectCandidate,
     EffectCandidateFailure, EffectMatches, EffectParseError, EffectParseRequest,
     EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
-    ExpressionMatches, ExpressionNode, ExpressionNodeKind, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParseRequest, ExpressionParserConfig, FailureTrace, MatchInput,
-    MatchSpan, MatchSyntaxKind, ParsedCapture as ParserParsedCapture,
-    ParsedCaptureStatus as ParserParsedCaptureStatus, PatternCandidate, PatternCapture,
-    PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookOutcome,
-    PatternHookScope, PatternHookTiming, PatternMatchEnvironment, PatternMatchError,
-    PatternMatchHooks, PatternMatcherConfig, PatternPathSegment, RankedFailures,
-    RegisteredCaptureBinding, RegisteredExpressionDecision, RegisteredExpressionRequest,
-    RegisteredSyntaxIdentity, SectionChildrenDecision, SectionChildrenRequest, SectionMatches,
-    SectionParseError, SectionParseRequest, SectionParserConfig, TypeExpressionOutcome,
+    ExpressionMatches, ExpressionNode, ExpressionNodeKind, ExpressionParseContext,
+    ExpressionParseEnvironment, ExpressionParseError, ExpressionParseRequest,
+    ExpressionParserConfig, FailureTrace, MatchInput, MatchSpan, MatchSyntaxKind,
+    ParsedCapture as ParserParsedCapture, ParsedCaptureStatus as ParserParsedCaptureStatus,
+    PatternCandidate, PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl,
+    PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
+    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatcherConfig,
+    PatternPathSegment, RankedFailures, RegisteredCaptureBinding, RegisteredExpressionDecision,
+    RegisteredExpressionRequest, RegisteredSyntaxIdentity, SectionChildrenDecision,
+    SectionChildrenRequest, SectionMatches, SectionParseError, SectionParseRequest,
+    SectionParserConfig, StructureBody, StructureBodyMode, StructureDocument, StructureEntry,
+    StructureEntryValue, StructureHookDecision, StructureHookRequest, StructureHookTiming,
+    StructureParseError, StructureParseRequest, StructureParserConfig, TypeExpressionOutcome,
     TypeExpressionRequest, TypeExpressionResolver, UnknownEffectNode,
     match_pattern_candidates as run_pattern_matcher,
     parse_condition_with_snapshot as run_condition_parser,
     parse_effect_with_snapshot as run_effect_parser,
     parse_expression_with_snapshot as run_expression_parser,
     parse_section_with_snapshot as run_section_parser,
+    parse_structures_with_snapshot as run_structure_parser,
 };
 use skript_parser::{
     ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
@@ -88,11 +92,13 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionReturnTypeState as WitReturnTypeState,
     ExpressionTypeOption as WitExpressionTypeOption,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
-    LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry, OriginKind as WitOriginKind,
-    ParseResultStatus as WitParseResultStatus, ParseSummary as WitParseSummary,
-    ParsedCapture as WitParsedCapture, RawDiagnosticCode as WitRawDiagnosticCode,
+    Indentation as WitIndentation, LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry,
+    OriginKind as WitOriginKind, ParseResultStatus as WitParseResultStatus,
+    ParseSummary as WitParseSummary, ParsedCapture as WitParsedCapture,
+    RawDiagnostic as WitRawDiagnostic, RawDiagnosticCode as WitRawDiagnosticCode,
     RawDiagnosticSeverity as WitRawDiagnosticSeverity, RawInvalidReason as WitRawInvalidReason,
-    RawNodeKind as WitRawNodeKind, RawTriviaKind as WitRawTriviaKind,
+    RawLine as WitRawLine, RawNodeKind as WitRawNodeKind, RawRelatedSpan as WitRawRelatedSpan,
+    RawTreeNode as WitRawTreeNode, RawTrivia as WitRawTrivia, RawTriviaKind as WitRawTriviaKind,
     RegisteredExpressionChild as WitRegisteredExpressionChild,
     RegisteredExpressionPayload as WitRegisteredExpressionPayload,
     RegisteredExpressionPropertyOption as WitRegisteredExpressionPropertyOption,
@@ -103,8 +109,14 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     SectionTiming as WitSectionTiming, SourceOrigin as WitSourceOrigin,
     StateEncoding as WitStateEncoding, StateEntry as WitStateEntry, StateError as WitStateError,
     StateErrorKind as WitStateErrorKind, StateNamespaceVisibility as WitNamespaceVisibility,
-    StateScope as WitStateScope, StateValue as WitStateValue, TextEdit as WitTextEdit,
-    TextRange as WitTextRange, TreeEdit as WitTreeEdit,
+    StateScope as WitStateScope, StateValue as WitStateValue,
+    StructureBodyMode as WitStructureBodyMode, StructureCandidate as WitStructureCandidate,
+    StructureContext as WitStructureContext, StructureContextValue as WitStructureContextValue,
+    StructureEntry as WitStructureEntry, StructureEntryKind as WitStructureEntryKind,
+    StructureEntryValueKind as WitStructureEntryValueKind,
+    StructureNodeType as WitStructureNodeType, StructurePayload as WitStructurePayload,
+    StructureTiming as WitStructureTiming, TextEdit as WitTextEdit, TextRange as WitTextRange,
+    TreeEdit as WitTreeEdit,
 };
 use crate::state::{
     InvocationTransaction, NamespaceDeclaration, NamespaceVisibility, ParseTransaction,
@@ -114,9 +126,10 @@ use crate::state::{
 use crate::{
     ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
     CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
-    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
-    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
-    REGISTERED_CONTEXT_ALL_TYPE_OPTIONS, validate_compatibility,
+    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE,
+    CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
+    CapabilityRequirement, CompatibilityError, REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+    validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -308,6 +321,8 @@ pub enum HostError {
     EffectParser(#[from] EffectParseError),
     #[error("Section parsing failed: {0}")]
     SectionParser(#[from] SectionParseError),
+    #[error("Structure parsing failed: {0}")]
+    StructureParser(#[from] StructureParseError),
     #[error("syntax parsing requires an SSG syntax Catalog")]
     SyntaxCatalogUnavailable,
     #[error("dynamic syntax registry is unavailable without an SSG Catalog")]
@@ -543,6 +558,14 @@ pub struct WasmEffectParseResult {
 /// Recursive Section results plus scoped lifecycle hook side effects.
 pub struct WasmSectionParseResult {
     pub matches: SectionMatches,
+    pub effects: HookEffects,
+    pub calls: Vec<HookCall>,
+    pub failures: Vec<ComponentFailure>,
+}
+#[derive(Debug)]
+/// Top-level Structure results plus EntryValidator and lifecycle hook effects.
+pub struct WasmStructureParseResult {
+    pub document: StructureDocument,
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
@@ -1386,6 +1409,7 @@ fn payload_pattern_index(payload: &HookPayload) -> Option<u64> {
             .as_ref()
             .map(|candidate| candidate.pattern_index),
         HookPayload::Section(value) => Some(value.candidate.pattern_index),
+        HookPayload::Structure(value) => Some(value.candidate.pattern_index),
         _ => None,
     }
 }
@@ -1398,6 +1422,7 @@ fn payload_pattern_source(payload: &HookPayload) -> Option<&str> {
             .candidate
             .as_ref()
             .map(|candidate| candidate.pattern.as_str()),
+        HookPayload::Structure(value) => Some(&value.candidate.pattern),
         _ => None,
     }
 }
@@ -1434,6 +1459,7 @@ fn payload_parsed_captures(payload: &HookPayload) -> Option<&[WitParsedCapture]>
             .as_ref()
             .map(|candidate| candidate.parsed_captures.as_slice()),
         HookPayload::Section(value) => Some(&value.candidate.parsed_captures),
+        HookPayload::Structure(value) => Some(&value.candidate.parsed_captures),
         _ => None,
     }
 }
@@ -1467,6 +1493,7 @@ fn payload_metadata(payload: &HookPayload) -> Option<&[WitMetadataEntry]> {
                     .map(|candidate| candidate.metadata.as_slice())
             }),
         HookPayload::Section(value) => Some(&value.candidate.metadata),
+        HookPayload::Structure(value) => Some(&value.candidate.metadata),
         _ => None,
     }
 }
@@ -1486,6 +1513,7 @@ fn payload_metadata_mut(payload: &mut HookPayload) -> Option<&mut Vec<WitMetadat
             }
         }
         HookPayload::Section(value) => Some(&mut value.candidate.metadata),
+        HookPayload::Structure(value) => Some(&mut value.candidate.metadata),
         _ => None,
     }
 }
@@ -2442,12 +2470,513 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         Ok(())
     }
 
+    fn enter_structure(
+        &mut self,
+        request: StructureHookRequest<'_>,
+    ) -> Result<StructureHookDecision, String> {
+        let payload = structure_hook_payload(&request)?;
+        let original = payload.clone();
+        let mut context = self.hooks.context.clone();
+        context.syntax_context = request.context.syntax_context;
+        let result = self
+            .hooks
+            .host
+            .dispatch_in_parse(
+                self.hooks.transaction,
+                DispatchRequest {
+                    context,
+                    target: DispatchTarget::Pattern {
+                        definition_id: request.candidate.matched.definition_id.clone(),
+                        registration_id: request.candidate.matched.registration_id.clone(),
+                        pattern_index: u64::try_from(request.candidate.matched.pattern_index)
+                            .map_err(|_| "Structure pattern index does not fit u64".to_owned())?,
+                        syntax_kind: SyntaxKind::Structure,
+                    },
+                    phase: HookPhase::Structure,
+                    payload: HookPayload::Structure(payload),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        let updates = result.effects.context_updates.clone();
+        merge_effects(&mut self.hooks.effects, result.effects);
+        self.hooks.calls.extend(result.calls);
+        self.hooks.failures.extend(result.failures);
+        let HookPayload::Structure(output) = result.payload else {
+            return Err("Structure hook returned a different payload kind".to_owned());
+        };
+        if !same_structure_payload_identity(&output, &original) {
+            return Err("Structure hook changed immutable candidate fields".to_owned());
+        }
+        if let HookDecision::Reject(rejection) = result.decision {
+            return Ok(StructureHookDecision::Reject {
+                reason: rejection.reason,
+            });
+        }
+        let body_mode = structure_body_mode_from_wit(output.candidate.body_mode);
+        if request.candidate.actual_node_type == syntaxes::NodeType::Simple
+            && body_mode != StructureBodyMode::None
+        {
+            return Err("Simple Structure cannot select a body parser".to_owned());
+        }
+        Ok(StructureHookDecision::Accept {
+            context: apply_structure_context_updates(request.context, updates)?,
+            body_mode,
+            metadata: metadata_entries(output.candidate.metadata)?,
+        })
+    }
+
+    fn exit_structure(&mut self, request: StructureHookRequest<'_>) -> Result<(), String> {
+        let payload = structure_hook_payload(&request)?;
+        let original = payload.clone();
+        let mut context = self.hooks.context.clone();
+        context.syntax_context = request.context.syntax_context;
+        let result = self
+            .hooks
+            .host
+            .dispatch_in_parse(
+                self.hooks.transaction,
+                DispatchRequest {
+                    context,
+                    target: DispatchTarget::Pattern {
+                        definition_id: request.candidate.matched.definition_id.clone(),
+                        registration_id: request.candidate.matched.registration_id.clone(),
+                        pattern_index: u64::try_from(request.candidate.matched.pattern_index)
+                            .map_err(|_| "Structure pattern index does not fit u64".to_owned())?,
+                        syntax_kind: SyntaxKind::Structure,
+                    },
+                    phase: HookPhase::Structure,
+                    payload: HookPayload::Structure(payload),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        merge_effects(&mut self.hooks.effects, result.effects);
+        self.hooks.calls.extend(result.calls);
+        self.hooks.failures.extend(result.failures);
+        let HookPayload::Structure(output) = result.payload else {
+            return Err("Structure hook returned a different payload kind".to_owned());
+        };
+        if !same_structure_payload_identity(&output, &original)
+            || output.candidate.body_mode != original.candidate.body_mode
+        {
+            return Err("Structure exit hook changed immutable candidate fields".to_owned());
+        }
+        if let HookDecision::Reject(rejection) = result.decision {
+            return Err(format!(
+                "Structure exit hook rejected the candidate: {}",
+                rejection.reason
+            ));
+        }
+        Ok(())
+    }
+
     fn state_revision(&self) -> Result<u64, String> {
         self.hooks
             .transaction
             .state_revision()
             .map_err(|error| error.to_string())
     }
+}
+
+fn apply_structure_context_updates(
+    original: &ExpressionParseContext,
+    updates: Vec<ContextUpdate>,
+) -> Result<ExpressionParseContext, String> {
+    let mut context = original.clone();
+    for update in updates {
+        if update.syntax_context != context.syntax_context {
+            continue;
+        }
+        if update.key == "parser.event-classes" {
+            context.event_classes = update
+                .value
+                .as_deref()
+                .map(|value| {
+                    std::str::from_utf8(value)
+                        .map_err(|_| "Structure Event classes are not UTF-8".to_owned())
+                        .map(|value| {
+                            value
+                                .split(';')
+                                .filter(|value| !value.is_empty())
+                                .map(|value| ClassName(value.to_owned()))
+                                .collect()
+                        })
+                })
+                .transpose()?
+                .unwrap_or_default();
+            continue;
+        }
+        if let Some(value) = update.value {
+            context.values.insert(
+                update.key,
+                String::from_utf8(value)
+                    .map_err(|_| "Structure context update is not UTF-8".to_owned())?,
+            );
+        } else {
+            context.values.remove(&update.key);
+        }
+    }
+    Ok(context)
+}
+
+fn structure_hook_payload(
+    request: &StructureHookRequest<'_>,
+) -> Result<WitStructurePayload, String> {
+    let candidate = request.candidate;
+    let mut entries = Vec::new();
+    if let StructureBody::Entries(values) = &candidate.body {
+        flatten_structure_entries(values, None, &mut entries);
+    }
+    Ok(WitStructurePayload {
+        input: request.input.to_owned(),
+        body_tree: parser_raw_subtree_to_wit(request.tree, candidate.raw_node_id),
+        context: structure_context_to_wit(request.context),
+        timing: match request.timing {
+            StructureHookTiming::EnterBody => WitStructureTiming::EnterBody,
+            StructureHookTiming::ExitBody => WitStructureTiming::ExitBody,
+        },
+        candidate: WitStructureCandidate {
+            raw_node_id: candidate.raw_node_id.get(),
+            definition_id: candidate.matched.definition_id.clone(),
+            registration_id: candidate.matched.registration_id.clone(),
+            element_class: candidate
+                .element_class
+                .as_ref()
+                .map(|value| value.as_str().to_owned()),
+            priority: candidate.matched.priority,
+            registration_order: u64::try_from(candidate.matched.registration_order)
+                .map_err(|_| "Structure registration order does not fit u64".to_owned())?,
+            pattern_index: u64::try_from(candidate.matched.pattern_index)
+                .map_err(|_| "Structure pattern index does not fit u64".to_owned())?,
+            pattern: candidate.matched.pattern.clone(),
+            span: mapped_span_to_wit(candidate.matched.matched.span.mapped.clone()),
+            declared_node_type: structure_node_type_to_wit(candidate.declared_node_type),
+            actual_node_type: structure_node_type_to_wit(candidate.actual_node_type),
+            regex_captures: candidate
+                .matched
+                .matched
+                .captures
+                .iter()
+                .filter_map(|capture| match capture {
+                    PatternCapture::Regex { value, .. } => Some(value.clone()),
+                    PatternCapture::TypeExpression { .. } => None,
+                })
+                .collect(),
+            parsed_captures: candidate
+                .parsed_captures
+                .iter()
+                .map(|capture| parsed_capture_to_wit(capture, request.input))
+                .collect(),
+            body_mode: structure_body_mode_to_wit(request.default_body_mode),
+            child_node_ids: structure_child_node_ids(&candidate.body),
+            entries,
+            handler: candidate.handler.clone(),
+            metadata: metadata_to_wit(&candidate.metadata),
+        },
+    })
+}
+
+fn flatten_structure_entries(
+    values: &[StructureEntry],
+    parent: Option<u64>,
+    output: &mut Vec<WitStructureEntry>,
+) {
+    for value in values {
+        let index = output.len() as u64;
+        output.push(structure_entry_to_wit(value, parent));
+        if let StructureEntryValue::Container(children) = &value.value {
+            flatten_structure_entries(children, Some(index), output);
+        }
+    }
+}
+
+fn structure_entry_to_wit(value: &StructureEntry, parent: Option<u64>) -> WitStructureEntry {
+    let (value_kind, value_summary) = match &value.value {
+        StructureEntryValue::Raw(_) => (WitStructureEntryValueKind::Raw, None),
+        StructureEntryValue::Expression(node) => (
+            WitStructureEntryValueKind::Expression,
+            Some(WitParseSummary {
+                kind: "expression".to_owned(),
+                definition_id: match &node.kind {
+                    ExpressionNodeKind::Registered { definition_id, .. } => {
+                        Some(definition_id.clone())
+                    }
+                    _ => None,
+                },
+                registration_id: match &node.kind {
+                    ExpressionNodeKind::Registered {
+                        registration_id, ..
+                    } => Some(registration_id.clone()),
+                    _ => None,
+                },
+                element_class: None,
+                pattern_index: match &node.kind {
+                    ExpressionNodeKind::Registered { pattern_index, .. } => {
+                        Some(*pattern_index as u64)
+                    }
+                    _ => None,
+                },
+                return_type: node
+                    .return_type
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                metadata: metadata_to_wit(&node.metadata),
+            }),
+        ),
+        StructureEntryValue::Trigger(_) => (WitStructureEntryValueKind::Trigger, None),
+        StructureEntryValue::Container(_) => (WitStructureEntryValueKind::Container, None),
+        StructureEntryValue::Section(_) => (WitStructureEntryValueKind::Section, None),
+        StructureEntryValue::Unknown(_) => (WitStructureEntryValueKind::Unknown, None),
+    };
+    WitStructureEntry {
+        raw_node_id: value.raw_node_id.map(|id| id.get()),
+        parent_entry: parent,
+        key: value.key.clone(),
+        entry_data_class: value.entry_data_class.as_str().to_owned(),
+        kind: match value.kind {
+            syntaxes::EntryKind::Literal => WitStructureEntryKind::Literal,
+            syntaxes::EntryKind::VariableString => WitStructureEntryKind::VariableString,
+            syntaxes::EntryKind::Expression => WitStructureEntryKind::Expression,
+            syntaxes::EntryKind::Trigger => WitStructureEntryKind::Trigger,
+            syntaxes::EntryKind::Container => WitStructureEntryKind::Container,
+            syntaxes::EntryKind::Section => WitStructureEntryKind::Section,
+            syntaxes::EntryKind::KeyValue => WitStructureEntryKind::KeyValue,
+            syntaxes::EntryKind::Unknown => WitStructureEntryKind::Unknown,
+        },
+        source: value.source.clone(),
+        span: mapped_span_to_wit(value.span.mapped.clone()),
+        defaulted: value.defaulted,
+        value_kind,
+        value_summary,
+    }
+}
+
+fn structure_child_node_ids(body: &StructureBody) -> Vec<u64> {
+    match body {
+        StructureBody::None => Vec::new(),
+        StructureBody::Raw(ids) => ids.iter().map(|id| id.get()).collect(),
+        StructureBody::Entries(entries) => entries
+            .iter()
+            .filter_map(|entry| entry.raw_node_id.map(|id| id.get()))
+            .collect(),
+        StructureBody::Trigger(nodes) => nodes
+            .iter()
+            .filter_map(|node| match node {
+                skript_parser::SectionBodyNode::Section(value) => {
+                    value.selected.as_ref().map_or_else(
+                        || value.unknown.as_ref().map(|value| value.raw_node_id),
+                        |value| Some(value.raw_node_id),
+                    )
+                }
+                skript_parser::SectionBodyNode::Effect(value) => {
+                    value.selected.as_ref().map_or_else(
+                        || value.unknown.as_ref().map(|value| value.raw_node_id),
+                        |value| Some(value.raw_node_id),
+                    )
+                }
+                skript_parser::SectionBodyNode::Trivia(id)
+                | skript_parser::SectionBodyNode::Unclaimed(id) => Some(*id),
+            })
+            .map(|id| id.get())
+            .collect(),
+    }
+}
+
+fn structure_node_type_to_wit(value: syntaxes::NodeType) -> WitStructureNodeType {
+    match value {
+        syntaxes::NodeType::Simple => WitStructureNodeType::Simple,
+        syntaxes::NodeType::Section => WitStructureNodeType::Section,
+        syntaxes::NodeType::Both => WitStructureNodeType::Both,
+    }
+}
+
+fn structure_body_mode_to_wit(value: StructureBodyMode) -> WitStructureBodyMode {
+    match value {
+        StructureBodyMode::None => WitStructureBodyMode::None,
+        StructureBodyMode::Raw => WitStructureBodyMode::Raw,
+        StructureBodyMode::Entries => WitStructureBodyMode::Entries,
+        StructureBodyMode::Trigger => WitStructureBodyMode::Trigger,
+    }
+}
+
+fn structure_body_mode_from_wit(value: WitStructureBodyMode) -> StructureBodyMode {
+    match value {
+        WitStructureBodyMode::None => StructureBodyMode::None,
+        WitStructureBodyMode::Raw => StructureBodyMode::Raw,
+        WitStructureBodyMode::Entries => StructureBodyMode::Entries,
+        WitStructureBodyMode::Trigger => StructureBodyMode::Trigger,
+    }
+}
+
+fn same_structure_payload_identity(
+    left: &WitStructurePayload,
+    right: &WitStructurePayload,
+) -> bool {
+    left.input == right.input
+        && same_raw_tree(&left.body_tree, &right.body_tree)
+        && left.timing == right.timing
+        && left.candidate.raw_node_id == right.candidate.raw_node_id
+        && left.candidate.definition_id == right.candidate.definition_id
+        && left.candidate.registration_id == right.candidate.registration_id
+        && left.candidate.element_class == right.candidate.element_class
+        && left.candidate.priority == right.candidate.priority
+        && left.candidate.registration_order == right.candidate.registration_order
+        && left.candidate.pattern_index == right.candidate.pattern_index
+        && left.candidate.pattern == right.candidate.pattern
+        && same_mapped_span(&left.candidate.span, &right.candidate.span)
+        && left.candidate.declared_node_type == right.candidate.declared_node_type
+        && left.candidate.actual_node_type == right.candidate.actual_node_type
+        && left.candidate.regex_captures == right.candidate.regex_captures
+        && same_parsed_captures(
+            &left.candidate.parsed_captures,
+            &right.candidate.parsed_captures,
+        )
+        && left.candidate.child_node_ids == right.candidate.child_node_ids
+        && same_structure_entries(&left.candidate.entries, &right.candidate.entries)
+        && left.candidate.handler == right.candidate.handler
+}
+
+fn structure_context_to_wit(context: &ExpressionParseContext) -> WitStructureContext {
+    WitStructureContext {
+        syntax_context: context.syntax_context,
+        event_classes: context
+            .event_classes
+            .iter()
+            .map(|class| class.as_str().to_owned())
+            .collect(),
+        values: context
+            .values
+            .iter()
+            .map(|(key, value)| WitStructureContextValue {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn same_raw_tree(left: &RawTree, right: &RawTree) -> bool {
+    left.roots == right.roots
+        && same_raw_tree_nodes(&left.nodes, &right.nodes)
+        && same_raw_diagnostics(&left.diagnostics, &right.diagnostics)
+        && same_indentation(left.indentation.as_ref(), right.indentation.as_ref())
+}
+
+fn same_raw_tree_nodes(left: &[WitRawTreeNode], right: &[WitRawTreeNode]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.id == right.id
+                && left.kind == right.kind
+                && left.text == right.text
+                && same_mapped_span(&left.span, &right.span)
+                && same_raw_line(&left.line, &right.line)
+                && same_optional_mapped_span(left.code_span.as_ref(), right.code_span.as_ref())
+                && same_optional_mapped_span(left.header_span.as_ref(), right.header_span.as_ref())
+                && same_optional_mapped_span(left.body_span.as_ref(), right.body_span.as_ref())
+                && left.indent_level == right.indent_level
+                && same_raw_invalid_reason(
+                    left.invalid_reason.as_ref(),
+                    right.invalid_reason.as_ref(),
+                )
+                && left.syntax_context == right.syntax_context
+                && left.parent == right.parent
+                && left.children == right.children
+        })
+}
+
+fn same_raw_line(left: &WitRawLine, right: &WitRawLine) -> bool {
+    left.number == right.number
+        && left.raw_text == right.raw_text
+        && left.line_ending == right.line_ending
+        && same_mapped_span(&left.span, &right.span)
+        && same_mapped_span(&left.content_span, &right.content_span)
+        && same_mapped_span(&left.line_ending_span, &right.line_ending_span)
+        && same_raw_trivia(&left.indentation, &right.indentation)
+        && same_raw_trivia_list(&left.trailing_trivia, &right.trailing_trivia)
+}
+
+fn same_raw_trivia_list(left: &[WitRawTrivia], right: &[WitRawTrivia]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| same_raw_trivia(left, right))
+}
+
+fn same_raw_trivia(left: &WitRawTrivia, right: &WitRawTrivia) -> bool {
+    left.kind == right.kind && left.text == right.text && same_mapped_span(&left.span, &right.span)
+}
+
+fn same_optional_mapped_span(left: Option<&MappedSpan>, right: Option<&MappedSpan>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => same_mapped_span(left, right),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_raw_invalid_reason(
+    left: Option<&WitRawInvalidReason>,
+    right: Option<&WitRawInvalidReason>,
+) -> bool {
+    match (left, right) {
+        (
+            Some(WitRawInvalidReason::MixedIndentation),
+            Some(WitRawInvalidReason::MixedIndentation),
+        )
+        | (
+            Some(WitRawInvalidReason::InvalidIndentation),
+            Some(WitRawInvalidReason::InvalidIndentation),
+        )
+        | (None, None) => true,
+        (
+            Some(WitRawInvalidReason::UnexpectedIndentation(left)),
+            Some(WitRawInvalidReason::UnexpectedIndentation(right)),
+        ) => left.expected_level == right.expected_level && left.actual_level == right.actual_level,
+        _ => false,
+    }
+}
+
+fn same_raw_diagnostics(left: &[WitRawDiagnostic], right: &[WitRawDiagnostic]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.code == right.code
+                && left.severity == right.severity
+                && left.message == right.message
+                && same_mapped_span(&left.span, &right.span)
+                && same_raw_related(&left.related, &right.related)
+        })
+}
+
+fn same_raw_related(left: &[WitRawRelatedSpan], right: &[WitRawRelatedSpan]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.message == right.message && same_mapped_span(&left.span, &right.span)
+        })
+}
+
+fn same_indentation(left: Option<&WitIndentation>, right: Option<&WitIndentation>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.kind == right.kind && left.unit == right.unit,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_structure_entries(left: &[WitStructureEntry], right: &[WitStructureEntry]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.raw_node_id == right.raw_node_id
+                && left.parent_entry == right.parent_entry
+                && left.key == right.key
+                && left.entry_data_class == right.entry_data_class
+                && left.kind == right.kind
+                && left.source == right.source
+                && same_mapped_span(&left.span, &right.span)
+                && left.defaulted == right.defaulted
+                && left.value_kind == right.value_kind
+                && same_parse_summary(left.value_summary.as_ref(), right.value_summary.as_ref())
+        })
 }
 
 fn section_hook_payload(
@@ -4284,6 +4813,82 @@ impl ParserHost {
         }
     }
 
+    /// Parses every top-level RawTree root as a Structure in two lifecycle passes.
+    pub fn parse_structures_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: StructureParseRequest<'_>,
+        config: StructureParserConfig,
+    ) -> Result<WasmStructureParseResult, HostError> {
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        if document_id != context.document_id || document_revision != context.document_revision {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Structure context {}@{} does not match parse transaction {}@{}",
+                    context.document_id, context.document_revision, document_id, document_revision,
+                ),
+            }
+            .into());
+        }
+        if request.context.syntax_context != context.syntax_context {
+            return Err(StateError::InvalidInput {
+                message: format!(
+                    "Structure parser context {} does not match invocation context {}",
+                    request.context.syntax_context, context.syntax_context,
+                ),
+            }
+            .into());
+        }
+
+        let catalog = self
+            .config
+            .syntax_catalog
+            .clone()
+            .ok_or(HostError::SyntaxCatalogUnavailable)?;
+        let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
+        let base = transaction.savepoint()?;
+        let matching_hooks_registered = self.registry.has_matching_hooks();
+        let hooks = WasmPatternHooks {
+            host: self,
+            transaction,
+            matching_hooks_registered,
+            context,
+            input: request.source.virtual_source().to_owned(),
+            frames: Vec::new(),
+            effects: empty_effects(),
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let mut environment = WasmExpressionEnvironment {
+            hooks,
+            pending_leaf: None,
+            pending_registered: None,
+            semantic_candidates: Vec::new(),
+        };
+        let parsed = run_structure_parser(
+            catalog.as_ref(),
+            Some(&dynamic_snapshot),
+            request,
+            &mut environment,
+            config,
+        );
+        let (effects, calls, failures) = environment.into_parts();
+        match parsed {
+            Ok(document) => Ok(WasmStructureParseResult {
+                document,
+                effects,
+                calls,
+                failures,
+            }),
+            Err(error) => {
+                transaction.rollback_to(&base)?;
+                Err(error.into())
+            }
+        }
+    }
+
     /// Parses one lossless Simple node as an Effect with nested Expression and WASM hooks.
     ///
     /// The caller owns the parse transaction. State written while exploring
@@ -5942,6 +6547,7 @@ impl ParserHost {
             HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
             HookPhase::Effect => CAPABILITY_EFFECT_PARSER,
             HookPhase::Section => CAPABILITY_SECTION_PARSER,
+            HookPhase::Structure => CAPABILITY_STRUCTURE_PARSER,
             HookPhase::Parser => CAPABILITY_ADDITIONAL_PARSE,
             _ => CAPABILITY_HOOKS,
         };
@@ -6195,14 +6801,20 @@ impl ParserHost {
                     };
             };
 
+            let previous_payload = payload.clone();
             match apply_hook_output(candidate.subscription.mode, output, payload.clone()) {
                 Ok(applied) => {
                     let AppliedOutput {
-                        payload: next_payload,
+                        payload: mut next_payload,
                         decision: next_decision,
                         effects: next_effects,
                         terminal,
                     } = applied;
+                    normalize_structure_hook_payload(
+                        &previous_payload,
+                        &mut next_payload,
+                        &next_effects,
+                    )?;
                     if matches!(next_decision, Some(HookDecision::Reject(_))) {
                         state_invocation.rollback();
                         drop(dynamic_update);
@@ -6487,6 +7099,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_EFFECT_PARSER,
         CAPABILITY_SECTION_PARSER,
+        CAPABILITY_STRUCTURE_PARSER,
     ]
     .map(|id| Capability::new(id, 1))
     .to_vec()
@@ -6805,6 +7418,23 @@ fn validate_manifest(
                 ),
             });
         }
+        if subscription.capability_id == CAPABILITY_STRUCTURE_PARSER
+            && (!matches!(subscription.phase, HookPhase::Structure)
+                || !matches!(
+                    subscription.target,
+                    HookTarget::SyntaxKind(SyntaxKind::Structure)
+                        | HookTarget::Definition(_)
+                        | HookTarget::Registration(_)
+                        | HookTarget::Pattern(_)
+                ))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "Structure parser subscription {} must target Structure syntax or an exact registration in the Structure phase",
+                    subscription.id
+                ),
+            });
+        }
         match &subscription.target {
             HookTarget::Definition(id) if id.trim().is_empty() => {
                 return Err(HostError::InvalidManifest {
@@ -6973,6 +7603,10 @@ fn validate_manifest(
                 CatalogSyntaxKind::Section => {
                     subscription.capability_id == CAPABILITY_SECTION_PARSER
                         && subscription.phase == HookPhase::Section
+                }
+                CatalogSyntaxKind::Structure => {
+                    subscription.capability_id == CAPABILITY_STRUCTURE_PARSER
+                        && subscription.phase == HookPhase::Structure
                 }
                 _ => false,
             });
@@ -7317,6 +7951,13 @@ fn normalize_hook_metadata(
                 component_id,
             )
         }
+        (HookPayload::Structure(original), HookPayload::Structure(replacement)) => {
+            merge_owned_metadata(
+                &original.candidate.metadata,
+                &mut replacement.candidate.metadata,
+                component_id,
+            )
+        }
         _ => Ok(()),
     }
 }
@@ -7460,6 +8101,76 @@ fn apply_hook_output(
             }
         },
     }
+}
+
+fn normalize_structure_hook_payload(
+    previous: &HookPayload,
+    next: &mut HookPayload,
+    effects: &HookEffects,
+) -> Result<(), HostError> {
+    let (HookPayload::Structure(previous), HookPayload::Structure(next)) = (previous, next) else {
+        return Ok(());
+    };
+    if !same_structure_payload_identity(next, previous)
+        || previous.timing == WitStructureTiming::ExitBody
+            && next.candidate.body_mode != previous.candidate.body_mode
+    {
+        return Err(StructureParseError::Environment {
+            message: "Structure hook changed immutable candidate fields".to_owned(),
+        }
+        .into());
+    }
+    next.context = previous.context.clone();
+    apply_wit_structure_context_updates(&mut next.context, &effects.context_updates)
+        .map_err(|message| StructureParseError::Environment { message }.into())
+}
+
+fn apply_wit_structure_context_updates(
+    context: &mut WitStructureContext,
+    updates: &[ContextUpdate],
+) -> Result<(), String> {
+    let mut values = context
+        .values
+        .drain(..)
+        .map(|entry| (entry.key, entry.value))
+        .collect::<BTreeMap<_, _>>();
+    for update in updates {
+        if update.syntax_context != context.syntax_context {
+            continue;
+        }
+        if update.key == "parser.event-classes" {
+            context.event_classes = update
+                .value
+                .as_deref()
+                .map(std::str::from_utf8)
+                .transpose()
+                .map_err(|_| "Structure Event classes are not UTF-8".to_owned())?
+                .map(|value| {
+                    value
+                        .split(';')
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            continue;
+        }
+        if let Some(value) = update.value.as_deref() {
+            values.insert(
+                update.key.clone(),
+                std::str::from_utf8(value)
+                    .map_err(|_| "Structure context update is not UTF-8".to_owned())?
+                    .to_owned(),
+            );
+        } else {
+            values.remove(&update.key);
+        }
+    }
+    context.values = values
+        .into_iter()
+        .map(|(key, value)| WitStructureContextValue { key, value })
+        .collect();
+    Ok(())
 }
 
 fn raw_node_at_path(tree: &ParserRawTree, path: &[usize]) -> Option<ParserRawNodeId> {
@@ -7691,6 +8402,61 @@ fn parser_raw_tree_to_wit(tree: &ParserRawTree) -> RawTree {
             unit: indentation.unit.clone(),
         }),
     }
+}
+
+fn parser_raw_subtree_to_wit(tree: &ParserRawTree, root: ParserRawNodeId) -> RawTree {
+    let Some(root_node) = tree.get(root) else {
+        return RawTree {
+            roots: Vec::new(),
+            nodes: Vec::new(),
+            diagnostics: Vec::new(),
+            indentation: tree.indentation.as_ref().map(|indentation| {
+                crate::bindings::nlaocs::skript_parser_addon::types::Indentation {
+                    kind: match indentation.kind {
+                        ParserIndentKind::Space => WitIndentKind::Space,
+                        ParserIndentKind::Tab => WitIndentKind::Tab,
+                    },
+                    unit: indentation.unit.clone(),
+                }
+            }),
+        };
+    };
+    let mut pending = vec![root];
+    let mut included = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if included.insert(id)
+            && let Some(node) = tree.get(id)
+        {
+            pending.extend(node.children.iter().copied());
+        }
+    }
+    let subtree_end = root_node
+        .body_span
+        .as_ref()
+        .map_or(root_node.span.virtual_range.end, |span| {
+            span.virtual_range.end
+        });
+    let subtree_range = ParserTextRange::new(root_node.span.virtual_range.start, subtree_end);
+    let subtree = ParserRawTree {
+        roots: vec![root],
+        nodes: tree
+            .nodes
+            .iter()
+            .filter(|node| included.contains(&node.id))
+            .cloned()
+            .collect(),
+        diagnostics: tree
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                let range = diagnostic.span.virtual_range;
+                range.start >= subtree_range.start && range.end <= subtree_range.end
+            })
+            .cloned()
+            .collect(),
+        indentation: tree.indentation.clone(),
+    };
+    parser_raw_tree_to_wit(&subtree)
 }
 
 fn parser_tree_edit(edit: WitTreeEdit) -> ParserTreeEdit {
@@ -8244,6 +9010,9 @@ impl<'a> ParseResultArena<'a> {
             skript_parser::ParsedCaptureValue::Effect(_) => {
                 self.push_opaque_capture(capture, "effect", &capture.result.span)
             }
+            skript_parser::ParsedCaptureValue::Event(_) => {
+                self.push_opaque_capture(capture, "event", &capture.result.span)
+            }
             skript_parser::ParsedCaptureValue::Section(_) => {
                 self.push_opaque_capture(capture, "section", &capture.result.span)
             }
@@ -8568,6 +9337,44 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .parsed_captures
                     .iter()
                     .map(parsed_capture_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(metadata_entries_size(&value.candidate.metadata)),
+        HookPayload::Structure(value) => value
+            .input
+            .len()
+            .saturating_add(raw_tree_size(&value.body_tree))
+            .saturating_add(value.candidate.definition_id.len())
+            .saturating_add(value.candidate.registration_id.len())
+            .saturating_add(value.candidate.pattern.len())
+            .saturating_add(
+                value
+                    .candidate
+                    .regex_captures
+                    .iter()
+                    .map(String::len)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .candidate
+                    .parsed_captures
+                    .iter()
+                    .map(parsed_capture_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .candidate
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        entry
+                            .key
+                            .len()
+                            .saturating_add(entry.entry_data_class.len())
+                            .saturating_add(entry.source.len())
+                    })
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(metadata_entries_size(&value.candidate.metadata)),
@@ -9040,6 +9847,91 @@ mod tests {
         })
     }
 
+    #[test]
+    fn wit_structure_context_updates_compose_event_classes_and_values_deterministically() {
+        let mut context = WitStructureContext {
+            syntax_context: 7,
+            event_classes: vec!["old.Event".to_owned()],
+            values: vec![
+                WitStructureContextValue {
+                    key: "zeta".to_owned(),
+                    value: "old-zeta".to_owned(),
+                },
+                WitStructureContextValue {
+                    key: "alpha".to_owned(),
+                    value: "old-alpha".to_owned(),
+                },
+            ],
+        };
+        let updates = vec![
+            ContextUpdate {
+                syntax_context: 7,
+                key: "parser.event-classes".to_owned(),
+                value: Some(b"first.Event;second.Event".to_vec()),
+            },
+            ContextUpdate {
+                syntax_context: 7,
+                key: "zeta".to_owned(),
+                value: Some(b"new-zeta".to_vec()),
+            },
+            ContextUpdate {
+                syntax_context: 7,
+                key: "alpha".to_owned(),
+                value: None,
+            },
+            ContextUpdate {
+                syntax_context: 7,
+                key: "middle".to_owned(),
+                value: Some(b"new-middle".to_vec()),
+            },
+            ContextUpdate {
+                syntax_context: 999,
+                key: "ignored".to_owned(),
+                value: Some(b"stale".to_vec()),
+            },
+            ContextUpdate {
+                syntax_context: 7,
+                key: "parser.event-classes".to_owned(),
+                value: None,
+            },
+            ContextUpdate {
+                syntax_context: 7,
+                key: "parser.event-classes".to_owned(),
+                value: Some(b"final.Event;".to_vec()),
+            },
+            ContextUpdate {
+                syntax_context: 7,
+                key: "zeta".to_owned(),
+                value: None,
+            },
+        ];
+
+        apply_wit_structure_context_updates(&mut context, &updates)
+            .expect("valid UTF-8 context updates must apply");
+
+        assert_eq!(context.event_classes, ["final.Event"]);
+        assert_eq!(context.values.len(), 1);
+        assert_eq!(context.values[0].key, "middle");
+        assert_eq!(context.values[0].value, "new-middle");
+    }
+
+    #[test]
+    fn same_raw_tree_rejects_mutated_structure_body_tree() {
+        let source = MappedSource::identity("root:\n    child\n");
+        let tree = skript_parser::parse_raw_tree(
+            &source,
+            skript_parser::RawTreeOptions::for_skript_version(2, 15),
+        );
+        let root = *tree.roots.first().expect("fixture has a root node");
+        let original = parser_raw_subtree_to_wit(&tree, root);
+        let mut mutated = original.clone();
+        mutated.nodes[0].text.push_str(" changed");
+
+        // Structure hooks may update semantic context, but the body tree is an
+        // immutable identity field and must not be replaced by a hook.
+        assert!(!same_raw_tree(&original, &mutated));
+    }
+
     fn registered_expression() -> HookPayload {
         HookPayload::RegisteredExpression(RegisteredExpressionPayload {
             input: "example".to_owned(),
@@ -9314,6 +10206,7 @@ mod tests {
                 CAPABILITY_EXPRESSION_PARSER,
                 CAPABILITY_EFFECT_PARSER,
                 CAPABILITY_SECTION_PARSER,
+                CAPABILITY_STRUCTURE_PARSER,
             ]
         );
     }
@@ -10158,7 +11051,7 @@ mod tests {
             },
             options: Vec::new(),
         };
-        let mut result = ParseResult {
+        let result = ParseResult {
             host_token: 0,
             request_id: request.request_id,
             parser_id: request.parser_id.clone(),

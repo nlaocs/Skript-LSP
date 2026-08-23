@@ -22,12 +22,13 @@ pub use host::{
     HostConfig, HostError, ParserHost, RuntimePlugin, RuntimeProfile, TreeMacroCall,
     TreeMacroRequest, TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult,
     WasmExpressionParseResult, WasmPatternMatchResult, WasmSectionParseResult,
+    WasmStructureParseResult,
 };
 #[cfg(feature = "host")]
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(3, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(4, 0);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -51,6 +52,8 @@ pub const CAPABILITY_EXPRESSION_PARSER: &str = "parser.expression";
 pub const CAPABILITY_EFFECT_PARSER: &str = "parser.effect";
 /// Capability ID for Section lifecycle hooks and scoped child context.
 pub const CAPABILITY_SECTION_PARSER: &str = "parser.section";
+/// Capability ID for top-level Structure lifecycle and EntryValidator hooks.
+pub const CAPABILITY_STRUCTURE_PARSER: &str = "parser.structure";
 /// Requests every SSG type option in a registered Expression payload.
 pub const REGISTERED_CONTEXT_ALL_TYPE_OPTIONS: &str = "expression.type-options.all";
 
