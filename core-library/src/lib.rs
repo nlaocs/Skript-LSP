@@ -9,6 +9,7 @@ mod expressions;
 mod primitives;
 mod runtime;
 mod sections;
+mod structures;
 mod types;
 
 wit_bindgen::generate!({
@@ -30,7 +31,8 @@ use nlaocs::skript_parser_addon::types::{RuntimePlugin, RuntimeProfile};
 use parser_wasm::{
     ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EFFECT_PARSER,
     CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
-    Capability as ParserCapability, CapabilityRequirement as ParserCapabilityRequirement,
+    CAPABILITY_STRUCTURE_PARSER, Capability as ParserCapability,
+    CapabilityRequirement as ParserCapabilityRequirement,
     CompatibilityError as ParserCompatibilityError, validate_compatibility,
 };
 
@@ -41,6 +43,7 @@ const EXPRESSION_SUBSCRIPTION_ID: &str = "core.expression-candidates";
 const REGISTERED_EXPRESSION_SUBSCRIPTION_ID: &str = "core.registered-expression-semantics";
 const EFFECT_SUBSCRIPTION_ID: &str = "core.effect-semantics";
 const SECTION_SUBSCRIPTION_ID: &str = "core.section-semantics";
+const STRUCTURE_SUBSCRIPTION_ID: &str = "core.structure-semantics";
 
 fn empty_hook_selector() -> HookSelector {
     HookSelector {
@@ -84,6 +87,11 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement {
                     id: CAPABILITY_SECTION_PARSER.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
                     minimum_version: 1,
                     required: true,
                 },
@@ -134,11 +142,21 @@ impl addon::Guest for CoreLibrary {
                     capability_id: CAPABILITY_SECTION_PARSER.to_owned(),
                     selector: empty_hook_selector(),
                 },
+                HookSubscription {
+                    id: STRUCTURE_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Structure),
+                    phase: HookPhase::Structure,
+                    priority: 0,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
+                },
             ],
             registered_syntax_handlers: {
                 let mut handlers = expressions::handlers();
                 handlers.extend(effects::handlers());
                 handlers.extend(sections::handlers());
+                handlers.extend(structures::handlers());
                 handlers
             },
             catalog_annotations: Vec::new(),
@@ -152,6 +170,7 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_EXPRESSION_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_SECTION_PARSER, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_STRUCTURE_PARSER, 1),
         ];
         let capabilities = profile
             .capabilities
@@ -182,6 +201,7 @@ impl hooks::Guest for CoreLibrary {
             REGISTERED_EXPRESSION_SUBSCRIPTION_ID => parse_registered_expression(input),
             EFFECT_SUBSCRIPTION_ID => parse_effect_semantics(input),
             SECTION_SUBSCRIPTION_ID => parse_section_semantics(input),
+            STRUCTURE_SUBSCRIPTION_ID => parse_structure_semantics(input),
             _ => Err(addon_error(
                 AddonErrorKind::UnsupportedHook,
                 format!(
@@ -255,6 +275,10 @@ fn parse_effect_semantics(input: HookInvocation) -> Result<HookOutput, AddonErro
 
 fn parse_section_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
     sections::parse(input)
+}
+
+fn parse_structure_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
+    structures::parse(input)
 }
 
 fn parse_expression_candidates(
@@ -473,10 +497,10 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 4);
+        assert_eq!(manifest.capabilities.len(), 5);
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
-        assert_eq!(manifest.subscriptions.len(), 5);
+        assert_eq!(manifest.subscriptions.len(), 6);
         assert_eq!(manifest.subscriptions[0].id, HEALTH_CHECK_SUBSCRIPTION_ID);
         assert!(matches!(
             manifest.subscriptions[0].target,
@@ -500,7 +524,9 @@ mod tests {
         assert_eq!(manifest.subscriptions[3].id, EFFECT_SUBSCRIPTION_ID);
         assert_eq!(manifest.capabilities[3].id, CAPABILITY_SECTION_PARSER);
         assert_eq!(manifest.subscriptions[4].id, SECTION_SUBSCRIPTION_ID);
-        assert_eq!(manifest.registered_syntax_handlers.len(), 32);
+        assert_eq!(manifest.capabilities[4].id, CAPABILITY_STRUCTURE_PARSER);
+        assert_eq!(manifest.subscriptions[5].id, STRUCTURE_SUBSCRIPTION_ID);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 35);
     }
 
     #[test]
@@ -581,6 +607,10 @@ mod tests {
                 },
                 Capability {
                     id: CAPABILITY_SECTION_PARSER.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
                     version: 1,
                 },
             ],
