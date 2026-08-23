@@ -664,7 +664,7 @@ fn wasm_effect_hook_replaces_metadata_and_keeps_selected_state() {
         .position(|call| call.subscription_id == "effect.replace")
         .expect("replace hook must run after NotApplicable");
     assert!(not_applicable_index < replace_index);
-    assert!(selected.metadata.get("temporary").is_none());
+    assert!(!selected.metadata.contains_key("temporary"));
     assert!(
         result
             .effects
