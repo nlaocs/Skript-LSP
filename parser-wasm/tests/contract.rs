@@ -17,7 +17,7 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
-    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(3, 0));
+    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(4, 0));
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
@@ -33,7 +33,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.18.0")
+        Some("0.19.0")
     );
 
     let world = package
@@ -49,7 +49,17 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(imports, ["types", "state-store", "dynamic-syntax-registry"]);
+    let mut sorted_imports = imports;
+    sorted_imports.sort_unstable();
+    assert_eq!(
+        sorted_imports,
+        [
+            "catalog-data",
+            "dynamic-syntax-registry",
+            "state-store",
+            "types"
+        ]
+    );
     let exports = world
         .exports
         .values()
@@ -62,6 +72,49 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
         exports,
         ["addon", "hooks", "text-macro", "tree-macro", "ast-macro"]
     );
+}
+
+#[test]
+fn catalog_data_import_exposes_the_complete_source_query_surface() {
+    let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
+    let mut resolve = wit_parser::Resolve::default();
+    let (package, _) = resolve.push_dir(&wit).expect("WIT package must resolve");
+    let package = &resolve.packages[package];
+    let world = package
+        .worlds
+        .get("parser-addon")
+        .map(|id| &resolve.worlds[*id])
+        .expect("parser-addon world must exist");
+    let catalog_interface_id = world
+        .imports
+        .values()
+        .find_map(|item| match item {
+            wit_parser::WorldItem::Interface { id, .. }
+                if resolve.interfaces[*id].name.as_deref() == Some("catalog-data") =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect("parser-addon must import catalog-data");
+    let catalog_interface = &resolve.interfaces[catalog_interface_id];
+
+    for function in [
+        "source",
+        "documents",
+        "read-document",
+        "records-by-registration-id",
+        "records-by-definition-id",
+        "read-record",
+        "class-known",
+        "is-class-assignable",
+        "can-convert",
+    ] {
+        assert!(
+            catalog_interface.functions.contains_key(function),
+            "catalog-data must expose {function}"
+        );
+    }
 }
 
 #[test]
@@ -111,6 +164,7 @@ fn host_bindings_expose_typed_hook_contract() {
     assert_eq!(manifest.abi.major, 1);
 
     let type_option = ExpressionTypeOption {
+        source_record: None,
         code_name: "weather type".to_owned(),
         class_name: "ch.njol.skript.util.weather.WeatherType".to_owned(),
         type_parse_order: 0,

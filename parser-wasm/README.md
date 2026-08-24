@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.18.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.19.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -43,12 +43,13 @@ Guest exports:
 
 Host imports:
 
+- `catalog-data`: complete read-only SSG documents, ID lookups, and type relations
 - `state-store`: scoped key/value storage with compare-and-swap and prefix scan
 - `dynamic-syntax-registry`: add, override, and remove syntax definitions
 
-All parser payloads are WIT records and variants. JSON is not part of the ABI.
-RawTree and AST values use node-ID arenas so their payloads remain non-recursive
-Component Model values.
+Parser payloads are WIT records and variants. The only JSON crossing the ABI is
+opaque SSG source returned as `catalog-data` bytes. RawTree and AST values use
+node-ID arenas so their payloads remain non-recursive Component Model values.
 
 ## Compatibility
 
@@ -69,8 +70,9 @@ Expression type options changed it to 0.13.0; runtime profiles and open parser
 result graphs changed it to 0.15.0; host-token references from leaf candidates
 to parsed child roots changed it to 0.16.0; explicit child node kinds and parser
 IDs changed it to 0.17.0; SSG-ID hook targets, PatternRef routing, declarative
-selectors, and `NotApplicable` changed it to 0.18.0. The manifest's current
-`abi` value is 3.0 and is a runtime handshake that requires an exact
+selectors, and `NotApplicable` changed it to 0.18.0; complete read-only SSG
+source access and host-owned type-relation queries changed it to 0.19.0. The
+manifest's current `abi` value is 4.0 and is a runtime handshake that requires an exact
 `major.minor` match.
 
 Capabilities use stable string IDs and independent integer versions instead of
@@ -334,6 +336,131 @@ Subscription ordering is deterministic:
 A handled override stops later matching hooks. Addon errors are reported as
 component failures. Traps, timeouts, fuel exhaustion, and resource-limit
 violations disable the component.
+
+## SSG Catalog Data
+
+When the host has an SSG-backed `Catalog`, it advertises
+`parser.catalog-data`. Every hook may then read the complete retained snapshot
+through the `catalog-data` import without copying all JSON into every payload.
+
+- `source` identifies the format, schema version, generator snapshot ID, and an
+  exact `source-digest` covering every retained filename and byte. The digest
+  also changes when only an unknown Manifest field changes.
+- `documents` pages through every source file, including `Manifest.json`.
+  `read-document` reads exact retained bytes by range, so files larger than a
+  single host response remain fully reachable.
+- `records-by-registration-id` and `records-by-definition-id` return every
+  matching top-level JSON object's document/index reference in pages.
+  `read-record` reads each referenced object by range. Duplicate IDs are
+  intentionally preserved and must be resolved by the addon.
+- `class-known`, `is-class-assignable`, and `can-convert` use the host's
+  normalized class and converter indexes, so components can distinguish an
+  incompatible relation from missing source data without rebuilding Java relationships.
+  The relation queries return `compatible`, `incompatible`, or `unknown`; they
+  never encode a missing class as a definitive incompatibility.
+
+Unknown fields remain available in the raw JSON. Indexed record bytes are
+valid JSON but do not preserve whitespace or object-key order. Each chunk or
+page is bounded by `HostConfig::max_catalog_response_bytes`, which defaults to
+32 MiB; pagination and range reads still make the complete source reachable.
+The view represents the immutable SSG source snapshot; dynamic syntax and
+transactional runtime facts remain available through their dedicated APIs.
+`ssg::load` is the trusted construction path. A host embedding a manually
+constructed `CatalogSource` is responsible for validating its bytes first.
+When both are present, `RuntimeProfile` schema/snapshot identity must match the
+source Catalog or host construction fails.
+
+A guest can use a candidate's stable ID to recover fields that are not part of
+the typed hook payload:
+
+```rust,ignore
+fn read_record(record: &types::CatalogRecordRef) -> anyhow::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut offset = 0;
+    while offset < record.byte_length {
+        let chunk = catalog_data::read_record(
+            &record.source_digest,
+            &record.snapshot_id,
+            &record.document,
+            record.index,
+            offset,
+            u32::MAX,
+        )?.expect("an immutable Catalog record must remain available");
+        if chunk.offset != offset || chunk.total_length != record.byte_length {
+            anyhow::bail!("Catalog record changed while it was being read");
+        }
+        if chunk.bytes.is_empty() {
+            anyhow::bail!("Catalog record read made no progress");
+        }
+        bytes.extend_from_slice(&chunk.bytes);
+        offset = offset.checked_add(chunk.bytes.len() as u64)
+            .ok_or_else(|| anyhow::anyhow!("Catalog record offset overflowed"))?;
+    }
+    anyhow::ensure!(offset == record.byte_length, "Catalog record exceeded its descriptor");
+    Ok(bytes)
+}
+
+let mut offset = 0;
+loop {
+    let page = catalog_data::records_by_registration_id(
+        &candidate.registration_id,
+        offset,
+        64,
+    )?;
+    for record in &page.items {
+        if record.document != "Expressions.json" {
+            continue;
+        }
+        let expression: serde_json::Value = serde_json::from_slice(&read_record(record)?)?;
+        let accepted = &expression["acceptedChangers"];
+        // Inspect addon/version fields too. IDs are search keys, not unique row keys.
+    }
+    let Some(next) = page.next_offset else { break };
+    offset = next;
+}
+```
+
+`catalog-record-ref` is bound to both its exact `source-digest` and generator
+`snapshot-id`. Passing it to a host that retained different bytes is rejected
+instead of reading a coincidentally matching document/index pair.
+
+For Expression source records, an accepted changer name ending in `[]` means
+that the changer accepts multiple values of the element class. It does not
+name a Java array class. For example, `java.lang.String[]` means "multiple
+`java.lang.String` values are accepted". The source record's
+`acceptedChangersState` must also be checked: `unresolved` means SSG could not
+prove the contract and an addon must not treat a missing mode as unsupported.
+
+Type and literal options carry their exact `Types.json` source record;
+structured supplier literals also carry their nested literal index. Registered
+Expression children expose their stable definition/registration
+IDs and pattern index. Their metadata can carry an open semantic role such as
+`target-type`. Property options additionally carry their exact source record,
+payload indexes, match reason, type code/element classes, SSG Property registration ID,
+Property owner/handler, related-type handler/provider,
+`acceptedChangers`, resolution state, and `requiresSourceExpressionChange`
+flag. Distinct registrations and handlers are not collapsed merely because
+their input Java class matches. This lets a semantic addon reproduce Skript's
+runtime checks without matching Java class-name suffixes or hard-coding pattern
+indexes. When multiple registrations match, an earlier hook may write
+`selected-property-option-indices`; the host validates those indexes and the
+CoreLibrary evaluates only the selected options. Any other SSG field remains
+reachable through the raw source API.
+
+An addon may publish the effective changer contract of a parsed Expression as
+owned metadata with key `change-contract`. The envelope is versioned and bound
+to the Expression registration/parser identity that owns it:
+
+```json
+{"schemaVersion":1,"subjectId":"expression:addon:registration","contract":{"state":"resolved","modes":{"SET":[{"className":"java.lang.String","multiple":false}]}}}
+{"schemaVersion":1,"subjectId":"expression:addon:registration","contract":{"state":"unresolved"}}
+```
+
+The CoreLibrary uses the same contract for Property Expressions and EffChange.
+Other addons may publish it for their own Expressions. If multiple providers
+publish conflicting contracts, CoreLibrary reports the relation as unknown
+instead of selecting one silently. A contract with the wrong schema or subject
+identity is rejected rather than being attached to another Expression.
 
 ## StateStore
 

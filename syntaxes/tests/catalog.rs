@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use syntax_pattern_parser::syntax::PluralRules;
 use syntaxes::{
-    Addon, AliasItem, AliasRegistry, AliasTarget, Catalog, CatalogParts, Class, ClassKind,
-    ClassName, Converter, DefinitionId, Documentation, EventValue, Function, FunctionParameter,
-    Noun, RegistrationId, Syntax, Type, TypeCodeName, TypeLiteral, TypeLiteralSource,
+    Addon, AliasItem, AliasRegistry, AliasTarget, Catalog, CatalogParts, CatalogSource, Class,
+    ClassKind, ClassName, Converter, DefinitionId, Documentation, EventValue, Function,
+    FunctionParameter, Noun, RegistrationId, Syntax, Type, TypeCodeName, TypeLiteral,
+    TypeLiteralSource,
 };
 
 fn id(value: &str) -> RegistrationId {
@@ -88,6 +89,7 @@ fn function(
 
 fn type_syntax(code_name: &str, assignable_to: &[&str], order: usize) -> Syntax {
     Syntax::Type(Type {
+        source_index: order,
         type_parse_order: order,
         documentation: Documentation::default(),
         addon: addon(),
@@ -255,6 +257,86 @@ fn known_java_reference_types_are_assignable_to_object() {
     assert!(catalog.is_class_assignable("test.Named[]", "java.lang.Object"));
     assert!(!catalog.is_class_assignable("int", "java.lang.Object"));
     assert!(!catalog.is_class_assignable("test.Missing", "java.lang.Object"));
+}
+
+#[test]
+fn catalog_source_preserves_documents_and_indexes_duplicate_ids() {
+    let manifest = br#"{"snapshotId":"snapshot-id","futureManifestField":true}"#;
+    let effects = br#"[
+        {
+            "registrationId":"shared-registration",
+            "definitionId":"shared-definition",
+            "futureField":{"enabled":true}
+        },
+        {
+            "registrationId":"shared-registration",
+            "definitionId":"shared-definition",
+            "futureField":{"enabled":false}
+        },
+        {
+            "registrationId":"other-registration",
+            "definitionId":"shared-definition"
+        }
+    ]"#;
+    let source = CatalogSource::from_json_documents(
+        "ssg",
+        3,
+        "snapshot-id",
+        BTreeMap::from([
+            ("Effects.json".to_owned(), effects.to_vec()),
+            ("Manifest.json".to_owned(), manifest.to_vec()),
+        ]),
+    )
+    .expect("valid source documents must be retained");
+
+    assert_eq!(source.document("Effects.json"), Some(effects.as_slice()));
+    assert_eq!(
+        source.document_names().collect::<Vec<_>>(),
+        ["Effects.json", "Manifest.json"]
+    );
+
+    let registrations = source.records_by_registration_id("shared-registration");
+    assert_eq!(
+        registrations
+            .iter()
+            .map(|record| record.index)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert!(
+        registrations
+            .iter()
+            .all(|record| record.document == "Effects.json")
+    );
+
+    let definitions = source.records_by_definition_id("shared-definition");
+    assert_eq!(
+        definitions
+            .iter()
+            .map(|record| record.index)
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+
+    let first_record: serde_json::Value =
+        serde_json::from_slice(registrations[0].json.as_ref()).unwrap();
+    assert_eq!(first_record["futureField"]["enabled"], true);
+
+    let changed_manifest = CatalogSource::from_json_documents(
+        "ssg",
+        3,
+        "snapshot-id",
+        BTreeMap::from([
+            ("Effects.json".to_owned(), effects.to_vec()),
+            (
+                "Manifest.json".to_owned(),
+                br#"{"snapshotId":"snapshot-id","futureManifestField":false}"#.to_vec(),
+            ),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(source.snapshot_id, changed_manifest.snapshot_id);
+    assert_ne!(source.source_digest, changed_manifest.source_digest);
 }
 
 #[test]

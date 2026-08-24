@@ -1,5 +1,5 @@
 [package]
-name = "core-library"
+name = "catalog-data-addon"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,10 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-fancy-regex = "0.19.0"
-parser-wasm = { path = "../parser-wasm", default-features = false }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+parser-wasm = { path = "../../parser-wasm", default-features = false }
 wit-bindgen = "0.59.0"
 
 [package.metadata.component]

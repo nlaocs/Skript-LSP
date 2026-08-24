@@ -35,6 +35,13 @@ const DYNAMIC_SYNTAX_ADDON: ComponentSpec = ComponentSpec {
     display_name: "dynamic syntax test addon",
 };
 
+const CATALOG_DATA_ADDON: ComponentSpec = ComponentSpec {
+    package: "catalog-data-addon",
+    module_name: "catalog_data_addon.wasm",
+    artifact_name: "catalog-data-addon.wasm",
+    display_name: "Catalog Data test addon",
+};
+
 const EFFECT_ADDON: ComponentSpec = ComponentSpec {
     package: "effect-addon",
     module_name: "effect_addon.wasm",
@@ -76,6 +83,7 @@ fn build_core_library() -> Result<()> {
 
 fn build_test_components() -> Result<()> {
     for component in [
+        &CATALOG_DATA_ADDON,
         &DYNAMIC_SYNTAX_ADDON,
         &EFFECT_ADDON,
         &MATCHING_ADDON,

@@ -30,6 +30,7 @@ pub(super) fn parse(
         DynamicMultiplicity::Single,
     );
     candidate.metadata = vec![
+        metadata("semantic-role", "target-type"),
         metadata("target-class", &option.class_name),
         metadata("type-code-name", &option.code_name),
         metadata("type-plural", if plural { "true" } else { "false" }),

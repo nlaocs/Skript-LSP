@@ -113,6 +113,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
+name = "catalog-data-addon"
+version = "0.1.0"
+dependencies = [
+ "parser-wasm",
+ "wit-bindgen 0.59.0",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,6 +180,8 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "parser-wasm",
+ "serde",
+ "serde_json",
  "wit-bindgen 0.59.0",
 ]
 
@@ -1542,6 +1552,7 @@ name = "syntaxes"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "sha2",
  "syntax-pattern-parser",
  "thiserror",
 ]

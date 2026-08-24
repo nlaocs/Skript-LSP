@@ -88,8 +88,8 @@ pub(crate) fn catalog(
             accepted_changers_state: resolution_state(value.accepted_changers_state),
         }));
     }
-    for value in types {
-        syntaxes.push(model::Syntax::Type(type_data(value)));
+    for (index, value) in types.into_iter().enumerate() {
+        syntaxes.push(model::Syntax::Type(type_data(index, value)));
     }
     for value in functions {
         syntaxes.push(model::Syntax::Function(function(value)?));
@@ -202,7 +202,7 @@ fn documentation(
     }
 }
 
-fn type_data(value: raw::Type) -> model::Type {
+fn type_data(source_index: usize, value: raw::Type) -> model::Type {
     let legacy_enum_values = value.class_type == raw::ClassKind::Enum
         && value.enum_values.is_none()
         && value.usage.is_some();
@@ -211,6 +211,7 @@ fn type_data(value: raw::Type) -> model::Type {
         .or_else(|| legacy_enum_values.then(|| value.usage.clone().unwrap_or_default()))
         .unwrap_or_default();
     model::Type {
+        source_index,
         type_parse_order: value.type_parse_order,
         documentation: documentation(
             value.name,

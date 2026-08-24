@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use syntaxes::Catalog;
+use syntaxes::{Catalog, CatalogSource};
 
 /// Highest SSG snapshot schema accepted by this reader.
 pub const SCHEMA_VERSION: u32 = 4;
@@ -201,7 +201,22 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
     let plural_rules =
         syntax_pattern_parser::syntax::PluralRules::from_json(&serialized["PluralRules.json"])
             .map_err(|error| SnapshotError::validation("PluralRules.json", error.to_string()))?;
-    let catalog = convert::catalog(raw_snapshot, plural_rules)?;
+    let source_documents = std::iter::once((MANIFEST_FILE.to_owned(), manifest_text.into_bytes()))
+        .chain(
+            serialized
+                .into_iter()
+                .map(|(name, text)| (name.to_owned(), text.into_bytes())),
+        )
+        .collect::<BTreeMap<_, _>>();
+    let source = CatalogSource::from_json_documents(
+        "ssg",
+        manifest.schema_version,
+        manifest.snapshot_id.clone(),
+        source_documents,
+    )
+    .map_err(|error| SnapshotError::validation("snapshot source", error.to_string()))?;
+    // Both views were built from the same validated `serialized` document set above.
+    let catalog = convert::catalog(raw_snapshot, plural_rules)?.with_unchecked_source(source);
 
     Ok(Snapshot { manifest, catalog })
 }

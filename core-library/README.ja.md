@@ -41,8 +41,14 @@ hostが発行したresult tokenをleaf候補から参照するため、選択さ
 外側へspanを再配置したnative child ASTになります。
 
 EffectとSection hookは`EffChange`、`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
-`EffChange`は解析済みchild summaryを使い、常にMultipleな値をsingle variableへ設定する処理を、
-子を再解析せずSkriptの`acceptChange(SET)`判定に合わせて拒否します。
+Property Expressionは`Properties.json`と、Skriptがchange-in-placeの書き戻しを要求する場合は解析済みsource
+Expressionのcontractからowned `change-contract`を公開します。`EffChange`はこのmetadataを優先し、なければ
+`Expressions.json`または`EventValues.json`の生recordへfallbackします。子を再解析せず
+`acceptChange(SET)`の型とmultiplicityを検証し、SSG contractがunresolvedなら推測で拒否せずwarningを返します。
+EventValueのchanger情報が欠けている場合もunresolvedです。metadata envelopeはschema versionを持ち、
+対象Expression identityへ結び付きます。Property候補はSSGの登録、owner、handler、type、source identityを保持し、
+先行Addon hookが候補indexを選択できます。明示選択のない複数Property登録は、無関係なAddonを合成せず拒否します。生changer lookupには
+record数・byte数上限とbounded cacheがあります。variableの型履歴は意図的に後続実装へ残しています。
 text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
 Function callの照合はnative parserが担当し、Structureとlegacy固有の意味処理は未実装です。
 
@@ -56,6 +62,7 @@ CoreLibraryは必須ですが、意図的にaddon componentと同じWIT worldを
 - 同じresource limitとtrap処理
 - 同じtransactional StateStore
 - 同じdynamic syntax registration API
+- 同じ完全なread-only SSG Catalog API
 
 hostはcomponent IDを特別に扱います。CoreLibraryがない場合やIDが異なる場合は起動に失敗し、
 `ParserHost::unload_addon`によるunloadも拒否します。

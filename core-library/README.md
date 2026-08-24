@@ -48,12 +48,22 @@ host-issued result tokens from its leaf candidate, so the selected roots become
 native child AST nodes with rebased spans instead of opaque metadata.
 
 The Effect and Section hooks provide the class-specific semantics for
-`EffChange`, `EffDoIf`, `SecConditional`, and `SecWhile`. `EffChange` uses the
-already parsed child summaries to reject assigning an always-multiple value to
-a single variable, matching Skript's `acceptChange(SET)` check without parsing
-the child twice. Text, tree, and AST macro exports
-currently return `unsupported-capability`. Function-call matching remains in
-the native parser; Structure and legacy-specific semantics are not implemented.
+`EffChange`, `EffDoIf`, `SecConditional`, and `SecWhile`. Property Expressions
+publish an owned `change-contract` assembled from `Properties.json` and, when
+Skript requires change-in-place propagation, the already parsed source
+Expression's contract. `EffChange` consumes that metadata first and falls back
+to raw `Expressions.json` or `EventValues.json` records. It validates
+`acceptChange(SET)` types and multiplicity without parsing either child twice.
+Unresolved SSG contracts produce a warning instead of a guessed error;
+missing EventValue changer data is unresolved as well. The metadata envelope is
+schema-versioned and bound to its Expression identity. Property candidates keep
+their SSG registration, owner, handler, type, and source identities. An earlier
+addon hook may select candidate indexes; CoreLibrary refuses an ambiguity with
+no explicit selection instead of merging unrelated addons.
+Raw changer lookups are bounded by record/byte limits and a bounded cache.
+Variable type history remains intentionally deferred. Text, tree, and AST macro
+exports currently return `unsupported-capability`. Function-call matching remains
+in the native parser; Structure and legacy-specific semantics are not implemented.
 
 ## Why It Is a WASM Component
 
@@ -66,6 +76,7 @@ dispatch model:
 - the same resource limits and trap handling
 - the same transactional StateStore
 - the same dynamic syntax registration API
+- the same complete read-only SSG Catalog API
 
 The host treats the component ID specially: startup fails when CoreLibrary is
 missing or has the wrong ID, and `ParserHost::unload_addon` refuses to unload

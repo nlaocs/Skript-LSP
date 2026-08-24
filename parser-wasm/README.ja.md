@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.18.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.19.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -42,11 +42,12 @@ Guest export:
 
 Host import:
 
+- `catalog-data`: SSGの全read-only document、ID lookup、型関係query
 - `state-store`: compare-and-swapとprefix scanを備えたscope付きkey/value storage
 - `dynamic-syntax-registry`: syntax definitionの追加、override、削除
 
-parser payloadはすべてWITのrecordとvariantです。JSONはABIに含まれません。RawTreeとASTは
-node ID arenaを使い、Component Model上で再帰しない値として表現します。
+parser payloadはWITのrecordとvariantです。ABIを通るJSONは`catalog-data`がopaque bytesとして返す
+SSG sourceだけです。RawTreeとASTはnode ID arenaを使い、Component Model上で再帰しない値として表現します。
 
 ## 互換性
 
@@ -62,7 +63,7 @@ componentが解決する登録Expression classの宣言追加で0.8.0へ変わ�
 0.11.0へ、構造化type literal metadataで0.12.0へ、SSG supplier metadataのExpression type option追加で
 0.13.0へ変わりました。runtime profileとopen parser result graphで0.15.0、leaf候補から解析済みchild rootを
 参照するhost tokenで0.16.0、child node kindとparser IDの明示で0.17.0へ変わりました。
-manifestの現在の`abi`値は3.0で、
+manifestの現在の`abi`値は4.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -81,7 +82,8 @@ hostはText macroとTree macroをadvertiseし、実行します。AST macroはco
 Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。componentは、Java classや
 parse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず処理できます。
 
-WIT 0.18.0では、SSG-IDのdefinition/registration/PatternRef target、宣言的selector、NotApplicableを追加し、ABIを3.0へ更新しました。
+WIT 0.18.0では、SSG-IDのdefinition/registration/PatternRef target、宣言的selector、NotApplicableを追加しました。
+WIT 0.19.0では、SSGの全read-only sourceとhost側の型関係queryを追加し、ABIを4.0へ更新しました。
 
 ## Open parser request
 
@@ -275,6 +277,109 @@ subscriptionの順序は決定的です。
 overrideがhandledを返すと、後続の一致するhookを停止します。addon errorはcomponent failure
 として報告されます。trap、timeout、fuel枯渇、resource-limit違反が起きたcomponentは
 無効化されます。
+
+## SSG Catalog data
+
+hostがSSG由来の`Catalog`を持つ場合、`parser.catalog-data`をadvertiseします。各hookは全JSONを
+payloadへ複製せず、`catalog-data` importから保持されたsnapshot全体をread-onlyで参照できます。
+
+- `source`はformat、schema version、generatorのsnapshot IDに加え、保持した全filenameとbyte列を覆う
+  正確な`source-digest`を返します。未知のManifest fieldだけが変わった場合もdigestは変化します。
+- `documents`は`Manifest.json`を含む全source fileをpage単位で列挙します。`read-document`は
+  保持された原文をrange単位で読み、大きなfileも最後まで取得できます。
+- `records-by-registration-id`と`records-by-definition-id`は一致する全top-level JSON objectを、
+  document名とarray indexの参照としてpage単位で返します。`read-record`は各objectをrange単位で
+  読みます。重複IDも意図的に保持し、どの候補を使うかはaddonが判断します。
+- `class-known`、`is-class-assignable`、`can-convert`はhostの正規化済みclass・converter indexを使い、
+  非互換とsource data不足を区別できます。型関係queryは`compatible`、`incompatible`、`unknown`を返し、
+  class不足を確定的な非互換として返しません。
+
+未知fieldも生JSONから利用できます。索引されたrecordは正しいJSONですが、空白やobject key順序は保証しません。
+各page/chunkは既定32 MiBの`HostConfig::max_catalog_response_bytes`で制限されますが、paginationと
+range readによりsource全体へ到達できます。このviewは不変なSSG source snapshotであり、dynamic
+syntaxとtransactional runtime情報はそれぞれ専用APIを使います。
+信頼する構築経路は`ssg::load`です。手動構築した`CatalogSource`を埋め込むhostは、事前にbytesを検証する
+責任を持ちます。`RuntimeProfile`とsource Catalogが両方ある場合、schema/snapshot identityが一致しなければ
+hostの構築に失敗します。
+
+候補のstable IDから、型付きhook payloadにないfieldを取得できます。
+
+```rust,ignore
+fn read_record(record: &types::CatalogRecordRef) -> anyhow::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut offset = 0;
+    while offset < record.byte_length {
+        let chunk = catalog_data::read_record(
+            &record.source_digest,
+            &record.snapshot_id,
+            &record.document,
+            record.index,
+            offset,
+            u32::MAX,
+        )?.expect("不変なCatalogのrecordは読み取り中に消えない");
+        if chunk.offset != offset || chunk.total_length != record.byte_length {
+            anyhow::bail!("読み取り中にCatalog recordが変化した");
+        }
+        if chunk.bytes.is_empty() {
+            anyhow::bail!("Catalog recordの読み取りが進まなかった");
+        }
+        bytes.extend_from_slice(&chunk.bytes);
+        offset = offset.checked_add(chunk.bytes.len() as u64)
+            .ok_or_else(|| anyhow::anyhow!("Catalog record offsetがoverflowした"))?;
+    }
+    anyhow::ensure!(offset == record.byte_length, "Catalog recordがdescriptorを超えた");
+    Ok(bytes)
+}
+
+let mut offset = 0;
+loop {
+    let page = catalog_data::records_by_registration_id(
+        &candidate.registration_id,
+        offset,
+        64,
+    )?;
+    for record in &page.items {
+        if record.document != "Expressions.json" {
+            continue;
+        }
+        let expression: serde_json::Value = serde_json::from_slice(&read_record(record)?)?;
+        let accepted = &expression["acceptedChangers"];
+        // addon/versionも調べます。IDは検索keyであり、一意なrow keyではありません。
+    }
+    let Some(next) = page.next_offset else { break };
+    offset = next;
+}
+```
+
+`catalog-record-ref`は正確な`source-digest`とgeneratorの`snapshot-id`の両方へ結び付いています。
+保持byte列が異なるhostへ渡すと、偶然同じdocument/indexを読むのではなく拒否されます。
+
+Expression source recordでchanger型の末尾に付く`[]`はJava配列classではなく、そのelement classの
+複数値をchangerへ渡せることを表します。例えば`java.lang.String[]`は「複数の
+`java.lang.String`を受け付ける」という意味です。`acceptedChangersState`も必ず確認してください。
+`unresolved`の場合、SSGがcontractを確定できなかっただけなので、modeの欠如を「非対応」と断定できません。
+
+Typeとliteral optionは正確な`Types.json` source recordを持ち、構造化supplier literalはnested literal indexも
+持ちます。登録Expressionの子要素にはstableなdefinition/registration IDとpattern indexが含まれ、metadataには
+`target-type`などのopenなsemantic roleも載せられます。Property optionには正確なsource recordとpayload上のindex、
+一致理由、type code/element class、Property登録ID、Propertyのowner/handler、related typeのhandler/provider、
+`acceptedChangers`、解決状態、`requiresSourceExpressionChange`も含まれます。同じ入力Java classでも、
+異なる登録やhandlerは潰しません。これによりsemantic addonはJava class suffixやpattern indexを
+ハードコードせず、Skript runtimeの検査を再現できます。複数登録が一致した場合、先行hookは
+`selected-property-option-indices`へ採用候補を書き、hostのindex検証後にCoreLibraryが選択候補だけを評価します。
+その他のSSG fieldも生source APIから取得できます。
+
+Addonは解析済みExpressionの有効なchanger contractを、keyが`change-contract`のowned metadataとして公開できます。
+値はschema versionと、所有するExpressionのregistration/parser identityへ結び付いたenvelopeです。
+
+```json
+{"schemaVersion":1,"subjectId":"expression:addon:registration","contract":{"state":"resolved","modes":{"SET":[{"className":"java.lang.String","multiple":false}]}}}
+{"schemaVersion":1,"subjectId":"expression:addon:registration","contract":{"state":"unresolved"}}
+```
+
+CoreLibraryもProperty ExpressionとEffChangeの連携に同じcontractを使います。独自Expressionを提供するAddonも
+このcontractを公開できます。複数providerが矛盾するcontractを公開した場合は、黙って1つを選ばずunknownとして扱います。
+schemaまたはsubject identityが異なるcontractは、別Expressionへ誤適用せず拒否します。
 
 ## StateStore
 

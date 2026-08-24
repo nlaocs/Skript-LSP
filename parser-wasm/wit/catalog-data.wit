@@ -1,0 +1,112 @@
+package nlaocs:skript-parser-addon@0.19.0;
+
+/// Read-only access to the complete retained SSG source and host type relations.
+interface catalog-data {
+    use types.{catalog-record-ref};
+
+    enum catalog-error-kind {
+        unavailable,
+        invalid-input,
+        response-too-large,
+    }
+
+    record catalog-error {
+        kind: catalog-error-kind,
+        message: string,
+    }
+
+    record catalog-source {
+        format: string,
+        schema-version: u32,
+        snapshot-id: string,
+        source-digest: string,
+    }
+
+    record catalog-document-info {
+        name: string,
+        media-type: string,
+        byte-length: u64,
+    }
+
+    record catalog-document-page {
+        items: list<catalog-document-info>,
+        next-offset: option<u64>,
+    }
+
+    record catalog-record-page {
+        items: list<catalog-record-ref>,
+        next-offset: option<u64>,
+    }
+
+    record catalog-chunk {
+        media-type: string,
+        offset: u64,
+        total-length: u64,
+        bytes: list<u8>,
+    }
+
+    enum type-relation {
+        compatible,
+        incompatible,
+        unknown,
+    }
+
+    /// Describes the source snapshot retained behind the normalized Catalog.
+    /// source-digest covers every retained filename and exact byte sequence.
+    source: func() -> result<option<catalog-source>, catalog-error>;
+
+    /// Pages through retained source documents in deterministic order.
+    documents: func(
+        offset: u64,
+        limit: u32,
+    ) -> result<catalog-document-page, catalog-error>;
+
+    /// Reads a bounded byte range from an exact source document, including unknown fields.
+    /// A chunk boundary may split a UTF-8 code point; concatenate or stream bytes before decoding.
+    read-document: func(
+        name: string,
+        offset: u64,
+        max-bytes: u32,
+    ) -> result<option<catalog-chunk>, catalog-error>;
+
+    /// Pages through source objects carrying this registration ID.
+    records-by-registration-id: func(
+        id: string,
+        offset: u64,
+        limit: u32,
+    ) -> result<catalog-record-page, catalog-error>;
+
+    /// Pages through source objects carrying this definition ID.
+    records-by-definition-id: func(
+        id: string,
+        offset: u64,
+        limit: u32,
+    ) -> result<catalog-record-page, catalog-error>;
+
+    /// Reads a bounded byte range from one indexed top-level JSON object.
+    /// Both identities must match the currently retained source.
+    /// A chunk boundary may split a UTF-8 code point; concatenate or stream bytes before decoding.
+    read-record: func(
+        source-digest: string,
+        snapshot-id: string,
+        document: string,
+        index: u64,
+        offset: u64,
+        max-bytes: u32,
+    ) -> result<option<catalog-chunk>, catalog-error>;
+
+    /// Reports whether the normalized Catalog contains this Java class node.
+    class-known: func(class-name: string) -> result<bool, catalog-error>;
+
+    /// Applies the host Catalog's Java assignability graph.
+    is-class-assignable: func(
+        source-class: string,
+        target-class: string,
+    ) -> result<type-relation, catalog-error>;
+
+    /// Applies Skript-compatible assignability and registered converters.
+    can-convert: func(
+        source-class: string,
+        target-class: string,
+    ) -> result<type-relation, catalog-error>;
+}
