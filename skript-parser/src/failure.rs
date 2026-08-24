@@ -119,6 +119,13 @@ pub(crate) fn choose_failure_trace(
                 && !current.is_event_restriction()
                 && candidate_range.start <= current_range.start
                 && candidate_range.end >= current_range.end;
+            let current_is_stronger_restriction = current.is_event_restriction()
+                && !candidate.is_event_restriction()
+                && current_range.start <= candidate_range.start
+                && current_range.end >= candidate_range.end;
+            if current_is_stronger_restriction {
+                return Some(current);
+            }
             if candidate_is_stronger_restriction
                 || (candidate.specificity() > current.specificity()
                     || (candidate.specificity() == current.specificity()
@@ -235,7 +242,11 @@ mod tests {
         });
 
         assert_eq!(
-            choose_failure_trace(Some(partial), Some(restricted.clone())),
+            choose_failure_trace(Some(partial.clone()), Some(restricted.clone())),
+            Some(restricted.clone())
+        );
+        assert_eq!(
+            choose_failure_trace(Some(restricted.clone()), Some(partial)),
             Some(restricted)
         );
     }
