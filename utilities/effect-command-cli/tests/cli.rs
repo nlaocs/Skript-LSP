@@ -347,25 +347,17 @@ fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
 }
 
 #[test]
-fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
+fn reports_event_restrictions_and_parses_interface_expressions() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 
     let absorbed = session
         .analyze("send absorbed blocks")
-        .expect("optional leading literal must parse");
+        .expect("missing Event context must be a normal no-match");
     let absorbed: Value = serde_json::from_str(&absorbed.to_json().unwrap()).unwrap();
-    assert_eq!(absorbed["result"]["status"], "matched");
+    assert_eq!(absorbed["result"]["status"], "incomplete");
     assert_eq!(
-        absorbed["result"]["effect"]["elements"][0]["resolved"]["expression"]["syntax"]["elementClass"],
-        "ch.njol.skript.expressions.ExprAbsorbedBlocks"
-    );
-    assert_eq!(
-        absorbed["result"]["effect"]["elements"][0]["resolved"]["multiplicity"],
-        "multiple"
-    );
-    assert_eq!(
-        absorbed["result"]["alternatives"].as_array().unwrap().len(),
-        0
+        absorbed["result"]["failure"]["reasons"][0]["kind"],
+        "eventRestricted"
     );
 
     let offline = session
@@ -387,7 +379,7 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     );
 
     let chat = session
-        .analyze("set {_m} to chat-message")
+        .analyze("set {_m} to default motd")
         .expect("Component interface return type must parse as Object");
     let chat: Value = serde_json::from_str(&chat.to_json().unwrap()).unwrap();
     assert_eq!(chat["result"]["status"], "matched");
