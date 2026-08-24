@@ -92,6 +92,14 @@ impl FailureTrace {
         }
         ranges.len()
     }
+
+    fn is_event_restriction(&self) -> bool {
+        self.root_cause()
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(reason, crate::PatternFailureReason::EventRestricted { .. }))
+    }
 }
 
 pub(crate) fn choose_failure_trace(
@@ -107,12 +115,17 @@ pub(crate) fn choose_failure_trace(
             let candidate_range = candidate_root.failure.span.mapped.virtual_range;
             let current_len = current_range.end.saturating_sub(current_range.start);
             let candidate_len = candidate_range.end.saturating_sub(candidate_range.start);
-            if candidate.specificity() > current.specificity()
-                || (candidate.specificity() == current.specificity()
-                    && (candidate_range.start > current_range.start
-                        || (candidate_range.start == current_range.start
-                            && candidate_len > 0
-                            && (current_len == 0 || candidate_len < current_len))))
+            let candidate_is_stronger_restriction = candidate.is_event_restriction()
+                && !current.is_event_restriction()
+                && candidate_range.start <= current_range.start
+                && candidate_range.end >= current_range.end;
+            if candidate_is_stronger_restriction
+                || (candidate.specificity() > current.specificity()
+                    || (candidate.specificity() == current.specificity()
+                        && (candidate_range.start > current_range.start
+                            || (candidate_range.start == current_range.start
+                                && candidate_len > 0
+                                && (current_len == 0 || candidate_len < current_len)))))
             {
                 Some(candidate)
             } else {
@@ -203,6 +216,27 @@ mod tests {
         assert_eq!(
             choose_failure_trace(Some(broad), Some(narrow.clone())),
             Some(narrow)
+        );
+    }
+
+    #[test]
+    fn containing_event_restriction_wins_over_partial_syntax_failure() {
+        let source = MappedSource::identity("final damage");
+        let partial = trace(&source, TextRange::new(0, 5), &[]);
+        let restricted = FailureTrace::leaf(PatternFailure {
+            span: MatchSpan {
+                local_range: TextRange::new(0, 12),
+                mapped: source.map_range(TextRange::new(0, 12)).unwrap(),
+            },
+            reasons: vec![PatternFailureReason::EventRestricted {
+                supported: vec!["EntityDamageEvent".to_owned()],
+                current: Vec::new(),
+            }],
+        });
+
+        assert_eq!(
+            choose_failure_trace(Some(partial), Some(restricted.clone())),
+            Some(restricted)
         );
     }
 }

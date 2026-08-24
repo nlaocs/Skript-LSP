@@ -441,6 +441,19 @@ impl Syntax {
             Self::Structure(value) => value.common.registration_order,
         }
     }
+
+    /// Returns metadata shared by pattern-based syntax kinds.
+    pub fn common(&self) -> Option<&CommonSyntax> {
+        match self {
+            Self::Event(value) => Some(&value.common),
+            Self::Condition(value) => Some(&value.common),
+            Self::Effect(value) => Some(&value.common),
+            Self::Expression(value) => Some(&value.common),
+            Self::Type(_) | Self::Function(_) => None,
+            Self::Section(value) => Some(&value.common),
+            Self::Structure(value) => Some(&value.common),
+        }
+    }
 }
 
 impl SyntaxKind {

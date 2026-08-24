@@ -1,10 +1,10 @@
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind,
-    ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment, MappedSource,
-    MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue, PatternHookControl,
-    PatternHookEvent, PatternHookScope, PatternHookTiming, PatternMatchEnvironment, RawTreeOptions,
-    TextRange, TypeExpressionOutcome, TypeExpressionRequest, parse_effect,
-    parse_effect_with_snapshot, parse_raw_tree,
+    ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment, FailureTrace,
+    MappedSource, MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue,
+    PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookScope,
+    PatternHookTiming, PatternMatchEnvironment, RawTreeOptions, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, parse_effect, parse_effect_with_snapshot, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -56,6 +56,28 @@ fn effect_fixture() -> Catalog {
 fn simple_node(source: &MappedSource) -> skript_parser::RawNode {
     let tree = parse_raw_tree(source, RawTreeOptions::for_skript_version(2, 15));
     tree.get(tree.roots[0]).expect("one root node").clone()
+}
+
+fn event_context(event_classes: &[&str]) -> ExpressionParseContext {
+    ExpressionParseContext {
+        event_classes: event_classes
+            .iter()
+            .map(|event| syntaxes::ClassName((*event).to_owned()))
+            .collect(),
+        ..ExpressionParseContext::default()
+    }
+}
+
+fn event_restriction_reason(trace: &FailureTrace) -> Option<(&[String], &[String])> {
+    if let Some(PatternFailureReason::EventRestricted { supported, current }) = trace
+        .failure
+        .reasons
+        .iter()
+        .find(|reason| matches!(reason, PatternFailureReason::EventRestricted { .. }))
+    {
+        return Some((supported.as_slice(), current.as_slice()));
+    }
+    trace.cause.as_deref().and_then(event_restriction_reason)
 }
 
 #[test]
@@ -364,4 +386,109 @@ fn synthetic_effect_hook_bypasses_static_pattern_prefilters() {
 
     assert!(result.selected.is_some());
     assert!(result.unknown.is_none());
+}
+
+#[test]
+fn event_restricted_effect_uses_the_shared_event_context_check() {
+    let catalog = ssg::load(fixture())
+        .expect("schema 3 fixture must load")
+        .into_catalog();
+    let text = "make egg hatch";
+    let source = MappedSource::identity(text);
+    let node = simple_node(&source);
+
+    let allowed = parse_effect(
+        &catalog,
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: event_context(&["org.bukkit.event.player.PlayerEggThrowEvent"]),
+        },
+        &mut NoopExpressionEnvironment,
+        EffectParserConfig::default(),
+    )
+    .expect("matching Event context must allow the restricted Effect");
+    assert!(allowed.selected.is_some());
+
+    let rejected = parse_effect(
+        &catalog,
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        EffectParserConfig::default(),
+    )
+    .expect("event mismatch must be a recoverable Effect failure");
+    let unknown = rejected
+        .unknown
+        .expect("restricted Effect must be rejected");
+    let reason = unknown
+        .failures
+        .candidates
+        .iter()
+        .find_map(|candidate| event_restriction_reason(&candidate.matched.trace))
+        .or_else(|| {
+            unknown
+                .failures
+                .fallback
+                .as_ref()
+                .and_then(event_restriction_reason)
+        })
+        .expect("Effect failure must retain the EventRestricted reason");
+    assert_eq!(reason.0, ["org.bukkit.event.player.PlayerEggThrowEvent"]);
+    assert!(reason.1.is_empty());
+}
+
+#[test]
+fn nested_restricted_expression_failure_retains_supported_and_current_events() {
+    let catalog = ssg::load(fixture())
+        .expect("schema 3 fixture must load")
+        .into_catalog();
+    let text = "send final damage";
+    let source = MappedSource::identity(text);
+    let node = simple_node(&source);
+
+    for (events, expected_current) in [
+        (Vec::new(), Vec::<String>::new()),
+        (
+            vec!["org.bukkit.event.player.PlayerEggThrowEvent"],
+            vec!["org.bukkit.event.player.PlayerEggThrowEvent".to_owned()],
+        ),
+    ] {
+        let event_names = events.as_slice();
+        let result = parse_effect(
+            &catalog,
+            EffectParseRequest {
+                source: &source,
+                node: &node,
+                context: event_context(event_names),
+            },
+            &mut NoopExpressionEnvironment,
+            EffectParserConfig::default(),
+        )
+        .expect("nested Expression mismatch must be recoverable");
+        let unknown = result
+            .unknown
+            .expect("send final damage must fail outside a damage Event");
+        let reason = unknown
+            .failures
+            .candidates
+            .iter()
+            .find_map(|candidate| event_restriction_reason(&candidate.matched.trace))
+            .or_else(|| {
+                unknown
+                    .failures
+                    .fallback
+                    .as_ref()
+                    .and_then(event_restriction_reason)
+            })
+            .expect("nested Expression failure must retain EventRestricted");
+        assert_eq!(
+            reason.0,
+            ["org.bukkit.event.entity.EntityDamageEvent".to_owned()]
+        );
+        assert_eq!(reason.1, expected_current);
+    }
 }

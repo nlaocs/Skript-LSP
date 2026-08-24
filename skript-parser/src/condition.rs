@@ -168,16 +168,19 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
     let mut candidates = session.syntax_candidates(SyntaxKind::Condition);
     session.retain_viable_patterns(trimmed, &mut candidates)?;
     let matched = session.match_candidates_at_depth(trimmed, &candidates, depth)?;
-    let failure = matched.primary_failure().cloned();
-    let selected = matched
-        .selected
-        .map(|value| condition_candidate(session, value, trimmed))
-        .transpose()?;
-    let alternatives = matched
-        .alternatives
-        .into_iter()
-        .map(|value| condition_candidate(session, value, trimmed))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut failure = matched.primary_failure().cloned();
+    let mut accepted = Vec::new();
+    for candidate in matched.selected.into_iter().chain(matched.alternatives) {
+        if let Some(restricted) = session
+            .event_restriction_failure(&candidate.registration_id, session.map_range(trimmed)?)
+        {
+            failure = crate::choose_failure_trace(failure, Some(restricted));
+            continue;
+        }
+        accepted.push(condition_candidate(session, candidate, trimmed)?);
+    }
+    let selected = (!accepted.is_empty()).then(|| accepted.remove(0));
+    let alternatives = accepted;
     if selected.is_none() {
         unknown_condition(session, trimmed, failure)
     } else {

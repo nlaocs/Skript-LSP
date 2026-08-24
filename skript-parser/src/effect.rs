@@ -248,6 +248,18 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
             .iter()
             .find(|candidate| candidate.registration_id == matched.registration_id)
             .and_then(|candidate| candidate.resolved_order);
+        let local = matched.matched.span.local_range;
+        let span = session.map_range(TextRange::new(
+            range.start + local.start,
+            range.start + local.end,
+        ))?;
+        if let Some(trace) = session.event_restriction_failure(&matched.registration_id, span) {
+            candidate_failures.push(effect_candidate_failure(
+                session,
+                semantic_candidate_failure(&matched, resolved_order, trace),
+            ));
+            continue;
+        }
         session
             .begin_semantic_candidate()
             .map_err(|message| ExpressionParseError::Environment { message })?;
@@ -365,6 +377,26 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         alternatives,
         unknown,
     })
+}
+
+fn semantic_candidate_failure(
+    matched: &CandidateMatch,
+    resolved_order: Option<usize>,
+    trace: FailureTrace,
+) -> CandidateFailure {
+    CandidateFailure {
+        kind: matched.kind,
+        definition_id: matched.definition_id.clone(),
+        registration_id: matched.registration_id.clone(),
+        priority: matched.priority,
+        registration_order: matched.registration_order,
+        resolved_order,
+        literal_anchor: matched.literal_anchor,
+        pattern_index: Some(matched.pattern_index),
+        pattern: Some(matched.pattern.clone()),
+        trace,
+        related: Vec::new(),
+    }
 }
 
 fn effect_candidate_failure<E: ExpressionParseEnvironment>(
@@ -623,19 +655,7 @@ fn semantic_effect_candidate_failure(
     metadata: BTreeMap<String, String>,
 ) -> EffectCandidateFailure {
     EffectCandidateFailure {
-        matched: CandidateFailure {
-            kind: matched.kind,
-            definition_id: matched.definition_id.clone(),
-            registration_id: matched.registration_id.clone(),
-            priority: matched.priority,
-            registration_order: matched.registration_order,
-            resolved_order,
-            literal_anchor: matched.literal_anchor,
-            pattern_index: Some(matched.pattern_index),
-            pattern: Some(matched.pattern.clone()),
-            trace,
-            related: Vec::new(),
-        },
+        matched: semantic_candidate_failure(matched, resolved_order, trace),
         element_class,
         handler,
         metadata,

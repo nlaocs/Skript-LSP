@@ -469,12 +469,24 @@ pub enum PatternMatchError {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 /// Expected construct recorded at the selected failed input range.
 pub enum PatternFailureReason {
-    Literal { expected: String },
-    Regex { pattern: String },
+    Literal {
+        expected: String,
+    },
+    Regex {
+        pattern: String,
+    },
     Expression,
-    TypeExpression { expected: Vec<String> },
+    TypeExpression {
+        expected: Vec<String>,
+    },
+    EventRestricted {
+        supported: Vec<String>,
+        current: Vec<String>,
+    },
     TrailingInput,
-    HookRejected { reason: String },
+    HookRejected {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1996,7 +2008,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             let cause_virtual_range = self.input.map_range(cause_range)?.mapped.virtual_range;
             let cause = cause.filter(|cause| {
                 let root = cause.root_cause().failure.span.mapped.virtual_range;
-                root != cause_virtual_range
+                let semantic_same_range =
+                    cause.root_cause().failure.reasons.iter().any(|reason| {
+                        matches!(reason, PatternFailureReason::EventRestricted { .. })
+                    });
+                (root != cause_virtual_range || semantic_same_range)
                     && root.start >= cause_virtual_range.start
                     && root.end <= cause_virtual_range.end
             });

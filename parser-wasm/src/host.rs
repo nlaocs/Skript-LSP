@@ -2783,6 +2783,11 @@ fn effect_failure_reason(reason: &PatternFailureReason) -> String {
         PatternFailureReason::TypeExpression { expected } => {
             format!("expression:{}", expected.join("/"))
         }
+        PatternFailureReason::EventRestricted { supported, current } => format!(
+            "event-restricted:supported={};current={}",
+            supported.join("/"),
+            current.join("/")
+        ),
         PatternFailureReason::TrailingInput => "trailing-input".to_owned(),
         PatternFailureReason::HookRejected { reason } => format!("hook-rejected:{reason}"),
     }
@@ -10158,7 +10163,7 @@ mod tests {
             },
             options: Vec::new(),
         };
-        let mut result = ParseResult {
+        let result = ParseResult {
             host_token: 0,
             request_id: request.request_id,
             parser_id: request.parser_id.clone(),
