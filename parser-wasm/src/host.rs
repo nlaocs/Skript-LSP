@@ -3312,6 +3312,11 @@ fn effect_failure_reason(reason: &PatternFailureReason) -> String {
         PatternFailureReason::TypeExpression { expected } => {
             format!("expression:{}", expected.join("/"))
         }
+        PatternFailureReason::EventRestricted { supported, current } => format!(
+            "event-restricted:supported={};current={}",
+            supported.join("/"),
+            current.join("/")
+        ),
         PatternFailureReason::TrailingInput => "trailing-input".to_owned(),
         PatternFailureReason::HookRejected { reason } => format!("hook-rejected:{reason}"),
     }

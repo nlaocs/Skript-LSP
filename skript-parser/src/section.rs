@@ -176,7 +176,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     let mut candidates = section_pattern_candidates(session);
     session.retain_viable_patterns(range, &mut candidates)?;
     let matched = session.match_candidates_at_depth(range, &candidates, depth)?;
-    let failure = matched.primary_failure().cloned();
+    let mut failure = matched.primary_failure().cloned();
     let mut ranked = matched
         .selected
         .into_iter()
@@ -184,6 +184,16 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         .collect::<Vec<_>>();
     let mut accepted = Vec::new();
     for matched in ranked.drain(..) {
+        let local = matched.matched.span.local_range;
+        let span = session.map_range(TextRange::new(
+            range.start + local.start,
+            range.start + local.end,
+        ))?;
+        if let Some(restricted) = session.event_restriction_failure(&matched.registration_id, span)
+        {
+            failure = crate::choose_failure_trace(failure, Some(restricted));
+            continue;
+        }
         session
             .begin_semantic_candidate()
             .map_err(|message| SectionParseError::Environment { message })?;

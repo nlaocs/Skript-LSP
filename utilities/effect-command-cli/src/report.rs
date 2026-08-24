@@ -706,12 +706,24 @@ struct FailureInterpretationReport {
     rename_all_fields = "camelCase"
 )]
 enum FailureReasonReport {
-    Literal { expected: String },
-    Regex { pattern: String },
+    Literal {
+        expected: String,
+    },
+    Regex {
+        pattern: String,
+    },
     Expression,
-    TypeExpression { expected: Vec<String> },
+    TypeExpression {
+        expected: Vec<String>,
+    },
+    EventRestricted {
+        supported: Vec<String>,
+        current: Vec<String>,
+    },
     TrailingInput,
-    HookRejected { reason: String },
+    HookRejected {
+        reason: String,
+    },
 }
 
 impl FailureReasonReport {
@@ -723,6 +735,14 @@ impl FailureReasonReport {
             Self::TypeExpression { expected } => {
                 format!("expected expression of type {}", expected.join(" or "))
             }
+            Self::EventRestricted { supported, current } if current.is_empty() => {
+                format!("requires event context: {}", supported.join(" or "))
+            }
+            Self::EventRestricted { supported, current } => format!(
+                "only available in {}; current event is {}",
+                supported.join(" or "),
+                current.join(" or ")
+            ),
             Self::TrailingInput => "unexpected trailing input".to_owned(),
             Self::HookRejected { reason } => format!("hook rejected candidate: {reason}"),
         }
@@ -1488,6 +1508,9 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                 PatternFailureReason::TypeExpression { expected } => {
                     FailureReasonReport::TypeExpression { expected }
                 }
+                PatternFailureReason::EventRestricted { supported, current } => {
+                    FailureReasonReport::EventRestricted { supported, current }
+                }
                 PatternFailureReason::TrailingInput => FailureReasonReport::TrailingInput,
                 PatternFailureReason::HookRejected { reason } => {
                     FailureReasonReport::HookRejected { reason }
@@ -2031,6 +2054,27 @@ mod tests {
             }
             .human(),
             "expected expression of type string or number"
+        );
+    }
+
+    #[test]
+    fn event_restriction_distinguishes_missing_and_incompatible_contexts() {
+        let supported = vec!["org.bukkit.event.player.PlayerJoinEvent".to_owned()];
+        assert_eq!(
+            FailureReasonReport::EventRestricted {
+                supported: supported.clone(),
+                current: Vec::new(),
+            }
+            .human(),
+            "requires event context: org.bukkit.event.player.PlayerJoinEvent"
+        );
+        assert_eq!(
+            FailureReasonReport::EventRestricted {
+                supported,
+                current: vec!["org.bukkit.event.player.PlayerQuitEvent".to_owned()],
+            }
+            .human(),
+            "only available in org.bukkit.event.player.PlayerJoinEvent; current event is org.bukkit.event.player.PlayerQuitEvent"
         );
     }
 

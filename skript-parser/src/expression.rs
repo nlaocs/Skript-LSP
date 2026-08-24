@@ -871,6 +871,15 @@ enum RegisteredNodeResolution {
     Rejected(Option<FailureTrace>),
 }
 
+enum EventApplicability {
+    Match,
+    NoMatch {
+        supported: Vec<String>,
+        current: Vec<String>,
+    },
+    Unknown,
+}
+
 pub(crate) struct ExpressionSession<'a, E> {
     catalog: &'a Catalog,
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
@@ -1245,6 +1254,75 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
 
     pub(crate) fn context(&self) -> &ExpressionParseContext {
         &self.context
+    }
+
+    pub(crate) fn event_restriction_failure(
+        &self,
+        registration_id: &str,
+        span: MatchSpan,
+    ) -> Option<FailureTrace> {
+        let EventApplicability::NoMatch { supported, current } =
+            self.event_applicability(registration_id)
+        else {
+            return None;
+        };
+        Some(FailureTrace::leaf(PatternFailure {
+            span,
+            reasons: vec![PatternFailureReason::EventRestricted { supported, current }],
+        }))
+    }
+
+    fn event_applicability(&self, registration_id: &str) -> EventApplicability {
+        let common = self
+            .catalog
+            .syntax_by_registration_id(registration_id)
+            .into_iter()
+            .find_map(syntaxes::Syntax::common);
+        let Some(common) = common else {
+            return EventApplicability::Match;
+        };
+        match common.supported_events_state {
+            None => return EventApplicability::Match,
+            Some(ResolutionState::Unresolved) => return EventApplicability::Unknown,
+            Some(ResolutionState::Resolved) => {}
+        }
+        let Some(supported) = common.supported_events.as_deref() else {
+            return EventApplicability::Unknown;
+        };
+        let mut unknown_relation = false;
+        if supported.iter().any(|supported| {
+            self.context.event_classes.iter().any(|current| {
+                if current == supported {
+                    return true;
+                }
+                if self.catalog.class(current.as_str()).is_none()
+                    || self.catalog.class(supported.as_str()).is_none()
+                {
+                    unknown_relation = true;
+                    return false;
+                }
+                self.catalog
+                    .is_class_assignable(current.as_str(), supported.as_str())
+            })
+        }) {
+            return EventApplicability::Match;
+        }
+        if unknown_relation {
+            EventApplicability::Unknown
+        } else {
+            EventApplicability::NoMatch {
+                supported: supported
+                    .iter()
+                    .map(|event| event.as_str().to_owned())
+                    .collect(),
+                current: self
+                    .context
+                    .event_classes
+                    .iter()
+                    .map(|event| event.as_str().to_owned())
+                    .collect(),
+            }
+        }
     }
 
     pub(crate) fn replace_context(
@@ -1954,6 +2032,11 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let local = matched.matched.span.local_range;
         let absolute = TextRange::new(frame_start + local.start, frame_start + local.end);
         let span = self.map_range(absolute)?;
+        if let Some(failure) =
+            self.event_restriction_failure(&matched.registration_id, span.clone())
+        {
+            return Ok(RegisteredNodeResolution::Rejected(Some(failure)));
+        }
         let children: Vec<ExpressionNode> = matched
             .matched
             .captures
