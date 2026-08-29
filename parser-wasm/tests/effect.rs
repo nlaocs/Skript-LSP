@@ -1,14 +1,15 @@
 use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
-    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionNodeKind,
-    ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig, MappedSource,
-    RawTreeOptions, TextRange, parse_raw_tree,
+    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionListConjunction,
+    ExpressionNodeKind, ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig,
+    MappedSource, RawTreeOptions, TextRange, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use syntaxes::{
-    Catalog, CatalogParts, ClassName, PossibleReturnTypesState, ReturnTypeState, Syntax,
+    Catalog, CatalogParts, ClassName, FunctionParameter, Multiplicity, PossibleReturnTypesState,
+    RegistrationId, ReturnTypeState, Syntax,
 };
 
 const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
@@ -70,8 +71,15 @@ fn effect_catalog() -> Arc<Catalog> {
 fn full_dynamic_catalog() -> Arc<Catalog> {
     let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
     let source = snapshot.catalog();
+    let source_view = source.source().cloned().expect("SSG source view");
     let mut syntaxes = source.syntaxes().to_vec();
     for syntax in &mut syntaxes {
+        if let Syntax::Type(value) = syntax
+            && value.code_name.as_str() == "entitydata"
+        {
+            // A freshly generated SSG snapshot obtains this finite value from ClassInfo.supplier.
+            value.literal_values.push("zombie".to_owned());
+        }
         let Syntax::Expression(expression) = syntax else {
             continue;
         };
@@ -80,26 +88,573 @@ fn full_dynamic_catalog() -> Arc<Catalog> {
             expression.return_type_state = ReturnTypeState::Dynamic;
             expression.possible_return_types = vec![ClassName("java.lang.Long".to_owned())];
             expression.possible_return_types_state = PossibleReturnTypesState::Partial;
-        } else if element_class.ends_with(".ExprParse") || element_class.ends_with(".ExprEntities")
-        {
+        } else if element_class.ends_with(".ExprParse") {
+            // Schema 4 may retain Object as a partial possible return type even
+            // when the registered WASM handler can narrow the value from its
+            // ClassInfo capture. This mirrors a fresh SSG snapshot.
+            expression.return_type_state = ReturnTypeState::Dynamic;
+            expression.possible_return_types = vec![ClassName("java.lang.Object".to_owned())];
+            expression.possible_return_types_state = PossibleReturnTypesState::Partial;
+        } else if element_class.ends_with(".ExprEntities") {
             expression.return_type_state = ReturnTypeState::Dynamic;
             expression.possible_return_types.clear();
             expression.possible_return_types_state = PossibleReturnTypesState::Unresolved;
         }
     }
-    Arc::new(Catalog::new(CatalogParts {
-        syntaxes,
-        converters: source.converters().to_vec(),
-        comparators: source.comparators().to_vec(),
-        event_values: source.event_values().to_vec(),
-        properties: source.properties().to_vec(),
-        operators: source.operators().to_vec(),
-        operations: source.operations().clone(),
-        differences: source.differences().to_vec(),
-        classes: source.classes().to_vec(),
-        aliases: source.aliases().clone(),
-        plural_rules: source.plural_rules().clone(),
-    }))
+    Arc::new(
+        Catalog::new(CatalogParts {
+            syntaxes,
+            converters: source.converters().to_vec(),
+            comparators: source.comparators().to_vec(),
+            event_values: source.event_values().to_vec(),
+            properties: source.properties().to_vec(),
+            operators: source.operators().to_vec(),
+            operations: source.operations().clone(),
+            differences: source.differences().to_vec(),
+            classes: source.classes().to_vec(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+        })
+        .with_unchecked_source(source_view),
+    )
+}
+
+#[test]
+fn core_library_parses_boolean_alias_and_supplied_type_literals() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 12)
+        .unwrap();
+
+    for source in [
+        "send 2 if true is true",
+        "send stone",
+        "send zombie",
+        "send all players",
+    ] {
+        assert!(
+            parse_effect(&mut host, &transaction, 12, source)
+                .matches
+                .selected
+                .is_some(),
+            "{source:?} must parse"
+        );
+    }
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn common_effects_parse_with_collection_and_nested_expression_inputs() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 14)
+        .unwrap();
+
+    for source in [
+        "broadcast stone",
+        "send 1 to all players",
+        "teleport all players to location(1,2,3)",
+        "set slot 0 of a random element out of all players to 2 stone",
+    ] {
+        let result = parse_effect(&mut host, &transaction, 14, source);
+        assert!(
+            result.matches.selected.is_some(),
+            "known Skript Effect must parse: {source:?}; failure: {:#?}",
+            result.matches.unknown
+        );
+    }
+
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn invalid_ternary_condition_retains_parent_effect_interpretations() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 15)
+        .unwrap();
+
+    let result = parse_effect(&mut host, &transaction, 15, "send 1 if a < 5 else 2");
+    let unknown = result
+        .matches
+        .unknown
+        .expect("the invalid nested condition must keep a recoverable Effect");
+    let classes = unknown
+        .failures
+        .candidates
+        .iter()
+        .filter_map(|candidate| candidate.element_class.as_ref())
+        .map(|class| class.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        classes.contains(&"org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"),
+        "EffMessage must remain available beside EffDoIf: {classes:#?}"
+    );
+    assert!(classes.contains(&"ch.njol.skript.effects.EffDoIf"));
+    let best = unknown
+        .failures
+        .primary()
+        .expect("EffMessage must be the primary interpretation");
+    let ranked = unknown
+        .failures
+        .candidates
+        .iter()
+        .map(|candidate| {
+            let mut depth = 0;
+            let mut trace = Some(&candidate.matched.trace);
+            while let Some(current) = trace {
+                depth += usize::from(current.frame.is_some());
+                trace = current.cause.as_deref();
+            }
+            (
+                candidate.element_class.as_ref().map(|class| class.as_str()),
+                candidate
+                    .matched
+                    .trace
+                    .root_cause()
+                    .failure
+                    .span
+                    .mapped
+                    .virtual_range,
+                depth,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        best.element_class.as_ref().map(|class| class.as_str()),
+        Some("org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"),
+        "ranked failures: {ranked:#?}"
+    );
+    assert_eq!(
+        best.matched.pattern.as_deref(),
+        Some("(message|send [message[s]]) %objects% [to %audiences%]")
+    );
+    let root = best.matched.trace.root_cause();
+    assert_eq!(
+        root.failure.span.mapped.virtual_range,
+        TextRange::new(10, 11)
+    );
+
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 17)
+        .unwrap();
+
+    for (source, conjunction, multiplicity) in [
+        (
+            "send 1,2,3",
+            ExpressionListConjunction::And,
+            Multiplicity::Multiple,
+        ),
+        (
+            "send 1 or 2",
+            ExpressionListConjunction::Or,
+            Multiplicity::Single,
+        ),
+        (
+            "send 1 and 2 or 3",
+            ExpressionListConjunction::And,
+            Multiplicity::Multiple,
+        ),
+        (
+            "send 1 nor 2",
+            ExpressionListConjunction::And,
+            Multiplicity::Multiple,
+        ),
+        (
+            "send 1, 2 or 3",
+            ExpressionListConjunction::Or,
+            Multiplicity::Single,
+        ),
+        (
+            "send (1 and 2) or 3",
+            ExpressionListConjunction::Or,
+            Multiplicity::Multiple,
+        ),
+    ] {
+        let result = parse_effect(&mut host, &transaction, 17, source);
+        let selected = result
+            .matches
+            .selected
+            .unwrap_or_else(|| panic!("{source:?} must parse as an Expression list"));
+        let expression = selected.expressions().next().expect("Expression capture");
+        assert_eq!(expression.kind, ExpressionNodeKind::List { conjunction });
+        assert_eq!(expression.multiplicity, Some(multiplicity));
+        assert!(expression.children.len() >= 2);
+    }
+
+    let source = "send spherical vector radius 1, yaw 45, pitch 90 and 2";
+    let selected = parse_effect(&mut host, &transaction, 17, source)
+        .matches
+        .selected
+        .expect("a comma-bearing vector must remain one child in an outer list");
+    let expression = selected.expressions().next().expect("Expression capture");
+    assert_eq!(
+        expression.kind,
+        ExpressionNodeKind::List {
+            conjunction: ExpressionListConjunction::And,
+        }
+    );
+    assert_eq!(expression.children.len(), 2);
+    assert_eq!(
+        expression.children[0].span.local_range.slice(source),
+        Some("spherical vector radius 1, yaw 45, pitch 90")
+    );
+
+    let numeric = parse_effect(&mut host, &transaction, 17, "send 1, 2.5")
+        .matches
+        .selected
+        .expect("numeric list must parse");
+    assert_eq!(
+        numeric
+            .expressions()
+            .next()
+            .expect("numeric Expression")
+            .return_type
+            .as_ref()
+            .map(|ty| ty.as_str()),
+        Some("java.lang.Number")
+    );
+
+    assert!(
+        parse_effect(&mut host, &transaction, 17, "send 1,and 2")
+            .matches
+            .selected
+            .is_none(),
+        "comma-adjacent `and` is part of the next piece, not the delimiter"
+    );
+
+    let invalid_utf8_child = parse_effect(&mut host, &transaction, 17, "send 1 and あ")
+        .matches
+        .unknown
+        .expect("the invalid UTF-8 list child must retain its failure");
+    assert_eq!(
+        invalid_utf8_child
+            .failures
+            .primary()
+            .expect("EffMessage remains recognizable")
+            .matched
+            .trace
+            .root_cause()
+            .failure
+            .span
+            .mapped
+            .virtual_range,
+        TextRange::new(11, 14)
+    );
+
+    for source in ["send location(1,2,3)", "send \"a,b\""] {
+        let result = parse_effect(&mut host, &transaction, 17, source);
+        let selected = result
+            .matches
+            .selected
+            .unwrap_or_else(|| panic!("commas nested in {source:?} must not create a list"));
+        assert!(!matches!(
+            selected
+                .expressions()
+                .next()
+                .expect("Expression capture")
+                .kind,
+            ExpressionNodeKind::List { .. }
+        ));
+    }
+
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn failed_typed_capture_covers_the_complete_expression_before_its_separator() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 18)
+        .unwrap();
+    let source = "teleport all player to location(1,2,3)";
+    let unknown = parse_effect(&mut host, &transaction, 18, source)
+        .matches
+        .unknown
+        .expect("invalid entity expression must retain EffTeleport");
+
+    let failures = unknown
+        .failures
+        .candidates
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.element_class.as_ref().map(|class| class.as_str()),
+                candidate
+                    .matched
+                    .trace
+                    .root_cause()
+                    .failure
+                    .span
+                    .mapped
+                    .virtual_range,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unknown
+            .failures
+            .primary()
+            .expect("EffTeleport remains recognizable")
+            .matched
+            .trace
+            .root_cause()
+            .failure
+            .span
+            .mapped
+            .virtual_range,
+        TextRange::new(9, 19),
+        "ranked failures: {failures:#?}"
+    );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn core_library_resolves_sets_only_for_supplier_backed_types() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 16)
+        .unwrap();
+
+    for source in ["send all colors", "send every color"] {
+        assert!(
+            parse_effect(&mut host, &transaction, 16, source)
+                .matches
+                .selected
+                .is_some(),
+            "{source:?} must use ExprSets with the ClassInfo return type"
+        );
+    }
+
+    let item_alias = parse_effect(&mut host, &transaction, 16, "send all strings");
+    let item_alias_candidate = item_alias
+        .matches
+        .selected
+        .expect("strings must remain a valid ItemType alias");
+    assert_eq!(
+        item_alias_candidate
+            .expressions()
+            .next()
+            .expect("item alias Expression")
+            .metadata
+            .get("nlaocs.core-library/literal-source")
+            .map(String::as_str),
+        Some("alias")
+    );
+
+    // `strings` is also a valid Minecraft ItemType alias, so use a type name
+    // without an alias to exercise ExprSets' supplier rejection path.
+    let invalid = parse_effect(&mut host, &transaction, 16, "send all objects");
+    let best = invalid
+        .matches
+        .unknown
+        .and_then(|unknown| unknown.failures.candidates.into_iter().next())
+        .expect("the parent Effect must remain identifiable after ExprSets rejects the type");
+    assert_eq!(
+        best.element_class.as_ref().map(|class| class.as_str()),
+        Some("org.skriptlang.skript.bukkit.text.elements.effects.EffMessage")
+    );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn eff_change_matches_skript_static_change_rules() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 19)
+        .unwrap();
+
+    let single_variable = parse_effect(&mut host, &transaction, 19, "set {_value} to all players");
+    assert!(
+        single_variable.matches.selected.is_none(),
+        "a Multiple Expression must not be assigned to a single variable; selected pattern: {:?}",
+        single_variable
+            .matches
+            .selected
+            .as_ref()
+            .map(|candidate| candidate.matched.pattern.as_str())
+    );
+    let diagnostic = single_variable
+        .effects
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "core.eff-change.multiple-to-single-variable")
+        .expect("EffChange must report the multiplicity mismatch");
+    assert_eq!(diagnostic.span.virtual_range.start, 16);
+    assert_eq!(diagnostic.span.virtual_range.end, 27);
+    let rejected_span = single_variable
+        .matches
+        .unknown
+        .as_ref()
+        .and_then(|unknown| unknown.failures.primary())
+        .expect("the rejected EffChange candidate must remain diagnosable")
+        .matched
+        .trace
+        .root_cause()
+        .failure
+        .span
+        .mapped
+        .virtual_range;
+    assert_eq!(rejected_span, TextRange::new(16, 27));
+
+    let multiple_variable = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set {_values::*} to all players",
+    );
+    assert!(
+        multiple_variable.matches.selected.is_some(),
+        "a variable list must accept a Multiple Expression: {:#?}",
+        multiple_variable.matches.unknown
+    );
+
+    let single_value = parse_effect(&mut host, &transaction, 19, "set {_value} to 1");
+    assert!(
+        single_value.matches.selected.is_some(),
+        "a single value must be assignable to a single variable: {:#?}",
+        single_value.matches.unknown
+    );
+
+    let valid_expression = parse_effect(&mut host, &transaction, 19, "set whitelist to true");
+    assert!(
+        valid_expression.matches.selected.is_some(),
+        "whitelist accepts Boolean SET values: {:#?}",
+        valid_expression.matches.unknown
+    );
+
+    let wrong_expression_type =
+        parse_effect(&mut host, &transaction, 19, "set whitelist to \"test\"");
+    assert!(wrong_expression_type.matches.selected.is_none());
+    assert!(
+        wrong_expression_type
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.code == "core.eff-change.incompatible-set-type"
+                    && diagnostic.message.contains("java.lang.Boolean")
+            })
+    );
+
+    let valid_property = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set x of velocity of all players to 1",
+    );
+    assert!(
+        valid_property.matches.selected.is_some(),
+        "WXYZ must use the Property handler's SET contract and the source Expression's changeability: {:#?}",
+        valid_property.matches.unknown
+    );
+
+    let wrong_property_type = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set x of velocity of all players to \"test\"",
+    );
+    assert!(wrong_property_type.matches.selected.is_none());
+    assert!(
+        wrong_property_type
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.code == "core.eff-change.incompatible-set-type"
+                    && diagnostic.message.contains("java.lang.Float")
+            }),
+        "WXYZ must reject a String SET value using Properties.json: {:#?}",
+        wrong_property_type.effects.diagnostics
+    );
+
+    let unsupported_expression = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set dummy direct registry expression to \"test\"",
+    );
+    assert!(unsupported_expression.matches.selected.is_none());
+    assert!(
+        unsupported_expression
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "core.eff-change.unsupported-set")
+    );
+
+    let unresolved_expression =
+        parse_effect(&mut host, &transaction, 19, "set maximum double value to 1");
+    assert!(
+        unresolved_expression.matches.selected.is_some(),
+        "an unresolved SSG contract must warn instead of guessing"
+    );
+    assert!(
+        unresolved_expression
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "core.eff-change.unresolved-change-contract")
+    );
+
+    transaction.cancel().unwrap();
 }
 
 fn context(revision: u64) -> InvocationContext {
@@ -159,8 +714,18 @@ fn wasm_effect_hook_replaces_metadata_and_keeps_selected_state() {
     );
     let selected = result.matches.selected.expect("Effect must be selected");
     assert_eq!(
-        selected.metadata.get("wasm").map(String::as_str),
+        selected
+            .metadata
+            .get("test.effect-addon/wasm")
+            .map(String::as_str),
         Some("replaced")
+    );
+    assert_eq!(
+        selected
+            .metadata
+            .get("test.effect-addon/catalog-annotation")
+            .map(String::as_str),
+        Some("replace")
     );
     assert!(
         result
@@ -168,9 +733,35 @@ fn wasm_effect_hook_replaces_metadata_and_keeps_selected_state() {
             .iter()
             .any(|call| call.subscription_id == "effect.replace")
     );
+    assert!(
+        result
+            .calls
+            .iter()
+            .any(|call| call.subscription_id == "effect.not-applicable")
+    );
+    let not_applicable_index = result
+        .calls
+        .iter()
+        .position(|call| call.subscription_id == "effect.not-applicable")
+        .expect("NotApplicable hook must run");
+    let replace_index = result
+        .calls
+        .iter()
+        .position(|call| call.subscription_id == "effect.replace")
+        .expect("replace hook must run after NotApplicable");
+    assert!(not_applicable_index < replace_index);
+    assert!(!selected.metadata.contains_key("temporary"));
+    assert!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "effect-fixture-not-applicable")
+    );
     let writes = transaction.read_write_set().unwrap().writes;
     assert!(writes.iter().any(|write| write.key == "category-before"));
     assert!(writes.iter().any(|write| write.key == "replace"));
+    assert!(writes.iter().all(|write| write.key != "not-applicable"));
     assert!(writes.iter().all(|write| write.key != "reject"));
     transaction.cancel().unwrap();
 }
@@ -201,13 +792,89 @@ fn wasm_effect_reject_restores_nested_expression_and_hook_state() {
         .matches
         .unknown
         .expect("rejected Effect becomes unknown");
-    assert!(unknown.failure.is_some());
+    assert!(unknown.failures.primary().is_some() || unknown.failures.fallback.is_some());
     assert!(
         result
             .effects
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "effect-fixture-reject")
+    );
+    assert!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "effect-fixture-reject-effects")
+    );
+    assert!(
+        result
+            .effects
+            .context_updates
+            .iter()
+            .all(|update| update.key != "reject-effects-must-be-rolled-back")
+    );
+    assert_eq!(transaction.state_revision().unwrap(), 0);
+    assert!(transaction.read_write_set().unwrap().writes.is_empty());
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn wasm_effect_reject_preserves_incomplete_near_match_and_rolls_back() {
+    let input = "run dummy fixture effect with \"";
+    let mut baseline_host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(effect_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let baseline_transaction = baseline_host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 14)
+        .unwrap();
+    let baseline_result = parse_effect(&mut baseline_host, &baseline_transaction, 14, input);
+    let baseline_unknown = baseline_result
+        .matches
+        .unknown
+        .expect("incomplete Effect must remain unknown");
+    assert!(baseline_unknown.failures.fallback.is_some());
+    assert!(baseline_unknown.failures.primary().is_some());
+    let baseline_failures = baseline_unknown.failures.clone();
+    baseline_transaction.cancel().unwrap();
+
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(effect_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    host.load_addon(EFFECT_ADDON)
+        .expect("Effect addon must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 15)
+        .unwrap();
+
+    let result = parse_effect(&mut host, &transaction, 15, input);
+    let unknown = result
+        .matches
+        .unknown
+        .expect("rejected incomplete Effect must remain unknown");
+    assert_eq!(unknown.failures, baseline_failures);
+    assert!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "effect-fixture-reject")
+    );
+    assert!(
+        result
+            .calls
+            .iter()
+            .any(|call| call.subscription_id == "effect.reject")
     );
     assert_eq!(transaction.state_revision().unwrap(), 0);
     assert!(transaction.read_write_set().unwrap().writes.is_empty());
@@ -242,7 +909,7 @@ fn dynamic_effect_uses_the_same_end_to_end_pipeline() {
         "dynamic:nlaocs.test.dynamic-syntax/initial-effect"
     );
     assert_eq!(selected.handler.as_deref(), Some("dynamic.initial-effect"));
-    assert_eq!(selected.expressions.len(), 1);
+    assert_eq!(selected.expressions().count(), 1);
     let writes = transaction.read_write_set().unwrap().writes;
     assert!(writes.iter().any(|write| write.key == "category-before"));
     assert!(writes.iter().any(|write| write.key == "category-after"));
@@ -356,7 +1023,7 @@ fn nested_parenthesized_expressions_work_inside_effects() {
         )
     });
 
-    let grouped_vector = &selected.expressions[0];
+    let grouped_vector = selected.expressions().next().expect("grouped vector");
     assert!(matches!(grouped_vector.kind, ExpressionNodeKind::Grouped));
     let vector = &grouped_vector.children[0];
     assert!(matches!(vector.kind, ExpressionNodeKind::Registered { .. }));
@@ -366,6 +1033,213 @@ fn nested_parenthesized_expressions_work_inside_effects() {
             .children
             .iter()
             .all(|child| matches!(child.kind, ExpressionNodeKind::Grouped))
+    );
+    transaction.cancel().unwrap();
+}
+
+fn full_dynamic_catalog_with_vector_overload() -> Arc<Catalog> {
+    let source = full_dynamic_catalog();
+    let source_view = source.source().cloned().expect("SSG source view");
+    let mut syntaxes = source.syntaxes().to_vec();
+    let mut vector = source
+        .functions_named("vector")
+        .into_iter()
+        .next()
+        .expect("fixture has vector(n)")
+        .clone();
+    vector.registration_order = syntaxes.len();
+    vector.registration_id = RegistrationId("test:function:vector:x-y-z".to_owned());
+    vector.parameters = ["x", "y", "z"]
+        .into_iter()
+        .map(|name| FunctionParameter {
+            name: name.to_owned(),
+            parameter_type: ClassName("java.lang.Number".to_owned()),
+            modifiers: Vec::new(),
+            single: true,
+        })
+        .collect();
+    syntaxes.push(Syntax::Function(vector));
+
+    Arc::new(
+        Catalog::new(CatalogParts {
+            syntaxes,
+            converters: source.converters().to_vec(),
+            comparators: source.comparators().to_vec(),
+            event_values: source.event_values().to_vec(),
+            properties: source.properties().to_vec(),
+            operators: source.operators().to_vec(),
+            operations: source.operations().clone(),
+            differences: source.differences().to_vec(),
+            classes: source.classes().to_vec(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+        })
+        .with_unchecked_source(source_view),
+    )
+}
+
+#[test]
+fn arithmetic_uses_snapshot_operations_and_skript_precedence() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 10)
+        .unwrap();
+
+    let precedence = parse_effect(&mut host, &transaction, 10, "return 1 + 2 * 3")
+        .matches
+        .selected
+        .expect("typed arithmetic must parse");
+    let root = precedence.expressions().next().expect("arithmetic root");
+    assert!(matches!(
+        root.kind,
+        ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "+"
+    ));
+    assert!(matches!(
+        root.children[1].kind,
+        ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "*"
+    ));
+
+    let left_associative = parse_effect(&mut host, &transaction, 10, "return 1 - 2 - 3")
+        .matches
+        .selected
+        .expect("same-priority arithmetic must parse");
+    let root = left_associative
+        .expressions()
+        .next()
+        .expect("left-associative root");
+    assert!(matches!(
+        root.kind,
+        ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "-"
+    ));
+    assert!(matches!(
+        root.children[0].kind,
+        ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "-"
+    ));
+
+    let unary = parse_effect(&mut host, &transaction, 10, "return 1 * -1")
+        .matches
+        .selected
+        .expect("negative literals must remain operands");
+    assert!(matches!(
+        unary.expressions().next().expect("unary root").kind,
+        ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "*"
+    ));
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn overloaded_function_accepts_multiple_arithmetic_arguments() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog_with_vector_overload()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 11)
+        .unwrap();
+    let input = "return vector(all offline players's size * -1, all offline players's size * -1, all offline players's size * -1)";
+    let selected = parse_effect(&mut host, &transaction, 11, input)
+        .matches
+        .selected
+        .expect("vector(x, y, z) must accept arithmetic arguments");
+
+    let vector = selected.expressions().next().expect("vector Expression");
+    assert!(matches!(vector.kind, ExpressionNodeKind::Function { .. }));
+    assert_eq!(vector.function.as_ref().unwrap().arguments.len(), 3);
+    assert_eq!(vector.children.len(), 3);
+    assert!(vector.children.iter().all(|child| matches!(
+        child.kind,
+        ExpressionNodeKind::Arithmetic { ref operator, .. } if operator == "*"
+    )));
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn property_expression_return_type_flows_into_function_arguments() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 12)
+        .unwrap();
+    let input = "teleport \"nlaocs\" parsed as player to location(\"nlaocs\" parsed as player's location's x-coord, 1, 1)";
+    let selected = parse_effect(&mut host, &transaction, 12, input)
+        .matches
+        .selected
+        .expect("Location coordinate must satisfy the Number function parameter");
+
+    let location = selected
+        .expressions()
+        .find(|expression| {
+            expression
+                .function
+                .as_ref()
+                .is_some_and(|function| function.name == "location")
+        })
+        .expect("teleport Effect contains the location Function");
+    let x = &location.children[0];
+    assert!(matches!(x.kind, ExpressionNodeKind::Registered { .. }));
+    assert_eq!(
+        x.return_type.as_ref().map(ClassName::as_str),
+        Some("java.lang.Double")
+    );
+    assert_eq!(
+        x.metadata
+            .get("nlaocs.core-library/wxyz-axis")
+            .map(String::as_str),
+        Some("x")
+    );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn property_expression_prefers_the_closest_source_handler() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 13)
+        .unwrap();
+    let selected = parse_effect(
+        &mut host,
+        &transaction,
+        13,
+        "send \"nlaocs\" parsed as player's name",
+    )
+    .matches
+    .selected
+    .expect("the Player name property must parse");
+
+    let name = selected.expressions().next().expect("name Expression");
+    assert_eq!(
+        name.metadata
+            .get("nlaocs.core-library/semantic-mode")
+            .map(String::as_str),
+        Some("name-property")
+    );
+    assert_eq!(
+        name.return_type.as_ref().map(ClassName::as_str),
+        Some("net.kyori.adventure.text.Component")
     );
     transaction.cancel().unwrap();
 }
@@ -396,8 +1270,8 @@ fn conditional_effect_retains_its_nested_effect_and_condition() {
         )
     });
 
-    assert_eq!(selected.effects.len(), 1);
-    assert_eq!(selected.conditions.len(), 1);
+    assert_eq!(selected.effects().count(), 1);
+    assert_eq!(selected.conditions().count(), 1);
     assert!(result.calls.iter().any(|call| {
         call.component_id == "nlaocs.core-library"
             && call.subscription_id == "core.effect-semantics"
@@ -433,12 +1307,13 @@ fn dynamic_player_expressions_are_valid_audiences() {
             )
         });
         let recipient = selected
-            .expressions
+            .expressions()
             .last()
             .expect("message Effect has a recipient");
         assert_eq!(
             recipient.return_type.as_ref().map(ClassName::as_str),
-            Some("org.bukkit.entity.Player")
+            Some("org.bukkit.entity.Player"),
+            "{input:?} must keep the narrowed dynamic return type"
         );
     }
     transaction.cancel().unwrap();

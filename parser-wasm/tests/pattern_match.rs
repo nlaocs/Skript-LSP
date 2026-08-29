@@ -49,6 +49,7 @@ fn wasm_matching_hook_overrides_elements_and_keeps_only_selected_candidate_state
             registration_order: 0,
             resolved_order: None,
             patterns: vec![MatchPattern {
+                pattern_index: 0,
                 source: "<.+>",
                 parsed: &pattern,
             }],
@@ -61,6 +62,7 @@ fn wasm_matching_hook_overrides_elements_and_keeps_only_selected_candidate_state
             registration_order: 1,
             resolved_order: None,
             patterns: vec![MatchPattern {
+                pattern_index: 0,
                 source: "<.+>",
                 parsed: &pattern,
             }],
@@ -138,6 +140,7 @@ fn regex_patterns_require_a_wasm_matching_handler() {
         registration_order: 0,
         resolved_order: None,
         patterns: vec![MatchPattern {
+            pattern_index: 0,
             source: "<.+>",
             parsed: &pattern,
         }],
@@ -157,7 +160,7 @@ fn regex_patterns_require_a_wasm_matching_handler() {
 
     assert!(result.matches.selected.is_none());
     assert!(result.matches.alternatives.is_empty());
-    assert!(result.matches.failure.is_none());
+    assert!(result.matches.primary_failure().is_none());
     assert!(result.calls.is_empty());
     transaction.cancel().unwrap();
 }

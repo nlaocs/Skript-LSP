@@ -31,6 +31,7 @@ cargo run -p xtask --locked -- build-test-components
 test専用guest componentをbuildします。現在の出力は次のとおりです。
 
 ```text
+artifacts/catalog-data-addon.wasm
 artifacts/dynamic-syntax-addon.wasm
 artifacts/effect-addon.wasm
 artifacts/matching-addon.wasm
@@ -39,6 +40,7 @@ artifacts/tree-macro-addon.wasm
 ```
 
 parser hostのintegration testがこれらのartifactを埋め込みます。
+`catalog-data-addon` はguestからSSG Catalog Data importを実際に呼び出すfixtureです。
 
 ## Component build pipeline
 

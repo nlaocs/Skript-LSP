@@ -19,20 +19,22 @@ pub mod state;
 
 #[cfg(feature = "host")]
 pub use host::{
-    HostConfig, HostError, ParserHost, TreeMacroCall, TreeMacroRequest, TreeMacroResult,
-    WasmConditionParseResult, WasmEffectParseResult, WasmExpressionParseResult,
-    WasmPatternMatchResult, WasmSectionParseResult,
+    HostConfig, HostError, ParserHost, RuntimePlugin, RuntimeProfile, TreeMacroCall,
+    TreeMacroRequest, TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult,
+    WasmExpressionParseResult, WasmPatternMatchResult, WasmSectionParseResult,
 };
 #[cfg(feature = "host")]
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(1, 8);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(4, 0);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
 /// Capability ID for transactional scoped addon state.
 pub const CAPABILITY_STATE_STORE: &str = "parser.state-store";
+/// Capability ID for read-only source snapshot and Catalog relation queries.
+pub const CAPABILITY_CATALOG_DATA: &str = "parser.catalog-data";
 /// Capability ID for runtime syntax registration and override.
 pub const CAPABILITY_DYNAMIC_SYNTAX: &str = "parser.dynamic-syntax";
 /// Capability ID for source-text preprocessing macros.
@@ -51,6 +53,8 @@ pub const CAPABILITY_EXPRESSION_PARSER: &str = "parser.expression";
 pub const CAPABILITY_EFFECT_PARSER: &str = "parser.effect";
 /// Capability ID for Section lifecycle hooks and scoped child context.
 pub const CAPABILITY_SECTION_PARSER: &str = "parser.section";
+/// Requests every SSG type option in a registered Expression payload.
+pub const REGISTERED_CONTEXT_ALL_TYPE_OPTIONS: &str = "expression.type-options.all";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Major/minor ABI version compared exactly during component initialization.

@@ -1,6 +1,15 @@
-package nlaocs:skript-parser-addon@0.9.0;
+package nlaocs:skript-parser-addon@0.19.0;
 
 interface types {
+    /// Stable location of one top-level SSG JSON object in an exact retained source.
+    record catalog-record-ref {
+        source-digest: string,
+        snapshot-id: string,
+        document: string,
+        index: u64,
+        byte-length: u64,
+    }
+
     record abi-version {
         major: u16,
         minor: u16,
@@ -31,9 +40,36 @@ interface types {
         writers: list<string>,
     }
 
+    record runtime-plugin {
+        load-order: u64,
+        name: string,
+        version: string,
+        main: string,
+    }
+
+    record runtime-profile {
+        snapshot-schema-version: option<u32>,
+        snapshot-id: option<string>,
+        server-name: option<string>,
+        server-version: option<string>,
+        minecraft-version: option<string>,
+        java-version: option<string>,
+        language: option<string>,
+        skript-version: option<string>,
+        plugins: list<runtime-plugin>,
+    }
+
+    record registered-handler-binding {
+        handler-id: string,
+        definition-ids: list<string>,
+        registration-ids: list<string>,
+    }
+
     record host-profile {
         abi: abi-version,
         capabilities: list<capability>,
+        runtime: runtime-profile,
+        registered-handler-bindings: list<registered-handler-binding>,
     }
 
     enum syntax-kind {
@@ -67,6 +103,7 @@ interface types {
     record metadata-entry {
         key: string,
         value: string,
+        owner-component-id: option<string>,
     }
 
     record dynamic-syntax-definition {
@@ -115,9 +152,17 @@ interface types {
     }
 
     variant hook-target {
-        syntax-definition(syntax-kind),
-        exact-registration(string),
+        syntax-kind(syntax-kind),
+        definition(string),
+        registration(string),
+        pattern(pattern-ref),
         parse-stage,
+        parser(string),
+    }
+
+    record pattern-ref {
+        registration-id: string,
+        pattern-index: u64,
     }
 
     enum hook-phase {
@@ -136,12 +181,40 @@ interface types {
         scope,
         ast,
         diagnostic,
+        parser,
     }
 
     enum hook-mode {
         observe,
         transform,
         override,
+    }
+
+    enum selector-type-relation {
+        exact,
+        assignable,
+        convertible,
+    }
+
+    record return-type-selector {
+        class-name: string,
+        relation: selector-type-relation,
+    }
+
+    record capture-selector {
+        capture-index: u64,
+        status: option<parse-result-status>,
+    }
+
+    record hook-selector {
+        pattern-index: option<u64>,
+        pattern-source: option<string>,
+        mark: option<s32>,
+        tags: list<string>,
+        captures: list<capture-selector>,
+        return-type: option<return-type-selector>,
+        multiplicity: option<dynamic-multiplicity>,
+        metadata: list<metadata-entry>,
     }
 
     record hook-subscription {
@@ -151,18 +224,39 @@ interface types {
         priority: s32,
         mode: hook-mode,
         capability-id: string,
+        selector: hook-selector,
     }
 
-    enum registered-capture-kind {
-        raw,
-        condition,
-        effect,
+    variant registered-syntax-handler-target {
+        definition(string),
+        registration(string),
+        class-suffix(string),
+    }
+
+    record capture-parser-binding {
+        capture-index: u64,
+        parser-id: string,
+        required: bool,
+        options: list<metadata-entry>,
     }
 
     record registered-syntax-handler {
+        handler-id: string,
         kind: syntax-kind,
-        class-suffix: string,
-        regex-captures: list<registered-capture-kind>,
+        target: registered-syntax-handler-target,
+        capture-parsers: list<capture-parser-binding>,
+        context-requirements: list<string>,
+    }
+
+    variant catalog-annotation-target {
+        definition(string),
+        registration(string),
+        pattern(pattern-ref),
+    }
+
+    record catalog-annotation {
+        target: catalog-annotation-target,
+        metadata: list<metadata-entry>,
     }
 
     record component-manifest {
@@ -172,6 +266,7 @@ interface types {
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
         registered-syntax-handlers: list<registered-syntax-handler>,
+        catalog-annotations: list<catalog-annotation>,
         state-namespaces: list<state-namespace-declaration>,
     }
 
@@ -293,6 +388,7 @@ interface types {
 
     variant hook-decision {
         continue-processing,
+        not-applicable,
         handled,
         reject(rejection),
     }
@@ -303,31 +399,25 @@ interface types {
         value: option<list<u8>>,
     }
 
-    enum parse-request-kind {
-        expression,
-        condition,
-        line,
-        tree,
-        ast,
+    record expression-expected-type {
+        class-name: string,
+        plural: bool,
     }
 
     record parse-request {
         request-id: u64,
-        kind: parse-request-kind,
+        parser-id: string,
         input: string,
-        expected-types: list<string>,
+        expected-types: list<expression-expected-type>,
         span: mapped-span,
+        options: list<metadata-entry>,
     }
 
     record hook-effects {
         diagnostics: list<diagnostic>,
         context-updates: list<context-update>,
         parse-requests: list<parse-request>,
-    }
-
-    record expression-expected-type {
-        class-name: string,
-        plural: bool,
+        parse-results: list<parse-result>,
     }
 
     enum expression-leaf-kind {
@@ -337,21 +427,59 @@ interface types {
         custom,
     }
 
+    record parse-result-reference {
+        host-token: u64,
+        root-id: u64,
+    }
+
     record expression-leaf-candidate {
         parser-id: string,
         kind: expression-leaf-kind,
         range: text-range,
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
+        children: list<parse-result-reference>,
         metadata: list<metadata-entry>,
     }
 
     record expression-type-option {
+        source-record: option<catalog-record-ref>,
         code-name: string,
         class-name: string,
+        type-parse-order: u64,
         singular: string,
         plural: string,
+        user-input-patterns: list<string>,
         has-parser: bool,
+        has-supplier: bool,
+    }
+
+    enum expression-literal-source {
+        parser-pattern,
+        supplier,
+        enum-constant,
+        alias,
+    }
+
+    record expression-literal-option {
+        source-record: option<catalog-record-ref>,
+        literal-index: option<u64>,
+        code-name: string,
+        class-name: string,
+        type-parse-order: u64,
+        range: text-range,
+        canonical-value: string,
+        source: expression-literal-source,
+        plural: bool,
+        addon-name: string,
+        addon-version: string,
+        parser-class: option<string>,
+        parse-contexts: list<string>,
+        value-class: option<string>,
+        represented-class: option<string>,
+        variable-name: option<string>,
+        debug-text: option<string>,
+        enum-constant: option<string>,
     }
 
     record expression-payload {
@@ -365,6 +493,7 @@ interface types {
         time: s32,
         depth: u32,
         type-options: list<expression-type-option>,
+        literal-options: list<expression-literal-option>,
         candidates: list<expression-leaf-candidate>,
     }
 
@@ -382,6 +511,11 @@ interface types {
 
     record registered-expression-child {
         text: string,
+        kind: string,
+        parser-id: option<string>,
+        definition-id: option<string>,
+        registration-id: option<string>,
+        pattern-index: option<u64>,
         element-class: option<string>,
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
@@ -393,28 +527,101 @@ interface types {
         implicit: bool,
     }
 
-    record registered-expression-property-option {
-        input-class: string,
-        return-types: list<string>,
+    enum metadata-resolution-state {
+        resolved,
+        unresolved,
     }
 
-    record registered-condition-capture {
-        capture-index: u64,
-        text: string,
-        span: mapped-span,
+    record accepted-change-mode {
+        mode: string,
+        accepted-types: list<string>,
+    }
+
+    record registered-expression-property-option {
+        source-record: option<catalog-record-ref>,
+        property-source-index: u64,
+        related-type-index: u64,
+        source-child-index: u64,
+        match-kind: string,
+        property-registration-id: string,
+        property-name: string,
+        property-handler-class: string,
+        property-addon-name: string,
+        property-addon-version: string,
+        input-class: string,
+        handler-class: string,
+        handler-kind: string,
+        provider-addon-name: option<string>,
+        provider-addon-version: option<string>,
+        type-code-name: string,
+        element-types: list<string>,
+        return-types: list<string>,
+        supported-axes: list<string>,
+        accepted-changers: list<accepted-change-mode>,
+        accepted-changers-state: option<metadata-resolution-state>,
+        requires-source-expression-change: option<bool>,
+    }
+
+    enum parse-result-status {
+        success,
+        partial,
+        failed,
+    }
+
+    record addon-attachment {
+        owner-component-id: string,
+        schema-id: string,
+        schema-version: u32,
+        encoding: string,
+        bytes: list<u8>,
+    }
+
+    record parse-summary {
+        kind: string,
         definition-id: option<string>,
         registration-id: option<string>,
+        element-class: option<string>,
         pattern-index: option<u64>,
+        return-type: option<string>,
+        multiplicity: option<dynamic-multiplicity>,
+        metadata: list<metadata-entry>,
     }
 
-    record registered-effect-capture {
+    record parsed-capture {
         capture-index: u64,
+        parser-id: string,
+        status: parse-result-status,
         text: string,
         span: mapped-span,
-        definition-id: string,
-        registration-id: string,
-        pattern-index: u64,
-        element-class: option<string>,
+        expected-types: list<expression-expected-type>,
+        summary: option<parse-summary>,
+        attachments: list<addon-attachment>,
+        diagnostics: list<diagnostic>,
+    }
+
+    record parse-result-node {
+        node-id: u64,
+        parser-id: string,
+        kind: string,
+        status: parse-result-status,
+        text: string,
+        span: mapped-span,
+        expected-types: list<expression-expected-type>,
+        summary: option<parse-summary>,
+        children: list<u64>,
+        attachments: list<addon-attachment>,
+        diagnostics: list<diagnostic>,
+        metadata: list<metadata-entry>,
+    }
+
+    record parse-result {
+        host-token: u64,
+        request-id: u64,
+        parser-id: string,
+        status: parse-result-status,
+        roots: list<u64>,
+        nodes: list<parse-result-node>,
+        diagnostics: list<diagnostic>,
     }
 
     record registered-expression-payload {
@@ -424,6 +631,7 @@ interface types {
         element-class: string,
         related-property: option<string>,
         pattern-index: u64,
+        pattern: string,
         span: mapped-span,
         expected-types: list<expression-expected-type>,
         declared-return-type: option<string>,
@@ -435,10 +643,12 @@ interface types {
         tags: list<registered-expression-tag>,
         mark: s32,
         children: list<registered-expression-child>,
-        conditions: list<registered-condition-capture>,
+        parsed-captures: list<parsed-capture>,
         common-child-return-type: option<string>,
         type-options: list<expression-type-option>,
         property-options: list<registered-expression-property-option>,
+        /// Mutable selection into the immutable property-options list. Empty means no policy chose.
+        selected-property-option-indices: list<u64>,
         effective-return-type: option<string>,
         effective-multiplicity: option<dynamic-multiplicity>,
         metadata: list<metadata-entry>,
@@ -499,14 +709,25 @@ interface types {
         marks: list<effect-mark>,
         handler: option<string>,
         metadata: list<metadata-entry>,
-        conditions: list<registered-condition-capture>,
-        effects: list<registered-effect-capture>,
+        parsed-captures: list<parsed-capture>,
     }
 
     record effect-failure {
         offset: u64,
         span: mapped-span,
         reasons: list<string>,
+    }
+
+    record effect-near-match {
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        priority: s32,
+        registration-order: u64,
+        resolved-order: option<u64>,
+        handler: option<string>,
+        metadata: list<metadata-entry>,
+        failure: effect-failure,
     }
 
     record effect-payload {
@@ -517,6 +738,7 @@ interface types {
         candidate: option<effect-candidate>,
         alternatives: list<effect-candidate>,
         failure: option<effect-failure>,
+        near-match: option<effect-near-match>,
     }
 
     enum section-timing {
@@ -535,7 +757,8 @@ interface types {
         effect-section: bool,
         section-expression: bool,
         regex-captures: list<string>,
-        conditions: list<registered-condition-capture>,
+        parsed-captures: list<parsed-capture>,
+        metadata: list<metadata-entry>,
     }
 
     record section-payload {
@@ -789,6 +1012,7 @@ interface types {
         span: mapped-span,
         status: matching-status,
         failure-reason: option<string>,
+        metadata: list<metadata-entry>,
     }
 
     record capture-payload {
@@ -828,6 +1052,7 @@ interface types {
         scope(scope-payload),
         ast(ast-tree),
         diagnostic(diagnostic),
+        parser(parse-request),
     }
 
     record hook-invocation {
@@ -835,6 +1060,7 @@ interface types {
         target: hook-target,
         phase: hook-phase,
         payload: hook-payload,
+        parse-results: list<parse-result>,
     }
 
     record hook-output {

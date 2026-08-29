@@ -4,9 +4,8 @@
 use crate::pattern_match::{find_parenthesis_end, java_trim_range};
 use crate::{
     CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParserConfig, ExpressionSession, MappedSource, MatchSpan,
-    ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure, TextRange,
-    catalog_pattern_candidates, snapshot_pattern_candidates,
+    ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureTrace, MappedSource,
+    MatchSpan, ParseMarkCapture, ParseTagCapture, PatternCapture, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -64,7 +63,7 @@ pub struct ConditionCandidate {
 pub struct UnknownCondition {
     pub source: String,
     pub span: MatchSpan,
-    pub failure: Option<PatternFailure>,
+    pub failure: Option<FailureTrace>,
 }
 
 /// Selected Condition, later alternatives, or a source-preserving unknown value.
@@ -166,23 +165,24 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
         return Ok(matches);
     }
 
-    let candidates = if let Some(snapshot) = session.dynamic_snapshot() {
-        snapshot_pattern_candidates(session.catalog(), snapshot, SyntaxKind::Condition)
-    } else {
-        catalog_pattern_candidates(session.catalog(), SyntaxKind::Condition)
-    };
+    let mut candidates = session.syntax_candidates(SyntaxKind::Condition);
+    session.retain_viable_patterns(trimmed, &mut candidates)?;
     let matched = session.match_candidates_at_depth(trimmed, &candidates, depth)?;
-    let selected = matched
-        .selected
-        .map(|value| condition_candidate(session, value, trimmed))
-        .transpose()?;
-    let alternatives = matched
-        .alternatives
-        .into_iter()
-        .map(|value| condition_candidate(session, value, trimmed))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut failure = matched.primary_failure().cloned();
+    let mut accepted = Vec::new();
+    for candidate in matched.selected.into_iter().chain(matched.alternatives) {
+        if let Some(restricted) = session
+            .event_restriction_failure(&candidate.registration_id, session.map_range(trimmed)?)
+        {
+            failure = crate::choose_failure_trace(failure, Some(restricted));
+            continue;
+        }
+        accepted.push(condition_candidate(session, candidate, trimmed)?);
+    }
+    let selected = (!accepted.is_empty()).then(|| accepted.remove(0));
+    let alternatives = accepted;
     if selected.is_none() {
-        unknown_condition(session, trimmed, matched.failure)
+        unknown_condition(session, trimmed, failure)
     } else {
         Ok(ConditionMatches {
             selected,
@@ -259,7 +259,7 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
 fn unknown_condition<E: ExpressionParseEnvironment>(
     session: &ExpressionSession<'_, E>,
     range: TextRange,
-    failure: Option<PatternFailure>,
+    failure: Option<FailureTrace>,
 ) -> Result<ConditionMatches, ConditionParseError> {
     let source = range
         .slice(session.source().virtual_source())

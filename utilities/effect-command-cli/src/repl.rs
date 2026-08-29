@@ -16,6 +16,7 @@ pub(crate) fn run<R: BufRead, W: Write, E: Write>(
     mut input: R,
     mut output: W,
     mut error: E,
+    color: bool,
 ) -> u8 {
     if writeln!(output, "Effect Command CLI")
         .and_then(|_| writeln!(output, "Type :help for available commands."))
@@ -59,7 +60,7 @@ pub(crate) fn run<R: BufRead, W: Write, E: Write>(
         }
         match session.analyze(effect) {
             Ok(report) => {
-                if let Err(write_error) = report.write(format, &mut output) {
+                if let Err(write_error) = report.write_with_color(format, &mut output, color) {
                     let _ = writeln!(error, "error: failed to write output: {write_error}");
                     return EXIT_FAILURE;
                 }

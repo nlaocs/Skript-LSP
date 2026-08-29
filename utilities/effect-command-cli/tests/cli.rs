@@ -1,4 +1,6 @@
-use effect_command_cli::{EXIT_NO_MATCH, EXIT_SUCCESS, EffectCommandSession, run_with_io};
+use effect_command_cli::{
+    EXIT_NO_MATCH, EXIT_SUCCESS, EffectCommandSession, OutputFormat, run_with_io,
+};
 use serde_json::Value;
 use std::ffi::OsString;
 use std::io::Cursor;
@@ -23,8 +25,11 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let report = session.analyze("send 1").expect("Effect must parse");
     assert!(report.matched());
 
-    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
-    assert_eq!(json["schemaVersion"], 1);
+    let json_text = report.to_json().unwrap();
+    assert!(!json_text.contains('\x1b'));
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["schemaVersion"], 3);
+    assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
     assert_eq!(
         json["result"]["effect"]["syntax"]["elementClass"],
@@ -163,35 +168,206 @@ fn reports_registered_function_identity_and_arguments() {
 }
 
 #[test]
-fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
+fn reports_embedded_registered_expression_inside_variable_string() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze(r#"send "players: %size of all players%""#)
+        .expect("variable-string Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let outer = &json["result"]["effect"]["elements"][0]["resolved"];
+    let embedded = &outer["embeddedExpressions"][0];
+    assert_eq!(embedded["expression"]["kind"], "registered");
+    assert_eq!(
+        embedded["expression"]["syntax"]["elementClass"],
+        "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize"
+    );
+    assert_eq!(embedded["source"], "size of all players");
+
+    let elements = embedded["elements"]
+        .as_array()
+        .expect("PropExprSize captures must be an array");
+    assert!(
+        elements.iter().any(|element| {
+            element["kind"] == "expression" && element["source"] == "all players"
+        })
+    );
+}
+
+#[test]
+fn reports_arithmetic_operations_and_operands() {
+    let snapshot = modern_fixture();
+    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let report = session
+        .analyze("return 1 + 2 * 3")
+        .expect("arithmetic Effect must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let arithmetic = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(arithmetic["expression"]["kind"], "arithmetic");
+    assert_eq!(arithmetic["expression"]["operator"], "+");
+    assert_eq!(arithmetic["expression"]["addon"]["name"], "Skript");
+    assert_eq!(arithmetic["operands"][0]["source"], "1");
+    assert_eq!(arithmetic["operands"][1]["expression"]["operator"], "*");
+
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "return 1 + 2 * 3"]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let human = String::from_utf8(output).unwrap();
+    assert!(human.contains("parseTime:"));
+    assert!(human.contains("source: return 1 + 2 * 3"));
+    assert!(!human.contains('\x1b'));
+    assert!(human.contains("resolved: arithmetic (+)"));
+    assert!(human.contains("operands:"));
+}
+
+#[test]
+fn parses_boolean_conditions_and_item_alias_literals() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    for source in [
+        "send 2 if true is true",
+        "send 1 if 1 is true",
+        "send stone",
+    ] {
+        let report = session
+            .analyze(source)
+            .expect("Effect analysis must complete");
+        assert!(report.matched(), "{source:?} must parse");
+    }
+}
+
+#[test]
+fn reports_nested_condition_failure_as_incomplete_effect_candidate() {
+    let snapshot = modern_fixture();
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            snapshot.to_str().unwrap(),
+            "--json",
+            "send 2 if true",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_NO_MATCH);
+    assert!(error.is_empty());
+
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["result"]["status"], "incomplete");
+    assert_eq!(
+        json["result"]["effect"]["syntax"]["elementClass"],
+        "ch.njol.skript.effects.EffDoIf"
+    );
+    assert_eq!(json["result"]["failure"]["span"]["start"], 10);
+    assert_eq!(json["result"]["failure"]["span"]["end"], 14);
+    assert_eq!(
+        json["result"]["failure"]["reasons"][0]["kind"],
+        "trailingInput"
+    );
+}
+
+#[test]
+fn renders_human_failures_with_a_source_label() {
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            modern_fixture().to_str().unwrap(),
+            "send 2 if true",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+
+    assert_eq!(code, EXIT_NO_MATCH);
+    assert!(error.is_empty());
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Effect candidate is incomplete"));
+    assert!(output.contains("send 2 if true"));
+    assert!(output.contains("unexpected trailing input"));
+    assert!(!output.contains('\x1b'));
+}
+
+#[test]
+fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze("send 1 if a < 5 else 2")
+        .expect("invalid nested condition is a recoverable no-match");
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+
+    assert_eq!(
+        json["result"]["effect"]["syntax"]["elementClass"],
+        "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"
+    );
+    assert_eq!(json["result"]["failure"]["span"]["start"], 10);
+    assert_eq!(json["result"]["failure"]["span"]["end"], 11);
+    let contexts = json["result"]["failure"]["contexts"].as_array().unwrap();
+    assert!(contexts.iter().any(|context| {
+        context["pattern"] == "%objects% if <.+>[,] (otherwise|else) %objects%"
+    }));
+    assert!(
+        json["result"]["failure"]["interpretations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|interpretation| interpretation["pattern"] == "<.+> if <.+>")
+    );
+
+    let report = session
+        .analyze("send 1 if a < 5 else 2")
+        .expect("repeated analysis must remain deterministic");
+    let mut output = Vec::new();
+    report
+        .write(OutputFormat::Human, &mut output)
+        .expect("human report must render");
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("expected expression of type object"));
+    assert!(output.contains("Expression pattern: %objects% if <.+>[,] (otherwise|else) %objects%"));
+    assert!(output.contains("also considered ch.njol.skript.effects.EffDoIf pattern"));
+    assert!(output.contains("if \"a\" is a variable, write {a}"));
+    assert!(!output.contains("expected literal \"neither\""));
+}
+
+#[test]
+fn reports_event_restrictions_and_parses_interface_expressions() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 
     let absorbed = session
         .analyze("send absorbed blocks")
-        .expect("optional leading literal must parse");
+        .expect("missing Event context must be a normal no-match");
     let absorbed: Value = serde_json::from_str(&absorbed.to_json().unwrap()).unwrap();
-    assert_eq!(absorbed["result"]["status"], "matched");
+    assert_eq!(absorbed["result"]["status"], "incomplete");
     assert_eq!(
-        absorbed["result"]["effect"]["elements"][0]["resolved"]["expression"]["syntax"]["elementClass"],
-        "ch.njol.skript.expressions.ExprAbsorbedBlocks"
-    );
-    assert_eq!(
-        absorbed["result"]["effect"]["elements"][0]["resolved"]["multiplicity"],
-        "multiple"
-    );
-    assert_eq!(
-        absorbed["result"]["alternatives"].as_array().unwrap().len(),
-        0
+        absorbed["result"]["failure"]["reasons"][0]["kind"],
+        "eventRestricted"
     );
 
     let offline = session
-        .analyze("set {_m} to all offline players")
+        .analyze("set {_m::*} to all offline players")
         .expect("interface return type must parse as Object");
     let offline: Value = serde_json::from_str(&offline.to_json().unwrap()).unwrap();
     assert_eq!(offline["result"]["status"], "matched");
     assert_eq!(
         offline["result"]["effect"]["elements"][0]["resolved"]["multiplicity"],
-        "single"
+        "multiple"
     );
     assert_eq!(
         offline["result"]["effect"]["elements"][1]["resolved"]["returnType"],
@@ -203,7 +379,7 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
     );
 
     let chat = session
-        .analyze("set {_m} to chat-message")
+        .analyze("set {_m} to default motd")
         .expect("Component interface return type must parse as Object");
     let chat: Value = serde_json::from_str(&chat.to_json().unwrap()).unwrap();
     assert_eq!(chat["result"]["status"], "matched");
@@ -216,15 +392,53 @@ fn parses_optional_and_interface_expressions_with_registered_regex_handlers() {
         .analyze("send player's health")
         .expect("missing event context is a normal no-match");
     let contextual: Value = serde_json::from_str(&contextual.to_json().unwrap()).unwrap();
-    assert_eq!(contextual["result"]["status"], "unknown");
-    // ExprTernary now has a CoreLibrary handler, so its regex-backed ` if `
-    // branch is a legitimate farthest-failure candidate instead of a skipped fallback.
+    assert_eq!(contextual["result"]["status"], "incomplete");
+    assert_eq!(
+        contextual["result"]["effect"]["syntax"]["elementClass"],
+        "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"
+    );
     assert!(
         contextual["result"]["failure"]["reasons"]
             .as_array()
             .into_iter()
             .flatten()
-            .any(|reason| reason["expected"] == " if ")
+            .any(|reason| reason["kind"] == "typeExpression"
+                && reason["expected"]
+                    .as_array()
+                    .is_some_and(|expected| expected.iter().any(|value| value == "livingentity")))
+    );
+    assert!(
+        contextual["result"]["failure"]["contexts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|context| context["syntaxKind"] == "Expression")
+    );
+
+    let teleport = session
+        .analyze("teleport あ to location(1,2,3)")
+        .expect("an invalid entity must retain the matching Effect candidate");
+    let teleport: Value = serde_json::from_str(&teleport.to_json().unwrap()).unwrap();
+    assert_eq!(teleport["result"]["status"], "incomplete");
+    assert_eq!(
+        teleport["result"]["effect"]["syntax"]["elementClass"],
+        "ch.njol.skript.effects.EffTeleport"
+    );
+    assert_eq!(teleport["result"]["failure"]["span"]["start"], 9);
+    assert!(
+        teleport["result"]["failure"]["span"]["end"]
+            .as_u64()
+            .is_some_and(|end| end > 9)
+    );
+    assert!(
+        teleport["result"]["failure"]["reasons"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|reason| reason["kind"] == "typeExpression"
+                && reason["expected"]
+                    .as_array()
+                    .is_some_and(|expected| expected.iter().any(|value| value == "entity")))
     );
 }
 
@@ -273,7 +487,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 1"));
+    assert!(output.contains("\"schemaVersion\": 3"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));

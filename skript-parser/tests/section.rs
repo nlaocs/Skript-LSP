@@ -2,8 +2,8 @@ use skript_parser::{
     ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest, ExpressionParseContext,
     ExpressionParseEnvironment, MappedSource, PatternHookControl, PatternHookEvent,
     PatternMatchEnvironment, RawTreeOptions, SectionChildrenDecision, SectionChildrenRequest,
-    SectionParseRequest, SectionParserConfig, TextRange, TypeExpressionRequest,
-    TypeExpressionResolution, parse_raw_tree, parse_section,
+    SectionParseRequest, SectionParserConfig, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, parse_raw_tree, parse_section,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -24,8 +24,8 @@ impl PatternMatchEnvironment for ScopedEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -63,6 +63,7 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
             range,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Single),
+            children: Vec::new(),
             metadata: BTreeMap::new(),
         }])
     }

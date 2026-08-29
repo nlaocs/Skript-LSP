@@ -12,25 +12,58 @@ The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
 - ABI and capability negotiation during `addon.initialize`
+- retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
+  versions and the enabled plugin list
 - one core.health-check subscription at the Document phase
-- one core.expression-leaves Transform subscription for leaves and registered Expression semantics
+- one core.expression-candidates Transform subscription for primitive and registered Expression semantics
 - typed exports for hooks and text, tree, and AST macro interfaces
 
 The health hook validates its target, phase, and payload, then continues
 without modifying the document.
 
 The Expression hook recognizes braced variables, quoted string literals,
-finite signed integer/decimal literals, and generated `ClassInfo` literals at
-legal split points. It also resolves context-dependent return metadata for
-`PropExprSize` and both forms of `ExprParse`. It preserves the
+finite signed integer/decimal literals, booleans, SSG-supplied finite type literals,
+entity-data literals, and generated
+`ClassInfo` literals at legal split points. It also resolves the built-in
+dynamic semantics of `ExprAllBannedEntries`, `ExprAnyOf`, `ExprDefaultValue`,
+`ExprCustomModelData`, `ExprElement`, `ExprEntities`, `ExprFromUUID`,
+`ExprInventoryInfo`, `ExprInventorySlot`,
+`ExprJoinSplit`, `ExprParse`, `ExprRandom`, `ExprRandomCharacter`,
+`ExprRandomNumber`, `ExprReversedList`, `ExprSets`, `ExprShuffledList`,
+`ExprSortedList`, `ExprTernary`, `ExprWhether`,
+and the standard `PropExprAmount`, `PropExprCustomName`, `PropExprName`,
+`PropExprNumber`, `PropExprScale`, `PropExprSize`, `PropExprValueOf`, and
+`PropExprWXYZ` classes. Property handlers are selected from SSG metadata by
+the closest assignable source class, matching Skript's property initialization.
+It preserves the
 host's expected type/plurality contract and returns typed leaf candidates to
 the recursive native parser. Registered Expression matching, recursion, and
 ranking remain Rust host responsibilities; CoreLibrary owns only the built-in
 semantics that cannot be recovered from SSG registration data alone.
 
-Text, tree, and AST macro exports currently return `unsupported-capability`.
-CoreLibrary does not yet implement Function calls, Condition, Section,
-Structure, or legacy parsing semantics.
+Quoted strings and variables containing `%expression%` issue generic
+`host.expression` parse requests. The host parses those ranges transactionally
+and invokes CoreLibrary again with result graphs. CoreLibrary references the
+host-issued result tokens from its leaf candidate, so the selected roots become
+native child AST nodes with rebased spans instead of opaque metadata.
+
+The Effect and Section hooks provide the class-specific semantics for
+`EffChange`, `EffDoIf`, `SecConditional`, and `SecWhile`. Property Expressions
+publish an owned `change-contract` assembled from `Properties.json` and, when
+Skript requires change-in-place propagation, the already parsed source
+Expression's contract. `EffChange` consumes that metadata first and falls back
+to raw `Expressions.json` or `EventValues.json` records. It validates
+`acceptChange(SET)` types and multiplicity without parsing either child twice.
+Unresolved SSG contracts produce a warning instead of a guessed error;
+missing EventValue changer data is unresolved as well. The metadata envelope is
+schema-versioned and bound to its Expression identity. Property candidates keep
+their SSG registration, owner, handler, type, and source identities. An earlier
+addon hook may select candidate indexes; CoreLibrary refuses an ambiguity with
+no explicit selection instead of merging unrelated addons.
+Raw changer lookups are bounded by record/byte limits and a bounded cache.
+Variable type history remains intentionally deferred. Text, tree, and AST macro
+exports currently return `unsupported-capability`. Function-call matching remains
+in the native parser; Structure and legacy-specific semantics are not implemented.
 
 ## Why It Is a WASM Component
 
@@ -43,6 +76,7 @@ dispatch model:
 - the same resource limits and trap handling
 - the same transactional StateStore
 - the same dynamic syntax registration API
+- the same complete read-only SSG Catalog API
 
 The host treats the component ID specially: startup fails when CoreLibrary is
 missing or has the wrong ID, and `ParserHost::unload_addon` refuses to unload
@@ -51,7 +85,16 @@ it.
 ## Source Layout
 
 `src/lib.rs` generates guest bindings from `../parser-wasm/wit` and implements
-all interfaces exported by the `parser-addon` world.
+all interfaces exported by the `parser-addon` world. Built-in syntax behavior
+is grouped by syntax kind under `src/expressions`, `src/effects`, and
+`src/sections`. Candidate-end iteration and common candidate construction live in
+`src/expression_candidates.rs`. Parser primitives live under `src/primitives`,
+while ClassInfo-backed and catalog-backed type literals live under `src/types`.
+Each class-specific implementation keeps the Skript Java class name in snake case,
+for example `PropExprWXYZ.java` maps to
+`expressions/prop_expr_wxyz.rs`; that file owns both handler registration and
+semantic resolution. Each directory's `mod.rs` only dispatches handlers and
+contains behavior genuinely shared by multiple classes.
 
 The crate uses two crate types:
 

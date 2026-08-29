@@ -287,6 +287,8 @@ pub struct Noun {
 #[derive(Debug, Clone, PartialEq)]
 /// Registered Skript type, parser metadata, and Java representation.
 pub struct Type {
+    /// Zero-based position of this object in `Types.json`.
+    pub source_index: usize,
     pub type_parse_order: usize,
     pub documentation: Documentation,
     pub addon: Addon,
@@ -304,6 +306,12 @@ pub struct Type {
     pub noun: Noun,
     pub serialize_as: Option<ClassName>,
     pub usage: Vec<String>,
+    pub enum_values: Vec<String>,
+    pub parser_patterns: Vec<String>,
+    pub literal_values: Vec<String>,
+    pub type_literals: Vec<TypeLiteral>,
+    pub parser_class: Option<ClassName>,
+    pub parse_contexts: Vec<String>,
     pub default_expression_class: Option<ClassName>,
     pub has_parser: bool,
     pub has_serializer: bool,
@@ -311,6 +319,18 @@ pub struct Type {
     pub properties: Vec<String>,
     pub before: Vec<TypeCodeName>,
     pub after: Vec<TypeCodeName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One finite value exposed by a registered type's supplier and parser.
+pub struct TypeLiteral {
+    pub text: String,
+    pub plural_text: Option<String>,
+    pub variable_name: Option<String>,
+    pub debug_text: Option<String>,
+    pub value_class: ClassName,
+    pub represented_class: Option<ClassName>,
+    pub enum_constant: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -421,6 +441,19 @@ impl Syntax {
             Self::Function(value) => value.registration_order,
             Self::Section(value) => value.common.registration_order,
             Self::Structure(value) => value.common.registration_order,
+        }
+    }
+
+    /// Returns metadata shared by pattern-based syntax kinds.
+    pub fn common(&self) -> Option<&CommonSyntax> {
+        match self {
+            Self::Event(value) => Some(&value.common),
+            Self::Condition(value) => Some(&value.common),
+            Self::Effect(value) => Some(&value.common),
+            Self::Expression(value) => Some(&value.common),
+            Self::Type(_) | Self::Function(_) => None,
+            Self::Section(value) => Some(&value.common),
+            Self::Structure(value) => Some(&value.common),
         }
     }
 }

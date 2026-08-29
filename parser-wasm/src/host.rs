@@ -5,7 +5,8 @@
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     mem,
     sync::{
         Arc,
@@ -15,19 +16,25 @@ use std::{
     time::Duration,
 };
 
+use fancy_regex::Regex;
+
 use skript_parser::{
-    CandidateMatches, ConditionMatches, ConditionParseError, ConditionParseRequest,
-    ConditionParserConfig, EffectCandidate, EffectMatches, EffectParseError, EffectParseRequest,
+    CandidateFailure, CandidateMatches, ConditionMatches, ConditionNode, ConditionNodeKind,
+    ConditionParseError, ConditionParseRequest, ConditionParserConfig, EffectCandidate,
+    EffectCandidateFailure, EffectMatches, EffectParseError, EffectParseRequest,
     EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
-    ExpressionMatches, ExpressionParseEnvironment, ExpressionParseError, ExpressionParseRequest,
-    ExpressionParserConfig, MatchInput, MatchSpan, MatchSyntaxKind, PatternCandidate,
-    PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
-    PatternHookOutcome, PatternHookScope, PatternHookTiming, PatternMatchEnvironment,
-    PatternMatchError, PatternMatchHooks, PatternMatcherConfig, PatternPathSegment,
-    RegisteredCaptureKind, RegisteredExpressionDecision, RegisteredExpressionRequest,
-    SectionChildrenDecision, SectionChildrenRequest, SectionMatches, SectionParseError,
-    SectionParseRequest, SectionParserConfig, TypeExpressionRequest, TypeExpressionResolution,
-    TypeExpressionResolver, UnknownEffectNode, match_pattern_candidates as run_pattern_matcher,
+    ExpressionMatches, ExpressionNode, ExpressionNodeKind, ExpressionParseEnvironment,
+    ExpressionParseError, ExpressionParseRequest, ExpressionParserConfig, FailureTrace, MatchInput,
+    MatchSpan, MatchSyntaxKind, ParsedCapture as ParserParsedCapture,
+    ParsedCaptureStatus as ParserParsedCaptureStatus, PatternCandidate, PatternCapture,
+    PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookOutcome,
+    PatternHookScope, PatternHookTiming, PatternMatchEnvironment, PatternMatchError,
+    PatternMatchHooks, PatternMatcherConfig, PatternPathSegment, RankedFailures,
+    RegisteredCaptureBinding, RegisteredExpressionDecision, RegisteredExpressionRequest,
+    RegisteredSyntaxIdentity, SectionChildrenDecision, SectionChildrenRequest, SectionMatches,
+    SectionParseError, SectionParseRequest, SectionParserConfig, TypeExpressionOutcome,
+    TypeExpressionRequest, TypeExpressionResolver, UnknownEffectNode,
+    match_pattern_candidates as run_pattern_matcher,
     parse_condition_with_snapshot as run_condition_parser,
     parse_effect_with_snapshot as run_effect_parser,
     parse_expression_with_snapshot as run_expression_parser,
@@ -48,19 +55,23 @@ use skript_parser::{
     apply_tree_edit,
 };
 use syntaxes::{
-    Catalog, ClassName, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
-    DynamicSyntaxInput, DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot,
-    DynamicSyntaxUpdate, Multiplicity, PossibleReturnTypesState, RegistrationId, ResolutionState,
-    ReturnTypeState, SyntaxKind as CatalogSyntaxKind, SyntaxOverrideTarget, SyntaxReference,
+    Catalog, CatalogSourceRecord, ChangeMode as CatalogChangeMode, ClassName, DefinitionId,
+    DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId, DynamicSyntaxInput,
+    DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot, DynamicSyntaxUpdate,
+    Multiplicity, PossibleReturnTypesState, RegistrationId, ResolutionState, ReturnTypeState,
+    SyntaxKind as CatalogSyntaxKind, SyntaxOverrideTarget, SyntaxReference,
 };
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::bindings::ParserAddon;
+use crate::bindings::nlaocs::skript_parser_addon::catalog_data as wit_catalog_data;
 use crate::bindings::nlaocs::skript_parser_addon::dynamic_syntax_registry as wit_dynamic_registry;
 use crate::bindings::nlaocs::skript_parser_addon::state_store as wit_state_store;
 use crate::bindings::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity as WitDynamicMultiplicity, DynamicRegistryError as WitDynamicRegistryError,
+    AcceptedChangeMode as WitAcceptedChangeMode, AddonAttachment as WitAddonAttachment,
+    CatalogRecordRef as WitCatalogRecordRef, DynamicMultiplicity as WitDynamicMultiplicity,
+    DynamicRegistryError as WitDynamicRegistryError,
     DynamicRegistryErrorKind as WitDynamicRegistryErrorKind,
     DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
     DynamicSyntaxOverride as WitDynamicSyntaxOverride,
@@ -68,25 +79,29 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     DynamicSyntaxReference as WitDynamicSyntaxReference, EffectCandidate as WitEffectCandidate,
     EffectCapture as WitEffectCapture, EffectExpressionCapture as WitEffectExpressionCapture,
     EffectFailure as WitEffectFailure, EffectMark as WitEffectMark,
-    EffectPayload as WitEffectPayload, EffectRegexCapture as WitEffectRegexCapture,
-    EffectTag as WitEffectTag, EffectTiming as WitEffectTiming,
-    ExpressionExpectedType as WitExpressionExpectedType,
+    EffectNearMatch as WitEffectNearMatch, EffectPayload as WitEffectPayload,
+    EffectRegexCapture as WitEffectRegexCapture, EffectTag as WitEffectTag,
+    EffectTiming as WitEffectTiming, ExpressionExpectedType as WitExpressionExpectedType,
     ExpressionLeafCandidate as WitExpressionLeafCandidate,
-    ExpressionLeafKind as WitExpressionLeafKind, ExpressionPayload as WitExpressionPayload,
+    ExpressionLeafKind as WitExpressionLeafKind,
+    ExpressionLiteralOption as WitExpressionLiteralOption,
+    ExpressionLiteralSource as WitExpressionLiteralSource,
+    ExpressionPayload as WitExpressionPayload,
     ExpressionPossibleReturnTypesState as WitPossibleReturnTypesState,
     ExpressionReturnTypeState as WitReturnTypeState,
     ExpressionTypeOption as WitExpressionTypeOption,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
-    LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry, OriginKind as WitOriginKind,
-    RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
-    RawInvalidReason as WitRawInvalidReason, RawNodeKind as WitRawNodeKind,
-    RawTriviaKind as WitRawTriviaKind, RegisteredCaptureKind as WitRegisteredCaptureKind,
-    RegisteredConditionCapture as WitRegisteredConditionCapture,
-    RegisteredEffectCapture as WitRegisteredEffectCapture,
+    LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry,
+    MetadataResolutionState as WitMetadataResolutionState, OriginKind as WitOriginKind,
+    ParseResultStatus as WitParseResultStatus, ParseSummary as WitParseSummary,
+    ParsedCapture as WitParsedCapture, RawDiagnosticCode as WitRawDiagnosticCode,
+    RawDiagnosticSeverity as WitRawDiagnosticSeverity, RawInvalidReason as WitRawInvalidReason,
+    RawNodeKind as WitRawNodeKind, RawTriviaKind as WitRawTriviaKind,
     RegisteredExpressionChild as WitRegisteredExpressionChild,
     RegisteredExpressionPayload as WitRegisteredExpressionPayload,
     RegisteredExpressionPropertyOption as WitRegisteredExpressionPropertyOption,
     RegisteredExpressionTag as WitRegisteredExpressionTag,
+    RegisteredHandlerBinding as WitRegisteredHandlerBinding,
     RetainedChildrenPlacement as WitRetainedChildrenPlacement,
     SectionCandidate as WitSectionCandidate, SectionPayload as WitSectionPayload,
     SectionTiming as WitSectionTiming, SourceOrigin as WitSourceOrigin,
@@ -101,22 +116,25 @@ use crate::state::{
     StateStoreConfig, StateValue,
 };
 use crate::{
-    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
-    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
-    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
+    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CATALOG_DATA,
+    CAPABILITY_CONTEXT_UPDATES, CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER,
+    CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
+    CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
+    CapabilityRequirement, CompatibilityError, REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
     validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
-    AstNode, AstTree, Capture, CaptureValue, ComponentManifest, ContextUpdate, Diagnostic,
-    DiagnosticSeverity, ExpressionExpectedType, ExpressionPossibleReturnTypesState,
-    ExpressionReturnTypeState, ExpressionTypeOption, HookDecision, HookEffects, HookMode,
-    HookOutput, HookPayload, HookPhase, HookSubscription, HookTarget, InvocationContext,
-    MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope, MatchingStatus,
-    MatchingTiming, ParseRequest, RawTree, RawTreeNode, RegisteredExpressionChild,
+    AstNode, AstTree, Capture, CaptureValue, CatalogAnnotationTarget, ComponentManifest,
+    ContextUpdate, Diagnostic, DiagnosticSeverity, ExpressionExpectedType, ExpressionLiteralOption,
+    ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
+    HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
+    HookSubscription, HookTarget, InvocationContext, MappedSpan, MatchingPathSegment,
+    MatchingPayload, MatchingScope, MatchingStatus, MatchingTiming, ParseRequest, ParseResult,
+    ParseResultNode, PatternRef, RawTree, RawTreeNode, RegisteredExpressionChild,
     RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
-    Rejection, RelatedSpan, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
+    RegisteredSyntaxHandlerTarget, Rejection, RelatedSpan, ReturnTypeSelector,
+    SelectorTypeRelation, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
     TreeMacroOutput,
 };
 
@@ -129,6 +147,8 @@ pub const CORE_LIBRARY_COMPONENT_ID: &str = "nlaocs.core-library";
 /// Defaults are intentionally bounded for untrusted addon components. Callers
 /// may tune individual budgets and attach an SSG [Catalog] to enable dynamic
 /// syntax registration, while zero-valued quotas and durations are rejected.
+/// When both carry source identity, `syntax_catalog` and `runtime_profile` must
+/// identify the same snapshot and schema.
 ///
 /// # Examples
 ///
@@ -158,6 +178,9 @@ pub struct HostConfig {
     pub max_memories_per_component: usize,
     pub max_calls_per_dispatch: usize,
     pub max_generated_output_bytes: usize,
+    pub max_parser_rounds: usize,
+    pub max_parse_requests_per_hook: usize,
+    pub max_parse_result_nodes: usize,
     pub max_text_macro_expansions: usize,
     pub max_text_macro_generated_bytes: usize,
     pub max_virtual_source_bytes: usize,
@@ -165,8 +188,33 @@ pub struct HostConfig {
     pub max_tree_macro_expansion_depth: usize,
     pub max_tree_macro_nodes: usize,
     pub max_tree_macro_calls: usize,
+    pub max_catalog_response_bytes: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
+    pub runtime_profile: RuntimeProfile,
+}
+
+/// Versioned server environment associated with the loaded SSG snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeProfile {
+    pub snapshot_schema_version: Option<u32>,
+    pub snapshot_id: Option<String>,
+    pub server_name: Option<String>,
+    pub server_version: Option<String>,
+    pub minecraft_version: Option<String>,
+    pub java_version: Option<String>,
+    pub language: Option<String>,
+    pub skript_version: Option<String>,
+    pub plugins: Vec<RuntimePlugin>,
+}
+
+/// One enabled plugin in deterministic server load order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimePlugin {
+    pub load_order: usize,
+    pub name: String,
+    pub version: String,
+    pub main: String,
 }
 
 impl Default for HostConfig {
@@ -182,6 +230,9 @@ impl Default for HostConfig {
             max_memories_per_component: 32,
             max_calls_per_dispatch: 1_024,
             max_generated_output_bytes: 8 * 1024 * 1024,
+            max_parser_rounds: 16,
+            max_parse_requests_per_hook: 256,
+            max_parse_result_nodes: 4_096,
             max_text_macro_expansions: 256,
             max_text_macro_generated_bytes: 8 * 1024 * 1024,
             max_virtual_source_bytes: 16 * 1024 * 1024,
@@ -189,8 +240,10 @@ impl Default for HostConfig {
             max_tree_macro_expansion_depth: 64,
             max_tree_macro_nodes: 100_000,
             max_tree_macro_calls: 4_096,
+            max_catalog_response_bytes: 32 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
+            runtime_profile: RuntimeProfile::default(),
         }
     }
 }
@@ -207,18 +260,41 @@ impl HostConfig {
             || self.max_memories_per_component == 0
             || self.max_calls_per_dispatch == 0
             || self.max_generated_output_bytes == 0
+            || self.max_parser_rounds == 0
+            || self.max_parse_requests_per_hook == 0
+            || self.max_parse_result_nodes == 0
             || self.max_text_macro_expansions == 0
             || self.max_text_macro_generated_bytes == 0
             || self.max_virtual_source_bytes == 0
             || self.max_raw_tree_depth == 0
             || self.max_tree_macro_expansion_depth == 0
             || self.max_tree_macro_nodes == 0
-            || self.max_tree_macro_calls == 0;
+            || self.max_tree_macro_calls == 0
+            || self.max_catalog_response_bytes == 0;
         if invalid {
-            Err(HostError::InvalidConfiguration)
-        } else {
-            Ok(())
+            return Err(HostError::InvalidConfiguration);
         }
+        if let Some(source) = self.syntax_catalog.as_deref().and_then(Catalog::source) {
+            if let Some(profile_snapshot_id) = self.runtime_profile.snapshot_id.as_deref()
+                && profile_snapshot_id != source.snapshot_id
+            {
+                return Err(HostError::CatalogProfileMismatch {
+                    field: "snapshot ID",
+                    profile: profile_snapshot_id.to_owned(),
+                    catalog: source.snapshot_id.clone(),
+                });
+            }
+            if let Some(profile_schema_version) = self.runtime_profile.snapshot_schema_version
+                && profile_schema_version != source.schema_version
+            {
+                return Err(HostError::CatalogProfileMismatch {
+                    field: "schema version",
+                    profile: profile_schema_version.to_string(),
+                    catalog: source.schema_version.to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn deadline_ticks(&self) -> u64 {
@@ -235,6 +311,14 @@ pub enum HostError {
     CoreLibraryMissing,
     #[error("invalid parser host configuration: every quota and duration must be non-zero")]
     InvalidConfiguration,
+    #[error(
+        "runtime profile {field} {profile:?} does not match source Catalog {field} {catalog:?}"
+    )]
+    CatalogProfileMismatch {
+        field: &'static str,
+        profile: String,
+        catalog: String,
+    },
     #[error("failed to create the Wasmtime engine: {message}")]
     Engine { message: String },
     #[error("failed to compile component {component_id}: {message}")]
@@ -327,6 +411,16 @@ pub enum HostError {
     CallQuotaExceeded { limit: usize },
     #[error("dispatch exceeded the generated output quota of {limit} bytes")]
     GeneratedOutputQuotaExceeded { limit: usize },
+    #[error("hook exceeded the parser continuation quota of {limit} rounds")]
+    ParserRoundQuotaExceeded { limit: usize },
+    #[error("hook exceeded the parse request quota of {limit}")]
+    ParseRequestQuotaExceeded { limit: usize },
+    #[error("parse result exceeded the node quota of {limit}")]
+    ParseResultNodeQuotaExceeded { limit: usize },
+    #[error("host parse-result token space is exhausted")]
+    ParseResultTokenExhausted,
+    #[error("parser {parser_id} returned an invalid result: {message}")]
+    InvalidParseResult { parser_id: String, message: String },
     #[error("text macro pipeline exceeded the expansion quota of {limit}")]
     TextMacroExpansionQuotaExceeded { limit: usize },
     #[error("text macro pipeline exceeded the generated text quota of {limit} bytes")]
@@ -391,9 +485,21 @@ pub struct ComponentInfo {
 /// Registry scope selected for a generic hook dispatch.
 pub enum DispatchTarget {
     ParseStage,
-    SyntaxDefinition(SyntaxKind),
-    ExactRegistration {
+    SyntaxKind(SyntaxKind),
+    Definition {
+        definition_id: String,
+        syntax_kind: SyntaxKind,
+    },
+    Parser(String),
+    Registration {
+        definition_id: String,
         registration_id: String,
+        syntax_kind: SyntaxKind,
+    },
+    Pattern {
+        definition_id: String,
+        registration_id: String,
+        pattern_index: u64,
         syntax_kind: SyntaxKind,
     },
 }
@@ -429,6 +535,13 @@ pub struct DispatchResult {
     pub effects: HookEffects,
     pub calls: Vec<HookCall>,
     pub failures: Vec<ComponentFailure>,
+    available_parse_results: BTreeMap<u64, ExecutedParseResult>,
+}
+
+#[derive(Debug, Clone)]
+struct ExecutedParseResult {
+    wire: ParseResult,
+    expression_roots: BTreeMap<u64, ExpressionNode>,
 }
 
 #[derive(Debug)]
@@ -629,9 +742,181 @@ struct StoreData {
     invocation: Option<InvocationTransaction>,
     dynamic_syntax_update: Option<DynamicSyntaxUpdate>,
     dynamic_syntax_available: bool,
+    catalog: Option<Arc<Catalog>>,
+    max_catalog_response_bytes: usize,
 }
 
 impl crate::bindings::nlaocs::skript_parser_addon::types::Host for StoreData {}
+
+impl wit_catalog_data::Host for StoreData {
+    fn source(
+        &mut self,
+    ) -> Result<Option<wit_catalog_data::CatalogSource>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog
+            .source()
+            .map(|source| wit_catalog_data::CatalogSource {
+                format: source.format.clone(),
+                schema_version: source.schema_version,
+                snapshot_id: source.snapshot_id.clone(),
+                source_digest: source.source_digest.clone(),
+            }))
+    }
+
+    fn documents(
+        &mut self,
+        offset: u64,
+        limit: u32,
+    ) -> Result<wit_catalog_data::CatalogDocumentPage, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let documents = catalog.source().map_or_else(Vec::new, |source| {
+            source
+                .document_names()
+                .map(|name| (name, source.document(name).map_or(0, <[u8]>::len)))
+                .collect()
+        });
+        catalog_document_page(&documents, offset, limit, self.max_catalog_response_bytes)
+    }
+
+    fn read_document(
+        &mut self,
+        name: String,
+        offset: u64,
+        max_bytes: u32,
+    ) -> Result<Option<wit_catalog_data::CatalogChunk>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let Some(bytes) = catalog.source().and_then(|source| source.document(&name)) else {
+            return Ok(None);
+        };
+        catalog_chunk(bytes, offset, max_bytes, self.max_catalog_response_bytes).map(Some)
+    }
+
+    fn records_by_registration_id(
+        &mut self,
+        id: String,
+        offset: u64,
+        limit: u32,
+    ) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let records = catalog
+            .source()
+            .map_or(&[][..], |source| source.records_by_registration_id(&id));
+        let snapshot_id = catalog
+            .source()
+            .map(|source| source.snapshot_id.as_str())
+            .unwrap_or_default();
+        let source_digest = catalog
+            .source()
+            .map(|source| source.source_digest.as_str())
+            .unwrap_or_default();
+        catalog_record_page(
+            records,
+            source_digest,
+            snapshot_id,
+            offset,
+            limit,
+            self.max_catalog_response_bytes,
+        )
+    }
+
+    fn records_by_definition_id(
+        &mut self,
+        id: String,
+        offset: u64,
+        limit: u32,
+    ) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let records = catalog
+            .source()
+            .map_or(&[][..], |source| source.records_by_definition_id(&id));
+        let snapshot_id = catalog
+            .source()
+            .map(|source| source.snapshot_id.as_str())
+            .unwrap_or_default();
+        let source_digest = catalog
+            .source()
+            .map(|source| source.source_digest.as_str())
+            .unwrap_or_default();
+        catalog_record_page(
+            records,
+            source_digest,
+            snapshot_id,
+            offset,
+            limit,
+            self.max_catalog_response_bytes,
+        )
+    }
+
+    fn read_record(
+        &mut self,
+        source_digest: String,
+        snapshot_id: String,
+        document: String,
+        index: u64,
+        offset: u64,
+        max_bytes: u32,
+    ) -> Result<Option<wit_catalog_data::CatalogChunk>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let Some(source) = catalog.source() else {
+            return Ok(None);
+        };
+        if source.source_digest != source_digest {
+            return Err(invalid_catalog_input(
+                "catalog record reference belongs to a different retained source",
+            ));
+        }
+        if source.snapshot_id != snapshot_id {
+            return Err(invalid_catalog_input(
+                "catalog record reference belongs to a different snapshot",
+            ));
+        }
+        let Some(index) = usize::try_from(index).ok() else {
+            return Ok(None);
+        };
+        let Some(record) = source.record(&document, index) else {
+            return Ok(None);
+        };
+        catalog_chunk(
+            &record.json,
+            offset,
+            max_bytes,
+            self.max_catalog_response_bytes,
+        )
+        .map(Some)
+    }
+
+    fn class_known(&mut self, class_name: String) -> Result<bool, wit_catalog_data::CatalogError> {
+        Ok(self.catalog()?.class(&class_name).is_some())
+    }
+
+    fn is_class_assignable(
+        &mut self,
+        source_class: String,
+        target_class: String,
+    ) -> Result<wit_catalog_data::TypeRelation, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog_type_relation(
+            catalog,
+            &source_class,
+            &target_class,
+            catalog.is_class_assignable(&source_class, &target_class),
+        ))
+    }
+
+    fn can_convert(
+        &mut self,
+        source_class: String,
+        target_class: String,
+    ) -> Result<wit_catalog_data::TypeRelation, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog_type_relation(
+            catalog,
+            &source_class,
+            &target_class,
+            catalog.can_convert(&source_class, &target_class),
+        ))
+    }
+}
 
 impl wit_state_store::Host for StoreData {
     fn get(
@@ -884,6 +1169,15 @@ fn wit_dynamic_registry_error(error: DynamicRegistryError) -> WitDynamicRegistry
 }
 
 impl StoreData {
+    fn catalog(&self) -> Result<&Catalog, wit_catalog_data::CatalogError> {
+        self.catalog
+            .as_deref()
+            .ok_or_else(|| wit_catalog_data::CatalogError {
+                kind: wit_catalog_data::CatalogErrorKind::Unavailable,
+                message: "catalog data requires an SSG Catalog".to_owned(),
+            })
+    }
+
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
         self.invocation
             .as_mut()
@@ -906,8 +1200,170 @@ impl StoreData {
     }
 }
 
+fn invalid_catalog_input(message: impl Into<String>) -> wit_catalog_data::CatalogError {
+    wit_catalog_data::CatalogError {
+        kind: wit_catalog_data::CatalogErrorKind::InvalidInput,
+        message: message.into(),
+    }
+}
+
+fn catalog_type_relation(
+    catalog: &Catalog,
+    source_class: &str,
+    target_class: &str,
+    compatible: bool,
+) -> wit_catalog_data::TypeRelation {
+    if compatible {
+        wit_catalog_data::TypeRelation::Compatible
+    } else if catalog.class(source_class).is_none() || catalog.class(target_class).is_none() {
+        wit_catalog_data::TypeRelation::Unknown
+    } else {
+        wit_catalog_data::TypeRelation::Incompatible
+    }
+}
+
+fn catalog_record_ref(
+    catalog: &Catalog,
+    document: &str,
+    index: usize,
+    registration_id: &str,
+) -> Option<WitCatalogRecordRef> {
+    let source = catalog.source()?;
+    let record = source
+        .records_by_registration_id(registration_id)
+        .iter()
+        .find(|record| record.document == document && record.index == index)?;
+    Some(WitCatalogRecordRef {
+        source_digest: source.source_digest.clone(),
+        snapshot_id: source.snapshot_id.clone(),
+        document: record.document.clone(),
+        index: record.index as u64,
+        byte_length: record.json.len() as u64,
+    })
+}
+
+fn catalog_chunk(
+    bytes: &[u8],
+    offset: u64,
+    max_bytes: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogChunk, wit_catalog_data::CatalogError> {
+    if max_bytes == 0 {
+        return Err(invalid_catalog_input("catalog chunk size must be non-zero"));
+    }
+    let offset = usize::try_from(offset)
+        .map_err(|_| invalid_catalog_input("catalog chunk offset is too large"))?;
+    if offset > bytes.len() {
+        return Err(invalid_catalog_input(format!(
+            "catalog chunk offset {offset} exceeds the {}-byte value",
+            bytes.len()
+        )));
+    }
+    let length = (max_bytes as usize)
+        .min(response_limit)
+        .min(bytes.len() - offset);
+    Ok(wit_catalog_data::CatalogChunk {
+        media_type: "application/json".to_owned(),
+        offset: offset as u64,
+        total_length: bytes.len() as u64,
+        bytes: bytes[offset..offset + length].to_vec(),
+    })
+}
+
+fn catalog_record_page(
+    records: &[CatalogSourceRecord],
+    source_digest: &str,
+    snapshot_id: &str,
+    offset: u64,
+    limit: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+    let (offset, end) = catalog_page_bounds(records.len(), offset, limit)?;
+    let mut bytes = 0usize;
+    let mut items = Vec::new();
+    for record in &records[offset..end] {
+        let item_bytes = source_digest.len() + snapshot_id.len() + record.document.len() + 24;
+        if bytes.saturating_add(item_bytes) > response_limit {
+            if items.is_empty() {
+                return Err(wit_catalog_data::CatalogError {
+                    kind: wit_catalog_data::CatalogErrorKind::ResponseTooLarge,
+                    message: "one catalog record reference exceeds the response limit".to_owned(),
+                });
+            }
+            break;
+        }
+        bytes += item_bytes;
+        items.push(WitCatalogRecordRef {
+            source_digest: source_digest.to_owned(),
+            snapshot_id: snapshot_id.to_owned(),
+            document: record.document.clone(),
+            index: record.index as u64,
+            byte_length: record.json.len() as u64,
+        });
+    }
+    let next = offset + items.len();
+    Ok(wit_catalog_data::CatalogRecordPage {
+        items,
+        next_offset: (next < records.len()).then_some(next as u64),
+    })
+}
+
+fn catalog_document_page(
+    documents: &[(&str, usize)],
+    offset: u64,
+    limit: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogDocumentPage, wit_catalog_data::CatalogError> {
+    let (offset, end) = catalog_page_bounds(documents.len(), offset, limit)?;
+    let mut bytes = 0usize;
+    let mut items = Vec::new();
+    for (name, byte_length) in &documents[offset..end] {
+        let item_bytes = name.len() + 32;
+        if bytes.saturating_add(item_bytes) > response_limit {
+            if items.is_empty() {
+                return Err(wit_catalog_data::CatalogError {
+                    kind: wit_catalog_data::CatalogErrorKind::ResponseTooLarge,
+                    message: "one catalog document descriptor exceeds the response limit"
+                        .to_owned(),
+                });
+            }
+            break;
+        }
+        bytes += item_bytes;
+        items.push(wit_catalog_data::CatalogDocumentInfo {
+            name: (*name).to_owned(),
+            media_type: "application/json".to_owned(),
+            byte_length: *byte_length as u64,
+        });
+    }
+    let next = offset + items.len();
+    Ok(wit_catalog_data::CatalogDocumentPage {
+        items,
+        next_offset: (next < documents.len()).then_some(next as u64),
+    })
+}
+
+fn catalog_page_bounds(
+    length: usize,
+    offset: u64,
+    limit: u32,
+) -> Result<(usize, usize), wit_catalog_data::CatalogError> {
+    if limit == 0 {
+        return Err(invalid_catalog_input("catalog page size must be non-zero"));
+    }
+    let offset = usize::try_from(offset)
+        .map_err(|_| invalid_catalog_input("catalog page offset is too large"))?;
+    if offset > length {
+        return Err(invalid_catalog_input(format!(
+            "catalog page offset {offset} exceeds the {length}-item collection"
+        )));
+    }
+    Ok((offset, offset.saturating_add(limit as usize).min(length)))
+}
+
 struct ComponentEntry {
     manifest: ComponentManifest,
+    registered_handler_bindings: Vec<WitRegisteredHandlerBinding>,
     store: Store<StoreData>,
     bindings: ParserAddon,
     load_order: usize,
@@ -998,16 +1454,28 @@ impl SubscriptionRegistry {
         })
     }
 
-    fn has_active_matching_handler(
+    fn has_active_matching_handler_for_registration(
         &self,
         components: &[ComponentEntry],
-        target: &DispatchTarget,
+        syntax_kind: SyntaxKind,
+        definition_id: Option<&str>,
+        registration_id: &str,
+        pattern_index: usize,
     ) -> bool {
         self.subscriptions.iter().any(|entry| {
             entry.subscription.phase == HookPhase::Matching
                 && entry.subscription.capability_id == CAPABILITY_HOOKS
                 && !matches!(entry.subscription.mode, HookMode::Observe)
-                && target_specificity(&entry.subscription.target, target).is_some()
+                && match &entry.subscription.target {
+                    HookTarget::SyntaxKind(kind) => *kind == syntax_kind,
+                    HookTarget::Definition(id) => definition_id == Some(id.as_str()),
+                    HookTarget::Registration(id) => id == registration_id,
+                    HookTarget::Pattern(pattern) => {
+                        pattern.registration_id == registration_id
+                            && pattern.pattern_index == pattern_index as u64
+                    }
+                    HookTarget::ParseStage | HookTarget::Parser(_) => false,
+                }
                 && components
                     .get(entry.component_index)
                     .is_some_and(|component| !component.disabled && !component.unloaded)
@@ -1025,21 +1493,415 @@ impl SubscriptionRegistry {
 fn target_specificity(subscription: &HookTarget, requested: &DispatchTarget) -> Option<u8> {
     match (subscription, requested) {
         (HookTarget::ParseStage, DispatchTarget::ParseStage) => Some(0),
+        (HookTarget::Parser(subscription_id), DispatchTarget::Parser(requested_id))
+            if subscription_id == requested_id =>
+        {
+            Some(5)
+        }
+        (HookTarget::SyntaxKind(subscription_kind), requested)
+            if dispatch_syntax_kind(requested) == Some(*subscription_kind) =>
+        {
+            Some(1)
+        }
+        (HookTarget::Definition(subscription_id), requested)
+            if dispatch_definition_id(requested) == Some(subscription_id.as_str()) =>
+        {
+            Some(2)
+        }
+        (HookTarget::Registration(subscription_id), requested)
+            if dispatch_registration_id(requested) == Some(subscription_id.as_str()) =>
+        {
+            Some(3)
+        }
         (
-            HookTarget::SyntaxDefinition(subscription_kind),
-            DispatchTarget::SyntaxDefinition(requested_kind),
-        ) if subscription_kind == requested_kind => Some(1),
-        (
-            HookTarget::ExactRegistration(subscription_id),
-            DispatchTarget::ExactRegistration {
-                registration_id, ..
+            HookTarget::Pattern(subscription_pattern),
+            DispatchTarget::Pattern {
+                registration_id,
+                pattern_index,
+                ..
             },
-        ) if subscription_id == registration_id => Some(2),
-        (
-            HookTarget::SyntaxDefinition(subscription_kind),
-            DispatchTarget::ExactRegistration { syntax_kind, .. },
-        ) if subscription_kind == syntax_kind => Some(1),
+        ) if subscription_pattern.registration_id == *registration_id
+            && subscription_pattern.pattern_index == *pattern_index =>
+        {
+            Some(4)
+        }
         _ => None,
+    }
+}
+
+fn dispatch_syntax_kind(target: &DispatchTarget) -> Option<SyntaxKind> {
+    match target {
+        DispatchTarget::SyntaxKind(kind)
+        | DispatchTarget::Definition {
+            syntax_kind: kind, ..
+        }
+        | DispatchTarget::Registration {
+            syntax_kind: kind, ..
+        }
+        | DispatchTarget::Pattern {
+            syntax_kind: kind, ..
+        } => Some(*kind),
+        DispatchTarget::ParseStage | DispatchTarget::Parser(_) => None,
+    }
+}
+
+fn dispatch_definition_id(target: &DispatchTarget) -> Option<&str> {
+    match target {
+        DispatchTarget::Definition { definition_id, .. }
+        | DispatchTarget::Registration { definition_id, .. }
+        | DispatchTarget::Pattern { definition_id, .. } => Some(definition_id),
+        DispatchTarget::ParseStage | DispatchTarget::SyntaxKind(_) | DispatchTarget::Parser(_) => {
+            None
+        }
+    }
+}
+
+fn dispatch_registration_id(target: &DispatchTarget) -> Option<&str> {
+    match target {
+        DispatchTarget::Registration {
+            registration_id, ..
+        }
+        | DispatchTarget::Pattern {
+            registration_id, ..
+        } => Some(registration_id),
+        DispatchTarget::ParseStage
+        | DispatchTarget::SyntaxKind(_)
+        | DispatchTarget::Definition { .. }
+        | DispatchTarget::Parser(_) => None,
+    }
+}
+
+fn apply_catalog_annotations(
+    components: &[ComponentEntry],
+    target: &DispatchTarget,
+    payload: &mut HookPayload,
+) {
+    let Some(metadata) = payload_metadata_mut(payload) else {
+        return;
+    };
+    let mut matching = components
+        .iter()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .flat_map(|component| {
+            component
+                .manifest
+                .catalog_annotations
+                .iter()
+                .enumerate()
+                .filter(move |(_, annotation)| annotation_matches(&annotation.target, target))
+                .map(move |(declaration_order, annotation)| {
+                    (
+                        catalog_annotation_specificity(&annotation.target),
+                        component.load_order,
+                        declaration_order,
+                        annotation,
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    matching.sort_by_key(|(specificity, load_order, declaration_order, _)| {
+        (*specificity, *load_order, *declaration_order)
+    });
+    for (_, _, _, annotation) in matching {
+        for entry in &annotation.metadata {
+            if let Some(existing) = metadata.iter_mut().find(|existing| {
+                existing.owner_component_id == entry.owner_component_id && existing.key == entry.key
+            }) {
+                *existing = entry.clone();
+            } else {
+                metadata.push(entry.clone());
+            }
+        }
+    }
+}
+
+fn annotation_matches(target: &CatalogAnnotationTarget, requested: &DispatchTarget) -> bool {
+    match target {
+        CatalogAnnotationTarget::Definition(id) => {
+            dispatch_definition_id(requested) == Some(id.as_str())
+        }
+        CatalogAnnotationTarget::Registration(id) => {
+            dispatch_registration_id(requested) == Some(id.as_str())
+        }
+        CatalogAnnotationTarget::Pattern(pattern) => matches!(
+            requested,
+            DispatchTarget::Pattern {
+                registration_id,
+                pattern_index,
+                ..
+            } if registration_id == &pattern.registration_id
+                && pattern_index == &pattern.pattern_index
+        ),
+    }
+}
+
+fn catalog_annotation_specificity(target: &CatalogAnnotationTarget) -> u8 {
+    match target {
+        CatalogAnnotationTarget::Definition(_) => 0,
+        CatalogAnnotationTarget::Registration(_) => 1,
+        CatalogAnnotationTarget::Pattern(_) => 2,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectorMatch {
+    Match,
+    NoMatch,
+    Unknown,
+}
+
+impl SelectorMatch {
+    fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::NoMatch, _) | (_, Self::NoMatch) => Self::NoMatch,
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (Self::Match, Self::Match) => Self::Match,
+        }
+    }
+}
+
+fn selector_match(
+    selector: &HookSelector,
+    payload: &HookPayload,
+    catalog: Option<&Catalog>,
+) -> SelectorMatch {
+    let mut result = SelectorMatch::Match;
+    if let Some(expected) = selector.pattern_index {
+        result = result.and(match payload_pattern_index(payload) {
+            Some(actual) if actual == expected => SelectorMatch::Match,
+            Some(_) => SelectorMatch::NoMatch,
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if let Some(expected) = selector.pattern_source.as_deref() {
+        result = result.and(match payload_pattern_source(payload) {
+            Some(actual) if actual == expected => SelectorMatch::Match,
+            Some(_) => SelectorMatch::NoMatch,
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if let Some(expected) = selector.mark {
+        result = result.and(match payload_mark(payload) {
+            Some(actual) if actual == expected => SelectorMatch::Match,
+            Some(_) => SelectorMatch::NoMatch,
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if !selector.tags.is_empty() {
+        result = result.and(match payload_tags(payload) {
+            Some(actual)
+                if selector
+                    .tags
+                    .iter()
+                    .all(|expected| actual.iter().any(|value| *value == expected)) =>
+            {
+                SelectorMatch::Match
+            }
+            Some(_) => SelectorMatch::NoMatch,
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if !selector.captures.is_empty() {
+        result = result.and(match payload_parsed_captures(payload) {
+            Some(captures)
+                if selector.captures.iter().all(|expected| {
+                    captures.iter().any(|capture| {
+                        capture.capture_index == expected.capture_index
+                            && expected.status.as_ref().is_none_or(|status| {
+                                mem::discriminant(&capture.status) == mem::discriminant(status)
+                            })
+                    })
+                }) =>
+            {
+                SelectorMatch::Match
+            }
+            Some(_) => SelectorMatch::NoMatch,
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if let Some(expected) = selector.return_type.as_ref() {
+        result = result.and(match payload_effective_return_type(payload) {
+            Some(actual) => type_selector_match(actual, expected, catalog),
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if let Some(expected) = selector.multiplicity.as_ref() {
+        result = result.and(match payload_effective_multiplicity(payload) {
+            Some(actual) if mem::discriminant(actual) == mem::discriminant(expected) => {
+                SelectorMatch::Match
+            }
+            Some(_) => SelectorMatch::NoMatch,
+            None => SelectorMatch::Unknown,
+        });
+    }
+    if !selector.metadata.is_empty() {
+        result =
+            result.and(match payload_metadata(payload) {
+                Some(actual)
+                    if selector.metadata.iter().all(|expected| {
+                        actual.iter().any(|entry| {
+                            expected.owner_component_id.as_ref().is_none_or(|owner| {
+                                entry.owner_component_id.as_ref() == Some(owner)
+                            }) && entry.key == expected.key
+                                && entry.value == expected.value
+                        })
+                    }) =>
+                {
+                    SelectorMatch::Match
+                }
+                Some(_) => SelectorMatch::NoMatch,
+                None => SelectorMatch::Unknown,
+            });
+    }
+    result
+}
+
+fn payload_pattern_index(payload: &HookPayload) -> Option<u64> {
+    match payload {
+        HookPayload::Matching(value) => value.pattern_index,
+        HookPayload::RegisteredExpression(value) => Some(value.pattern_index),
+        HookPayload::Effect(value) => value
+            .candidate
+            .as_ref()
+            .map(|candidate| candidate.pattern_index),
+        HookPayload::Section(value) => Some(value.candidate.pattern_index),
+        _ => None,
+    }
+}
+
+fn payload_pattern_source(payload: &HookPayload) -> Option<&str> {
+    match payload {
+        HookPayload::Matching(value) => value.pattern.as_deref(),
+        HookPayload::RegisteredExpression(value) => Some(&value.pattern),
+        HookPayload::Effect(value) => value
+            .candidate
+            .as_ref()
+            .map(|candidate| candidate.pattern.as_str()),
+        _ => None,
+    }
+}
+
+fn payload_mark(payload: &HookPayload) -> Option<i32> {
+    match payload {
+        HookPayload::RegisteredExpression(value) => Some(value.mark),
+        HookPayload::Effect(value) => value.candidate.as_ref().map(|candidate| candidate.mark),
+        _ => None,
+    }
+}
+
+fn payload_tags(payload: &HookPayload) -> Option<Vec<&str>> {
+    match payload {
+        HookPayload::RegisteredExpression(value) => {
+            Some(value.tags.iter().map(|tag| tag.value.as_str()).collect())
+        }
+        HookPayload::Effect(value) => value.candidate.as_ref().map(|candidate| {
+            candidate
+                .tags
+                .iter()
+                .map(|tag| tag.value.as_str())
+                .collect()
+        }),
+        _ => None,
+    }
+}
+
+fn payload_parsed_captures(payload: &HookPayload) -> Option<&[WitParsedCapture]> {
+    match payload {
+        HookPayload::RegisteredExpression(value) => Some(&value.parsed_captures),
+        HookPayload::Effect(value) => value
+            .candidate
+            .as_ref()
+            .map(|candidate| candidate.parsed_captures.as_slice()),
+        HookPayload::Section(value) => Some(&value.candidate.parsed_captures),
+        _ => None,
+    }
+}
+
+fn payload_effective_return_type(payload: &HookPayload) -> Option<&str> {
+    match payload {
+        HookPayload::RegisteredExpression(value) => value.effective_return_type.as_deref(),
+        _ => None,
+    }
+}
+
+fn payload_effective_multiplicity(payload: &HookPayload) -> Option<&WitDynamicMultiplicity> {
+    match payload {
+        HookPayload::RegisteredExpression(value) => value.effective_multiplicity.as_ref(),
+        _ => None,
+    }
+}
+
+fn payload_metadata(payload: &HookPayload) -> Option<&[WitMetadataEntry]> {
+    match payload {
+        HookPayload::Matching(value) => Some(&value.metadata),
+        HookPayload::RegisteredExpression(value) => Some(&value.metadata),
+        HookPayload::Effect(value) => value
+            .candidate
+            .as_ref()
+            .map(|candidate| candidate.metadata.as_slice())
+            .or_else(|| {
+                value
+                    .near_match
+                    .as_ref()
+                    .map(|candidate| candidate.metadata.as_slice())
+            }),
+        HookPayload::Section(value) => Some(&value.candidate.metadata),
+        _ => None,
+    }
+}
+
+fn payload_metadata_mut(payload: &mut HookPayload) -> Option<&mut Vec<WitMetadataEntry>> {
+    match payload {
+        HookPayload::Matching(value) => Some(&mut value.metadata),
+        HookPayload::RegisteredExpression(value) => Some(&mut value.metadata),
+        HookPayload::Effect(value) => {
+            if let Some(candidate) = value.candidate.as_mut() {
+                Some(&mut candidate.metadata)
+            } else {
+                value
+                    .near_match
+                    .as_mut()
+                    .map(|candidate| &mut candidate.metadata)
+            }
+        }
+        HookPayload::Section(value) => Some(&mut value.candidate.metadata),
+        _ => None,
+    }
+}
+
+fn type_selector_match(
+    actual: &str,
+    expected: &crate::bindings::nlaocs::skript_parser_addon::types::ReturnTypeSelector,
+    catalog: Option<&Catalog>,
+) -> SelectorMatch {
+    if actual == expected.class_name {
+        return SelectorMatch::Match;
+    }
+    match expected.relation {
+        SelectorTypeRelation::Exact => SelectorMatch::NoMatch,
+        SelectorTypeRelation::Assignable | SelectorTypeRelation::Convertible => {
+            let Some(catalog) = catalog else {
+                return SelectorMatch::Unknown;
+            };
+            let matched = match expected.relation {
+                SelectorTypeRelation::Assignable => {
+                    catalog.is_class_assignable(actual, &expected.class_name)
+                }
+                SelectorTypeRelation::Convertible => {
+                    catalog.can_convert(actual, &expected.class_name)
+                }
+                SelectorTypeRelation::Exact => unreachable!(),
+            };
+            if matched {
+                SelectorMatch::Match
+            } else if catalog.class(actual).is_none()
+                || catalog.class(&expected.class_name).is_none()
+            {
+                SelectorMatch::Unknown
+            } else {
+                SelectorMatch::NoMatch
+            }
+        }
     }
 }
 
@@ -1048,6 +1910,7 @@ struct HookEffectsCheckpoint {
     diagnostics: usize,
     context_updates: usize,
     parse_requests: usize,
+    parse_results: usize,
 }
 
 impl HookEffectsCheckpoint {
@@ -1056,6 +1919,7 @@ impl HookEffectsCheckpoint {
             diagnostics: effects.diagnostics.len(),
             context_updates: effects.context_updates.len(),
             parse_requests: effects.parse_requests.len(),
+            parse_results: effects.parse_results.len(),
         }
     }
 
@@ -1063,6 +1927,7 @@ impl HookEffectsCheckpoint {
         effects.diagnostics.truncate(self.diagnostics);
         effects.context_updates.truncate(self.context_updates);
         effects.parse_requests.truncate(self.parse_requests);
+        effects.parse_results.truncate(self.parse_results);
     }
 }
 
@@ -1196,40 +2061,30 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         &mut self,
         kind: MatchSyntaxKind,
         registration_id: &str,
+        pattern_index: usize,
     ) -> Result<bool, String> {
-        let exact_handler = self.matching_hooks_registered
-            && self.host.registry.has_active_matching_handler(
-                &self.host.components,
-                &DispatchTarget::ExactRegistration {
-                    registration_id: registration_id.to_owned(),
-                    syntax_kind: wit_syntax_kind(kind),
-                },
-            );
-        if exact_handler {
-            return Ok(true);
-        }
-        let declared_handler = self
+        let identity = self
             .host
             .config
             .syntax_catalog
             .as_deref()
-            .and_then(|catalog| registered_element_class(catalog, kind, registration_id))
-            .is_some_and(|element_class| {
-                has_registered_syntax_handler(
+            .and_then(|catalog| registered_syntax_identity(catalog, kind, registration_id));
+        let exact_handler = self.matching_hooks_registered
+            && self
+                .host
+                .registry
+                .has_active_matching_handler_for_registration(
                     &self.host.components,
-                    match kind {
-                        MatchSyntaxKind::Event => CatalogSyntaxKind::Event,
-                        MatchSyntaxKind::Condition => CatalogSyntaxKind::Condition,
-                        MatchSyntaxKind::Effect => CatalogSyntaxKind::Effect,
-                        MatchSyntaxKind::Expression => CatalogSyntaxKind::Expression,
-                        MatchSyntaxKind::Type => CatalogSyntaxKind::Type,
-                        MatchSyntaxKind::Function => CatalogSyntaxKind::Function,
-                        MatchSyntaxKind::Section => CatalogSyntaxKind::Section,
-                        MatchSyntaxKind::Structure => CatalogSyntaxKind::Structure,
-                    },
-                    element_class,
-                )
-            });
+                    wit_syntax_kind(kind),
+                    identity.map(|identity| identity.definition_id),
+                    registration_id,
+                    pattern_index,
+                );
+        if exact_handler {
+            return Ok(true);
+        }
+        let declared_handler = identity
+            .is_some_and(|identity| has_registered_syntax_handler(&self.host.components, identity));
         if declared_handler || kind != MatchSyntaxKind::Expression {
             return Ok(declared_handler);
         }
@@ -1256,6 +2111,33 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
             ))
     }
 
+    fn may_override_pattern(
+        &self,
+        kind: MatchSyntaxKind,
+        registration_id: &str,
+        pattern_index: usize,
+    ) -> bool {
+        if !self.matching_hooks_registered {
+            return false;
+        }
+        let definition_id = self
+            .host
+            .config
+            .syntax_catalog
+            .as_deref()
+            .and_then(|catalog| registered_syntax_identity(catalog, kind, registration_id))
+            .map(|identity| identity.definition_id);
+        self.host
+            .registry
+            .has_active_matching_handler_for_registration(
+                &self.host.components,
+                wit_syntax_kind(kind),
+                definition_id,
+                registration_id,
+                pattern_index,
+            )
+    }
+
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
@@ -1266,13 +2148,22 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
             self.restore_candidate_state(event.scope, event.timing, &event.outcome, &control)?;
             return Ok(control);
         }
-        let target = if event.scope == PatternHookScope::Definition {
-            DispatchTarget::SyntaxDefinition(wit_syntax_kind(event.kind))
-        } else {
-            DispatchTarget::ExactRegistration {
+        let target = match event.scope {
+            PatternHookScope::Definition => DispatchTarget::Definition {
+                definition_id: event.definition_id.to_owned(),
+                syntax_kind: wit_syntax_kind(event.kind),
+            },
+            PatternHookScope::Registration => DispatchTarget::Registration {
+                definition_id: event.definition_id.to_owned(),
                 registration_id: event.registration_id.to_owned(),
                 syntax_kind: wit_syntax_kind(event.kind),
-            }
+            },
+            PatternHookScope::Pattern | PatternHookScope::Element => DispatchTarget::Pattern {
+                definition_id: event.definition_id.to_owned(),
+                registration_id: event.registration_id.to_owned(),
+                pattern_index: event.pattern_index.unwrap_or_default() as u64,
+                syntax_kind: wit_syntax_kind(event.kind),
+            },
         };
         if !self.host.registry.has_active_matching_capability(
             &self.host.components,
@@ -1331,6 +2222,7 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
                 PatternHookOutcome::Failed { reason } => Some(reason.clone()),
                 PatternHookOutcome::Pending | PatternHookOutcome::Matched { .. } => None,
             },
+            metadata: Vec::new(),
         };
         let result = self
             .host
@@ -1392,6 +2284,7 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
                 return Err("handled matching hook must return matched or failed status".to_owned());
             }
             HookDecision::Handled => matching_control(output.status, range, output.failure_reason),
+            HookDecision::NotApplicable => PatternHookControl::Continue,
             HookDecision::ContinueProcessing if changed => {
                 matching_control(output.status, range, output.failure_reason)
             }
@@ -1428,15 +2321,27 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         kind: MatchSyntaxKind,
         registration_id: &str,
+        pattern_index: usize,
     ) -> Result<bool, String> {
-        self.hooks.allows_regex_pattern(kind, registration_id)
+        self.hooks
+            .allows_regex_pattern(kind, registration_id, pattern_index)
+    }
+
+    fn may_override_pattern(
+        &self,
+        kind: MatchSyntaxKind,
+        registration_id: &str,
+        pattern_index: usize,
+    ) -> bool {
+        self.hooks
+            .may_override_pattern(kind, registration_id, pattern_index)
     }
 
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
@@ -1511,6 +2416,16 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let type_options = expression_type_options(
             self.hooks.host.config.syntax_catalog.as_deref(),
             request.expected_types,
+            request.input,
+            request.remaining,
+            request.candidate_ends,
+        );
+        let literal_options = expression_literal_options(
+            self.hooks.host.config.syntax_catalog.as_deref(),
+            request.input,
+            request.remaining,
+            request.candidate_ends,
+            request.expected_types,
         );
         let payload = WitExpressionPayload {
             input: request.input.to_owned(),
@@ -1523,6 +2438,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             time: request.time,
             depth,
             type_options: type_options.clone(),
+            literal_options: literal_options.clone(),
             candidates: Vec::new(),
         };
         let result = self
@@ -1538,6 +2454,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 },
             )
             .map_err(|error| error.to_string())?;
+        let available_parse_results = result.available_parse_results;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -1564,6 +2481,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             || output.time != request.time
             || output.depth != depth
             || !same_expression_type_options(&output.type_options, &type_options)
+            || !same_expression_literal_options(&output.literal_options, &literal_options)
         {
             return Err("Expression hook changed immutable request fields".to_owned());
         }
@@ -1571,7 +2489,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let candidates = output
             .candidates
             .into_iter()
-            .map(wit_expression_candidate)
+            .map(|candidate| wit_expression_candidate(candidate, &available_parse_results))
             .collect::<Result<Vec<_>, _>>()?;
         self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
         Ok(candidates)
@@ -1591,20 +2509,15 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         Ok(())
     }
 
-    fn can_resolve_registered_expression(&self, element_class: &ClassName) -> bool {
-        has_registered_syntax_handler(
-            &self.hooks.host.components,
-            CatalogSyntaxKind::Expression,
-            element_class,
-        )
+    fn can_resolve_registered_expression(&self, syntax: RegisteredSyntaxIdentity<'_>) -> bool {
+        has_registered_syntax_handler(&self.hooks.host.components, syntax)
     }
 
-    fn registered_capture_kinds(
+    fn registered_capture_bindings(
         &self,
-        kind: CatalogSyntaxKind,
-        element_class: &ClassName,
-    ) -> Vec<RegisteredCaptureKind> {
-        registered_capture_kinds(&self.hooks.host.components, kind, element_class)
+        syntax: RegisteredSyntaxIdentity<'_>,
+    ) -> Result<Vec<RegisteredCaptureBinding>, String> {
+        registered_capture_bindings(&self.hooks.host.components, syntax)
     }
 
     fn resolve_registered_expression(
@@ -1636,34 +2549,26 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PatternCapture::TypeExpression { .. } => None,
             })
             .collect::<Vec<_>>();
-        let type_options = if request.element_class.as_str().ends_with(".ExprParse")
-            && !regex_captures.is_empty()
-        {
+        let type_options = if !regex_captures.is_empty()
+            && registered_handler_requires_context(
+                &self.hooks.host.components,
+                RegisteredSyntaxIdentity {
+                    kind: CatalogSyntaxKind::Expression,
+                    definition_id: request.definition_id,
+                    registration_id: request.registration_id,
+                    pattern_index: Some(request.pattern_index),
+                },
+                REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+            ) {
             all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
         } else {
             Vec::new()
         };
-        let size_count = request.element_class.as_str().ends_with(".PropExprSize")
-            && !request
-                .tags
-                .iter()
-                .any(|tag| tag.value == "s" && !tag.implicit)
-            && !matches!(
-                request
-                    .children
-                    .first()
-                    .and_then(|child| child.multiplicity),
-                Some(Multiplicity::Single)
-            );
-        let property_options = if size_count {
-            Vec::new()
-        } else {
-            registered_property_options(
-                self.hooks.host.config.syntax_catalog.as_deref(),
-                request.related_property,
-                request.children,
-            )
-        };
+        let property_options = registered_property_options(
+            self.hooks.host.config.syntax_catalog.as_deref(),
+            request.related_property,
+            request.children,
+        );
         let payload = WitRegisteredExpressionPayload {
             input: request.input.to_owned(),
             definition_id: request.definition_id.to_owned(),
@@ -1672,6 +2577,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             related_property: request.related_property.map(str::to_owned),
             pattern_index: u64::try_from(request.pattern_index)
                 .map_err(|_| "Expression pattern index does not fit u64".to_owned())?,
+            pattern: request.pattern.to_owned(),
             span: mapped_span_to_wit(request.span.mapped.clone()),
             expected_types,
             declared_return_type: request
@@ -1706,36 +2612,39 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             children: request
                 .children
                 .iter()
-                .map(|child| WitRegisteredExpressionChild {
-                    text: child
-                        .span
-                        .local_range
-                        .slice(request.input)
-                        .unwrap_or_default()
-                        .to_owned(),
-                    element_class: expression_node_element_class(
-                        child,
-                        self.hooks.host.config.syntax_catalog.as_deref(),
-                    ),
-                    return_type: child
-                        .return_type
-                        .as_ref()
-                        .map(|value| value.as_str().to_owned()),
-                    multiplicity: child.multiplicity.map(multiplicity_to_wit),
-                    metadata: child
-                        .metadata
-                        .iter()
-                        .map(|(key, value)| WitMetadataEntry {
-                            key: key.clone(),
-                            value: value.clone(),
-                        })
-                        .collect(),
+                .map(|child| {
+                    let (kind, parser_id) = expression_node_identity(child);
+                    let (definition_id, registration_id, pattern_index) =
+                        expression_node_registration(child);
+                    WitRegisteredExpressionChild {
+                        text: child
+                            .span
+                            .local_range
+                            .slice(request.input)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        kind: kind.to_owned(),
+                        parser_id: parser_id.map(str::to_owned),
+                        definition_id,
+                        registration_id,
+                        pattern_index,
+                        element_class: expression_node_element_class(
+                            child,
+                            self.hooks.host.config.syntax_catalog.as_deref(),
+                        ),
+                        return_type: child
+                            .return_type
+                            .as_ref()
+                            .map(|value| value.as_str().to_owned()),
+                        multiplicity: child.multiplicity.map(multiplicity_to_wit),
+                        metadata: metadata_to_wit(&child.metadata),
+                    }
                 })
                 .collect(),
-            conditions: request
-                .conditions
+            parsed_captures: request
+                .parsed_captures
                 .iter()
-                .map(|capture| registered_condition_capture_to_wit(capture, request.input))
+                .map(|capture| parsed_capture_to_wit(capture, request.input))
                 .collect(),
             common_child_return_type: common_child_return_type(
                 request.children,
@@ -1743,6 +2652,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             ),
             type_options,
             property_options,
+            selected_property_option_indices: Vec::new(),
             effective_return_type: request
                 .declared_return_type
                 .map(|value| value.as_str().to_owned()),
@@ -1757,7 +2667,13 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 self.hooks.transaction,
                 DispatchRequest {
                     context: self.hooks.context.clone(),
-                    target: DispatchTarget::ParseStage,
+                    target: DispatchTarget::Pattern {
+                        definition_id: request.definition_id.to_owned(),
+                        registration_id: request.registration_id.to_owned(),
+                        pattern_index: u64::try_from(request.pattern_index)
+                            .map_err(|_| "Expression pattern index does not fit u64".to_owned())?,
+                        syntax_kind: SyntaxKind::Expression,
+                    },
                     phase: HookPhase::Expression,
                     payload: HookPayload::RegisteredExpression(payload),
                 },
@@ -1779,8 +2695,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         if !same_registered_expression_identity(&output, &original) {
             return Err("registered Expression hook changed immutable request fields".to_owned());
         }
+        validate_selected_property_options(&output)?;
         let changed = output.effective_return_type != original.effective_return_type
             || output.effective_multiplicity != original.effective_multiplicity
+            || output.selected_property_option_indices != original.selected_property_option_indices
             || !same_metadata_entries(&output.metadata, &original.metadata);
         if !changed && matches!(result.decision, HookDecision::ContinueProcessing) {
             if !original.regex_captures.is_empty() {
@@ -1826,8 +2744,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 self.hooks.transaction,
                 DispatchRequest {
                     context: self.hooks.context.clone(),
-                    target: DispatchTarget::ExactRegistration {
+                    target: DispatchTarget::Pattern {
+                        definition_id: request.definition_id.to_owned(),
                         registration_id: request.registration_id.to_owned(),
+                        pattern_index: u64::try_from(request.pattern_index)
+                            .map_err(|_| "Section pattern index does not fit u64".to_owned())?,
                         syntax_kind: SyntaxKind::Section,
                     },
                     phase: HookPhase::Section,
@@ -1878,8 +2799,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 self.hooks.transaction,
                 DispatchRequest {
                     context: self.hooks.context.clone(),
-                    target: DispatchTarget::ExactRegistration {
+                    target: DispatchTarget::Pattern {
+                        definition_id: request.definition_id.to_owned(),
                         registration_id: request.registration_id.to_owned(),
+                        pattern_index: u64::try_from(request.pattern_index)
+                            .map_err(|_| "Section pattern index does not fit u64".to_owned())?,
                         syntax_kind: SyntaxKind::Section,
                     },
                     phase: HookPhase::Section,
@@ -1940,11 +2864,12 @@ fn section_hook_payload(
                     PatternCapture::TypeExpression { .. } => None,
                 })
                 .collect(),
-            conditions: request
-                .conditions
+            parsed_captures: request
+                .parsed_captures
                 .iter()
-                .map(|capture| registered_condition_capture_to_wit(capture, request.input))
+                .map(|capture| parsed_capture_to_wit(capture, request.input))
                 .collect(),
+            metadata: Vec::new(),
         },
     }
 }
@@ -1964,9 +2889,9 @@ fn same_section_payload(left: &WitSectionPayload, right: &WitSectionPayload) -> 
         && left.candidate.effect_section == right.candidate.effect_section
         && left.candidate.section_expression == right.candidate.section_expression
         && left.candidate.regex_captures == right.candidate.regex_captures
-        && same_registered_condition_captures(
-            &left.candidate.conditions,
-            &right.candidate.conditions,
+        && same_parsed_captures(
+            &left.candidate.parsed_captures,
+            &right.candidate.parsed_captures,
         )
 }
 
@@ -1978,49 +2903,101 @@ struct EffectHookPayloadView<'a> {
     candidate: Option<&'a EffectCandidate>,
     alternatives: &'a [EffectCandidate],
     failure: Option<&'a PatternFailure>,
+    near_match: Option<&'a EffectCandidateFailure>,
     catalog: &'a Catalog,
 }
 
-fn registered_condition_capture_to_wit(
-    capture: &skript_parser::RegisteredConditionCapture,
-    input: &str,
-) -> WitRegisteredConditionCapture {
-    let (definition_id, registration_id, pattern_index) =
-        condition_registration_identity(&capture.node);
-    WitRegisteredConditionCapture {
+fn parsed_capture_to_wit(capture: &ParserParsedCapture, input: &str) -> WitParsedCapture {
+    WitParsedCapture {
         capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
+        parser_id: capture.result.parser_id.clone(),
+        status: match capture.result.status {
+            ParserParsedCaptureStatus::Success => WitParseResultStatus::Success,
+            ParserParsedCaptureStatus::Partial => WitParseResultStatus::Partial,
+            ParserParsedCaptureStatus::Failed => WitParseResultStatus::Failed,
+        },
         text: capture
-            .node
+            .result
             .span
             .local_range
             .slice(input)
             .unwrap_or_default()
             .to_owned(),
-        span: mapped_span_to_wit(capture.node.span.mapped.clone()),
-        definition_id,
-        registration_id,
-        pattern_index: pattern_index.map(u64::try_from).transpose().unwrap_or(None),
-    }
-}
-
-fn condition_registration_identity(
-    node: &skript_parser::ConditionNode,
-) -> (Option<String>, Option<String>, Option<usize>) {
-    match &node.kind {
-        skript_parser::ConditionNodeKind::Registered {
-            definition_id,
-            registration_id,
-            pattern_index,
-        } => (
-            Some(definition_id.clone()),
-            Some(registration_id.clone()),
-            Some(*pattern_index),
-        ),
-        skript_parser::ConditionNodeKind::Grouped => node
-            .children
-            .first()
-            .map(condition_registration_identity)
+        span: mapped_span_to_wit(capture.result.span.mapped.clone()),
+        expected_types: capture
+            .result
+            .summary
+            .as_ref()
+            .and_then(|summary| summary.return_type.as_ref())
+            .map(|class_name| {
+                vec![WitExpressionExpectedType {
+                    class_name: class_name.as_str().to_owned(),
+                    plural: capture
+                        .result
+                        .summary
+                        .as_ref()
+                        .and_then(|summary| summary.multiplicity)
+                        == Some(Multiplicity::Multiple),
+                }]
+            })
             .unwrap_or_default(),
+        summary: capture
+            .result
+            .summary
+            .as_ref()
+            .map(|summary| WitParseSummary {
+                kind: summary.kind.clone(),
+                definition_id: summary.definition_id.clone(),
+                registration_id: summary.registration_id.clone(),
+                element_class: summary
+                    .element_class
+                    .as_ref()
+                    .map(|class_name| class_name.as_str().to_owned()),
+                pattern_index: summary
+                    .pattern_index
+                    .and_then(|index| u64::try_from(index).ok()),
+                return_type: summary
+                    .return_type
+                    .as_ref()
+                    .map(|class_name| class_name.as_str().to_owned()),
+                multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                metadata: metadata_to_wit(&summary.metadata),
+            }),
+        attachments: capture
+            .result
+            .attachments
+            .iter()
+            .map(|attachment| WitAddonAttachment {
+                owner_component_id: attachment.owner_component_id.clone(),
+                schema_id: attachment.schema_id.clone(),
+                schema_version: attachment.schema_version,
+                encoding: attachment.encoding.clone(),
+                bytes: attachment.bytes.clone(),
+            })
+            .collect(),
+        diagnostics: capture
+            .result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| Diagnostic {
+                code: diagnostic
+                    .metadata
+                    .get("code")
+                    .cloned()
+                    .unwrap_or_else(|| "parser.capture".to_owned()),
+                severity: DiagnosticSeverity::Error,
+                message: diagnostic.message.clone(),
+                span: mapped_span_to_wit(
+                    diagnostic
+                        .span
+                        .as_ref()
+                        .unwrap_or(&capture.result.span)
+                        .mapped
+                        .clone(),
+                ),
+                related: Vec::new(),
+            })
+            .collect(),
     }
 }
 
@@ -2039,6 +3016,27 @@ fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
             .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input))
             .collect(),
         failure: view.failure.map(effect_failure_to_wit),
+        near_match: view.near_match.map(effect_near_match_to_wit),
+    }
+}
+
+fn effect_near_match_to_wit(candidate: &EffectCandidateFailure) -> WitEffectNearMatch {
+    WitEffectNearMatch {
+        definition_id: candidate.matched.definition_id.clone(),
+        registration_id: candidate.matched.registration_id.clone(),
+        element_class: candidate
+            .element_class
+            .as_ref()
+            .map(|class| class.as_str().to_owned()),
+        priority: candidate.matched.priority,
+        registration_order: u64::try_from(candidate.matched.registration_order).unwrap_or(u64::MAX),
+        resolved_order: candidate
+            .matched
+            .resolved_order
+            .and_then(|order| u64::try_from(order).ok()),
+        handler: candidate.handler.clone(),
+        metadata: metadata_to_wit(&candidate.metadata),
+        failure: effect_failure_to_wit(&candidate.matched.trace.root_cause().failure),
     }
 }
 
@@ -2133,57 +3131,50 @@ fn effect_candidate_to_wit(
             })
             .collect(),
         handler: candidate.handler.clone(),
-        metadata: candidate
-            .metadata
+        metadata: metadata_to_wit(&candidate.metadata),
+        parsed_captures: candidate
+            .parsed_captures
             .iter()
-            .map(|(key, value)| WitMetadataEntry {
-                key: key.clone(),
-                value: value.clone(),
-            })
-            .collect(),
-        conditions: candidate
-            .conditions
-            .iter()
-            .map(|capture| registered_condition_capture_to_wit(capture, input))
-            .collect(),
-        effects: candidate
-            .effects
-            .iter()
-            .map(|capture| WitRegisteredEffectCapture {
-                capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
-                text: capture.value.clone(),
-                span: mapped_span_to_wit(capture.span.mapped.clone()),
-                definition_id: capture.candidate.matched.definition_id.clone(),
-                registration_id: capture.candidate.matched.registration_id.clone(),
-                pattern_index: u64::try_from(capture.candidate.matched.pattern_index)
-                    .unwrap_or(u64::MAX),
-                element_class: catalog
-                    .effects()
-                    .find(|effect| {
-                        effect.common.registration_id.as_str()
-                            == capture.candidate.matched.registration_id
-                    })
-                    .map(|effect| effect.common.element_class.as_str().to_owned()),
-            })
+            .map(|capture| parsed_capture_to_wit(capture, input))
             .collect(),
     }
 }
 
 fn effect_failure_to_wit(failure: &PatternFailure) -> WitEffectFailure {
     WitEffectFailure {
-        offset: failure.offset as u64,
+        offset: failure.span.mapped.virtual_range.start as u64,
         span: mapped_span_to_wit(failure.span.mapped.clone()),
         reasons: failure.reasons.iter().map(effect_failure_reason).collect(),
     }
+}
+
+fn unknown_effect_failure(unknown: &UnknownEffectNode) -> Option<&PatternFailure> {
+    unknown
+        .failures
+        .primary()
+        .map(|candidate| &candidate.matched.trace.root_cause().failure)
+        .or_else(|| {
+            unknown
+                .failures
+                .fallback
+                .as_ref()
+                .map(|trace| &trace.root_cause().failure)
+        })
 }
 
 fn effect_failure_reason(reason: &PatternFailureReason) -> String {
     match reason {
         PatternFailureReason::Literal { expected } => format!("literal:{expected}"),
         PatternFailureReason::Regex { pattern } => format!("regex:{pattern}"),
+        PatternFailureReason::Expression => "expression:unrecognized".to_owned(),
         PatternFailureReason::TypeExpression { expected } => {
             format!("expression:{}", expected.join("/"))
         }
+        PatternFailureReason::EventRestricted { supported, current } => format!(
+            "event-restricted:supported={};current={}",
+            supported.join("/"),
+            current.join("/")
+        ),
         PatternFailureReason::TrailingInput => "trailing-input".to_owned(),
         PatternFailureReason::HookRejected { reason } => format!("hook-rejected:{reason}"),
     }
@@ -2200,6 +3191,7 @@ fn validate_effect_payload_identity(
         || output.timing != original.timing
         || !same_effect_candidates(&output.alternatives, &original.alternatives)
         || !same_effect_failure(output.failure.as_ref(), original.failure.as_ref())
+        || !same_effect_near_match(output.near_match.as_ref(), original.near_match.as_ref())
     {
         return Err(HostError::InvalidEffectHookOutput {
             message: "hook changed immutable Effect input, alternatives, or failure fields"
@@ -2228,6 +3220,27 @@ fn validate_effect_payload_identity(
     }
 }
 
+fn same_effect_near_match(
+    left: Option<&WitEffectNearMatch>,
+    right: Option<&WitEffectNearMatch>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.definition_id == right.definition_id
+                && left.registration_id == right.registration_id
+                && left.element_class == right.element_class
+                && left.priority == right.priority
+                && left.registration_order == right.registration_order
+                && left.resolved_order == right.resolved_order
+                && left.handler == right.handler
+                && same_metadata_entries(&left.metadata, &right.metadata)
+                && same_effect_failure(Some(&left.failure), Some(&right.failure))
+        }
+        (None, Some(_)) | (Some(_), None) => false,
+    }
+}
+
 fn same_effect_candidate_identity(
     original: &WitEffectCandidate,
     output: &WitEffectCandidate,
@@ -2245,8 +3258,7 @@ fn same_effect_candidate_identity(
         && same_effect_tags(&output.tags, &original.tags)
         && output.mark == original.mark
         && same_effect_marks(&output.marks, &original.marks)
-        && same_registered_condition_captures(&output.conditions, &original.conditions)
-        && same_registered_effect_captures(&output.effects, &original.effects)
+        && same_parsed_captures(&output.parsed_captures, &original.parsed_captures)
 }
 
 fn same_effect_candidate_full(left: &WitEffectCandidate, right: &WitEffectCandidate) -> bool {
@@ -2321,40 +3333,78 @@ fn same_effect_marks(left: &[WitEffectMark], right: &[WitEffectMark]) -> bool {
 
 fn same_metadata_entries(left: &[WitMetadataEntry], right: &[WitMetadataEntry]) -> bool {
     left.len() == right.len()
-        && left
-            .iter()
-            .zip(right)
-            .all(|(left, right)| left.key == right.key && left.value == right.value)
-}
-
-fn same_registered_condition_captures(
-    left: &[WitRegisteredConditionCapture],
-    right: &[WitRegisteredConditionCapture],
-) -> bool {
-    left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
-            left.capture_index == right.capture_index
-                && left.text == right.text
-                && same_mapped_span(&left.span, &right.span)
-                && left.definition_id == right.definition_id
-                && left.registration_id == right.registration_id
-                && left.pattern_index == right.pattern_index
+            left.owner_component_id == right.owner_component_id
+                && left.key == right.key
+                && left.value == right.value
         })
 }
 
-fn same_registered_effect_captures(
-    left: &[WitRegisteredEffectCapture],
-    right: &[WitRegisteredEffectCapture],
-) -> bool {
+fn same_parsed_captures(left: &[WitParsedCapture], right: &[WitParsedCapture]) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
             left.capture_index == right.capture_index
+                && left.parser_id == right.parser_id
+                && left.status == right.status
                 && left.text == right.text
                 && same_mapped_span(&left.span, &right.span)
+                && left.expected_types.len() == right.expected_types.len()
+                && left
+                    .expected_types
+                    .iter()
+                    .zip(&right.expected_types)
+                    .all(|(left, right)| {
+                        left.class_name == right.class_name && left.plural == right.plural
+                    })
+                && same_parse_summary(left.summary.as_ref(), right.summary.as_ref())
+                && left.attachments.len() == right.attachments.len()
+                && left
+                    .attachments
+                    .iter()
+                    .zip(&right.attachments)
+                    .all(|(left, right)| {
+                        left.owner_component_id == right.owner_component_id
+                            && left.schema_id == right.schema_id
+                            && left.schema_version == right.schema_version
+                            && left.encoding == right.encoding
+                            && left.bytes == right.bytes
+                    })
+                && same_diagnostics(&left.diagnostics, &right.diagnostics)
+        })
+}
+
+fn same_parse_summary(left: Option<&WitParseSummary>, right: Option<&WitParseSummary>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.kind == right.kind
                 && left.definition_id == right.definition_id
                 && left.registration_id == right.registration_id
-                && left.pattern_index == right.pattern_index
                 && left.element_class == right.element_class
+                && left.pattern_index == right.pattern_index
+                && left.return_type == right.return_type
+                && left.multiplicity == right.multiplicity
+                && same_metadata_entries(&left.metadata, &right.metadata)
+        }
+        _ => false,
+    }
+}
+
+fn same_diagnostics(left: &[Diagnostic], right: &[Diagnostic]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.code == right.code
+                && left.message == right.message
+                && left.severity == right.severity
+                && same_mapped_span(&left.span, &right.span)
+                && left.related.len() == right.related.len()
+                && left
+                    .related
+                    .iter()
+                    .zip(&right.related)
+                    .all(|(left, right)| {
+                        left.message == right.message && same_mapped_span(&left.span, &right.span)
+                    })
         })
 }
 fn apply_effect_hook_replacement(
@@ -2372,14 +3422,8 @@ fn apply_effect_hook_replacement(
         .ok_or_else(|| HostError::InvalidEffectHookOutput {
             message: "Effect hook removed the selected candidate".to_owned(),
         })?;
-    let mut metadata = BTreeMap::new();
-    for entry in output.metadata {
-        if metadata.insert(entry.key.clone(), entry.value).is_some() {
-            return Err(HostError::InvalidEffectHookOutput {
-                message: format!("Effect candidate repeats metadata key {}", entry.key),
-            });
-        }
-    }
+    let metadata = metadata_entries(output.metadata)
+        .map_err(|message| HostError::InvalidEffectHookOutput { message })?;
     selected.handler = output.handler;
     selected.metadata = metadata;
     Ok(())
@@ -2395,6 +3439,7 @@ fn unknown_effect_matches(
     source: &MappedSource,
     node: &skript_parser::RawNode,
     failure: Option<PatternFailure>,
+    candidate: Option<EffectCandidateFailure>,
 ) -> Result<EffectMatches, HostError> {
     let code_span = node
         .code_span
@@ -2415,12 +3460,16 @@ fn unknown_effect_matches(
                 local_range: range,
                 mapped: code_span,
             },
-            failure,
+            failures: RankedFailures {
+                fallback: failure.map(FailureTrace::leaf),
+                candidates: candidate.into_iter().collect(),
+            },
         }),
     })
 }
 fn wit_expression_candidate(
     candidate: WitExpressionLeafCandidate,
+    available_parse_results: &BTreeMap<u64, ExecutedParseResult>,
 ) -> Result<ExpressionLeafCandidate, String> {
     if candidate.parser_id.trim().is_empty() {
         return Err("Expression candidate parser ID is blank".to_owned());
@@ -2429,14 +3478,33 @@ fn wit_expression_candidate(
         .map_err(|_| "Expression candidate start does not fit usize".to_owned())?;
     let end = usize::try_from(candidate.range.end)
         .map_err(|_| "Expression candidate end does not fit usize".to_owned())?;
-    let mut metadata = BTreeMap::new();
-    for entry in candidate.metadata {
-        if metadata.insert(entry.key.clone(), entry.value).is_some() {
+    let metadata = metadata_entries(candidate.metadata)?;
+    let mut children = Vec::with_capacity(candidate.children.len());
+    for reference in candidate.children {
+        let result = available_parse_results
+            .get(&reference.host_token)
+            .ok_or_else(|| {
+                format!(
+                    "Expression candidate {} references unavailable parse-result token {}",
+                    candidate.parser_id, reference.host_token
+                )
+            })?;
+        if result.wire.parser_id != skript_parser::HOST_EXPRESSION_PARSER_ID {
             return Err(format!(
-                "Expression candidate {} repeats metadata key {}",
-                candidate.parser_id, entry.key
+                "Expression candidate {} references non-Expression parser {}",
+                candidate.parser_id, result.wire.parser_id
             ));
         }
+        let child = result
+            .expression_roots
+            .get(&reference.root_id)
+            .ok_or_else(|| {
+                format!(
+                    "Expression candidate {} references unavailable root {} from token {}",
+                    candidate.parser_id, reference.root_id, reference.host_token
+                )
+            })?;
+        children.push(child.clone());
     }
     Ok(ExpressionLeafCandidate {
         parser_id: candidate.parser_id,
@@ -2453,6 +3521,7 @@ fn wit_expression_candidate(
             WitDynamicMultiplicity::Multiple => Multiplicity::Multiple,
             WitDynamicMultiplicity::Both => Multiplicity::Both,
         }),
+        children,
         metadata,
     })
 }
@@ -2460,29 +3529,216 @@ fn wit_expression_candidate(
 fn expression_type_options(
     catalog: Option<&Catalog>,
     expected_types: &[skript_parser::ExpressionExpectedType],
+    input: &str,
+    remaining: ParserTextRange,
+    candidate_ends: &[usize],
 ) -> Vec<WitExpressionTypeOption> {
-    if expected_types
-        .iter()
-        .any(|expected| expected.class_name.as_str().ends_with(".ClassInfo"))
+    let Some(catalog) = catalog else {
+        return Vec::new();
+    };
+    let Some(class_info) = catalog.type_by_code_name("classinfo") else {
+        return Vec::new();
+    };
+    if !expected_types.is_empty()
+        && !expected_types.iter().any(|expected| {
+            catalog.can_convert(
+                class_info.original_class.as_str(),
+                expected.class_name.as_str(),
+            )
+        })
     {
-        all_expression_type_options(catalog)
-    } else {
-        Vec::new()
+        return Vec::new();
     }
+    let candidate_texts = candidate_ends
+        .iter()
+        .filter_map(|end| input.get(remaining.start..*end))
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    all_expression_type_options(Some(catalog))
+        .into_iter()
+        .filter(|option| {
+            candidate_texts
+                .iter()
+                .any(|text| expression_type_option_matches(option, text))
+        })
+        .collect()
+}
+
+thread_local! {
+    static TYPE_USER_INPUT_PATTERNS: RefCell<HashMap<String, Option<Regex>>> =
+        RefCell::new(HashMap::new());
+}
+
+fn expression_type_option_matches(option: &WitExpressionTypeOption, input: &str) -> bool {
+    input.eq_ignore_ascii_case(&option.code_name)
+        || input.eq_ignore_ascii_case(&option.singular)
+        || input.eq_ignore_ascii_case(&option.plural)
+        || option.user_input_patterns.iter().any(|pattern| {
+            TYPE_USER_INPUT_PATTERNS.with(|patterns| {
+                patterns
+                    .borrow_mut()
+                    .entry(pattern.clone())
+                    .or_insert_with(|| Regex::new(&format!("(?i)^(?:{pattern})$")).ok())
+                    .as_ref()
+                    .is_some_and(|pattern| pattern.is_match(input).unwrap_or(false))
+            })
+        })
 }
 
 fn all_expression_type_options(catalog: Option<&Catalog>) -> Vec<WitExpressionTypeOption> {
-    catalog
+    let mut options = catalog
         .into_iter()
         .flat_map(Catalog::types)
         .map(|value| WitExpressionTypeOption {
+            source_record: catalog.and_then(|catalog| {
+                catalog_record_ref(
+                    catalog,
+                    "Types.json",
+                    value.source_index,
+                    value.registration_id.as_str(),
+                )
+            }),
             code_name: value.code_name.as_str().to_owned(),
             class_name: value.original_class.as_str().to_owned(),
+            type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
             singular: value.noun.singular.clone(),
             plural: value.noun.plural.clone(),
+            user_input_patterns: value.user_input_patterns.clone(),
             has_parser: value.has_parser,
+            has_supplier: value.has_supplier,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    options.sort_by_key(|option| option.type_parse_order);
+    options
+}
+
+fn expression_literal_options(
+    catalog: Option<&Catalog>,
+    input: &str,
+    remaining: ParserTextRange,
+    candidate_ends: &[usize],
+    expected_types: &[skript_parser::ExpressionExpectedType],
+) -> Vec<WitExpressionLiteralOption> {
+    let Some(catalog) = catalog else {
+        return Vec::new();
+    };
+    let mut options = Vec::new();
+    for end in candidate_ends.iter().copied().rev() {
+        let Some(text) = input.get(remaining.start..end) else {
+            continue;
+        };
+        let mut inputs = vec![(remaining.start, text)];
+        if let Some(offset) = prefixed_literal_suffix_offset(text) {
+            inputs.push((remaining.start + offset, &text[offset..]));
+        }
+        for (start, literal_text) in inputs {
+            for matched in catalog.type_literal_matches(literal_text) {
+                let value = matched.type_info;
+                if !expected_types.is_empty()
+                    && !expected_types.iter().any(|expected| {
+                        catalog.can_convert(
+                            value.original_class.as_str(),
+                            expected.class_name.as_str(),
+                        )
+                    })
+                {
+                    continue;
+                }
+                let literal = matched.literal;
+                options.push(WitExpressionLiteralOption {
+                    source_record: catalog_record_ref(
+                        catalog,
+                        "Types.json",
+                        value.source_index,
+                        value.registration_id.as_str(),
+                    ),
+                    literal_index: matched.literal_index.map(|index| index as u64),
+                    code_name: value.code_name.as_str().to_owned(),
+                    class_name: value.original_class.as_str().to_owned(),
+                    type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
+                    range: WitTextRange {
+                        start: u64::try_from(start).unwrap_or(u64::MAX),
+                        end: u64::try_from(end).unwrap_or(u64::MAX),
+                    },
+                    canonical_value: matched.canonical_value.to_owned(),
+                    source: match matched.source {
+                        syntaxes::TypeLiteralSource::ParserPattern => {
+                            WitExpressionLiteralSource::ParserPattern
+                        }
+                        syntaxes::TypeLiteralSource::Supplier => {
+                            WitExpressionLiteralSource::Supplier
+                        }
+                        syntaxes::TypeLiteralSource::EnumConstant => {
+                            WitExpressionLiteralSource::EnumConstant
+                        }
+                        syntaxes::TypeLiteralSource::Alias => WitExpressionLiteralSource::Alias,
+                    },
+                    plural: matched.plural,
+                    addon_name: value.addon.name.clone(),
+                    addon_version: value.addon.version.clone(),
+                    parser_class: value
+                        .parser_class
+                        .as_ref()
+                        .map(|class| class.as_str().to_owned()),
+                    parse_contexts: value.parse_contexts.clone(),
+                    value_class: literal.map(|literal| literal.value_class.as_str().to_owned()),
+                    represented_class: literal
+                        .and_then(|literal| literal.represented_class.as_ref())
+                        .map(|class| class.as_str().to_owned()),
+                    variable_name: literal.and_then(|literal| literal.variable_name.clone()),
+                    debug_text: literal.and_then(|literal| literal.debug_text.clone()),
+                    enum_constant: literal.and_then(|literal| literal.enum_constant.clone()),
+                });
+            }
+        }
+    }
+    options
+}
+
+fn prefixed_literal_suffix_offset(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let digits = bytes
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    let mut offset = if digits > 0 {
+        skip_ascii_spaces(text, digits)?
+    } else {
+        0
+    };
+    let mut prefixed = digits > 0;
+
+    if digits > 0
+        && let Some(next) = skip_ascii_word(text, offset, "of")
+    {
+        offset = next;
+    }
+    for word in ["all", "every", "a", "an"] {
+        if let Some(next) = skip_ascii_word(text, offset, word) {
+            offset = next;
+            prefixed = true;
+            break;
+        }
+    }
+    (prefixed && offset < text.len()).then_some(offset)
+}
+
+fn skip_ascii_word(text: &str, offset: usize, word: &str) -> Option<usize> {
+    let end = offset.checked_add(word.len())?;
+    if !text.get(offset..end)?.eq_ignore_ascii_case(word) {
+        return None;
+    }
+    skip_ascii_spaces(text, end)
+}
+
+fn skip_ascii_spaces(text: &str, offset: usize) -> Option<usize> {
+    let spaces = text
+        .as_bytes()
+        .get(offset..)?
+        .iter()
+        .take_while(|byte| byte.is_ascii_whitespace())
+        .count();
+    (spaces > 0).then_some(offset + spaces)
 }
 
 fn registered_property_options(
@@ -2490,37 +3746,192 @@ fn registered_property_options(
     related_property: Option<&str>,
     children: &[skript_parser::ExpressionNode],
 ) -> Vec<WitRegisteredExpressionPropertyOption> {
-    let (Some(catalog), Some(property_name), Some(source_type)) = (
-        catalog,
-        related_property,
-        children
-            .first()
-            .and_then(|child| child.return_type.as_ref()),
-    ) else {
+    let (Some(catalog), Some(property_name)) = (catalog, related_property) else {
         return Vec::new();
     };
-    catalog
+    let source_types = children
+        .iter()
+        .enumerate()
+        // Target-type helpers describe a requested result, not the Property holder.
+        .filter(|(_, child)| expression_child_semantic_role(child) != Some("target-type"))
+        .filter_map(|(index, child)| child.return_type.as_ref().map(|ty| (index, ty)))
+        .collect::<Vec<_>>();
+    let mut selected: Vec<(
+        usize,
+        &syntaxes::Property,
+        usize,
+        &syntaxes::TypeProperty,
+        usize,
+        &'static str,
+    )> = Vec::new();
+    for (property_source_index, property) in catalog
         .properties()
         .iter()
-        .filter(|property| property.name == property_name)
-        .flat_map(|property| property.related_types.iter())
-        .filter(|option| {
-            catalog.is_class_assignable(source_type.as_str(), option.type_class.as_str())
-        })
-        .map(|option| WitRegisteredExpressionPropertyOption {
-            input_class: option.type_class.as_str().to_owned(),
-            return_types: option
-                .possible_return_types
-                .as_ref()
-                .filter(|types| !types.is_empty())
-                .cloned()
-                .or_else(|| option.return_type.clone().map(|value| vec![value]))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|value| value.as_str().to_owned())
-                .collect(),
-        })
+        .enumerate()
+        .filter(|(_, property)| property.name == property_name)
+    {
+        for (source_child_index, source_type) in &source_types {
+            let mut closest: Option<(usize, &syntaxes::TypeProperty, &'static str)> = None;
+            for (related_type_index, option) in property.related_types.iter().enumerate() {
+                if option.type_class.as_str() == source_type.as_str() {
+                    closest = Some((related_type_index, option, "exact"));
+                    break;
+                }
+                if catalog.is_class_assignable(source_type.as_str(), option.type_class.as_str())
+                    && closest.is_none_or(|(_, current, _)| {
+                        catalog.is_class_assignable(
+                            option.type_class.as_str(),
+                            current.type_class.as_str(),
+                        )
+                    })
+                {
+                    closest = Some((related_type_index, option, "assignable"));
+                }
+            }
+            if let Some((related_type_index, option, match_kind)) = closest {
+                selected.push((
+                    property_source_index,
+                    property,
+                    related_type_index,
+                    option,
+                    *source_child_index,
+                    match_kind,
+                ));
+            }
+        }
+    }
+    selected
+        .into_iter()
+        .map(
+            |(
+                property_source_index,
+                property,
+                related_type_index,
+                option,
+                source_child_index,
+                match_kind,
+            )| {
+                WitRegisteredExpressionPropertyOption {
+                    source_record: catalog_record_ref(
+                        catalog,
+                        "Properties.json",
+                        property_source_index,
+                        property.registration_id.as_str(),
+                    ),
+                    property_source_index: property_source_index as u64,
+                    related_type_index: related_type_index as u64,
+                    source_child_index: source_child_index as u64,
+                    match_kind: match_kind.to_owned(),
+                    property_registration_id: property.registration_id.as_str().to_owned(),
+                    property_name: property.name.clone(),
+                    property_handler_class: property.handler_class.as_str().to_owned(),
+                    property_addon_name: property.addon.name.clone(),
+                    property_addon_version: property.addon.version.clone(),
+                    input_class: option.type_class.as_str().to_owned(),
+                    handler_class: option.handler_class.as_str().to_owned(),
+                    handler_kind: property_handler_kind_name(&option.handler_kind).to_owned(),
+                    provider_addon_name: option.provider.as_ref().map(|addon| addon.name.clone()),
+                    provider_addon_version: option
+                        .provider
+                        .as_ref()
+                        .map(|addon| addon.version.clone()),
+                    type_code_name: option.type_code_name.as_str().to_owned(),
+                    element_types: option
+                        .element_types
+                        .clone()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|value| value.as_str().to_owned())
+                        .collect(),
+                    return_types: option
+                        .possible_return_types
+                        .as_ref()
+                        .filter(|types| !types.is_empty())
+                        .cloned()
+                        .or_else(|| option.return_type.clone().map(|value| vec![value]))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|value| value.as_str().to_owned())
+                        .collect(),
+                    supported_axes: option.supported_axes.clone().unwrap_or_default(),
+                    accepted_changers: option
+                        .accepted_changers
+                        .as_ref()
+                        .map(|modes| {
+                            modes
+                                .iter()
+                                .map(|(mode, types)| WitAcceptedChangeMode {
+                                    mode: catalog_change_mode_name(*mode).to_owned(),
+                                    accepted_types: types
+                                        .iter()
+                                        .map(|value| value.as_str().to_owned())
+                                        .collect(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    accepted_changers_state: option.expression_metadata_state.map(|state| {
+                        match state {
+                            ResolutionState::Resolved => WitMetadataResolutionState::Resolved,
+                            ResolutionState::Unresolved => WitMetadataResolutionState::Unresolved,
+                        }
+                    }),
+                    requires_source_expression_change: option.requires_source_expression_change,
+                }
+            },
+        )
         .collect()
+}
+
+fn expression_child_semantic_role(node: &skript_parser::ExpressionNode) -> Option<&str> {
+    node.metadata
+        .get("semantic-role")
+        .map(String::as_str)
+        // Older CoreLibrary artifacts used target-class before roles were explicit.
+        .or_else(|| {
+            node.metadata
+                .contains_key("target-class")
+                .then_some("target-type")
+        })
+}
+
+fn property_handler_kind_name(kind: &syntaxes::PropertyHandlerKind) -> &'static str {
+    match kind {
+        syntaxes::PropertyHandlerKind::Expression => "expression",
+        syntaxes::PropertyHandlerKind::Condition => "condition",
+        syntaxes::PropertyHandlerKind::Contains => "contains",
+        syntaxes::PropertyHandlerKind::TypedValue => "typed-value",
+        syntaxes::PropertyHandlerKind::Wxyz => "wxyz",
+        syntaxes::PropertyHandlerKind::Custom => "custom",
+    }
+}
+
+fn catalog_change_mode_name(mode: CatalogChangeMode) -> &'static str {
+    match mode {
+        CatalogChangeMode::Add => "ADD",
+        CatalogChangeMode::Set => "SET",
+        CatalogChangeMode::Remove => "REMOVE",
+        CatalogChangeMode::RemoveAll => "REMOVE_ALL",
+        CatalogChangeMode::Delete => "DELETE",
+        CatalogChangeMode::Reset => "RESET",
+    }
+}
+
+fn expression_node_registration(
+    node: &ExpressionNode,
+) -> (Option<String>, Option<String>, Option<u64>) {
+    match &node.kind {
+        ExpressionNodeKind::Registered {
+            definition_id,
+            registration_id,
+            pattern_index,
+        } => (
+            Some(definition_id.clone()),
+            Some(registration_id.clone()),
+            u64::try_from(*pattern_index).ok(),
+        ),
+        _ => (None, None, None),
+    }
 }
 
 fn expression_node_element_class(
@@ -2539,19 +3950,30 @@ fn expression_node_element_class(
         .map(|expression| expression.common.element_class.as_str().to_owned())
 }
 
+fn expression_node_identity(node: &ExpressionNode) -> (&'static str, Option<&str>) {
+    match &node.kind {
+        ExpressionNodeKind::Grouped => ("grouped-expression", None),
+        ExpressionNodeKind::List { .. } => ("expression-list", None),
+        ExpressionNodeKind::Registered { .. } => ("registered-expression", None),
+        ExpressionNodeKind::Variable { parser_id } => ("variable", Some(parser_id)),
+        ExpressionNodeKind::Literal { parser_id } => ("literal", Some(parser_id)),
+        ExpressionNodeKind::Function { parser_id } => ("function", Some(parser_id)),
+        ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None),
+        ExpressionNodeKind::Custom { parser_id } => ("custom", Some(parser_id)),
+    }
+}
+
 fn common_child_return_type(
     children: &[skript_parser::ExpressionNode],
     catalog: Option<&Catalog>,
 ) -> Option<String> {
     let catalog = catalog?;
-    let mut types = children
+    let types = children
         .iter()
-        .filter_map(|child| child.return_type.as_ref());
-    let first = types.next()?.clone();
-    types
-        .try_fold(first, |common, next| {
-            catalog.common_assignable_class(common.as_str(), next.as_str())
-        })
+        .map(|child| child.return_type.clone())
+        .collect::<Option<Vec<_>>>()?;
+    catalog
+        .common_skript_class(&types)
         .map(|value| value.as_str().to_owned())
 }
 
@@ -2561,12 +3983,60 @@ fn same_expression_type_options(
 ) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
-            left.code_name == right.code_name
+            same_catalog_record_ref(&left.source_record, &right.source_record)
+                && left.code_name == right.code_name
                 && left.class_name == right.class_name
+                && left.type_parse_order == right.type_parse_order
                 && left.singular == right.singular
                 && left.plural == right.plural
+                && left.user_input_patterns == right.user_input_patterns
                 && left.has_parser == right.has_parser
+                && left.has_supplier == right.has_supplier
         })
+}
+
+fn same_expression_literal_options(
+    left: &[WitExpressionLiteralOption],
+    right: &[WitExpressionLiteralOption],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            same_catalog_record_ref(&left.source_record, &right.source_record)
+                && left.literal_index == right.literal_index
+                && left.code_name == right.code_name
+                && left.class_name == right.class_name
+                && left.type_parse_order == right.type_parse_order
+                && same_wit_range(&left.range, &right.range)
+                && left.canonical_value == right.canonical_value
+                && left.source == right.source
+                && left.plural == right.plural
+                && left.addon_name == right.addon_name
+                && left.addon_version == right.addon_version
+                && left.parser_class == right.parser_class
+                && left.parse_contexts == right.parse_contexts
+                && left.value_class == right.value_class
+                && left.represented_class == right.represented_class
+                && left.variable_name == right.variable_name
+                && left.debug_text == right.debug_text
+                && left.enum_constant == right.enum_constant
+        })
+}
+
+fn same_catalog_record_ref(
+    left: &Option<WitCatalogRecordRef>,
+    right: &Option<WitCatalogRecordRef>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.source_digest == right.source_digest
+                && left.snapshot_id == right.snapshot_id
+                && left.document == right.document
+                && left.index == right.index
+                && left.byte_length == right.byte_length
+        }
+        _ => false,
+    }
 }
 
 fn multiplicity_to_wit(value: Multiplicity) -> WitDynamicMultiplicity {
@@ -2588,11 +4058,14 @@ fn multiplicity_from_wit(value: WitDynamicMultiplicity) -> Multiplicity {
 fn metadata_entries(entries: Vec<WitMetadataEntry>) -> Result<BTreeMap<String, String>, String> {
     let mut metadata = BTreeMap::new();
     for entry in entries {
-        if metadata.insert(entry.key.clone(), entry.value).is_some() {
-            return Err(format!(
-                "registered Expression repeats metadata key {}",
-                entry.key
-            ));
+        let WitMetadataEntry {
+            owner_component_id,
+            key,
+            value,
+        } = entry;
+        let key = owner_component_id.map_or(key.clone(), |owner| format!("{owner}/{key}"));
+        if metadata.insert(key.clone(), value).is_some() {
+            return Err(format!("metadata key {key} is repeated"));
         }
     }
     Ok(metadata)
@@ -2608,6 +4081,7 @@ fn same_registered_expression_identity(
         && left.element_class == right.element_class
         && left.related_property == right.related_property
         && left.pattern_index == right.pattern_index
+        && left.pattern == right.pattern
         && same_mapped_span(&left.span, &right.span)
         && left.expected_types.len() == right.expected_types.len()
         && left
@@ -2635,12 +4109,17 @@ fn same_registered_expression_identity(
             .zip(&right.children)
             .all(|(left, right)| {
                 left.text == right.text
+                    && left.kind == right.kind
+                    && left.parser_id == right.parser_id
+                    && left.definition_id == right.definition_id
+                    && left.registration_id == right.registration_id
+                    && left.pattern_index == right.pattern_index
                     && left.element_class == right.element_class
                     && left.return_type == right.return_type
                     && left.multiplicity == right.multiplicity
                     && same_metadata_entries(&left.metadata, &right.metadata)
             })
-        && same_registered_condition_captures(&left.conditions, &right.conditions)
+        && same_parsed_captures(&left.parsed_captures, &right.parsed_captures)
         && left.common_child_return_type == right.common_child_return_type
         && same_expression_type_options(&left.type_options, &right.type_options)
         && left.property_options.len() == right.property_options.len()
@@ -2649,8 +4128,69 @@ fn same_registered_expression_identity(
             .iter()
             .zip(&right.property_options)
             .all(|(left, right)| {
-                left.input_class == right.input_class && left.return_types == right.return_types
+                same_catalog_record_ref(&left.source_record, &right.source_record)
+                    && left.property_source_index == right.property_source_index
+                    && left.related_type_index == right.related_type_index
+                    && left.source_child_index == right.source_child_index
+                    && left.match_kind == right.match_kind
+                    && left.property_registration_id == right.property_registration_id
+                    && left.property_name == right.property_name
+                    && left.property_handler_class == right.property_handler_class
+                    && left.property_addon_name == right.property_addon_name
+                    && left.property_addon_version == right.property_addon_version
+                    && left.input_class == right.input_class
+                    && left.handler_class == right.handler_class
+                    && left.handler_kind == right.handler_kind
+                    && left.provider_addon_name == right.provider_addon_name
+                    && left.provider_addon_version == right.provider_addon_version
+                    && left.type_code_name == right.type_code_name
+                    && left.element_types == right.element_types
+                    && left.return_types == right.return_types
+                    && left.supported_axes == right.supported_axes
+                    && same_accepted_changers(&left.accepted_changers, &right.accepted_changers)
+                    && left.accepted_changers_state == right.accepted_changers_state
+                    && left.requires_source_expression_change
+                        == right.requires_source_expression_change
             })
+}
+
+fn validate_selected_property_options(
+    payload: &WitRegisteredExpressionPayload,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    let mut source_child_index = None;
+    for index in &payload.selected_property_option_indices {
+        let index = usize::try_from(*index)
+            .map_err(|_| "selected Property option index does not fit host memory".to_owned())?;
+        if index >= payload.property_options.len() {
+            return Err(format!(
+                "selected Property option index {index} is outside the {}-option payload",
+                payload.property_options.len()
+            ));
+        }
+        if !seen.insert(index) {
+            return Err(format!(
+                "selected Property option index {index} is repeated"
+            ));
+        }
+        let option = &payload.property_options[index];
+        if source_child_index
+            .replace(option.source_child_index)
+            .is_some_and(|previous| previous != option.source_child_index)
+        {
+            return Err(
+                "selected Property options refer to different source Expressions".to_owned(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn same_accepted_changers(left: &[WitAcceptedChangeMode], right: &[WitAcceptedChangeMode]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.mode == right.mode && left.accepted_types == right.accepted_types
+        })
 }
 
 fn same_matching_path(left: &[MatchingPathSegment], right: &[MatchingPathSegment]) -> bool {
@@ -2720,75 +4260,152 @@ fn wit_syntax_kind(kind: MatchSyntaxKind) -> SyntaxKind {
     }
 }
 
-fn registered_capture_kinds(
+fn registered_capture_bindings(
     components: &[ComponentEntry],
-    kind: CatalogSyntaxKind,
-    element_class: &ClassName,
-) -> Vec<RegisteredCaptureKind> {
-    components
+    syntax: RegisteredSyntaxIdentity<'_>,
+) -> Result<Vec<RegisteredCaptureBinding>, String> {
+    let mut bindings = BTreeMap::<usize, RegisteredCaptureBinding>::new();
+    for component in components
         .iter()
-        .rev()
         .filter(|component| !component.disabled && !component.unloaded)
-        .flat_map(|component| &component.manifest.registered_syntax_handlers)
-        .find(|handler| {
-            catalog_syntax_kind(handler.kind) == kind
-                && element_class.as_str().ends_with(&handler.class_suffix)
-        })
-        .map_or_else(Vec::new, |handler| {
-            handler
-                .regex_captures
-                .iter()
-                .map(|kind| match kind {
-                    WitRegisteredCaptureKind::Raw => RegisteredCaptureKind::Raw,
-                    WitRegisteredCaptureKind::Condition => RegisteredCaptureKind::Condition,
-                    WitRegisteredCaptureKind::Effect => RegisteredCaptureKind::Effect,
-                })
-                .collect()
-        })
+    {
+        for handler in component
+            .manifest
+            .registered_syntax_handlers
+            .iter()
+            .filter(|handler| registered_handler_matches(component, handler, syntax))
+        {
+            for binding in &handler.capture_parsers {
+                let capture_index = usize::try_from(binding.capture_index).map_err(|_| {
+                    format!(
+                        "capture index {} does not fit this platform",
+                        binding.capture_index
+                    )
+                })?;
+                let binding = RegisteredCaptureBinding {
+                    capture_index,
+                    parser_id: binding.parser_id.clone(),
+                    required: binding.required,
+                    options: binding
+                        .options
+                        .iter()
+                        .map(|entry| (entry.key.clone(), entry.value.clone()))
+                        .collect(),
+                };
+                if let Some(existing) = bindings.get(&capture_index) {
+                    if existing != &binding {
+                        return Err(format!(
+                            "registered syntax {} pattern {} has conflicting capture parsers at index {}",
+                            syntax.registration_id,
+                            syntax
+                                .pattern_index
+                                .map_or_else(|| "*".to_owned(), |index| index.to_string()),
+                            capture_index
+                        ));
+                    }
+                } else {
+                    bindings.insert(capture_index, binding);
+                }
+            }
+        }
+    }
+    Ok(bindings.into_values().collect())
 }
 
 fn has_registered_syntax_handler(
     components: &[ComponentEntry],
-    kind: CatalogSyntaxKind,
-    element_class: &ClassName,
+    syntax: RegisteredSyntaxIdentity<'_>,
 ) -> bool {
     components
         .iter()
         .filter(|component| !component.disabled && !component.unloaded)
-        .flat_map(|component| &component.manifest.registered_syntax_handlers)
-        .any(|handler| {
-            catalog_syntax_kind(handler.kind) == kind
-                && element_class.as_str().ends_with(&handler.class_suffix)
+        .any(|component| {
+            component
+                .manifest
+                .registered_syntax_handlers
+                .iter()
+                .any(|handler| registered_handler_matches(component, handler, syntax))
         })
 }
 
-fn registered_element_class<'a>(
+fn registered_handler_requires_context(
+    components: &[ComponentEntry],
+    syntax: RegisteredSyntaxIdentity<'_>,
+    requirement: &str,
+) -> bool {
+    components
+        .iter()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .any(|component| {
+            component
+                .manifest
+                .registered_syntax_handlers
+                .iter()
+                .filter(|handler| registered_handler_matches(component, handler, syntax))
+                .any(|handler| {
+                    handler
+                        .context_requirements
+                        .iter()
+                        .any(|declared| declared == requirement)
+                })
+        })
+}
+
+fn registered_handler_matches(
+    component: &ComponentEntry,
+    handler: &crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler,
+    syntax: RegisteredSyntaxIdentity<'_>,
+) -> bool {
+    if catalog_syntax_kind(handler.kind) != syntax.kind {
+        return false;
+    }
+    let Some(binding) = component
+        .registered_handler_bindings
+        .iter()
+        .find(|binding| binding.handler_id == handler.handler_id)
+    else {
+        return false;
+    };
+    match &handler.target {
+        RegisteredSyntaxHandlerTarget::Definition(_) => binding
+            .definition_ids
+            .iter()
+            .any(|id| id == syntax.definition_id),
+        RegisteredSyntaxHandlerTarget::Registration(_)
+        | RegisteredSyntaxHandlerTarget::ClassSuffix(_) => binding
+            .registration_ids
+            .iter()
+            .any(|id| id == syntax.registration_id),
+    }
+}
+
+fn registered_syntax_identity<'a>(
     catalog: &'a Catalog,
     kind: MatchSyntaxKind,
     registration_id: &str,
-) -> Option<&'a ClassName> {
-    match kind {
-        MatchSyntaxKind::Condition => catalog
-            .conditions()
-            .find(|value| value.common.registration_id.as_str() == registration_id)
-            .map(|value| &value.common.element_class),
-        MatchSyntaxKind::Effect => catalog
-            .effects()
-            .find(|value| value.common.registration_id.as_str() == registration_id)
-            .map(|value| &value.common.element_class),
-        MatchSyntaxKind::Expression => catalog
-            .expressions()
-            .find(|value| value.common.registration_id.as_str() == registration_id)
-            .map(|value| &value.common.element_class),
-        MatchSyntaxKind::Section => catalog
-            .sections()
-            .find(|value| value.common.registration_id.as_str() == registration_id)
-            .map(|value| &value.common.element_class),
-        MatchSyntaxKind::Event
-        | MatchSyntaxKind::Type
-        | MatchSyntaxKind::Function
-        | MatchSyntaxKind::Structure => None,
+) -> Option<RegisteredSyntaxIdentity<'a>> {
+    let kind = match kind {
+        MatchSyntaxKind::Event => CatalogSyntaxKind::Event,
+        MatchSyntaxKind::Condition => CatalogSyntaxKind::Condition,
+        MatchSyntaxKind::Effect => CatalogSyntaxKind::Effect,
+        MatchSyntaxKind::Expression => CatalogSyntaxKind::Expression,
+        MatchSyntaxKind::Type => CatalogSyntaxKind::Type,
+        MatchSyntaxKind::Function => CatalogSyntaxKind::Function,
+        MatchSyntaxKind::Section => CatalogSyntaxKind::Section,
+        MatchSyntaxKind::Structure => CatalogSyntaxKind::Structure,
+    };
+    let syntaxes = catalog.syntax_by_registration_id(registration_id);
+    let mut matches = syntaxes.iter().filter(|syntax| syntax.kind() == kind);
+    let syntax = *matches.next()?;
+    if matches.next().is_some() {
+        return None;
     }
+    Some(RegisteredSyntaxIdentity {
+        kind,
+        definition_id: syntax.definition_id().as_str(),
+        registration_id: syntax.registration_id().as_str(),
+        pattern_index: None,
+    })
 }
 struct EpochTicker {
     stop: Arc<AtomicBool>,
@@ -2861,7 +4478,38 @@ pub struct ParserHost {
     capabilities: Vec<Capability>,
     components: Vec<ComponentEntry>,
     registry: SubscriptionRegistry,
+    active_parse_requests: Vec<ParseRequestKey>,
+    next_parse_result_token: u64,
     _epoch_ticker: EpochTicker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParseRequestKey {
+    parser_id: String,
+    input: String,
+    expected_types: Vec<(String, bool)>,
+    options: Vec<(String, String)>,
+    syntax_context: u64,
+}
+
+impl ParseRequestKey {
+    fn new(request: &ParseRequest, context: &InvocationContext) -> Self {
+        Self {
+            parser_id: request.parser_id.clone(),
+            input: request.input.clone(),
+            expected_types: request
+                .expected_types
+                .iter()
+                .map(|expected| (expected.class_name.clone(), expected.plural))
+                .collect(),
+            options: request
+                .options
+                .iter()
+                .map(|entry| (entry.key.clone(), entry.value.clone()))
+                .collect(),
+            syntax_context: context.syntax_context,
+        }
+    }
 }
 
 impl ParserHost {
@@ -2872,6 +4520,10 @@ impl ParserHost {
         }
         config.validate()?;
         let state_store = StateStore::new(config.state_store.clone())?;
+        let catalog_source_available = config
+            .syntax_catalog
+            .as_ref()
+            .is_some_and(|catalog| catalog.source().is_some());
         let dynamic_syntax_registry = config
             .syntax_catalog
             .clone()
@@ -2890,7 +4542,10 @@ impl ParserHost {
             .map_err(|error| HostError::Engine {
                 message: format!("failed to register parser addon host imports: {error}"),
             })?;
-        let capabilities = configured_host_capabilities(dynamic_syntax_registry.is_some());
+        let capabilities = configured_host_capabilities(
+            dynamic_syntax_registry.is_some(),
+            catalog_source_available,
+        );
         let mut host = Self {
             engine,
             linker,
@@ -2900,6 +4555,8 @@ impl ParserHost {
             capabilities,
             components: Vec::new(),
             registry: SubscriptionRegistry::default(),
+            active_parse_requests: Vec::new(),
+            next_parse_result_token: 1,
             _epoch_ticker: ticker,
         };
         host.load_component(core_library, true)?;
@@ -3343,13 +5000,14 @@ impl ParserHost {
             candidate: None,
             alternatives: &[],
             failure: None,
+            near_match: None,
             catalog: catalog.as_ref(),
         });
         let before = match self.dispatch_in_parse(
             transaction,
             DispatchRequest {
                 context: context.clone(),
-                target: DispatchTarget::SyntaxDefinition(SyntaxKind::Effect),
+                target: DispatchTarget::SyntaxKind(SyntaxKind::Effect),
                 phase: HookPhase::Effect,
                 payload: HookPayload::Effect(before_payload.clone()),
             },
@@ -3378,7 +5036,7 @@ impl ParserHost {
         if matches!(before.decision, HookDecision::Reject(_)) {
             transaction.rollback_to(&base)?;
             return Ok(WasmEffectParseResult {
-                matches: unknown_effect_matches(source, node, None)?,
+                matches: unknown_effect_matches(source, node, None, None)?,
                 effects,
                 calls,
                 failures,
@@ -3426,13 +5084,37 @@ impl ParserHost {
             }
         };
 
-        let target = matches.selected.as_ref().map_or(
-            DispatchTarget::SyntaxDefinition(SyntaxKind::Effect),
-            |selected| DispatchTarget::ExactRegistration {
+        let target = matches
+            .selected
+            .as_ref()
+            .map(|selected| DispatchTarget::Pattern {
+                definition_id: selected.matched.definition_id.clone(),
                 registration_id: selected.matched.registration_id.clone(),
+                pattern_index: u64::try_from(selected.matched.pattern_index).unwrap_or(u64::MAX),
                 syntax_kind: SyntaxKind::Effect,
-            },
-        );
+            })
+            .or_else(|| {
+                matches
+                    .unknown
+                    .as_ref()
+                    .and_then(|unknown| unknown.failures.primary())
+                    .map(|candidate| {
+                        candidate.matched.pattern_index.map_or_else(
+                            || DispatchTarget::Registration {
+                                definition_id: candidate.matched.definition_id.clone(),
+                                registration_id: candidate.matched.registration_id.clone(),
+                                syntax_kind: SyntaxKind::Effect,
+                            },
+                            |pattern_index| DispatchTarget::Pattern {
+                                definition_id: candidate.matched.definition_id.clone(),
+                                registration_id: candidate.matched.registration_id.clone(),
+                                pattern_index: u64::try_from(pattern_index).unwrap_or(u64::MAX),
+                                syntax_kind: SyntaxKind::Effect,
+                            },
+                        )
+                    })
+            })
+            .unwrap_or(DispatchTarget::SyntaxKind(SyntaxKind::Effect));
         let after_payload = effect_hook_payload(EffectHookPayloadView {
             input: &input,
             raw_node_id: node.id,
@@ -3440,10 +5122,11 @@ impl ParserHost {
             timing: WitEffectTiming::After,
             candidate: matches.selected.as_ref(),
             alternatives: &matches.alternatives,
-            failure: matches
+            failure: matches.unknown.as_ref().and_then(unknown_effect_failure),
+            near_match: matches
                 .unknown
                 .as_ref()
-                .and_then(|unknown| unknown.failure.as_ref()),
+                .and_then(|unknown| unknown.failures.primary()),
             catalog: catalog.as_ref(),
         });
         let after = match self.dispatch_in_parse(
@@ -3477,15 +5160,55 @@ impl ParserHost {
         }
 
         if let HookDecision::Reject(rejection) = after.decision {
-            let failure = matches.selected.as_ref().map(|selected| PatternFailure {
-                offset: selected.matched.matched.span.local_range.start,
-                span: selected.matched.matched.span.clone(),
-                reasons: vec![PatternFailureReason::HookRejected {
-                    reason: rejection.reason,
-                }],
-            });
             transaction.rollback_to(&base)?;
-            matches = unknown_effect_matches(source, node, failure)?;
+            if let Some(selected) = matches.selected.take() {
+                let span = rejection
+                    .diagnostics
+                    .first()
+                    .and_then(|diagnostic| {
+                        let start = usize::try_from(diagnostic.span.virtual_range.start).ok()?;
+                        let end = usize::try_from(diagnostic.span.virtual_range.end).ok()?;
+                        selected
+                            .parsed_captures
+                            .iter()
+                            .find(|capture| {
+                                capture.result.span.mapped.virtual_range
+                                    == ParserTextRange::new(start, end)
+                            })
+                            .map(|capture| capture.result.span.clone())
+                    })
+                    .unwrap_or_else(|| selected.matched.matched.span.clone());
+                let failure = PatternFailure {
+                    span,
+                    reasons: vec![PatternFailureReason::HookRejected {
+                        reason: rejection.reason,
+                    }],
+                };
+                let registration_id = selected.matched.registration_id.clone();
+                let element_class = catalog
+                    .effects()
+                    .find(|effect| effect.common.registration_id.as_str() == registration_id)
+                    .map(|effect| effect.common.element_class.clone());
+                let rejected = EffectCandidateFailure {
+                    matched: CandidateFailure {
+                        kind: selected.matched.kind,
+                        definition_id: selected.matched.definition_id,
+                        registration_id: selected.matched.registration_id,
+                        priority: selected.matched.priority,
+                        registration_order: selected.matched.registration_order,
+                        resolved_order: None,
+                        literal_anchor: selected.matched.literal_anchor,
+                        pattern_index: Some(selected.matched.pattern_index),
+                        pattern: Some(selected.matched.pattern),
+                        trace: FailureTrace::leaf(failure.clone()),
+                        related: Vec::new(),
+                    },
+                    element_class,
+                    handler: selected.handler,
+                    metadata: selected.metadata,
+                };
+                matches = unknown_effect_matches(source, node, Some(failure), Some(rejected))?;
+            }
         } else if matches.selected.is_some() {
             if let Err(error) = apply_effect_hook_replacement(&mut matches, after_output) {
                 transaction.rollback_to(&base)?;
@@ -3888,6 +5611,19 @@ impl ParserHost {
                 });
             }
 
+            if matches!(output.decision, HookDecision::NotApplicable) {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                calls.push(TextMacroCall {
+                    component_id,
+                    subscription_id,
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                continue;
+            }
+
             if let Err(message) = normalize_text_macro_output_spans(&source, &mut output) {
                 state_invocation.rollback();
                 drop(dynamic_update);
@@ -3913,8 +5649,9 @@ impl ParserHost {
             let TextMacroOutput {
                 decision: macro_decision,
                 edits,
-                effects: macro_effects,
+                effects: mut macro_effects,
             } = output;
+            stamp_parse_result_attachments(&mut macro_effects, &component_id);
             if matches!(macro_decision, HookDecision::Reject(_)) {
                 state_invocation.rollback();
                 drop(dynamic_update);
@@ -4431,8 +6168,22 @@ impl ParserHost {
             let TreeMacroOutput {
                 decision,
                 edit,
-                effects,
+                mut effects,
             } = output;
+            if matches!(decision, HookDecision::NotApplicable) {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                pipeline.calls.push(TreeMacroCall {
+                    component_id,
+                    subscription_id,
+                    target: current_target,
+                    accepted: false,
+                    expansion: None,
+                    state_accesses: accesses,
+                });
+                continue;
+            }
+            stamp_parse_result_attachments(&mut effects, &component_id);
             if matches!(decision, HookDecision::Reject(_)) {
                 state_invocation.rollback();
                 pipeline.active.pop();
@@ -4615,6 +6366,211 @@ impl ParserHost {
 
         Ok(TreeWalk::Continue { sibling_count: 1 })
     }
+    fn execute_parse_requests(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        requests: Vec<ParseRequest>,
+    ) -> Result<Vec<ExecutedParseResult>, HostError> {
+        let mut results = Vec::with_capacity(requests.len());
+        let mut node_count = 0usize;
+        for request in requests {
+            let key = ParseRequestKey::new(&request, context);
+            let mut result = if self.active_parse_requests.contains(&key) {
+                ExecutedParseResult {
+                    wire: failed_parse_result(
+                        &request,
+                        "parser.request-cycle",
+                        "recursive parser request cycle detected",
+                    ),
+                    expression_roots: BTreeMap::new(),
+                }
+            } else {
+                self.active_parse_requests.push(key);
+                let result = self.execute_parse_request(transaction, context, &request);
+                self.active_parse_requests.pop();
+                result?
+            };
+            validate_parse_result(&request, &result.wire)?;
+            node_count = node_count.saturating_add(result.wire.nodes.len());
+            if node_count > self.config.max_parse_result_nodes {
+                return Err(HostError::ParseResultNodeQuotaExceeded {
+                    limit: self.config.max_parse_result_nodes,
+                });
+            }
+            result.wire.host_token = self.next_parse_result_token;
+            self.next_parse_result_token = self
+                .next_parse_result_token
+                .checked_add(1)
+                .ok_or(HostError::ParseResultTokenExhausted)?;
+            results.push(result);
+        }
+        Ok(results)
+    }
+
+    fn execute_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        match request.parser_id.as_str() {
+            skript_parser::HOST_EXPRESSION_PARSER_ID => {
+                self.execute_expression_parse_request(transaction, context, request)
+            }
+            skript_parser::HOST_CONDITION_PARSER_ID => {
+                self.execute_condition_parse_request(transaction, context, request)
+            }
+            _ => self.execute_addon_parse_request(transaction, context, request),
+        }
+    }
+
+    fn execute_expression_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let source = MappedSource::identity(request.input.clone());
+        let parsed = self.parse_expression_in_parse(
+            transaction,
+            context.clone(),
+            ExpressionParseRequest {
+                source: &source,
+                range: ParserTextRange::new(0, request.input.len()),
+                expected_types: request
+                    .expected_types
+                    .iter()
+                    .map(|expected| skript_parser::ExpressionExpectedType {
+                        class_name: ClassName(expected.class_name.clone()),
+                        plural: expected.plural,
+                    })
+                    .collect(),
+                context: skript_parser::ExpressionParseContext {
+                    syntax_context: context.syntax_context,
+                    ..Default::default()
+                },
+            },
+            ExpressionParserConfig::default(),
+        )?;
+        let Some(selected) = parsed.matches.selected else {
+            let message = parsed.matches.failure.as_ref().map_or_else(
+                || "input is not a valid Expression".to_owned(),
+                |failure| format!("Expression parse failed: {:?}", failure.kind),
+            );
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(request, "parser.expression-no-match", &message),
+                expression_roots: BTreeMap::new(),
+            });
+        };
+        let wire = expression_parse_result(
+            request,
+            &selected.node,
+            self.config.syntax_catalog.as_deref(),
+        );
+        let root_id = *wire
+            .roots
+            .first()
+            .expect("successful Expression results have one root");
+        let child = rebase_expression_node(selected.node, request)?;
+        Ok(ExecutedParseResult {
+            wire,
+            expression_roots: BTreeMap::from([(root_id, child)]),
+        })
+    }
+
+    fn execute_condition_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let source = MappedSource::identity(request.input.clone());
+        let parsed = self.parse_condition_in_parse(
+            transaction,
+            context.clone(),
+            ConditionParseRequest {
+                source: &source,
+                range: ParserTextRange::new(0, request.input.len()),
+                context: skript_parser::ExpressionParseContext {
+                    syntax_context: context.syntax_context,
+                    ..Default::default()
+                },
+            },
+            ConditionParserConfig::default(),
+        )?;
+        let Some(selected) = parsed.matches.selected else {
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(
+                    request,
+                    "parser.condition-no-match",
+                    "input is not a valid Condition",
+                ),
+                expression_roots: BTreeMap::new(),
+            });
+        };
+        Ok(ExecutedParseResult {
+            wire: condition_parse_result(
+                request,
+                &selected.node,
+                self.config.syntax_catalog.as_deref(),
+            ),
+            expression_roots: BTreeMap::new(),
+        })
+    }
+
+    fn execute_addon_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let mut result = self.dispatch_with_transaction(
+            transaction,
+            DispatchRequest {
+                context: context.clone(),
+                target: DispatchTarget::Parser(request.parser_id.clone()),
+                phase: HookPhase::Parser,
+                payload: HookPayload::Parser(request.clone()),
+            },
+        )?;
+        if !matches!(result.decision, HookDecision::Handled) {
+            if !result.effects.parse_results.is_empty() {
+                return Err(HostError::InvalidParseResult {
+                    parser_id: request.parser_id.clone(),
+                    message: "a parser returned results without handling the request".to_owned(),
+                });
+            }
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(
+                    request,
+                    "parser.unhandled",
+                    "no registered parser handled the request",
+                ),
+                expression_roots: BTreeMap::new(),
+            });
+        }
+        if result.effects.parse_results.len() != 1 {
+            return Err(HostError::InvalidParseResult {
+                parser_id: request.parser_id.clone(),
+                message: format!(
+                    "a handled request must return exactly one result, got {}",
+                    result.effects.parse_results.len()
+                ),
+            });
+        }
+        let parsed = result
+            .effects
+            .parse_results
+            .pop()
+            .expect("length was checked");
+        validate_parse_result(request, &parsed)?;
+        Ok(ExecutedParseResult {
+            wire: parsed,
+            expression_roots: BTreeMap::new(),
+        })
+    }
+
     fn dispatch_with_transaction(
         &mut self,
         transaction: &ParseTransaction,
@@ -4624,6 +6580,7 @@ impl ParserHost {
             HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
             HookPhase::Effect => CAPABILITY_EFFECT_PARSER,
             HookPhase::Section => CAPABILITY_SECTION_PARSER,
+            HookPhase::Parser => CAPABILITY_ADDITIONAL_PARSE,
             _ => CAPABILITY_HOOKS,
         };
         let candidates =
@@ -4632,22 +6589,27 @@ impl ParserHost {
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
         let mut payload = request.payload;
+        apply_catalog_annotations(&self.components, &request.target, &mut payload);
         let mut effects = empty_effects();
         let mut calls = Vec::new();
         let mut failures = Vec::new();
+        let mut available_parse_results = BTreeMap::new();
         let mut generated_output = 0usize;
         let mut decision = HookDecision::ContinueProcessing;
 
-        for candidate in candidates {
+        'candidate: for candidate in candidates {
             if self.components[candidate.component_index].disabled
                 || self.components[candidate.component_index].unloaded
             {
                 continue;
             }
-            if calls.len() >= self.config.max_calls_per_dispatch {
-                return Err(HostError::CallQuotaExceeded {
-                    limit: self.config.max_calls_per_dispatch,
-                });
+            if selector_match(
+                &candidate.subscription.selector,
+                &payload,
+                self.config.syntax_catalog.as_deref(),
+            ) == SelectorMatch::NoMatch
+            {
+                continue;
             }
 
             let component_id = self.components[candidate.component_index]
@@ -4655,37 +6617,46 @@ impl ParserHost {
                 .component_id
                 .clone();
             let subscription_id = candidate.subscription.id.clone();
-            let mut context = request.context.clone();
-            context.subscription_id = subscription_id.clone();
-            let invocation = crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation {
-                context,
-                target: candidate.subscription.target.clone(),
-                phase: request.phase,
-                payload: payload.clone(),
-            };
-
-            calls.push(HookCall {
-                component_id: component_id.clone(),
-                subscription_id: subscription_id.clone(),
-            });
-            let state_invocation = transaction.begin_invocation(component_id.clone())?;
-            let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
-                self.dynamic_syntax_registry
-                    .as_ref()
-                    .map(|registry| {
-                        registry.begin_document_update(
-                            component_id.clone(),
-                            self.components[candidate.component_index].load_order,
-                            &document_id,
-                            document_revision,
-                        )
-                    })
-                    .transpose()?
-            } else {
-                None
-            };
-            let call =
-                {
+            let mut parse_results = Vec::new();
+            let mut candidate_parse_results = BTreeMap::new();
+            let mut continuation_base = None;
+            let (output, state_invocation, dynamic_update) = loop {
+                if calls.len() >= self.config.max_calls_per_dispatch {
+                    return Err(HostError::CallQuotaExceeded {
+                        limit: self.config.max_calls_per_dispatch,
+                    });
+                }
+                let mut context = request.context.clone();
+                context.subscription_id = subscription_id.clone();
+                let invocation =
+                    crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation {
+                        context,
+                        target: candidate.subscription.target.clone(),
+                        phase: request.phase,
+                        payload: payload.clone(),
+                        parse_results: mem::take(&mut parse_results),
+                    };
+                calls.push(HookCall {
+                    component_id: component_id.clone(),
+                    subscription_id: subscription_id.clone(),
+                });
+                let state_invocation = transaction.begin_invocation(component_id.clone())?;
+                let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
+                    self.dynamic_syntax_registry
+                        .as_ref()
+                        .map(|registry| {
+                            registry.begin_document_update(
+                                component_id.clone(),
+                                self.components[candidate.component_index].load_order,
+                                &document_id,
+                                document_revision,
+                            )
+                        })
+                        .transpose()?
+                } else {
+                    None
+                };
+                let call = {
                     let entry = &mut self.components[candidate.component_index];
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
@@ -4728,75 +6699,179 @@ impl ParserHost {
                     let dynamic_update = entry.store.data_mut().dynamic_syntax_update.take();
                     (call, state_invocation, dynamic_update)
                 };
+                let (call, state_invocation, dynamic_update) = call;
+                let mut output = match call {
+                    Ok(Ok(output)) => output,
+                    Ok(Err(addon_error)) => {
+                        state_invocation.rollback();
+                        drop(dynamic_update);
+                        if let Some(base) = continuation_base.as_ref() {
+                            transaction.rollback_to(base)?;
+                        }
+                        effects.diagnostics.extend(addon_error.diagnostics);
+                        failures.push(ComponentFailure {
+                            component_id: component_id.clone(),
+                            subscription_id: subscription_id.clone(),
+                            error: HostError::AddonFailure {
+                                component_id: component_id.clone(),
+                                message: addon_error.message,
+                            },
+                        });
+                        continue 'candidate;
+                    }
+                    Err(error) => {
+                        state_invocation.rollback();
+                        drop(dynamic_update);
+                        if let Some(base) = continuation_base.as_ref() {
+                            transaction.rollback_to(base)?;
+                        }
+                        let error = classify_wasmtime_error(component_id.clone(), "hook", error);
+                        if error.disables_component() {
+                            self.components[candidate.component_index].disabled = true;
+                            if let Some(registry) = &self.dynamic_syntax_registry {
+                                registry.remove_component(&component_id)?;
+                            }
+                        }
+                        failures.push(ComponentFailure {
+                            component_id: component_id.clone(),
+                            subscription_id: subscription_id.clone(),
+                            error,
+                        });
+                        continue 'candidate;
+                    }
+                };
 
-            let (call, state_invocation, dynamic_update) = call;
-            let output = match call {
-                Ok(Ok(output)) => output,
-                Ok(Err(addon_error)) => {
+                generated_output = generated_output.saturating_add(hook_output_size(&output));
+                if generated_output > self.config.max_generated_output_bytes {
                     state_invocation.rollback();
                     drop(dynamic_update);
-                    effects.diagnostics.extend(addon_error.diagnostics);
+                    return Err(HostError::GeneratedOutputQuotaExceeded {
+                        limit: self.config.max_generated_output_bytes,
+                    });
+                }
+
+                if matches!(output.decision, HookDecision::NotApplicable) {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    if let Some(base) = continuation_base.as_ref() {
+                        transaction.rollback_to(base)?;
+                    }
+                    continue 'candidate;
+                }
+
+                stamp_parse_result_attachments(&mut output.effects, &component_id);
+
+                if let Some(replacement) = output.replacement.as_mut()
+                    && let Err(message) =
+                        normalize_hook_metadata(&payload, replacement, &component_id)
+                {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    if let Some(base) = continuation_base.as_ref() {
+                        transaction.rollback_to(base)?;
+                    }
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
-                        error: HostError::AddonFailure {
+                        error: HostError::InvalidHookOutput {
                             component_id,
-                            message: addon_error.message,
+                            subscription_id,
+                            message,
                         },
                     });
-                    continue;
+                    continue 'candidate;
                 }
-                Err(error) => {
+
+                if output.effects.parse_requests.is_empty() {
+                    break (output, state_invocation, dynamic_update);
+                }
+                if calls
+                    .iter()
+                    .rev()
+                    .take_while(|call| {
+                        call.component_id == component_id && call.subscription_id == subscription_id
+                    })
+                    .count()
+                    >= self.config.max_parser_rounds
+                {
                     state_invocation.rollback();
                     drop(dynamic_update);
-                    let error = classify_wasmtime_error(component_id.clone(), "hook", error);
-                    if error.disables_component() {
-                        self.components[candidate.component_index].disabled = true;
-                        if let Some(registry) = &self.dynamic_syntax_registry {
-                            registry.remove_component(&component_id)?;
-                        }
-                    }
-                    failures.push(ComponentFailure {
-                        component_id,
-                        subscription_id,
-                        error,
+                    return Err(HostError::ParserRoundQuotaExceeded {
+                        limit: self.config.max_parser_rounds,
                     });
-                    continue;
                 }
-            };
-
-            generated_output = generated_output.saturating_add(hook_output_size(&output));
-            if generated_output > self.config.max_generated_output_bytes {
+                let requests = mem::take(&mut output.effects.parse_requests);
+                if requests.len() > self.config.max_parse_requests_per_hook {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    return Err(HostError::ParseRequestQuotaExceeded {
+                        limit: self.config.max_parse_requests_per_hook,
+                    });
+                }
                 state_invocation.rollback();
                 drop(dynamic_update);
-                return Err(HostError::GeneratedOutputQuotaExceeded {
-                    limit: self.config.max_generated_output_bytes,
-                });
-            }
+                if continuation_base.is_none() {
+                    continuation_base = Some(transaction.savepoint()?);
+                }
+                parse_results =
+                    match self.execute_parse_requests(transaction, &request.context, requests) {
+                        Ok(results) => {
+                            for result in &results {
+                                candidate_parse_results
+                                    .insert(result.wire.host_token, result.clone());
+                            }
+                            results.into_iter().map(|result| result.wire).collect()
+                        }
+                        Err(error) => {
+                            transaction.rollback_to(
+                                continuation_base
+                                    .as_ref()
+                                    .expect("the continuation savepoint was just created"),
+                            )?;
+                            return Err(error);
+                        }
+                    };
+            };
 
             match apply_hook_output(candidate.subscription.mode, output, payload.clone()) {
                 Ok(applied) => {
-                    if matches!(applied.decision, Some(HookDecision::Reject(_))) {
+                    let AppliedOutput {
+                        payload: next_payload,
+                        decision: next_decision,
+                        effects: next_effects,
+                        terminal,
+                    } = applied;
+                    if matches!(next_decision, Some(HookDecision::Reject(_))) {
                         state_invocation.rollback();
                         drop(dynamic_update);
-                    } else {
-                        state_invocation.commit()?;
-                        if let Some(update) = dynamic_update {
-                            update.commit()?;
+                        if let Some(base) = continuation_base.as_ref() {
+                            transaction.rollback_to(base)?;
                         }
+                        if let Some(final_decision) = next_decision {
+                            decision = final_decision;
+                        }
+                        break;
                     }
-                    payload = applied.payload;
-                    merge_effects(&mut effects, applied.effects);
-                    if let Some(final_decision) = applied.decision {
+                    state_invocation.commit()?;
+                    if let Some(update) = dynamic_update {
+                        update.commit()?;
+                    }
+                    available_parse_results.append(&mut candidate_parse_results);
+                    payload = next_payload;
+                    merge_effects(&mut effects, next_effects);
+                    if let Some(final_decision) = next_decision {
                         decision = final_decision;
                     }
-                    if applied.terminal {
+                    if terminal {
                         break;
                     }
                 }
                 Err(message) => {
                     state_invocation.rollback();
                     drop(dynamic_update);
+                    if let Some(base) = continuation_base.as_ref() {
+                        transaction.rollback_to(base)?;
+                    }
                     failures.push(ComponentFailure {
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
@@ -4816,6 +6891,7 @@ impl ParserHost {
             effects,
             calls,
             failures,
+            available_parse_results,
         })
     }
 
@@ -4854,11 +6930,15 @@ impl ParserHost {
             loading_id,
             "manifest",
         )?;
-        let manifest = bindings
+        let mut manifest = bindings
             .nlaocs_skript_parser_addon_addon()
             .call_manifest(&mut store)
             .map_err(|error| classify_wasmtime_error(loading_id.to_owned(), "manifest", error))?;
         validate_manifest(&manifest, &self.capabilities)?;
+        if let Some(catalog) = self.config.syntax_catalog.as_deref() {
+            validate_manifest_catalog_bindings(&manifest, catalog)?;
+        }
+        stamp_catalog_annotation_owners(&mut manifest);
 
         if mandatory_core && manifest.component_id != CORE_LIBRARY_COMPONENT_ID {
             return Err(HostError::InvalidCoreLibrary {
@@ -4891,7 +6971,13 @@ impl ParserHost {
                 registry.begin_initial_update(manifest.component_id.clone(), load_order)
             })
             .transpose()?;
-        let profile = host_profile(&self.capabilities);
+        let registered_handler_bindings =
+            resolve_registered_handler_bindings(&manifest, self.config.syntax_catalog.as_deref());
+        let profile = host_profile(
+            &self.capabilities,
+            &self.config.runtime_profile,
+            &registered_handler_bindings,
+        );
         let initialization = bindings
             .nlaocs_skript_parser_addon_addon()
             .call_initialize(&mut store, &profile)
@@ -4933,6 +7019,7 @@ impl ParserHost {
             .register(component_index, load_order, &manifest.subscriptions);
         self.components.push(ComponentEntry {
             manifest,
+            registered_handler_bindings,
             store,
             bindings,
             load_order,
@@ -5043,8 +7130,14 @@ pub fn host_capabilities() -> Vec<Capability> {
     .to_vec()
 }
 
-fn configured_host_capabilities(dynamic_syntax_available: bool) -> Vec<Capability> {
+fn configured_host_capabilities(
+    dynamic_syntax_available: bool,
+    catalog_source_available: bool,
+) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
+    if catalog_source_available {
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 1));
+    }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
     }
@@ -5053,9 +7146,12 @@ fn configured_host_capabilities(dynamic_syntax_available: bool) -> Vec<Capabilit
 
 fn host_profile(
     capabilities: &[Capability],
+    runtime: &RuntimeProfile,
+    registered_handler_bindings: &[WitRegisteredHandlerBinding],
 ) -> crate::bindings::nlaocs::skript_parser_addon::types::HostProfile {
     use crate::bindings::nlaocs::skript_parser_addon::types::{
         AbiVersion as WitAbiVersion, Capability as WitCapability, HostProfile,
+        RuntimePlugin as WitRuntimePlugin, RuntimeProfile as WitRuntimeProfile,
     };
     HostProfile {
         abi: WitAbiVersion {
@@ -5069,7 +7165,99 @@ fn host_profile(
                 version: capability.version,
             })
             .collect(),
+        runtime: WitRuntimeProfile {
+            snapshot_schema_version: runtime.snapshot_schema_version,
+            snapshot_id: runtime.snapshot_id.clone(),
+            server_name: runtime.server_name.clone(),
+            server_version: runtime.server_version.clone(),
+            minecraft_version: runtime.minecraft_version.clone(),
+            java_version: runtime.java_version.clone(),
+            language: runtime.language.clone(),
+            skript_version: runtime.skript_version.clone(),
+            plugins: runtime
+                .plugins
+                .iter()
+                .map(|plugin| WitRuntimePlugin {
+                    load_order: u64::try_from(plugin.load_order).unwrap_or(u64::MAX),
+                    name: plugin.name.clone(),
+                    version: plugin.version.clone(),
+                    main: plugin.main.clone(),
+                })
+                .collect(),
+        },
+        registered_handler_bindings: registered_handler_bindings.to_vec(),
     }
+}
+
+fn resolve_registered_handler_bindings(
+    manifest: &ComponentManifest,
+    catalog: Option<&Catalog>,
+) -> Vec<WitRegisteredHandlerBinding> {
+    manifest
+        .registered_syntax_handlers
+        .iter()
+        .map(|handler| {
+            let (definition_ids, registration_ids) =
+                resolve_registered_handler_target(handler, catalog);
+            WitRegisteredHandlerBinding {
+                handler_id: handler.handler_id.clone(),
+                definition_ids,
+                registration_ids,
+            }
+        })
+        .collect()
+}
+
+fn resolve_registered_handler_target(
+    handler: &crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler,
+    catalog: Option<&Catalog>,
+) -> (Vec<String>, Vec<String>) {
+    let mut definition_ids = BTreeSet::new();
+    let mut registration_ids = BTreeSet::new();
+    match &handler.target {
+        RegisteredSyntaxHandlerTarget::Definition(id) => {
+            definition_ids.insert(id.clone());
+            if let Some(catalog) = catalog {
+                registration_ids.extend(
+                    catalog
+                        .syntaxes()
+                        .iter()
+                        .filter(|syntax| syntax.kind() == catalog_syntax_kind(handler.kind))
+                        .filter(|syntax| syntax.definition_id().as_str() == id)
+                        .map(|syntax| syntax.registration_id().as_str().to_owned()),
+                );
+            }
+        }
+        RegisteredSyntaxHandlerTarget::Registration(id) => {
+            registration_ids.insert(id.clone());
+            if let Some(catalog) = catalog {
+                definition_ids.extend(
+                    catalog
+                        .syntaxes()
+                        .iter()
+                        .filter(|syntax| syntax.kind() == catalog_syntax_kind(handler.kind))
+                        .filter(|syntax| syntax.registration_id().as_str() == id)
+                        .map(|syntax| syntax.definition_id().as_str().to_owned()),
+                );
+            }
+        }
+        RegisteredSyntaxHandlerTarget::ClassSuffix(suffix) => {
+            if let Some(catalog) = catalog {
+                for syntax in catalog.syntaxes().iter().filter(|syntax| {
+                    syntax.kind() == catalog_syntax_kind(handler.kind)
+                        && syntax_element_class(syntax)
+                            .is_some_and(|class| class.as_str().ends_with(suffix))
+                }) {
+                    definition_ids.insert(syntax.definition_id().as_str().to_owned());
+                    registration_ids.insert(syntax.registration_id().as_str().to_owned());
+                }
+            }
+        }
+    }
+    (
+        definition_ids.into_iter().collect(),
+        registration_ids.into_iter().collect(),
+    )
 }
 
 fn validate_manifest(
@@ -5079,6 +7267,14 @@ fn validate_manifest(
     if manifest.component_id.trim().is_empty() {
         return Err(HostError::InvalidManifest {
             message: "component-id must not be blank".to_owned(),
+        });
+    }
+    if manifest.component_id.contains('/') {
+        return Err(HostError::InvalidManifest {
+            message: format!(
+                "{} uses the reserved '/' metadata namespace separator",
+                manifest.component_id
+            ),
         });
     }
     if manifest.component_version.trim().is_empty() {
@@ -5123,6 +7319,31 @@ fn validate_manifest(
                 message: format!("{} has a blank subscription ID", manifest.component_id),
             });
         }
+        if let HookTarget::Parser(parser_id) = &subscription.target {
+            if parser_id.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!("subscription {} has a blank parser ID", subscription.id),
+                });
+            }
+            if subscription.phase != HookPhase::Parser
+                || subscription.capability_id != CAPABILITY_ADDITIONAL_PARSE
+                || subscription.mode != HookMode::Override
+            {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "parser subscription {} must use the parser phase, additional-parse capability, and override mode",
+                        subscription.id
+                    ),
+                });
+            }
+        } else if subscription.phase == HookPhase::Parser {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "parser-phase subscription {} must target a parser ID",
+                    subscription.id
+                ),
+            });
+        }
         if !subscription_ids.insert(subscription.id.as_str()) {
             return Err(HostError::InvalidManifest {
                 message: format!(
@@ -5153,7 +7374,8 @@ fn validate_manifest(
         if subscription.capability_id == CAPABILITY_TEXT_MACRO
             && (!matches!(subscription.target, HookTarget::ParseStage)
                 || !matches!(subscription.phase, HookPhase::Preprocess)
-                || !matches!(subscription.mode, HookMode::Transform))
+                || !matches!(subscription.mode, HookMode::Transform)
+                || !selector_is_empty(&subscription.selector))
         {
             return Err(HostError::InvalidManifest {
                 message: format!(
@@ -5165,7 +7387,8 @@ fn validate_manifest(
         if subscription.capability_id == CAPABILITY_TREE_MACRO
             && (!matches!(subscription.target, HookTarget::ParseStage)
                 || !matches!(subscription.phase, HookPhase::Tree)
-                || !matches!(subscription.mode, HookMode::Transform))
+                || !matches!(subscription.mode, HookMode::Transform)
+                || !selector_is_empty(&subscription.selector))
         {
             return Err(HostError::InvalidManifest {
                 message: format!(
@@ -5175,13 +7398,19 @@ fn validate_manifest(
             });
         }
         if subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
-            && (!matches!(subscription.target, HookTarget::ParseStage)
-                || !matches!(subscription.phase, HookPhase::Expression)
+            && (!matches!(
+                subscription.target,
+                HookTarget::ParseStage
+                    | HookTarget::SyntaxKind(SyntaxKind::Expression)
+                    | HookTarget::Definition(_)
+                    | HookTarget::Registration(_)
+                    | HookTarget::Pattern(_)
+            ) || !matches!(subscription.phase, HookPhase::Expression)
                 || !matches!(subscription.mode, HookMode::Transform))
         {
             return Err(HostError::InvalidManifest {
                 message: format!(
-                    "Expression parser subscription {} must target parse-stage in the Expression phase with transform mode",
+                    "Expression parser subscription {} must target parse-stage or Expression syntax in the Expression phase with transform mode",
                     subscription.id
                 ),
             });
@@ -5190,8 +7419,10 @@ fn validate_manifest(
             && (!matches!(subscription.phase, HookPhase::Effect)
                 || !matches!(
                     subscription.target,
-                    HookTarget::SyntaxDefinition(SyntaxKind::Effect)
-                        | HookTarget::ExactRegistration(_)
+                    HookTarget::SyntaxKind(SyntaxKind::Effect)
+                        | HookTarget::Definition(_)
+                        | HookTarget::Registration(_)
+                        | HookTarget::Pattern(_)
                 ))
         {
             return Err(HostError::InvalidManifest {
@@ -5205,8 +7436,10 @@ fn validate_manifest(
             && (!matches!(subscription.phase, HookPhase::Section)
                 || !matches!(
                     subscription.target,
-                    HookTarget::SyntaxDefinition(SyntaxKind::Section)
-                        | HookTarget::ExactRegistration(_)
+                    HookTarget::SyntaxKind(SyntaxKind::Section)
+                        | HookTarget::Definition(_)
+                        | HookTarget::Registration(_)
+                        | HookTarget::Pattern(_)
                 ))
         {
             return Err(HostError::InvalidManifest {
@@ -5216,12 +7449,59 @@ fn validate_manifest(
                 ),
             });
         }
-        if let HookTarget::ExactRegistration(registration_id) = &subscription.target
-            && registration_id.trim().is_empty()
+        match &subscription.target {
+            HookTarget::Definition(id) if id.trim().is_empty() => {
+                return Err(HostError::InvalidManifest {
+                    message: format!("subscription {} has a blank definition ID", subscription.id),
+                });
+            }
+            HookTarget::Registration(id) if id.trim().is_empty() => {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "subscription {} has a blank registration ID",
+                        subscription.id
+                    ),
+                });
+            }
+            HookTarget::Pattern(pattern) if pattern.registration_id.trim().is_empty() => {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "subscription {} has a blank pattern registration ID",
+                        subscription.id
+                    ),
+                });
+            }
+            _ => {}
+        }
+        if let Some(return_type) = subscription.selector.return_type.as_ref()
+            && return_type.class_name.trim().is_empty()
         {
             return Err(HostError::InvalidManifest {
                 message: format!(
-                    "subscription {} has a blank exact registration ID",
+                    "subscription {} has a blank selector return type",
+                    subscription.id
+                ),
+            });
+        }
+        if subscription
+            .selector
+            .tags
+            .iter()
+            .any(|tag| tag.trim().is_empty())
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!("subscription {} has a blank selector tag", subscription.id),
+            });
+        }
+        if subscription
+            .selector
+            .metadata
+            .iter()
+            .any(|entry| entry.key.trim().is_empty())
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "subscription {} has a blank selector metadata key",
                     subscription.id
                 ),
             });
@@ -5229,46 +7509,95 @@ fn validate_manifest(
     }
     let mut registered_handlers = BTreeSet::new();
     for handler in &manifest.registered_syntax_handlers {
-        if handler.class_suffix.trim().is_empty() {
+        if handler.handler_id.trim().is_empty() {
             return Err(HostError::InvalidManifest {
                 message: format!(
-                    "{} declares a blank registered syntax class suffix",
+                    "{} declares a blank registered syntax handler ID",
                     manifest.component_id
+                ),
+            });
+        }
+        let (target_kind, target_value) = match &handler.target {
+            RegisteredSyntaxHandlerTarget::Definition(value) => ("definition", value.as_str()),
+            RegisteredSyntaxHandlerTarget::Registration(value) => ("registration", value.as_str()),
+            RegisteredSyntaxHandlerTarget::ClassSuffix(value) => ("class suffix", value.as_str()),
+        };
+        if target_value.trim().is_empty() {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares a blank registered syntax {target_kind}",
+                    manifest.component_id,
                 ),
             });
         }
         let kind = catalog_syntax_kind(handler.kind);
-        if !matches!(
-            kind,
-            CatalogSyntaxKind::Expression | CatalogSyntaxKind::Effect | CatalogSyntaxKind::Section
-        ) {
-            return Err(HostError::InvalidManifest {
-                message: format!(
-                    "{} declares a handler for an unsupported registered syntax kind",
-                    manifest.component_id
-                ),
-            });
+        let mut context_requirements = BTreeSet::new();
+        for requirement in &handler.context_requirements {
+            if requirement.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares a blank context requirement for handler {}",
+                        manifest.component_id, target_value
+                    ),
+                });
+            }
+            if requirement != REGISTERED_CONTEXT_ALL_TYPE_OPTIONS {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares unsupported context requirement {} for handler {}",
+                        manifest.component_id, requirement, target_value
+                    ),
+                });
+            }
+            if !context_requirements.insert(requirement.as_str()) {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats context requirement {} for handler {}",
+                        manifest.component_id, requirement, target_value
+                    ),
+                });
+            }
         }
-        if matches!(
-            kind,
-            CatalogSyntaxKind::Expression | CatalogSyntaxKind::Section
-        ) && handler
-            .regex_captures
-            .iter()
-            .any(|capture| matches!(capture, WitRegisteredCaptureKind::Effect))
-        {
-            return Err(HostError::InvalidManifest {
-                message: format!(
-                    "{} declares an Effect capture for a syntax that cannot contain one",
-                    manifest.component_id
-                ),
-            });
+        let mut bindings = BTreeSet::new();
+        for binding in &handler.capture_parsers {
+            if binding.parser_id.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares a blank parser ID for handler {}",
+                        manifest.component_id, target_value
+                    ),
+                });
+            }
+            if !bindings.insert((binding.capture_index, binding.parser_id.as_str())) {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats parser {} for capture {} in handler {}",
+                        manifest.component_id,
+                        binding.parser_id,
+                        binding.capture_index,
+                        target_value
+                    ),
+                });
+            }
+            let mut option_keys = BTreeSet::new();
+            if let Some(option) = binding
+                .options
+                .iter()
+                .find(|option| !option_keys.insert(option.key.as_str()))
+            {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats option {} for parser {} in handler {}",
+                        manifest.component_id, option.key, binding.parser_id, target_value
+                    ),
+                });
+            }
         }
-        if !registered_handlers.insert((kind.order(), handler.class_suffix.as_str())) {
+        if !registered_handlers.insert(handler.handler_id.as_str()) {
             return Err(HostError::InvalidManifest {
                 message: format!(
-                    "{} declares registered syntax handler {} more than once",
-                    manifest.component_id, handler.class_suffix
+                    "{} declares registered syntax handler ID {} more than once",
+                    manifest.component_id, handler.handler_id
                 ),
             });
         }
@@ -5295,12 +7624,178 @@ fn validate_manifest(
             return Err(HostError::InvalidManifest {
                 message: format!(
                     "{} declares registered syntax handler {} without its parser subscription",
-                    manifest.component_id, handler.class_suffix
+                    manifest.component_id, target_value
+                ),
+            });
+        }
+    }
+    let mut annotation_keys = BTreeSet::new();
+    for annotation in &manifest.catalog_annotations {
+        let (target_kind, target_id, pattern_index) = match &annotation.target {
+            CatalogAnnotationTarget::Definition(id) => ("definition", id.as_str(), None),
+            CatalogAnnotationTarget::Registration(id) => ("registration", id.as_str(), None),
+            CatalogAnnotationTarget::Pattern(pattern) => (
+                "pattern",
+                pattern.registration_id.as_str(),
+                Some(pattern.pattern_index),
+            ),
+        };
+        if target_id.trim().is_empty() {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} declares a catalog annotation with a blank {target_kind} ID",
+                    manifest.component_id
+                ),
+            });
+        }
+        let mut local_keys = BTreeSet::new();
+        for metadata in &annotation.metadata {
+            if metadata.key.trim().is_empty() {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} declares a blank metadata key for catalog {target_kind} {target_id}",
+                        manifest.component_id
+                    ),
+                });
+            }
+            if metadata.owner_component_id.is_some() {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} must not set catalog metadata ownership",
+                        manifest.component_id
+                    ),
+                });
+            }
+            if !local_keys.insert(metadata.key.as_str())
+                || !annotation_keys.insert((
+                    target_kind,
+                    target_id,
+                    pattern_index,
+                    metadata.key.as_str(),
+                ))
+            {
+                return Err(HostError::InvalidManifest {
+                    message: format!(
+                        "{} repeats catalog metadata {} for {target_kind} {target_id}",
+                        manifest.component_id, metadata.key
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn stamp_catalog_annotation_owners(manifest: &mut ComponentManifest) {
+    let component_id = manifest.component_id.clone();
+    for annotation in &mut manifest.catalog_annotations {
+        for metadata in &mut annotation.metadata {
+            metadata.owner_component_id = Some(component_id.clone());
+        }
+    }
+}
+
+fn selector_is_empty(selector: &HookSelector) -> bool {
+    selector.pattern_index.is_none()
+        && selector.pattern_source.is_none()
+        && selector.mark.is_none()
+        && selector.tags.is_empty()
+        && selector.captures.is_empty()
+        && selector.return_type.is_none()
+        && selector.multiplicity.is_none()
+        && selector.metadata.is_empty()
+}
+
+fn validate_manifest_catalog_bindings(
+    manifest: &ComponentManifest,
+    catalog: &Catalog,
+) -> Result<(), HostError> {
+    for subscription in &manifest.subscriptions {
+        let registration_id = match &subscription.target {
+            HookTarget::Registration(id) => Some(id.as_str()),
+            HookTarget::Pattern(pattern) => Some(pattern.registration_id.as_str()),
+            _ => None,
+        };
+        if let Some(registration_id) = registration_id
+            && catalog.syntax_by_registration_id(registration_id).len() > 1
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "subscription {} targets ambiguous registration ID {}",
+                    subscription.id, registration_id
+                ),
+            });
+        }
+    }
+
+    for annotation in &manifest.catalog_annotations {
+        let registration_id = match &annotation.target {
+            CatalogAnnotationTarget::Registration(id) => Some(id.as_str()),
+            CatalogAnnotationTarget::Pattern(pattern) => Some(pattern.registration_id.as_str()),
+            CatalogAnnotationTarget::Definition(_) => None,
+        };
+        if let Some(registration_id) = registration_id
+            && catalog.syntax_by_registration_id(registration_id).len() > 1
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "catalog annotation targets ambiguous registration ID {}",
+                    registration_id
+                ),
+            });
+        }
+    }
+
+    for handler in &manifest.registered_syntax_handlers {
+        if let RegisteredSyntaxHandlerTarget::Registration(registration_id) = &handler.target
+            && catalog.syntax_by_registration_id(registration_id).len() > 1
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} handler targets ambiguous registration ID {}",
+                    manifest.component_id, registration_id
+                ),
+            });
+        }
+        let RegisteredSyntaxHandlerTarget::ClassSuffix(suffix) = &handler.target else {
+            continue;
+        };
+        let kind = catalog_syntax_kind(handler.kind);
+        let definitions = catalog
+            .syntaxes()
+            .iter()
+            .filter(|syntax| syntax.kind() == kind)
+            .filter_map(|syntax| {
+                syntax_element_class(syntax)
+                    .filter(|element_class| element_class.as_str().ends_with(suffix))
+                    .map(|_| syntax.definition_id().as_str())
+            })
+            .collect::<BTreeSet<_>>();
+        if definitions.len() > 1 {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "{} handler suffix {} ambiguously matches {} definition IDs",
+                    manifest.component_id,
+                    suffix,
+                    definitions.len()
                 ),
             });
         }
     }
     Ok(())
+}
+
+fn syntax_element_class(syntax: &syntaxes::Syntax) -> Option<&ClassName> {
+    match syntax {
+        syntaxes::Syntax::Event(value) => Some(&value.common.element_class),
+        syntaxes::Syntax::Condition(value) => Some(&value.common.element_class),
+        syntaxes::Syntax::Effect(value) => Some(&value.common.element_class),
+        syntaxes::Syntax::Expression(value) => Some(&value.common.element_class),
+        syntaxes::Syntax::Type(value) => Some(&value.original_class),
+        syntaxes::Syntax::Function(_) => None,
+        syntaxes::Syntax::Section(value) => Some(&value.common.element_class),
+        syntaxes::Syntax::Structure(value) => Some(&value.common.element_class),
+    }
 }
 
 fn create_store(engine: &Engine, config: &HostConfig) -> Store<StoreData> {
@@ -5317,6 +7812,8 @@ fn create_store(engine: &Engine, config: &HostConfig) -> Store<StoreData> {
             invocation: None,
             dynamic_syntax_update: None,
             dynamic_syntax_available: config.syntax_catalog.is_some(),
+            catalog: config.syntax_catalog.clone(),
+            max_catalog_response_bytes: config.max_catalog_response_bytes,
         },
     );
     store.limiter(|data| &mut data.limits);
@@ -5347,12 +7844,12 @@ fn classify_component_error(
     } else if operation == "compile" {
         HostError::ComponentCompile {
             component_id,
-            message: error.to_string(),
+            message: format!("{error:#}"),
         }
     } else {
         HostError::ComponentInstantiation {
             component_id,
-            message: error.to_string(),
+            message: format!("{error:#}"),
         }
     }
 }
@@ -5406,6 +7903,140 @@ struct AppliedOutput {
     terminal: bool,
 }
 
+fn normalize_hook_metadata(
+    original: &HookPayload,
+    replacement: &mut HookPayload,
+    component_id: &str,
+) -> Result<(), String> {
+    match (original, replacement) {
+        (HookPayload::Matching(original), HookPayload::Matching(replacement)) => {
+            merge_owned_metadata(&original.metadata, &mut replacement.metadata, component_id)
+        }
+        (
+            HookPayload::RegisteredExpression(original),
+            HookPayload::RegisteredExpression(replacement),
+        ) => {
+            if !same_registered_expression_identity(replacement, original) {
+                return Err(
+                    "registered Expression hook changed immutable request fields".to_owned(),
+                );
+            }
+            validate_selected_property_options(replacement)?;
+            merge_owned_metadata(&original.metadata, &mut replacement.metadata, component_id)
+        }
+        (HookPayload::Expression(original), HookPayload::Expression(replacement)) => {
+            for candidate in &mut replacement.candidates {
+                let previous = original.candidates.iter().find(|previous| {
+                    previous.parser_id == candidate.parser_id
+                        && previous.range.start == candidate.range.start
+                        && previous.range.end == candidate.range.end
+                });
+                merge_owned_metadata(
+                    previous.map_or(&[], |previous| previous.metadata.as_slice()),
+                    &mut candidate.metadata,
+                    component_id,
+                )?;
+            }
+            Ok(())
+        }
+        (HookPayload::Effect(original), HookPayload::Effect(replacement)) => {
+            if let Some(candidate) = replacement.candidate.as_mut() {
+                let previous = original.candidate.as_ref().filter(|previous| {
+                    previous.definition_id == candidate.definition_id
+                        && previous.registration_id == candidate.registration_id
+                        && previous.pattern_index == candidate.pattern_index
+                });
+                merge_owned_metadata(
+                    previous.map_or(&[], |previous| previous.metadata.as_slice()),
+                    &mut candidate.metadata,
+                    component_id,
+                )?;
+            } else if let Some(candidate) = replacement.near_match.as_mut() {
+                let previous = original.near_match.as_ref().filter(|previous| {
+                    previous.definition_id == candidate.definition_id
+                        && previous.registration_id == candidate.registration_id
+                });
+                merge_owned_metadata(
+                    previous.map_or(&[], |previous| previous.metadata.as_slice()),
+                    &mut candidate.metadata,
+                    component_id,
+                )?;
+            }
+            Ok(())
+        }
+        (HookPayload::Section(original), HookPayload::Section(replacement)) => {
+            merge_owned_metadata(
+                &original.candidate.metadata,
+                &mut replacement.candidate.metadata,
+                component_id,
+            )
+        }
+        _ => Ok(()),
+    }
+}
+
+fn merge_owned_metadata(
+    original: &[WitMetadataEntry],
+    replacement: &mut Vec<WitMetadataEntry>,
+    component_id: &str,
+) -> Result<(), String> {
+    for entry in replacement.iter_mut() {
+        if entry.key.trim().is_empty() {
+            return Err("metadata keys must not be blank".to_owned());
+        }
+        match entry.owner_component_id.as_deref() {
+            Some(owner) if owner != component_id => {
+                let unchanged = original.iter().any(|previous| {
+                    previous.owner_component_id.as_deref() == Some(owner)
+                        && previous.key == entry.key
+                        && previous.value == entry.value
+                });
+                if !unchanged {
+                    return Err(format!(
+                        "component {component_id} cannot write metadata owned by {owner}"
+                    ));
+                }
+            }
+            Some(_) => {}
+            None => {
+                let unchanged = original.iter().any(|previous| {
+                    previous.owner_component_id.is_none()
+                        && previous.key == entry.key
+                        && previous.value == entry.value
+                });
+                if !unchanged {
+                    entry.owner_component_id = Some(component_id.to_owned());
+                }
+            }
+        }
+    }
+
+    for previous in original {
+        let retained = replacement.iter().any(|entry| {
+            entry.owner_component_id == previous.owner_component_id && entry.key == previous.key
+        });
+        if !retained {
+            replacement.push(previous.clone());
+        }
+    }
+
+    let mut keys = BTreeSet::new();
+    if let Some(duplicate) = replacement
+        .iter()
+        .find(|entry| !keys.insert((entry.owner_component_id.as_deref(), entry.key.as_str())))
+    {
+        return Err(format!(
+            "metadata key {} is repeated for owner {}",
+            duplicate.key,
+            duplicate
+                .owner_component_id
+                .as_deref()
+                .unwrap_or("<catalog>")
+        ));
+    }
+    Ok(())
+}
+
 fn apply_hook_output(
     mode: HookMode,
     output: HookOutput,
@@ -5438,6 +8069,9 @@ fn apply_hook_output(
             })
         }
         HookMode::Transform => {
+            if matches!(decision, HookDecision::NotApplicable) {
+                return Err("not-applicable must be handled before applying hook output".to_owned());
+            }
             if matches!(decision, HookDecision::Handled) {
                 return Err("transform hooks cannot mark input as handled".to_owned());
             }
@@ -5453,6 +8087,9 @@ fn apply_hook_output(
             })
         }
         HookMode::Override => match decision {
+            HookDecision::NotApplicable => {
+                Err("not-applicable must be handled before applying hook output".to_owned())
+            }
             HookDecision::ContinueProcessing => {
                 if replacement.is_some() {
                     return Err("continuing override hooks cannot replace payloads".to_owned());
@@ -5807,7 +8444,9 @@ fn tree_macro_output_size(output: &TreeMacroOutput) -> usize {
         .saturating_add(hook_effects_size(&output.effects))
         .saturating_add(match &output.decision {
             HookDecision::Reject(rejection) => rejection_size(rejection),
-            HookDecision::ContinueProcessing | HookDecision::Handled => 0,
+            HookDecision::NotApplicable
+            | HookDecision::ContinueProcessing
+            | HookDecision::Handled => 0,
         })
 }
 
@@ -6018,11 +8657,465 @@ fn retain_known_span_expansions(source: &MappedSource, span: &mut MappedSpan) {
     }
 }
 
+fn failed_parse_result(request: &ParseRequest, code: &str, message: &str) -> ParseResult {
+    ParseResult {
+        host_token: 0,
+        request_id: request.request_id,
+        parser_id: request.parser_id.clone(),
+        status: WitParseResultStatus::Failed,
+        roots: Vec::new(),
+        nodes: Vec::new(),
+        diagnostics: vec![Diagnostic {
+            code: code.to_owned(),
+            message: message.to_owned(),
+            severity: DiagnosticSeverity::Error,
+            span: request.span.clone(),
+            related: Vec::new(),
+        }],
+    }
+}
+
+fn expression_parse_result(
+    request: &ParseRequest,
+    root: &ExpressionNode,
+    catalog: Option<&Catalog>,
+) -> ParseResult {
+    let mut arena = ParseResultArena::new(request, catalog);
+    let root_id = arena.push_expression(root);
+    arena.nodes[root_id as usize].expected_types = request.expected_types.clone();
+    ParseResult {
+        host_token: 0,
+        request_id: request.request_id,
+        parser_id: request.parser_id.clone(),
+        status: WitParseResultStatus::Success,
+        roots: vec![root_id],
+        nodes: arena.nodes,
+        diagnostics: Vec::new(),
+    }
+}
+
+fn rebase_expression_node(
+    mut node: ExpressionNode,
+    request: &ParseRequest,
+) -> Result<ExpressionNode, HostError> {
+    node.try_map_spans(&mut |span| rebase_match_span(span, request))?;
+    Ok(node)
+}
+
+fn rebase_match_span(span: &MatchSpan, request: &ParseRequest) -> Result<MatchSpan, HostError> {
+    let span = nested_span_to_request(span, request);
+    let invalid = |message| HostError::InvalidParseResult {
+        parser_id: request.parser_id.clone(),
+        message,
+    };
+    let start = usize::try_from(span.virtual_range.start)
+        .map_err(|_| invalid("rebased span start does not fit usize".to_owned()))?;
+    let end = usize::try_from(span.virtual_range.end)
+        .map_err(|_| invalid("rebased span end does not fit usize".to_owned()))?;
+    let origins = span
+        .origins
+        .into_iter()
+        .map(|origin| {
+            let original_start = usize::try_from(origin.original_range.start)
+                .map_err(|_| invalid("origin start does not fit usize".to_owned()))?;
+            let original_end = usize::try_from(origin.original_range.end)
+                .map_err(|_| invalid("origin end does not fit usize".to_owned()))?;
+            let expansion = origin
+                .expansion
+                .map(|value| {
+                    u32::try_from(value)
+                        .map(ExpansionId::new)
+                        .map_err(|_| invalid("expansion ID does not fit u32".to_owned()))
+                })
+                .transpose()?;
+            Ok(skript_parser::SourceOrigin {
+                original_range: ParserTextRange::new(original_start, original_end),
+                kind: match origin.kind {
+                    WitOriginKind::Exact => ParserOriginKind::Exact,
+                    WitOriginKind::Replaced => ParserOriginKind::Replaced,
+                    WitOriginKind::Anchored => ParserOriginKind::Anchored,
+                },
+                expansion,
+            })
+        })
+        .collect::<Result<Vec<_>, HostError>>()?;
+    let range = ParserTextRange::new(start, end);
+    Ok(MatchSpan {
+        local_range: range,
+        mapped: skript_parser::MappedSpan {
+            virtual_range: range,
+            origins,
+        },
+    })
+}
+
+fn condition_parse_result(
+    request: &ParseRequest,
+    root: &ConditionNode,
+    catalog: Option<&Catalog>,
+) -> ParseResult {
+    let mut arena = ParseResultArena::new(request, catalog);
+    let root_id = arena.push_condition(root);
+    ParseResult {
+        host_token: 0,
+        request_id: request.request_id,
+        parser_id: request.parser_id.clone(),
+        status: WitParseResultStatus::Success,
+        roots: vec![root_id],
+        nodes: arena.nodes,
+        diagnostics: Vec::new(),
+    }
+}
+
+struct ParseResultArena<'a> {
+    request: &'a ParseRequest,
+    catalog: Option<&'a Catalog>,
+    nodes: Vec<ParseResultNode>,
+}
+
+impl<'a> ParseResultArena<'a> {
+    fn new(request: &'a ParseRequest, catalog: Option<&'a Catalog>) -> Self {
+        Self {
+            request,
+            catalog,
+            nodes: Vec::new(),
+        }
+    }
+
+    fn push_expression(&mut self, node: &ExpressionNode) -> u64 {
+        let children = node
+            .parsed_captures()
+            .iter()
+            .filter_map(|capture| self.push_capture(capture))
+            .collect();
+        let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
+            ExpressionNodeKind::Grouped => ("grouped", None, None, None),
+            ExpressionNodeKind::List { .. } => ("list", None, None, None),
+            ExpressionNodeKind::Registered {
+                definition_id,
+                registration_id,
+                pattern_index,
+            } => (
+                "registered-expression",
+                Some(definition_id.clone()),
+                Some(registration_id.clone()),
+                Some(*pattern_index as u64),
+            ),
+            ExpressionNodeKind::Variable { .. } => ("variable", None, None, None),
+            ExpressionNodeKind::Literal { .. } => ("literal", None, None, None),
+            ExpressionNodeKind::Function { .. } => ("function", None, None, None),
+            ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None),
+            ExpressionNodeKind::Custom { .. } => ("custom", None, None, None),
+        };
+        self.push_node(ParseResultNode {
+            node_id: 0,
+            parser_id: skript_parser::HOST_EXPRESSION_PARSER_ID.to_owned(),
+            kind: kind.to_owned(),
+            status: WitParseResultStatus::Success,
+            text: node
+                .span
+                .local_range
+                .slice(&self.request.input)
+                .unwrap_or_default()
+                .to_owned(),
+            span: nested_span_to_request(&node.span, self.request),
+            expected_types: Vec::new(),
+            summary: Some(WitParseSummary {
+                kind: "expression".to_owned(),
+                definition_id,
+                registration_id,
+                element_class: expression_node_element_class(node, self.catalog),
+                pattern_index,
+                return_type: node
+                    .return_type
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                metadata: metadata_to_wit(&node.metadata),
+            }),
+            children,
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+            metadata: metadata_to_wit(&node.metadata),
+        })
+    }
+
+    fn push_condition(&mut self, node: &ConditionNode) -> u64 {
+        let mut children = node
+            .expressions
+            .iter()
+            .map(|child| self.push_expression(child))
+            .collect::<Vec<_>>();
+        children.extend(node.children.iter().map(|child| self.push_condition(child)));
+        let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
+            ConditionNodeKind::Grouped => ("grouped-condition", None, None, None),
+            ConditionNodeKind::Registered {
+                definition_id,
+                registration_id,
+                pattern_index,
+            } => (
+                "registered-condition",
+                Some(definition_id.clone()),
+                Some(registration_id.clone()),
+                Some(*pattern_index as u64),
+            ),
+        };
+        self.push_node(ParseResultNode {
+            node_id: 0,
+            parser_id: skript_parser::HOST_CONDITION_PARSER_ID.to_owned(),
+            kind: kind.to_owned(),
+            status: WitParseResultStatus::Success,
+            text: node
+                .span
+                .local_range
+                .slice(&self.request.input)
+                .unwrap_or_default()
+                .to_owned(),
+            span: nested_span_to_request(&node.span, self.request),
+            expected_types: Vec::new(),
+            summary: Some(WitParseSummary {
+                kind: "condition".to_owned(),
+                definition_id,
+                registration_id,
+                element_class: None,
+                pattern_index,
+                return_type: None,
+                multiplicity: None,
+                metadata: metadata_to_wit(&node.metadata),
+            }),
+            children,
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+            metadata: metadata_to_wit(&node.metadata),
+        })
+    }
+
+    fn push_capture(&mut self, capture: &ParserParsedCapture) -> Option<u64> {
+        let value = capture.result.value.as_ref()?;
+        let id = match value {
+            skript_parser::ParsedCaptureValue::Expression(node) => self.push_expression(node),
+            skript_parser::ParsedCaptureValue::Condition(node) => self.push_condition(node),
+            skript_parser::ParsedCaptureValue::Effect(_) => {
+                self.push_opaque_capture(capture, "effect", &capture.result.span)
+            }
+            skript_parser::ParsedCaptureValue::Section(_) => {
+                self.push_opaque_capture(capture, "section", &capture.result.span)
+            }
+            skript_parser::ParsedCaptureValue::Raw(_) => {
+                self.push_opaque_capture(capture, "raw", &capture.result.span)
+            }
+        };
+        let target = &mut self.nodes[id as usize];
+        target.parser_id.clone_from(&capture.result.parser_id);
+        target.attachments = capture
+            .result
+            .attachments
+            .iter()
+            .map(|attachment| WitAddonAttachment {
+                owner_component_id: attachment.owner_component_id.clone(),
+                schema_id: attachment.schema_id.clone(),
+                schema_version: attachment.schema_version,
+                encoding: attachment.encoding.clone(),
+                bytes: attachment.bytes.clone(),
+            })
+            .collect();
+        Some(id)
+    }
+
+    fn push_opaque_capture(
+        &mut self,
+        capture: &ParserParsedCapture,
+        kind: &str,
+        span: &MatchSpan,
+    ) -> u64 {
+        let summary = capture
+            .result
+            .summary
+            .as_ref()
+            .map(|summary| WitParseSummary {
+                kind: summary.kind.clone(),
+                definition_id: summary.definition_id.clone(),
+                registration_id: summary.registration_id.clone(),
+                element_class: summary
+                    .element_class
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                pattern_index: summary.pattern_index.map(|value| value as u64),
+                return_type: summary
+                    .return_type
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                metadata: metadata_to_wit(&summary.metadata),
+            });
+        self.push_node(ParseResultNode {
+            node_id: 0,
+            parser_id: capture.result.parser_id.clone(),
+            kind: kind.to_owned(),
+            status: match capture.result.status {
+                ParserParsedCaptureStatus::Success => WitParseResultStatus::Success,
+                ParserParsedCaptureStatus::Partial => WitParseResultStatus::Partial,
+                ParserParsedCaptureStatus::Failed => WitParseResultStatus::Failed,
+            },
+            text: span
+                .local_range
+                .slice(&self.request.input)
+                .unwrap_or_default()
+                .to_owned(),
+            span: nested_span_to_request(span, self.request),
+            expected_types: Vec::new(),
+            summary,
+            children: Vec::new(),
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+            metadata: Vec::new(),
+        })
+    }
+
+    fn push_node(&mut self, mut node: ParseResultNode) -> u64 {
+        let id = self.nodes.len() as u64;
+        node.node_id = id;
+        self.nodes.push(node);
+        id
+    }
+}
+
+fn metadata_to_wit(metadata: &BTreeMap<String, String>) -> Vec<WitMetadataEntry> {
+    metadata
+        .iter()
+        .map(|(key, value)| {
+            let (owner_component_id, key) = key
+                .split_once('/')
+                .filter(|(owner, key)| !owner.is_empty() && !key.is_empty())
+                .map_or_else(
+                    || (None, key.as_str()),
+                    |(owner, key)| (Some(owner.to_owned()), key),
+                );
+            WitMetadataEntry {
+                owner_component_id,
+                key: key.to_owned(),
+                value: value.clone(),
+            }
+        })
+        .collect()
+}
+
+fn nested_span_to_request(span: &MatchSpan, request: &ParseRequest) -> MappedSpan {
+    // Nested matcher frames keep `local_range` relative to their own pattern
+    // input. The mapped range remains absolute within the parse-request input.
+    let start = span.mapped.virtual_range.start as u64;
+    let end = span.mapped.virtual_range.end as u64;
+    let virtual_start = request.span.virtual_range.start.saturating_add(start);
+    let virtual_end = request.span.virtual_range.start.saturating_add(end);
+    let input_len = request.input.len() as u64;
+    let origins = request
+        .span
+        .origins
+        .iter()
+        .map(|origin| {
+            let origin_len = origin
+                .original_range
+                .end
+                .saturating_sub(origin.original_range.start);
+            let original_range = if origin_len >= input_len {
+                WitTextRange {
+                    start: origin.original_range.start.saturating_add(start),
+                    end: origin.original_range.start.saturating_add(end),
+                }
+            } else {
+                origin.original_range
+            };
+            WitSourceOrigin {
+                original_range,
+                kind: origin.kind,
+                expansion: origin.expansion,
+            }
+        })
+        .collect();
+    MappedSpan {
+        virtual_range: WitTextRange {
+            start: virtual_start,
+            end: virtual_end,
+        },
+        origins,
+    }
+}
+
+fn validate_parse_result(request: &ParseRequest, result: &ParseResult) -> Result<(), HostError> {
+    let invalid = |message: String| HostError::InvalidParseResult {
+        parser_id: request.parser_id.clone(),
+        message,
+    };
+    if result.request_id != request.request_id || result.parser_id != request.parser_id {
+        return Err(invalid("request ID or parser ID does not match".to_owned()));
+    }
+    if matches!(result.status, WitParseResultStatus::Success) && result.roots.is_empty() {
+        return Err(invalid(
+            "a successful result must have at least one root".to_owned(),
+        ));
+    }
+    let mut nodes = HashMap::with_capacity(result.nodes.len());
+    for (index, node) in result.nodes.iter().enumerate() {
+        if nodes.insert(node.node_id, index).is_some() {
+            return Err(invalid(format!("duplicate node ID {}", node.node_id)));
+        }
+        if node.span.virtual_range.start > node.span.virtual_range.end
+            || node.span.virtual_range.start < request.span.virtual_range.start
+            || node.span.virtual_range.end > request.span.virtual_range.end
+        {
+            return Err(invalid(format!(
+                "node {} has a span outside the request",
+                node.node_id
+            )));
+        }
+    }
+    for root in &result.roots {
+        if !nodes.contains_key(root) {
+            return Err(invalid(format!("unknown root node ID {root}")));
+        }
+    }
+    for node in &result.nodes {
+        for child in &node.children {
+            if !nodes.contains_key(child) {
+                return Err(invalid(format!(
+                    "node {} references unknown child {child}",
+                    node.node_id
+                )));
+            }
+        }
+    }
+    let mut states = HashMap::<u64, u8>::new();
+    for node in &result.nodes {
+        let mut stack = vec![(node.node_id, false)];
+        while let Some((id, leaving)) = stack.pop() {
+            if leaving {
+                states.insert(id, 2);
+                continue;
+            }
+            match states.get(&id).copied().unwrap_or(0) {
+                2 => continue,
+                1 => {
+                    return Err(invalid(format!(
+                        "parse result graph contains a cycle at {id}"
+                    )));
+                }
+                _ => {}
+            }
+            states.insert(id, 1);
+            stack.push((id, true));
+            let node = &result.nodes[nodes[&id]];
+            stack.extend(node.children.iter().rev().map(|child| (*child, false)));
+        }
+    }
+    Ok(())
+}
+
 fn empty_effects() -> HookEffects {
     HookEffects {
         diagnostics: Vec::new(),
         context_updates: Vec::new(),
         parse_requests: Vec::new(),
+        parse_results: Vec::new(),
     }
 }
 
@@ -6030,6 +9123,18 @@ fn merge_effects(target: &mut HookEffects, source: HookEffects) {
     target.diagnostics.extend(source.diagnostics);
     target.context_updates.extend(source.context_updates);
     target.parse_requests.extend(source.parse_requests);
+    target.parse_results.extend(source.parse_results);
+}
+
+fn stamp_parse_result_attachments(effects: &mut HookEffects, component_id: &str) {
+    for attachment in effects
+        .parse_results
+        .iter_mut()
+        .flat_map(|result| &mut result.nodes)
+        .flat_map(|node| &mut node.attachments)
+    {
+        attachment.owner_component_id = component_id.to_owned();
+    }
 }
 
 fn hook_output_size(output: &HookOutput) -> usize {
@@ -6040,7 +9145,9 @@ fn hook_output_size(output: &HookOutput) -> usize {
         .saturating_add(hook_effects_size(&output.effects))
         .saturating_add(match &output.decision {
             HookDecision::Reject(rejection) => rejection_size(rejection),
-            HookDecision::ContinueProcessing | HookDecision::Handled => 0,
+            HookDecision::NotApplicable
+            | HookDecision::ContinueProcessing
+            | HookDecision::Handled => 0,
         })
 }
 
@@ -6053,7 +9160,9 @@ fn text_macro_output_size(output: &TextMacroOutput) -> usize {
         .saturating_add(hook_effects_size(&output.effects))
         .saturating_add(match &output.decision {
             HookDecision::Reject(rejection) => rejection_size(rejection),
-            HookDecision::ContinueProcessing | HookDecision::Handled => 0,
+            HookDecision::NotApplicable
+            | HookDecision::ContinueProcessing
+            | HookDecision::Handled => 0,
         })
 }
 
@@ -6067,7 +9176,8 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::Matching(value) => value
             .input
             .len()
-            .saturating_add(value.pattern.as_ref().map_or(0, String::len)),
+            .saturating_add(value.pattern.as_ref().map_or(0, String::len))
+            .saturating_add(metadata_entries_size(&value.metadata)),
         HookPayload::Effect(value) => value
             .input
             .len()
@@ -6109,36 +9219,49 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .saturating_add(
                 value
                     .candidate
-                    .conditions
+                    .parsed_captures
                     .iter()
-                    .map(registered_condition_capture_size)
+                    .map(parsed_capture_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(metadata_entries_size(&value.candidate.metadata)),
+        HookPayload::Expression(value) => value
+            .input
+            .len()
+            .saturating_add(
+                value
+                    .type_options
+                    .iter()
+                    .map(expression_type_option_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .literal_options
+                    .iter()
+                    .map(expression_literal_option_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .candidates
+                    .iter()
+                    .map(|candidate| {
+                        candidate
+                            .parser_id
+                            .len()
+                            .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(metadata_entries_size(&candidate.metadata))
+                    })
                     .fold(0usize, usize::saturating_add),
             ),
-        HookPayload::Expression(value) => value.input.len().saturating_add(
-            value
-                .candidates
-                .iter()
-                .map(|candidate| {
-                    candidate
-                        .parser_id
-                        .len()
-                        .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
-                        .saturating_add(
-                            candidate
-                                .metadata
-                                .iter()
-                                .map(|entry| entry.key.len().saturating_add(entry.value.len()))
-                                .fold(0usize, usize::saturating_add),
-                        )
-                })
-                .fold(0usize, usize::saturating_add),
-        ),
         HookPayload::RegisteredExpression(value) => value
             .input
             .len()
             .saturating_add(value.definition_id.len())
             .saturating_add(value.registration_id.len())
             .saturating_add(value.element_class.len())
+            .saturating_add(value.pattern.len())
             .saturating_add(value.related_property.as_ref().map_or(0, String::len))
             .saturating_add(
                 value
@@ -6177,6 +9300,10 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                         child
                             .text
                             .len()
+                            .saturating_add(child.kind.len())
+                            .saturating_add(child.parser_id.as_ref().map_or(0, String::len))
+                            .saturating_add(child.definition_id.as_ref().map_or(0, String::len))
+                            .saturating_add(child.registration_id.as_ref().map_or(0, String::len))
                             .saturating_add(child.element_class.as_ref().map_or(0, String::len))
                             .saturating_add(child.return_type.as_ref().map_or(0, String::len))
                             .saturating_add(metadata_entries_size(&child.metadata))
@@ -6185,9 +9312,9 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             )
             .saturating_add(
                 value
-                    .conditions
+                    .parsed_captures
                     .iter()
-                    .map(registered_condition_capture_size)
+                    .map(parsed_capture_size)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -6200,14 +9327,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                 value
                     .type_options
                     .iter()
-                    .map(|option| {
-                        option
-                            .code_name
-                            .len()
-                            .saturating_add(option.class_name.len())
-                            .saturating_add(option.singular.len())
-                            .saturating_add(option.plural.len())
-                    })
+                    .map(expression_type_option_size)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -6215,15 +9335,78 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .property_options
                     .iter()
                     .map(|option| {
-                        option.input_class.len().saturating_add(
-                            option
-                                .return_types
-                                .iter()
-                                .map(String::len)
-                                .fold(0usize, usize::saturating_add),
-                        )
+                        option
+                            .match_kind
+                            .len()
+                            .saturating_add(
+                                option
+                                    .source_record
+                                    .as_ref()
+                                    .map_or(0, catalog_record_ref_size),
+                            )
+                            .saturating_add(mem::size_of::<u64>() * 3)
+                            .saturating_add(option.property_registration_id.len())
+                            .saturating_add(option.property_name.len())
+                            .saturating_add(option.property_handler_class.len())
+                            .saturating_add(option.property_addon_name.len())
+                            .saturating_add(option.property_addon_version.len())
+                            .saturating_add(option.input_class.len())
+                            .saturating_add(option.handler_class.len())
+                            .saturating_add(option.handler_kind.len())
+                            .saturating_add(
+                                option.provider_addon_name.as_ref().map_or(0, String::len),
+                            )
+                            .saturating_add(
+                                option
+                                    .provider_addon_version
+                                    .as_ref()
+                                    .map_or(0, String::len),
+                            )
+                            .saturating_add(option.type_code_name.len())
+                            .saturating_add(
+                                option
+                                    .element_types
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
+                            .saturating_add(
+                                option
+                                    .return_types
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
+                            .saturating_add(
+                                option
+                                    .supported_axes
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
+                            .saturating_add(
+                                option
+                                    .accepted_changers
+                                    .iter()
+                                    .map(|change| {
+                                        change.mode.len().saturating_add(
+                                            change
+                                                .accepted_types
+                                                .iter()
+                                                .map(String::len)
+                                                .fold(0usize, usize::saturating_add),
+                                        )
+                                    })
+                                    .fold(0usize, usize::saturating_add),
+                            )
                     })
                     .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .selected_property_option_indices
+                    .len()
+                    .saturating_mul(mem::size_of::<u64>()),
             )
             .saturating_add(value.effective_return_type.as_ref().map_or(0, String::len))
             .saturating_add(metadata_entries_size(&value.metadata)),
@@ -6257,7 +9440,60 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::Scope(_) => 0,
         HookPayload::Ast(value) => ast_tree_size(value),
         HookPayload::Diagnostic(value) => diagnostic_size(value),
+        HookPayload::Parser(value) => parse_request_size(value),
     }
+}
+
+fn catalog_record_ref_size(record: &WitCatalogRecordRef) -> usize {
+    record
+        .source_digest
+        .len()
+        .saturating_add(record.snapshot_id.len())
+        .saturating_add(record.document.len())
+        .saturating_add(mem::size_of::<u64>() * 2)
+}
+
+fn expression_type_option_size(option: &WitExpressionTypeOption) -> usize {
+    option
+        .source_record
+        .as_ref()
+        .map_or(0, catalog_record_ref_size)
+        .saturating_add(option.code_name.len())
+        .saturating_add(option.class_name.len())
+        .saturating_add(option.singular.len())
+        .saturating_add(option.plural.len())
+        .saturating_add(
+            option
+                .user_input_patterns
+                .iter()
+                .map(String::len)
+                .fold(0usize, usize::saturating_add),
+        )
+}
+
+fn expression_literal_option_size(option: &WitExpressionLiteralOption) -> usize {
+    option
+        .source_record
+        .as_ref()
+        .map_or(0, catalog_record_ref_size)
+        .saturating_add(option.code_name.len())
+        .saturating_add(option.class_name.len())
+        .saturating_add(option.canonical_value.len())
+        .saturating_add(option.addon_name.len())
+        .saturating_add(option.addon_version.len())
+        .saturating_add(option.parser_class.as_ref().map_or(0, String::len))
+        .saturating_add(
+            option
+                .parse_contexts
+                .iter()
+                .map(String::len)
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(option.value_class.as_ref().map_or(0, String::len))
+        .saturating_add(option.represented_class.as_ref().map_or(0, String::len))
+        .saturating_add(option.variable_name.as_ref().map_or(0, String::len))
+        .saturating_add(option.debug_text.as_ref().map_or(0, String::len))
+        .saturating_add(option.enum_constant.as_ref().map_or(0, String::len))
 }
 
 fn effect_candidate_size(
@@ -6294,16 +9530,9 @@ fn effect_candidate_size(
         .saturating_add(metadata_entries_size(&candidate.metadata))
         .saturating_add(
             candidate
-                .conditions
+                .parsed_captures
                 .iter()
-                .map(registered_condition_capture_size)
-                .fold(0usize, usize::saturating_add),
-        )
-        .saturating_add(
-            candidate
-                .effects
-                .iter()
-                .map(registered_effect_capture_size)
+                .map(parsed_capture_size)
                 .fold(0usize, usize::saturating_add),
         )
 }
@@ -6311,25 +9540,60 @@ fn effect_candidate_size(
 fn metadata_entries_size(entries: &[WitMetadataEntry]) -> usize {
     entries
         .iter()
-        .map(|entry| entry.key.len().saturating_add(entry.value.len()))
+        .map(|entry| {
+            entry
+                .owner_component_id
+                .as_ref()
+                .map_or(0, String::len)
+                .saturating_add(entry.key.len())
+                .saturating_add(entry.value.len())
+        })
         .fold(0usize, usize::saturating_add)
 }
 
-fn registered_condition_capture_size(capture: &WitRegisteredConditionCapture) -> usize {
+fn parsed_capture_size(capture: &WitParsedCapture) -> usize {
     capture
         .text
         .len()
-        .saturating_add(capture.definition_id.as_ref().map_or(0, String::len))
-        .saturating_add(capture.registration_id.as_ref().map_or(0, String::len))
-}
-
-fn registered_effect_capture_size(capture: &WitRegisteredEffectCapture) -> usize {
-    capture
-        .text
-        .len()
-        .saturating_add(capture.definition_id.len())
-        .saturating_add(capture.registration_id.len())
-        .saturating_add(capture.element_class.as_ref().map_or(0, String::len))
+        .saturating_add(capture.parser_id.len())
+        .saturating_add(
+            capture
+                .expected_types
+                .iter()
+                .map(|expected| expected.class_name.len())
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(capture.summary.as_ref().map_or(0, |summary| {
+            summary
+                .kind
+                .len()
+                .saturating_add(summary.definition_id.as_ref().map_or(0, String::len))
+                .saturating_add(summary.registration_id.as_ref().map_or(0, String::len))
+                .saturating_add(summary.element_class.as_ref().map_or(0, String::len))
+                .saturating_add(summary.return_type.as_ref().map_or(0, String::len))
+                .saturating_add(metadata_entries_size(&summary.metadata))
+        }))
+        .saturating_add(
+            capture
+                .attachments
+                .iter()
+                .map(|attachment| {
+                    attachment
+                        .owner_component_id
+                        .len()
+                        .saturating_add(attachment.schema_id.len())
+                        .saturating_add(attachment.encoding.len())
+                        .saturating_add(attachment.bytes.len())
+                })
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            capture
+                .diagnostics
+                .iter()
+                .map(diagnostic_size)
+                .fold(0usize, usize::saturating_add),
+        )
 }
 fn raw_tree_size(tree: &RawTree) -> usize {
     tree.nodes
@@ -6393,6 +9657,13 @@ fn hook_effects_size(effects: &HookEffects) -> usize {
                 .map(parse_request_size)
                 .fold(0usize, usize::saturating_add),
         )
+        .saturating_add(
+            effects
+                .parse_results
+                .iter()
+                .map(parse_result_size)
+                .fold(0usize, usize::saturating_add),
+        )
 }
 
 fn diagnostic_size(diagnostic: &Diagnostic) -> usize {
@@ -6427,24 +9698,130 @@ fn context_update_size(update: &ContextUpdate) -> usize {
 }
 
 fn parse_request_size(request: &ParseRequest) -> usize {
-    request.input.len().saturating_add(
-        request
-            .expected_types
-            .iter()
-            .map(String::len)
-            .fold(0usize, usize::saturating_add),
-    )
+    request
+        .parser_id
+        .len()
+        .saturating_add(request.input.len())
+        .saturating_add(
+            request
+                .expected_types
+                .iter()
+                .map(|expected| expected.class_name.len())
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(metadata_entries_size(&request.options))
+}
+
+fn parse_result_size(result: &ParseResult) -> usize {
+    result
+        .parser_id
+        .len()
+        .saturating_add(
+            result
+                .nodes
+                .iter()
+                .map(parse_result_node_size)
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            result
+                .diagnostics
+                .iter()
+                .map(diagnostic_size)
+                .fold(0usize, usize::saturating_add),
+        )
+}
+
+fn parse_result_node_size(node: &ParseResultNode) -> usize {
+    node.parser_id
+        .len()
+        .saturating_add(node.kind.len())
+        .saturating_add(node.text.len())
+        .saturating_add(metadata_entries_size(&node.metadata))
+        .saturating_add(
+            node.attachments
+                .iter()
+                .map(|attachment| {
+                    attachment
+                        .owner_component_id
+                        .len()
+                        .saturating_add(attachment.schema_id.len())
+                        .saturating_add(attachment.encoding.len())
+                        .saturating_add(attachment.bytes.len())
+                })
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(
+            node.diagnostics
+                .iter()
+                .map(diagnostic_size)
+                .fold(0usize, usize::saturating_add),
+        )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bindings::nlaocs::skript_parser_addon::types::DocumentPayload;
+    use std::path::Path;
     use wasm_encoder::{
         BlockType, CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction,
         MemorySection, MemoryType, Module as EncodedModule, TypeSection, ValType,
     };
     use wasmtime::{Instance, Module as WasmtimeModule};
+
+    #[test]
+    fn source_catalog_and_dynamic_syntax_capabilities_are_independent() {
+        let normalized_only = configured_host_capabilities(true, false);
+        assert!(
+            normalized_only
+                .iter()
+                .any(|capability| capability.id == CAPABILITY_DYNAMIC_SYNTAX)
+        );
+        assert!(
+            normalized_only
+                .iter()
+                .all(|capability| capability.id != CAPABILITY_CATALOG_DATA)
+        );
+
+        let source_catalog = configured_host_capabilities(true, true);
+        assert!(
+            source_catalog
+                .iter()
+                .any(|capability| capability.id == CAPABILITY_CATALOG_DATA)
+        );
+    }
+
+    #[test]
+    fn type_and_literal_options_reference_their_exact_ssg_record() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let catalog = ssg::load(fixture).unwrap().into_catalog();
+
+        let type_options = all_expression_type_options(Some(&catalog));
+        assert!(!type_options.is_empty());
+        assert!(type_options.iter().all(|option| {
+            option
+                .source_record
+                .as_ref()
+                .is_some_and(|record| record.document == "Types.json")
+        }));
+
+        let literal_options = expression_literal_options(
+            Some(&catalog),
+            "zombie",
+            ParserTextRange::new(0, 6),
+            &[6],
+            &[],
+        );
+        assert!(!literal_options.is_empty());
+        assert!(literal_options.iter().all(|option| {
+            option
+                .source_record
+                .as_ref()
+                .is_some_and(|record| record.document == "Types.json")
+        }));
+    }
 
     fn subscription(
         id: &str,
@@ -6459,12 +9836,67 @@ mod tests {
             priority,
             mode,
             capability_id: CAPABILITY_HOOKS.to_owned(),
+            selector: empty_selector(),
+        }
+    }
+
+    fn empty_selector() -> HookSelector {
+        HookSelector {
+            pattern_index: None,
+            pattern_source: None,
+            mark: None,
+            tags: Vec::new(),
+            captures: Vec::new(),
+            return_type: None,
+            multiplicity: None,
+            metadata: Vec::new(),
         }
     }
 
     fn document(text: &str) -> HookPayload {
         HookPayload::Document(DocumentPayload {
             text: text.to_owned(),
+        })
+    }
+
+    fn registered_expression() -> HookPayload {
+        HookPayload::RegisteredExpression(RegisteredExpressionPayload {
+            input: "example".to_owned(),
+            definition_id: "expression:test:definition".to_owned(),
+            registration_id: "expression:test:registration".to_owned(),
+            element_class: "example.ExprTest".to_owned(),
+            related_property: None,
+            pattern_index: 2,
+            pattern: "example %objects%".to_owned(),
+            span: MappedSpan {
+                virtual_range: WitTextRange { start: 0, end: 7 },
+                origins: Vec::new(),
+            },
+            expected_types: Vec::new(),
+            declared_return_type: Some("java.lang.String".to_owned()),
+            declared_multiplicity: Some(WitDynamicMultiplicity::Single),
+            return_type_state: ExpressionReturnTypeState::Static,
+            possible_return_types: vec!["java.lang.String".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+            regex_captures: Vec::new(),
+            tags: vec![RegisteredExpressionTag {
+                value: "test".to_owned(),
+                implicit: false,
+            }],
+            mark: 4,
+            children: Vec::new(),
+            parsed_captures: Vec::new(),
+            common_child_return_type: None,
+            type_options: Vec::new(),
+            property_options: Vec::new(),
+            selected_property_option_indices: Vec::new(),
+            effective_return_type: Some("java.lang.String".to_owned()),
+            effective_multiplicity: Some(WitDynamicMultiplicity::Single),
+            metadata: vec![WitMetadataEntry {
+                owner_component_id: None,
+                key: "phase".to_owned(),
+                value: "resolved".to_owned(),
+            }],
         })
     }
 
@@ -6477,6 +9909,16 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_property_selection_outside_the_immutable_option_list() {
+        let HookPayload::RegisteredExpression(mut payload) = registered_expression() else {
+            unreachable!();
+        };
+        payload.selected_property_option_indices = vec![0];
+
+        assert!(validate_selected_property_options(&payload).is_err());
+    }
+
+    #[test]
     fn registry_orders_by_specificity_priority_and_load_order() {
         let mut registry = SubscriptionRegistry::default();
         registry.register(
@@ -6485,13 +9927,13 @@ mod tests {
             &[
                 subscription(
                     "syntax-first-component",
-                    HookTarget::SyntaxDefinition(SyntaxKind::Expression),
+                    HookTarget::SyntaxKind(SyntaxKind::Expression),
                     -100,
                     HookMode::Observe,
                 ),
                 subscription(
                     "exact-first-component",
-                    HookTarget::ExactRegistration("expr.test".to_owned()),
+                    HookTarget::Registration("expr.test".to_owned()),
                     0,
                     HookMode::Observe,
                 ),
@@ -6503,22 +9945,33 @@ mod tests {
             &[
                 subscription(
                     "exact-higher-priority",
-                    HookTarget::ExactRegistration("expr.test".to_owned()),
+                    HookTarget::Registration("expr.test".to_owned()),
                     -10,
                     HookMode::Observe,
                 ),
                 subscription(
                     "exact-same-priority-later-load",
-                    HookTarget::ExactRegistration("expr.test".to_owned()),
+                    HookTarget::Registration("expr.test".to_owned()),
                     0,
+                    HookMode::Observe,
+                ),
+                subscription(
+                    "pattern-later-load",
+                    HookTarget::Pattern(PatternRef {
+                        registration_id: "expr.test".to_owned(),
+                        pattern_index: 2,
+                    }),
+                    100,
                     HookMode::Observe,
                 ),
             ],
         );
 
         let matched = registry.matching(
-            &DispatchTarget::ExactRegistration {
+            &DispatchTarget::Pattern {
+                definition_id: "expr.definition".to_owned(),
                 registration_id: "expr.test".to_owned(),
+                pattern_index: 2,
                 syntax_kind: SyntaxKind::Expression,
             },
             HookPhase::Document,
@@ -6530,12 +9983,81 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "pattern-later-load",
                 "exact-higher-priority",
                 "exact-first-component",
                 "exact-same-priority-later-load",
                 "syntax-first-component",
             ]
         );
+    }
+
+    #[test]
+    fn selectors_use_three_value_logic_and_current_payload() {
+        let mut selector = empty_selector();
+        selector.pattern_index = Some(2);
+        selector.pattern_source = Some("example %objects%".to_owned());
+        selector.mark = Some(4);
+        selector.tags.push("test".to_owned());
+        selector.return_type = Some(ReturnTypeSelector {
+            class_name: "java.lang.String".to_owned(),
+            relation: SelectorTypeRelation::Exact,
+        });
+        selector.multiplicity = Some(WitDynamicMultiplicity::Single);
+        selector.metadata.push(WitMetadataEntry {
+            owner_component_id: None,
+            key: "phase".to_owned(),
+            value: "resolved".to_owned(),
+        });
+
+        let mut payload = registered_expression();
+        assert_eq!(
+            selector_match(&selector, &payload, None),
+            SelectorMatch::Match
+        );
+
+        let HookPayload::RegisteredExpression(value) = &mut payload else {
+            unreachable!();
+        };
+        value.metadata[0].value = "changed".to_owned();
+        assert_eq!(
+            selector_match(&selector, &payload, None),
+            SelectorMatch::NoMatch
+        );
+        assert_eq!(
+            selector_match(&selector, &document("example"), None),
+            SelectorMatch::Unknown
+        );
+    }
+
+    #[test]
+    fn metadata_is_owned_and_preserved_by_the_host() {
+        let original = vec![WitMetadataEntry {
+            owner_component_id: Some("addon.first".to_owned()),
+            key: "state".to_owned(),
+            value: "ready".to_owned(),
+        }];
+        let mut replacement = vec![WitMetadataEntry {
+            owner_component_id: None,
+            key: "result".to_owned(),
+            value: "accepted".to_owned(),
+        }];
+        merge_owned_metadata(&original, &mut replacement, "addon.second")
+            .expect("a component may add its own metadata");
+        assert_eq!(
+            replacement[0].owner_component_id.as_deref(),
+            Some("addon.second")
+        );
+        assert!(replacement.iter().any(|entry| {
+            entry.owner_component_id.as_deref() == Some("addon.first") && entry.key == "state"
+        }));
+
+        let mut spoofed = vec![WitMetadataEntry {
+            owner_component_id: Some("addon.first".to_owned()),
+            key: "state".to_owned(),
+            value: "changed".to_owned(),
+        }];
+        assert!(merge_owned_metadata(&original, &mut spoofed, "addon.second").is_err());
     }
 
     #[test]
@@ -6555,7 +10077,7 @@ mod tests {
 
         let mut matching = subscription(
             "matching",
-            HookTarget::SyntaxDefinition(SyntaxKind::Expression),
+            HookTarget::SyntaxKind(SyntaxKind::Expression),
             0,
             HookMode::Transform,
         );
@@ -6563,6 +10085,45 @@ mod tests {
         registry.register(1, 1, &[matching]);
 
         assert!(registry.has_matching_hooks());
+    }
+
+    #[test]
+    fn pattern_hook_prefilter_matches_only_its_pattern_index() {
+        let host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig::default(),
+        )
+        .expect("core fixture must initialize");
+        let mut registry = SubscriptionRegistry::default();
+        let mut matching = subscription(
+            "matching.pattern",
+            HookTarget::Pattern(PatternRef {
+                registration_id: "effect:fixture".to_owned(),
+                pattern_index: 1,
+            }),
+            0,
+            HookMode::Override,
+        );
+        matching.phase = HookPhase::Matching;
+        registry.register(0, 0, &[matching]);
+
+        assert!(registry.has_active_matching_handler_for_registration(
+            &host.components,
+            SyntaxKind::Effect,
+            None,
+            "effect:fixture",
+            1,
+        ));
+        assert!(!registry.has_active_matching_handler_for_registration(
+            &host.components,
+            SyntaxKind::Effect,
+            None,
+            "effect:fixture",
+            0,
+        ));
     }
 
     #[test]
@@ -6588,6 +10149,35 @@ mod tests {
     }
 
     #[test]
+    fn expression_type_options_preserve_supplier_metadata_and_identity() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let snapshot = ssg::load(path).expect("SSG fixture must load");
+        let catalog = snapshot.catalog();
+        let expected = catalog
+            .types()
+            .find(|value| value.has_supplier)
+            .expect("fixture must contain a supplier-backed type");
+        let options = all_expression_type_options(Some(catalog));
+        let actual = options
+            .iter()
+            .find(|value| value.code_name == expected.code_name.as_str())
+            .expect("supplier-backed type must be exposed");
+
+        assert_eq!(actual.has_parser, expected.has_parser);
+        assert_eq!(actual.has_supplier, expected.has_supplier);
+        assert!(same_expression_type_options(&options, &options));
+
+        let mut changed = options.clone();
+        changed
+            .iter_mut()
+            .find(|value| value.code_name == expected.code_name.as_str())
+            .expect("supplier-backed type must be exposed")
+            .has_supplier = false;
+        assert!(!same_expression_type_options(&options, &changed));
+    }
+
+    #[test]
     fn reports_abi_mismatches_as_typed_compatibility_errors() {
         use crate::bindings::nlaocs::skript_parser_addon::types::AbiVersion as WitAbiVersion;
         let manifest = ComponentManifest {
@@ -6597,6 +10187,7 @@ mod tests {
             capabilities: Vec::new(),
             subscriptions: Vec::new(),
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         };
         let error = validate_manifest(&manifest, &host_capabilities()).unwrap_err();
@@ -6622,6 +10213,7 @@ mod tests {
             priority: 0,
             mode: HookMode::Transform,
             capability_id: CAPABILITY_TEXT_MACRO.to_owned(),
+            selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
             component_id: "test.text-macro-contract".to_owned(),
@@ -6637,6 +10229,7 @@ mod tests {
             }],
             subscriptions: vec![subscription],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -6644,7 +10237,7 @@ mod tests {
             .expect("the dedicated Text macro pipeline shape must be accepted");
 
         let mut invalid_target = subscription.clone();
-        invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
+        invalid_target.target = HookTarget::SyntaxKind(SyntaxKind::Expression);
         let mut invalid_phase = subscription.clone();
         invalid_phase.phase = HookPhase::Document;
         let mut invalid_mode = subscription;
@@ -6677,6 +10270,7 @@ mod tests {
             priority: 0,
             mode: HookMode::Transform,
             capability_id: CAPABILITY_TREE_MACRO.to_owned(),
+            selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
             component_id: "test.tree-macro-contract".to_owned(),
@@ -6692,6 +10286,7 @@ mod tests {
             }],
             subscriptions: vec![subscription],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -6699,7 +10294,7 @@ mod tests {
             .expect("the dedicated Tree macro pipeline shape must be accepted");
 
         let mut invalid_target = subscription.clone();
-        invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Section);
+        invalid_target.target = HookTarget::SyntaxKind(SyntaxKind::Section);
         let mut invalid_phase = subscription.clone();
         invalid_phase.phase = HookPhase::Node;
         let mut invalid_mode = subscription;
@@ -6732,6 +10327,7 @@ mod tests {
             priority: 0,
             mode: HookMode::Transform,
             capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+            selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
             component_id: "test.expression-contract".to_owned(),
@@ -6747,6 +10343,7 @@ mod tests {
             }],
             subscriptions: vec![subscription],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -6755,9 +10352,11 @@ mod tests {
 
         let mut with_handler = manifest(subscription.clone());
         with_handler.registered_syntax_handlers = vec![RegisteredSyntaxHandler {
+            handler_id: "test.expr-parse".to_owned(),
             kind: SyntaxKind::Expression,
-            class_suffix: ".ExprParse".to_owned(),
-            regex_captures: Vec::new(),
+            target: RegisteredSyntaxHandlerTarget::ClassSuffix(".ExprParse".to_owned()),
+            capture_parsers: Vec::new(),
+            context_requirements: vec![REGISTERED_CONTEXT_ALL_TYPE_OPTIONS.to_owned()],
         }];
         validate_manifest(&with_handler, &host_capabilities())
             .expect("an Expression transform may declare handled registrations");
@@ -6767,9 +10366,11 @@ mod tests {
             invalid.registered_syntax_handlers = suffixes
                 .into_iter()
                 .map(|suffix| RegisteredSyntaxHandler {
+                    handler_id: "test.expr-parse".to_owned(),
                     kind: SyntaxKind::Expression,
-                    class_suffix: suffix.to_owned(),
-                    regex_captures: Vec::new(),
+                    target: RegisteredSyntaxHandlerTarget::ClassSuffix(suffix.to_owned()),
+                    capture_parsers: Vec::new(),
+                    context_requirements: Vec::new(),
                 })
                 .collect();
             assert!(matches!(
@@ -6786,7 +10387,7 @@ mod tests {
         ));
 
         let mut invalid_target = subscription.clone();
-        invalid_target.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
+        invalid_target.target = HookTarget::SyntaxKind(SyntaxKind::Effect);
         let mut invalid_phase = subscription.clone();
         invalid_phase.phase = HookPhase::Candidate;
         let mut invalid_mode = subscription;
@@ -6808,11 +10409,12 @@ mod tests {
 
         let subscription = HookSubscription {
             id: "effect.parse".to_owned(),
-            target: HookTarget::SyntaxDefinition(SyntaxKind::Effect),
+            target: HookTarget::SyntaxKind(SyntaxKind::Effect),
             phase: HookPhase::Effect,
             priority: 0,
             mode: HookMode::Transform,
             capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+            selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
             component_id: "test.effect-contract".to_owned(),
@@ -6828,13 +10430,14 @@ mod tests {
             }],
             subscriptions: vec![subscription],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
         validate_manifest(&manifest(subscription.clone()), &host_capabilities())
             .expect("an Effect category subscription must be accepted");
         let mut exact = subscription.clone();
-        exact.target = HookTarget::ExactRegistration("effect:test#0".to_owned());
+        exact.target = HookTarget::Registration("effect:test#0".to_owned());
         exact.mode = HookMode::Override;
         validate_manifest(&manifest(exact), &host_capabilities())
             .expect("an exact Effect override must be accepted");
@@ -6842,7 +10445,7 @@ mod tests {
         let mut invalid_target = subscription.clone();
         invalid_target.target = HookTarget::ParseStage;
         let mut invalid_kind = subscription.clone();
-        invalid_kind.target = HookTarget::SyntaxDefinition(SyntaxKind::Expression);
+        invalid_kind.target = HookTarget::SyntaxKind(SyntaxKind::Expression);
         let mut invalid_phase = subscription;
         invalid_phase.phase = HookPhase::Candidate;
         for invalid in [invalid_target, invalid_kind, invalid_phase] {
@@ -6857,16 +10460,17 @@ mod tests {
     fn section_subscriptions_use_section_targets_and_phase() {
         use crate::bindings::nlaocs::skript_parser_addon::types::{
             AbiVersion as WitAbiVersion, CapabilityRequirement as WitCapabilityRequirement,
-            RegisteredCaptureKind, RegisteredSyntaxHandler,
+            CaptureParserBinding, RegisteredSyntaxHandler,
         };
 
         let subscription = HookSubscription {
             id: "section.parse".to_owned(),
-            target: HookTarget::SyntaxDefinition(SyntaxKind::Section),
+            target: HookTarget::SyntaxKind(SyntaxKind::Section),
             phase: HookPhase::Section,
             priority: 0,
             mode: HookMode::Transform,
             capability_id: CAPABILITY_SECTION_PARSER.to_owned(),
+            selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
             component_id: "test.section-contract".to_owned(),
@@ -6882,10 +10486,18 @@ mod tests {
             }],
             subscriptions: vec![subscription],
             registered_syntax_handlers: vec![RegisteredSyntaxHandler {
+                handler_id: "test.sec-conditional".to_owned(),
                 kind: SyntaxKind::Section,
-                class_suffix: ".SecConditional".to_owned(),
-                regex_captures: vec![RegisteredCaptureKind::Condition],
+                target: RegisteredSyntaxHandlerTarget::ClassSuffix(".SecConditional".to_owned()),
+                capture_parsers: vec![CaptureParserBinding {
+                    capture_index: 0,
+                    parser_id: "host.condition".to_owned(),
+                    required: true,
+                    options: Vec::new(),
+                }],
+                context_requirements: Vec::new(),
             }],
+            catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         };
 
@@ -6904,8 +10516,7 @@ mod tests {
         }
 
         let mut invalid_capture = manifest(subscription);
-        invalid_capture.registered_syntax_handlers[0].regex_captures =
-            vec![RegisteredCaptureKind::Effect];
+        invalid_capture.registered_syntax_handlers[0].capture_parsers[0].parser_id = " ".to_owned();
         assert!(matches!(
             validate_manifest(&invalid_capture, &host_capabilities()),
             Err(HostError::InvalidManifest { .. })
@@ -7121,5 +10732,407 @@ mod tests {
         healthy
             .call(&mut store, ())
             .expect("a trapped call must not poison later calls");
+    }
+
+    #[test]
+    fn prefixed_literal_suffixes_follow_item_type_prefixes() {
+        assert_eq!(prefixed_literal_suffix_offset("2 stone"), Some(2));
+        assert_eq!(prefixed_literal_suffix_offset("2 of stone"), Some(5));
+        assert_eq!(prefixed_literal_suffix_offset("2 of every stone"), Some(11));
+        assert_eq!(prefixed_literal_suffix_offset("all stone"), Some(4));
+        assert_eq!(prefixed_literal_suffix_offset("stone"), None);
+        assert_eq!(prefixed_literal_suffix_offset("of stone"), None);
+    }
+
+    #[test]
+    fn class_suffix_handlers_resolve_to_fixture_ids() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler;
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let snapshot = ssg::load(path).expect("multi-addon fixture must load");
+        let catalog = snapshot.catalog();
+        let (syntax, element_class) = catalog
+            .syntaxes()
+            .iter()
+            .find_map(|syntax| syntax_element_class(syntax).map(|class| (syntax, class)))
+            .expect("fixture must contain a syntax element class");
+        let class_name = element_class.as_str().to_owned();
+        let handler = RegisteredSyntaxHandler {
+            handler_id: "fixture.class-suffix".to_owned(),
+            kind: match syntax.kind() {
+                CatalogSyntaxKind::Event => SyntaxKind::Event,
+                CatalogSyntaxKind::Condition => SyntaxKind::Condition,
+                CatalogSyntaxKind::Effect => SyntaxKind::Effect,
+                CatalogSyntaxKind::Expression => SyntaxKind::Expression,
+                CatalogSyntaxKind::Type => SyntaxKind::Type,
+                CatalogSyntaxKind::Function => SyntaxKind::Function,
+                CatalogSyntaxKind::Section => SyntaxKind::Section,
+                CatalogSyntaxKind::Structure => SyntaxKind::Structure,
+            },
+            target: RegisteredSyntaxHandlerTarget::ClassSuffix(class_name.clone()),
+            capture_parsers: Vec::new(),
+            context_requirements: Vec::new(),
+        };
+
+        let resolved = resolve_registered_handler_target(&handler, Some(catalog));
+        assert!(
+            resolved
+                .0
+                .iter()
+                .any(|id| id == syntax.definition_id().as_str())
+        );
+        assert!(
+            resolved
+                .1
+                .iter()
+                .any(|id| id == syntax.registration_id().as_str())
+        );
+        assert!(!resolved.0.iter().any(|id| id == &class_name));
+        assert!(!resolved.1.iter().any(|id| id == &class_name));
+    }
+
+    #[test]
+    fn catalog_annotation_targets_match_only_their_dispatch_scope() {
+        let pattern = PatternRef {
+            registration_id: "effect:test:registration".to_owned(),
+            pattern_index: 3,
+        };
+        let requested_pattern = DispatchTarget::Pattern {
+            definition_id: "effect:test:definition".to_owned(),
+            registration_id: pattern.registration_id.clone(),
+            pattern_index: pattern.pattern_index,
+            syntax_kind: SyntaxKind::Effect,
+        };
+        let requested_definition = DispatchTarget::Definition {
+            definition_id: "effect:test:definition".to_owned(),
+            syntax_kind: SyntaxKind::Effect,
+        };
+        let requested_registration = DispatchTarget::Registration {
+            definition_id: "effect:test:definition".to_owned(),
+            registration_id: pattern.registration_id.clone(),
+            syntax_kind: SyntaxKind::Effect,
+        };
+
+        let definition = CatalogAnnotationTarget::Definition("effect:test:definition".to_owned());
+        let registration =
+            CatalogAnnotationTarget::Registration("effect:test:registration".to_owned());
+        let pattern_target = CatalogAnnotationTarget::Pattern(pattern);
+
+        assert!(annotation_matches(&definition, &requested_pattern));
+        assert!(annotation_matches(&definition, &requested_definition));
+        assert!(!annotation_matches(
+            &definition,
+            &DispatchTarget::SyntaxKind(SyntaxKind::Effect)
+        ));
+        assert!(annotation_matches(&registration, &requested_pattern));
+        assert!(annotation_matches(&registration, &requested_registration));
+        assert!(!annotation_matches(&registration, &requested_definition));
+        assert!(annotation_matches(&pattern_target, &requested_pattern));
+        assert!(!annotation_matches(
+            &pattern_target,
+            &requested_registration
+        ));
+        assert!(!annotation_matches(&pattern_target, &requested_definition));
+        assert!(
+            catalog_annotation_specificity(&definition)
+                < catalog_annotation_specificity(&registration)
+        );
+        assert!(
+            catalog_annotation_specificity(&registration)
+                < catalog_annotation_specificity(&pattern_target)
+        );
+    }
+
+    #[test]
+    fn catalog_annotation_ownership_is_host_stamped() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CatalogAnnotation, MetadataEntry,
+        };
+
+        let annotation = || CatalogAnnotation {
+            target: CatalogAnnotationTarget::Definition("effect:test:definition".to_owned()),
+            metadata: vec![MetadataEntry {
+                owner_component_id: None,
+                key: "semantic-mode".to_owned(),
+                value: "test".to_owned(),
+            }],
+        };
+        let manifest = |annotations| ComponentManifest {
+            component_id: "fixture.annotation-addon".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: Vec::new(),
+            subscriptions: Vec::new(),
+            registered_syntax_handlers: Vec::new(),
+            catalog_annotations: annotations,
+            state_namespaces: Vec::new(),
+        };
+
+        let mut guest_owned = manifest(vec![annotation()]);
+        guest_owned.catalog_annotations[0].metadata[0].owner_component_id =
+            Some("spoofed.component".to_owned());
+        assert!(matches!(
+            validate_manifest(&guest_owned, &host_capabilities()),
+            Err(HostError::InvalidManifest { .. })
+        ));
+
+        let mut unstamped = manifest(vec![annotation()]);
+        validate_manifest(&unstamped, &host_capabilities())
+            .expect("guest metadata without an owner is valid");
+        stamp_catalog_annotation_owners(&mut unstamped);
+        assert_eq!(
+            unstamped.catalog_annotations[0].metadata[0]
+                .owner_component_id
+                .as_deref(),
+            Some("fixture.annotation-addon")
+        );
+    }
+
+    #[test]
+    fn registered_handler_ids_must_be_nonempty_and_unique() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            AbiVersion as WitAbiVersion, CapabilityRequirement, RegisteredSyntaxHandler,
+        };
+
+        let subscription = HookSubscription {
+            id: "expression.parse".to_owned(),
+            target: HookTarget::SyntaxKind(SyntaxKind::Expression),
+            phase: HookPhase::Expression,
+            priority: 0,
+            mode: HookMode::Transform,
+            capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+            selector: empty_selector(),
+        };
+        let handler = |handler_id: &str| RegisteredSyntaxHandler {
+            handler_id: handler_id.to_owned(),
+            kind: SyntaxKind::Expression,
+            target: RegisteredSyntaxHandlerTarget::Definition(
+                "expression:test:definition".to_owned(),
+            ),
+            capture_parsers: Vec::new(),
+            context_requirements: Vec::new(),
+        };
+        let manifest = |handlers| ComponentManifest {
+            component_id: "fixture.handler-addon".to_owned(),
+            component_version: "1.0.0".to_owned(),
+            abi: WitAbiVersion {
+                major: ABI_VERSION.major,
+                minor: ABI_VERSION.minor,
+            },
+            capabilities: vec![CapabilityRequirement {
+                id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                minimum_version: 1,
+                required: true,
+            }],
+            subscriptions: vec![subscription.clone()],
+            registered_syntax_handlers: handlers,
+            catalog_annotations: Vec::new(),
+            state_namespaces: Vec::new(),
+        };
+
+        let blank_error = validate_manifest(&manifest(vec![handler(" ")]), &host_capabilities())
+            .expect_err("blank handler IDs must be rejected");
+        assert!(
+            blank_error
+                .to_string()
+                .contains("blank registered syntax handler ID")
+        );
+
+        let duplicate_error = validate_manifest(
+            &manifest(vec![handler("fixture.handler"), handler("fixture.handler")]),
+            &host_capabilities(),
+        )
+        .expect_err("duplicate handler IDs must be rejected");
+        assert!(
+            duplicate_error
+                .to_string()
+                .contains("registered syntax handler ID fixture.handler more than once")
+        );
+    }
+
+    #[test]
+    fn native_metadata_round_trips_component_ownership() {
+        let native = BTreeMap::from([
+            ("host-key".to_owned(), "host-value".to_owned()),
+            (
+                "fixture.component/semantic-mode".to_owned(),
+                "fixture".to_owned(),
+            ),
+        ]);
+
+        let wire = metadata_to_wit(&native);
+        assert!(wire.iter().any(|entry| {
+            entry.owner_component_id.as_deref() == Some("fixture.component")
+                && entry.key == "semantic-mode"
+        }));
+        assert_eq!(
+            metadata_entries(wire).expect("qualified metadata must round trip"),
+            native
+        );
+    }
+
+    #[test]
+    fn parse_result_attachments_are_stamped_with_the_provider_component() {
+        let request = ParseRequest {
+            request_id: 7,
+            parser_id: "fixture.parser".to_owned(),
+            input: "x".to_owned(),
+            expected_types: Vec::new(),
+            span: MappedSpan {
+                virtual_range: WitTextRange { start: 0, end: 1 },
+                origins: Vec::new(),
+            },
+            options: Vec::new(),
+        };
+        let result = ParseResult {
+            host_token: 0,
+            request_id: request.request_id,
+            parser_id: request.parser_id.clone(),
+            status: WitParseResultStatus::Partial,
+            roots: vec![0],
+            nodes: vec![ParseResultNode {
+                node_id: 0,
+                parser_id: request.parser_id.clone(),
+                kind: "fixture".to_owned(),
+                status: WitParseResultStatus::Partial,
+                text: "x".to_owned(),
+                span: request.span.clone(),
+                expected_types: Vec::new(),
+                summary: None,
+                children: Vec::new(),
+                attachments: vec![WitAddonAttachment {
+                    owner_component_id: "guest-spoof".to_owned(),
+                    schema_id: "fixture.schema".to_owned(),
+                    schema_version: 1,
+                    encoding: "raw".to_owned(),
+                    bytes: vec![1, 2, 3],
+                }],
+                diagnostics: Vec::new(),
+                metadata: Vec::new(),
+            }],
+            diagnostics: Vec::new(),
+        };
+
+        let mut effects = empty_effects();
+        effects.parse_results.push(result);
+        stamp_parse_result_attachments(&mut effects, "fixture.provider");
+        let result = effects.parse_results.pop().expect("one parse result");
+        validate_parse_result(&request, &result)
+            .expect("the valid fixture result must pass validation");
+        assert_eq!(
+            result.nodes[0].attachments[0].owner_component_id,
+            "fixture.provider"
+        );
+    }
+
+    #[test]
+    fn registered_capture_bindings_deduplicate_equal_bindings_and_reject_conflicts() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            CaptureParserBinding, RegisteredSyntaxHandler,
+        };
+
+        const DEFINITION_ID: &str = "expression:fixture:definition";
+        const REGISTRATION_ID: &str = "expression:fixture:registration";
+        let syntax = RegisteredSyntaxIdentity {
+            kind: CatalogSyntaxKind::Expression,
+            definition_id: DEFINITION_ID,
+            registration_id: REGISTRATION_ID,
+            pattern_index: Some(0),
+        };
+        let binding = |parser_id: &str| CaptureParserBinding {
+            capture_index: 0,
+            parser_id: parser_id.to_owned(),
+            required: true,
+            options: Vec::new(),
+        };
+        let handler = |handler_id: &str, parser_id: &str| RegisteredSyntaxHandler {
+            handler_id: handler_id.to_owned(),
+            kind: SyntaxKind::Expression,
+            target: RegisteredSyntaxHandlerTarget::Definition(DEFINITION_ID.to_owned()),
+            capture_parsers: vec![binding(parser_id)],
+            context_requirements: Vec::new(),
+        };
+        let binding_record = |handler_id: &str| WitRegisteredHandlerBinding {
+            handler_id: handler_id.to_owned(),
+            definition_ids: vec![DEFINITION_ID.to_owned()],
+            registration_ids: vec![REGISTRATION_ID.to_owned()],
+        };
+
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig::default(),
+        )
+        .expect("core fixture must initialize");
+        {
+            let component = &mut host.components[0];
+            component.manifest.registered_syntax_handlers = vec![
+                handler("fixture.capture.first", "fixture.parser"),
+                handler("fixture.capture.second", "fixture.parser"),
+            ];
+            component.registered_handler_bindings = vec![
+                binding_record("fixture.capture.first"),
+                binding_record("fixture.capture.second"),
+            ];
+        }
+
+        let deduplicated = registered_capture_bindings(&host.components, syntax)
+            .expect("equal capture bindings must compose");
+        assert_eq!(deduplicated.len(), 1);
+        assert_eq!(deduplicated[0].capture_index, 0);
+        assert_eq!(deduplicated[0].parser_id, "fixture.parser");
+
+        host.components[0].manifest.registered_syntax_handlers[1].capture_parsers[0] =
+            binding("fixture.other-parser");
+        let error = registered_capture_bindings(&host.components, syntax)
+            .expect_err("different parsers for one capture must conflict");
+        assert!(error.contains("conflicting capture parsers at index 0"));
+    }
+
+    #[test]
+    fn registration_handler_does_not_match_a_sibling_registration() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler;
+
+        let handler = RegisteredSyntaxHandler {
+            handler_id: "fixture.registration".to_owned(),
+            kind: SyntaxKind::Expression,
+            target: RegisteredSyntaxHandlerTarget::Registration(
+                "expression:fixture:first".to_owned(),
+            ),
+            capture_parsers: Vec::new(),
+            context_requirements: Vec::new(),
+        };
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig::default(),
+        )
+        .expect("core fixture must initialize");
+        let component = &mut host.components[0];
+        component.manifest.registered_syntax_handlers = vec![handler.clone()];
+        component.registered_handler_bindings = vec![WitRegisteredHandlerBinding {
+            handler_id: handler.handler_id.clone(),
+            definition_ids: vec!["expression:fixture:definition".to_owned()],
+            registration_ids: vec!["expression:fixture:first".to_owned()],
+        }];
+
+        assert!(!registered_handler_matches(
+            component,
+            &handler,
+            RegisteredSyntaxIdentity {
+                kind: CatalogSyntaxKind::Expression,
+                definition_id: "expression:fixture:definition",
+                registration_id: "expression:fixture:second",
+                pattern_index: Some(0),
+            },
+        ));
     }
 }

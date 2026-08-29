@@ -32,6 +32,7 @@ cargo run -p xtask --locked -- build-test-components
 Builds test-only guest components, currently:
 
 ```text
+artifacts/catalog-data-addon.wasm
 artifacts/dynamic-syntax-addon.wasm
 artifacts/effect-addon.wasm
 artifacts/matching-addon.wasm
@@ -75,6 +76,9 @@ rustup target add wasm32-unknown-unknown
 
 Generated artifacts are intentionally ignored by Git. CI rebuilds them before
 running workspace tests.
+
+The Catalog Data fixture is built as `artifacts/catalog-data-addon.wasm` and
+calls the complete SSG source/query import from inside the guest component.
 
 ## Adding a Test Component
 

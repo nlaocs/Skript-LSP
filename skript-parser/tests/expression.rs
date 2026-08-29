@@ -3,15 +3,16 @@ use skript_parser::{
     ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment,
     ExpressionParseRequest, ExpressionParserConfig, MappedSource, NoopExpressionEnvironment,
     PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
-    RegisteredExpressionDecision, RegisteredExpressionRequest, TextRange, TypeExpressionRequest,
-    TypeExpressionResolution, parse_expression, parse_expression_with_snapshot,
+    RegisteredExpressionDecision, RegisteredExpressionRequest, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use syntaxes::{
     Catalog, CatalogParts, ClassName, DynamicMultiplicity, DynamicPattern, DynamicSyntaxDefinition,
     DynamicSyntaxId, DynamicSyntaxSnapshot, Multiplicity, PossibleReturnTypesState,
-    RankedSyntaxCandidate, ReturnTypeState, Syntax, SyntaxCandidateSource, SyntaxKind,
+    RankedSyntaxCandidate, ResolutionState, ReturnTypeState, Syntax, SyntaxCandidateSource,
+    SyntaxKind,
 };
 
 fn fixture() -> PathBuf {
@@ -99,6 +100,95 @@ fn parses_registered_expression_without_placeholders() {
     assert!(registration_id.starts_with("expression:skriptdummyaddon:"));
     assert_eq!(selected.node.span.local_range, TextRange::new(0, 32));
     assert!(selected.node.children.is_empty());
+}
+
+fn event_context(event_classes: &[&str]) -> ExpressionParseContext {
+    ExpressionParseContext {
+        event_classes: event_classes
+            .iter()
+            .map(|event| ClassName((*event).to_owned()))
+            .collect(),
+        ..ExpressionParseContext::default()
+    }
+}
+
+fn catalog_with_syntaxes(source: &Catalog, syntaxes: Vec<Syntax>) -> Catalog {
+    Catalog::new(CatalogParts {
+        syntaxes,
+        converters: source.converters().to_vec(),
+        comparators: source.comparators().to_vec(),
+        event_values: source.event_values().to_vec(),
+        properties: source.properties().to_vec(),
+        operators: source.operators().to_vec(),
+        operations: source.operations().clone(),
+        differences: source.differences().to_vec(),
+        classes: source.classes().to_vec(),
+        aliases: source.aliases().clone(),
+        plural_rules: source.plural_rules().clone(),
+    })
+}
+
+#[test]
+fn filtered_expression_patterns_keep_their_registration_index() {
+    let catalog = expression_fixture();
+    let id = DynamicSyntaxId::new("test.dynamic", "filtered-patterns");
+    let patterns = ["first", "second", "third"]
+        .into_iter()
+        .map(|source| DynamicPattern {
+            source: source.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(source, catalog.plural_rules())
+                .expect("test pattern must parse"),
+        })
+        .collect();
+    let definition = DynamicSyntaxDefinition {
+        id: id.clone(),
+        kind: SyntaxKind::Expression,
+        patterns,
+        priority: -100,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: Some("java.lang.String".to_owned()),
+        return_multiplicity: Some(DynamicMultiplicity::Single),
+        handler: "test.dynamic.filtered-patterns".to_owned(),
+        metadata: BTreeMap::new(),
+        component_load_order: 1,
+        declaration_order: 0,
+    };
+    let snapshot = DynamicSyntaxSnapshot {
+        document_id: "file:///dynamic.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([(id.clone(), definition)]),
+        overrides: BTreeMap::new(),
+        candidates: vec![RankedSyntaxCandidate {
+            source: SyntaxCandidateSource::Dynamic(id),
+            kind: SyntaxKind::Expression,
+            overrides: Vec::new(),
+        }],
+    };
+    let text = "third";
+    let source = MappedSource::identity(text);
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("the third pattern must match");
+
+    let selected = result.selected.expect("one expression must be selected");
+    let ExpressionNodeKind::Registered { pattern_index, .. } = selected.node.kind else {
+        panic!("registered node expected");
+    };
+    // `matcher_candidates` keeps only the matching pattern in its temporary
+    // Vec, but the public result must retain the original registration index.
+    assert_eq!(pattern_index, 2);
 }
 
 #[test]
@@ -667,7 +757,7 @@ fn optional_leading_literal_does_not_require_its_boundary_space() {
                 source: &source,
                 range: TextRange::new(0, text.len()),
                 expected_types: vec![expected_plural("ch.njol.skript.util.BlockStateBlock")],
-                context: ExpressionParseContext::default(),
+                context: event_context(&["org.bukkit.event.block.SpongeAbsorbEvent"]),
             },
             &mut NoopExpressionEnvironment,
             ExpressionParserConfig::default(),
@@ -676,6 +766,110 @@ fn optional_leading_literal_does_not_require_its_boundary_space() {
 
         assert!(result.selected.is_some(), "{text:?} must match");
     }
+}
+
+#[test]
+fn restricted_expression_matches_an_exact_event() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let text = "final damage";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.Number")],
+            context: event_context(&["org.bukkit.event.entity.EntityDamageEvent"]),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("exact Event context must allow the restricted Expression");
+
+    let selected = result.selected.expect("restricted Expression must parse");
+    assert_eq!(
+        selected.node.span.local_range,
+        TextRange::new(0, text.len())
+    );
+}
+
+#[test]
+fn restricted_expression_accepts_a_child_event() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let text = "final damage";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.Number")],
+            context: event_context(&["org.bukkit.event.entity.EntityDamageByEntityEvent"]),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("a child Event must satisfy the supported parent Event");
+
+    assert!(result.selected.is_some());
+}
+
+#[test]
+fn unresolved_expression_event_restriction_does_not_drop_the_candidate() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let source_catalog = snapshot.catalog();
+    let mut syntaxes = source_catalog.syntaxes().to_vec();
+    let target = syntaxes
+        .iter_mut()
+        .find_map(|syntax| match syntax {
+            Syntax::Expression(value)
+                if value.common.element_class.as_str()
+                    == "ch.njol.skript.expressions.ExprFinalDamage" =>
+            {
+                Some(value)
+            }
+            _ => None,
+        })
+        .expect("fixture must contain final damage");
+    target.common.supported_events_state = Some(ResolutionState::Unresolved);
+    let catalog = catalog_with_syntaxes(source_catalog, syntaxes);
+    let text = "final damage";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.Number")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("unresolved event metadata must remain parseable");
+
+    assert!(result.selected.is_some());
+}
+
+#[test]
+fn unknown_event_hierarchy_does_not_reject_a_restricted_expression() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let text = "final damage";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.Number")],
+            context: event_context(&["test.UnknownEvent"]),
+        },
+        &mut NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("unknown Event hierarchy must not hard-reject the candidate");
+
+    assert!(result.selected.is_some());
 }
 
 #[test]
@@ -761,8 +955,8 @@ impl PatternMatchEnvironment for DynamicReturnEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -807,8 +1001,8 @@ impl PatternMatchEnvironment for MultipleEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -830,6 +1024,7 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
             range: request.remaining,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Multiple),
+            children: Vec::new(),
             metadata: BTreeMap::new(),
         }])
     }
@@ -850,8 +1045,8 @@ impl PatternMatchEnvironment for LiteralEnvironment {
     fn resolve_type(
         &mut self,
         _request: TypeExpressionRequest<'_>,
-    ) -> Result<Vec<TypeExpressionResolution>, String> {
-        Ok(Vec::new())
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
     }
 
     fn dispatch_hook(
@@ -879,6 +1074,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
                 range,
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
+                children: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .into_iter()

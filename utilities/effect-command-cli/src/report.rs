@@ -1,19 +1,22 @@
 use crate::OutputFormat;
+use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, NamedSource};
 use parser_wasm::host::WasmEffectParseResult;
 use serde::Serialize;
 use skript_parser::{
-    CandidateMatch, EffectCandidate, ExpressionNode, ExpressionNodeKind, MatchSpan,
-    ParseMarkCapture, ParseTagCapture, PatternCapture, PatternFailure, PatternFailureReason,
-    TextRange,
+    CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
+    ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, FailureFrameRole, FailureTrace,
+    MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture, ParsedCapture,
+    ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
+use std::time::Duration;
 use syntax_pattern_parser::syntax::{
     PatternElement, PatternTypeExpr, Span as PatternSpan, SpannedPatternElement, parse,
 };
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, Syntax};
 
-const REPORT_SCHEMA_VERSION: u32 = 1;
+const REPORT_SCHEMA_VERSION: u32 = 3;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
 const MAX_REPORT_PATTERN_DEPTH: usize = 16;
 
@@ -41,6 +44,7 @@ impl AnalysisReport {
         snapshot: &SnapshotDescription,
         result: WasmEffectParseResult,
         catalog: &Catalog,
+        parse_duration: Duration,
     ) -> Self {
         let diagnostics = result
             .effects
@@ -49,7 +53,11 @@ impl AnalysisReport {
             .map(|diagnostic| DiagnosticReport {
                 code: diagnostic.code,
                 message: diagnostic.message,
-                severity: format!("{:?}", diagnostic.severity).to_ascii_lowercase(),
+                severity: format!("{:?}", diagnostic.severity)
+                    .rsplit("::")
+                    .next()
+                    .expect("split always returns one segment")
+                    .to_ascii_lowercase(),
                 span: SpanReport {
                     start: usize::try_from(diagnostic.span.virtual_range.start)
                         .unwrap_or(usize::MAX),
@@ -77,17 +85,53 @@ impl AnalysisReport {
                     .collect(),
             }
         } else {
-            ParseResultReport::Unknown {
-                source: result
-                    .matches
-                    .unknown
-                    .as_ref()
-                    .map_or_else(|| input.to_owned(), |unknown| unknown.source.clone()),
-                failure: result
-                    .matches
-                    .unknown
-                    .and_then(|unknown| unknown.failure)
-                    .map(failure_report),
+            let unknown = result.matches.unknown;
+            let source = unknown
+                .as_ref()
+                .map_or_else(|| input.to_owned(), |unknown| unknown.source.clone());
+            if let Some(candidate) = unknown
+                .as_ref()
+                .and_then(|unknown| unknown.failures.primary())
+            {
+                let mut syntax = syntax_identity_from_ids(
+                    &candidate.matched.definition_id,
+                    &candidate.matched.registration_id,
+                    catalog,
+                    SyntaxCategory::Effect,
+                );
+                if syntax.element_class.is_none() {
+                    syntax.element_class = candidate
+                        .element_class
+                        .as_ref()
+                        .map(|class| class.as_str().to_owned());
+                }
+                ParseResultReport::Incomplete {
+                    effect: Box::new(IncompleteEffectReport {
+                        syntax,
+                        pattern_index: candidate.matched.pattern_index,
+                        pattern: candidate.matched.pattern.clone(),
+                        priority: candidate.matched.priority,
+                        registration_order: candidate.matched.registration_order,
+                        resolved_order: candidate.matched.resolved_order,
+                        handler: candidate.handler.clone(),
+                        metadata: candidate.metadata.clone(),
+                    }),
+                    source,
+                    failure: candidate_failure_report(
+                        candidate,
+                        unknown
+                            .as_ref()
+                            .map_or(&[][..], |unknown| unknown.failures.candidates.as_slice()),
+                        catalog,
+                    ),
+                }
+            } else {
+                ParseResultReport::Unknown {
+                    source,
+                    failure: unknown
+                        .and_then(|unknown| unknown.failures.fallback)
+                        .map(failure_trace_report),
+                }
             }
         };
 
@@ -101,6 +145,7 @@ impl AnalysisReport {
                     skript_version: snapshot.skript_version.clone(),
                     plugin_count: snapshot.plugin_count,
                 },
+                parse_duration_ns: u64::try_from(parse_duration.as_nanos()).unwrap_or(u64::MAX),
                 result: parse_result,
                 diagnostics,
                 component_failures,
@@ -118,23 +163,32 @@ impl AnalysisReport {
     /// Serialization consumes the report so recursive DTO destruction happens
     /// on the same bounded worker stack used for rendering.
     pub fn to_json(self) -> io::Result<String> {
-        String::from_utf8(self.render(OutputFormat::Json)?)
+        String::from_utf8(self.render(OutputFormat::Json, false)?)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
     /// Writes this report using the selected terminal or JSON representation.
-    pub fn write(self, format: OutputFormat, mut writer: impl Write) -> io::Result<()> {
-        writer.write_all(&self.render(format)?)
+    pub fn write(self, format: OutputFormat, writer: impl Write) -> io::Result<()> {
+        self.write_with_color(format, writer, false)
     }
 
-    fn render(self, format: OutputFormat) -> io::Result<Vec<u8>> {
+    pub(crate) fn write_with_color(
+        self,
+        format: OutputFormat,
+        mut writer: impl Write,
+        color: bool,
+    ) -> io::Result<()> {
+        writer.write_all(&self.render(format, color)?)
+    }
+
+    fn render(self, format: OutputFormat, color: bool) -> io::Result<Vec<u8>> {
         let worker = std::thread::Builder::new()
             .name("effectcommandcli-report".to_owned())
             .stack_size(32 * 1024 * 1024)
             .spawn(move || {
                 let mut output = Vec::new();
                 match format {
-                    OutputFormat::Human => self.write_human(&mut output)?,
+                    OutputFormat::Human => self.write_human(&mut output, color)?,
                     OutputFormat::Json => {
                         serde_json::to_writer_pretty(&mut output, &self.data)
                             .map_err(io::Error::other)?;
@@ -148,7 +202,7 @@ impl AnalysisReport {
             .map_err(|_| io::Error::other("Effect report worker panicked"))?
     }
 
-    fn write_human(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_human(&self, writer: &mut dyn Write, color: bool) -> io::Result<()> {
         writeln!(
             writer,
             "snapshot: {} (Skript {}, Minecraft {}, {} plugins)",
@@ -157,11 +211,21 @@ impl AnalysisReport {
             self.data.snapshot.minecraft_version,
             self.data.snapshot.plugin_count,
         )?;
+        writeln!(
+            writer,
+            "parseTime: {}",
+            format_parse_duration(self.data.parse_duration_ns)
+        )?;
         match &self.data.result {
             ParseResultReport::Matched {
                 effect,
                 alternatives,
             } => {
+                writeln!(
+                    writer,
+                    "source: {}",
+                    render_matched_source(&self.data.input, effect, color)
+                )?;
                 writeln!(writer, "effect:")?;
                 write_identity(writer, &effect.syntax, 1)?;
                 writeln!(writer, "  patternIndex: {}", effect.pattern.index)?;
@@ -216,16 +280,45 @@ impl AnalysisReport {
                     }
                 }
             }
+            ParseResultReport::Incomplete {
+                effect,
+                source,
+                failure,
+            } => {
+                writeln!(writer, "effect:")?;
+                writeln!(writer, "  status: incomplete")?;
+                write_identity(writer, &effect.syntax, 1)?;
+                if let Some(index) = effect.pattern_index {
+                    writeln!(writer, "  patternIndex: {index}")?;
+                }
+                if let Some(pattern) = &effect.pattern {
+                    writeln!(writer, "  pattern: {pattern}")?;
+                }
+                writeln!(writer, "  priority: {}", effect.priority)?;
+                writeln!(writer, "  registrationOrder: {}", effect.registration_order)?;
+                if let Some(order) = effect.resolved_order {
+                    writeln!(writer, "  resolvedOrder: {order}")?;
+                }
+                if let Some(handler) = &effect.handler {
+                    writeln!(writer, "  handler: {handler}")?;
+                }
+                if !effect.metadata.is_empty() {
+                    writeln!(writer, "  metadata: {:?}", effect.metadata)?;
+                }
+                write_failure(
+                    writer,
+                    source,
+                    failure,
+                    color,
+                    "Effect candidate is incomplete",
+                )?;
+            }
             ParseResultReport::Unknown { source, failure } => {
                 writeln!(writer, "effect: unknown")?;
-                writeln!(writer, "source: {source}")?;
                 if let Some(failure) = failure {
-                    writeln!(writer, "failure:")?;
-                    writeln!(writer, "  offset: {}", failure.offset)?;
-                    writeln!(writer, "  span: {}", failure.span)?;
-                    for reason in &failure.reasons {
-                        writeln!(writer, "  - {}", reason.human())?;
-                    }
+                    write_failure(writer, source, failure, color, "No Effect matched")?;
+                } else {
+                    writeln!(writer, "source: {source}")?;
                 }
             }
         }
@@ -259,6 +352,7 @@ struct ReportData {
     schema_version: u32,
     input: String,
     snapshot: SnapshotReport,
+    parse_duration_ns: u64,
     result: ParseResultReport,
     diagnostics: Vec<DiagnosticReport>,
     component_failures: Vec<ComponentFailureReport>,
@@ -284,6 +378,11 @@ enum ParseResultReport {
         effect: Box<EffectReport>,
         alternatives: Vec<CandidateSummaryReport>,
     },
+    Incomplete {
+        effect: Box<IncompleteEffectReport>,
+        source: String,
+        failure: FailureReport,
+    },
     Unknown {
         source: String,
         failure: Option<FailureReport>,
@@ -301,6 +400,8 @@ struct EffectReport {
     marks: Vec<MarkReport>,
     handler: Option<String>,
     metadata: BTreeMap<String, String>,
+    #[serde(skip)]
+    source_colors: Vec<SourceColorSpan>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -456,6 +557,12 @@ struct ExpressionReport {
     inner: Option<Box<ExpressionReport>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     arguments: Vec<FunctionArgumentReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    operands: Vec<ExpressionReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    items: Vec<ExpressionReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    embedded_expressions: Vec<ExpressionReport>,
     metadata: BTreeMap<String, String>,
     truncated: bool,
 }
@@ -478,6 +585,9 @@ struct FunctionArgumentReport {
 )]
 enum ExpressionIdentityReport {
     Grouped,
+    List {
+        conjunction: ExpressionListConjunctionReport,
+    },
     Registered {
         syntax: SyntaxIdentityReport,
     },
@@ -495,9 +605,22 @@ enum ExpressionIdentityReport {
         #[serde(skip_serializing_if = "Option::is_none")]
         syntax: Option<SyntaxIdentityReport>,
     },
+    Arithmetic {
+        operator: String,
+        operation_registration_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        addon: Option<AddonReport>,
+    },
     Custom {
         parser_id: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ExpressionListConjunctionReport {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -531,6 +654,49 @@ struct FailureReport {
     offset: usize,
     span: SpanReport,
     reasons: Vec<FailureReasonReport>,
+    contexts: Vec<FailureContextReport>,
+    related: Vec<FailureReport>,
+    interpretations: Vec<FailureInterpretationReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FailureContextReport {
+    syntax_kind: String,
+    definition_id: String,
+    registration_id: String,
+    pattern_index: usize,
+    pattern: String,
+    role: FailureContextRoleReport,
+    span: SpanReport,
+    pattern_span: Option<SpanReport>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum FailureContextRoleReport {
+    PatternElement,
+    ConditionCapture { index: usize },
+    EffectCapture { index: usize },
+}
+
+impl FailureContextRoleReport {
+    fn human(self, syntax_kind: &str) -> String {
+        match self {
+            Self::PatternElement => format!("typed capture in {syntax_kind}"),
+            Self::ConditionCapture { .. } => format!("condition capture in {syntax_kind}"),
+            Self::EffectCapture { .. } => format!("effect capture in {syntax_kind}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FailureInterpretationReport {
+    syntax: SyntaxIdentityReport,
+    pattern_index: Option<usize>,
+    pattern: Option<String>,
+    span: SpanReport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -540,11 +706,24 @@ struct FailureReport {
     rename_all_fields = "camelCase"
 )]
 enum FailureReasonReport {
-    Literal { expected: String },
-    Regex { pattern: String },
-    TypeExpression { expected: Vec<String> },
+    Literal {
+        expected: String,
+    },
+    Regex {
+        pattern: String,
+    },
+    Expression,
+    TypeExpression {
+        expected: Vec<String>,
+    },
+    EventRestricted {
+        supported: Vec<String>,
+        current: Vec<String>,
+    },
     TrailingInput,
-    HookRejected { reason: String },
+    HookRejected {
+        reason: String,
+    },
 }
 
 impl FailureReasonReport {
@@ -552,9 +731,18 @@ impl FailureReasonReport {
         match self {
             Self::Literal { expected } => format!("expected literal {expected:?}"),
             Self::Regex { pattern } => format!("expected regex <{pattern}>"),
+            Self::Expression => "could not parse an expression".to_owned(),
             Self::TypeExpression { expected } => {
                 format!("expected expression of type {}", expected.join(" or "))
             }
+            Self::EventRestricted { supported, current } if current.is_empty() => {
+                format!("requires event context: {}", supported.join(" or "))
+            }
+            Self::EventRestricted { supported, current } => format!(
+                "only available in {}; current event is {}",
+                supported.join(" or "),
+                current.join(" or ")
+            ),
             Self::TrailingInput => "unexpected trailing input".to_owned(),
             Self::HookRejected { reason } => format!("hook rejected candidate: {reason}"),
         }
@@ -589,14 +777,239 @@ impl std::fmt::Display for SpanReport {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceColor {
+    Effect,
+    Expression,
+    Condition,
+    Variable,
+    Literal,
+    TypeName,
+    Alias,
+    Function,
+}
+
+impl SourceColor {
+    fn ansi_code(self) -> &'static str {
+        match self {
+            Self::Effect => "38;2;88;196;221",
+            Self::Expression => "38;2;131;193;103",
+            Self::Condition => "38;2;252;98;85",
+            Self::Variable => "38;2;0;255;255",
+            Self::Literal => "38;2;255;255;255",
+            Self::TypeName => "38;2;255;134;47",
+            Self::Alias => "38;2;240;172;95",
+            Self::Function => "38;2;160;160;160",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SourceColorSpan {
+    span: SpanReport,
+    color: SourceColor,
+    depth: usize,
+    order: usize,
+}
+
+fn render_matched_source(input: &str, effect: &EffectReport, color: bool) -> String {
+    if !color {
+        return input.to_owned();
+    }
+
+    render_source_colors(input, &effect.source_colors)
+}
+
+fn collect_effect_colors(effect: &EffectCandidate, spans: &mut Vec<SourceColorSpan>, depth: usize) {
+    push_source_color_span(
+        spans,
+        match_span(&effect.matched.matched.span),
+        SourceColor::Effect,
+        depth,
+    );
+    collect_parsed_capture_colors(&effect.parsed_captures, spans, depth + 1);
+}
+
+fn collect_condition_colors(
+    condition: &ConditionNode,
+    spans: &mut Vec<SourceColorSpan>,
+    depth: usize,
+) {
+    push_source_color_span(
+        spans,
+        match_span(&condition.span),
+        SourceColor::Condition,
+        depth,
+    );
+    for expression in &condition.expressions {
+        collect_expression_node_colors(expression, spans, depth + 1);
+    }
+    for child in &condition.children {
+        collect_condition_colors(child, spans, depth + 1);
+    }
+}
+
+fn collect_expression_node_colors(
+    expression: &ExpressionNode,
+    spans: &mut Vec<SourceColorSpan>,
+    depth: usize,
+) {
+    let color = match &expression.kind {
+        ExpressionNodeKind::Variable { .. } => SourceColor::Variable,
+        ExpressionNodeKind::Literal { parser_id } => {
+            literal_source_color(parser_id, &expression.metadata)
+        }
+        ExpressionNodeKind::Function { .. } => SourceColor::Function,
+        _ => SourceColor::Expression,
+    };
+    push_source_color_span(spans, match_span(&expression.span), color, depth);
+
+    if let Some(alias_span) = literal_alias_span(&expression.metadata, match_span(&expression.span))
+    {
+        push_source_color_span(spans, alias_span, SourceColor::Alias, depth + 1);
+    }
+
+    collect_parsed_capture_colors(&expression.parsed_captures(), spans, depth + 1);
+}
+
+fn collect_parsed_capture_colors(
+    captures: &[ParsedCapture],
+    spans: &mut Vec<SourceColorSpan>,
+    depth: usize,
+) {
+    for capture in captures {
+        match capture.result.value.as_ref() {
+            Some(ParsedCaptureValue::Expression(expression)) => {
+                collect_expression_node_colors(expression, spans, depth)
+            }
+            Some(ParsedCaptureValue::Condition(condition)) => {
+                collect_condition_colors(condition, spans, depth)
+            }
+            Some(ParsedCaptureValue::Effect(effect)) => collect_effect_colors(effect, spans, depth),
+            Some(ParsedCaptureValue::Section(section)) => {
+                collect_parsed_capture_colors(&section.parsed_captures, spans, depth)
+            }
+            Some(ParsedCaptureValue::Raw(_)) | None => {}
+        }
+    }
+}
+
+fn literal_alias_span(
+    metadata: &BTreeMap<String, String>,
+    fallback: SpanReport,
+) -> Option<SpanReport> {
+    (metadata_value(metadata, "literal-source") == Some("alias")).then(|| {
+        metadata_value(metadata, "literal-range-start")
+            .and_then(|start| start.parse().ok())
+            .zip(metadata_value(metadata, "literal-range-end").and_then(|end| end.parse().ok()))
+            .map(|(start, end)| SpanReport { start, end })
+            .unwrap_or(fallback)
+    })
+}
+
+fn literal_source_color(parser_id: &str, metadata: &BTreeMap<String, String>) -> SourceColor {
+    if parser_id == "core.literal.class-info"
+        || metadata_value(metadata, "type-code-name") == Some("classinfo")
+    {
+        SourceColor::TypeName
+    } else {
+        SourceColor::Literal
+    }
+}
+
+fn metadata_value<'a>(metadata: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    metadata.get(key).map(String::as_str).or_else(|| {
+        metadata.iter().find_map(|(candidate, value)| {
+            candidate
+                .strip_suffix(key)
+                .is_some_and(|owner| owner.ends_with('/'))
+                .then_some(value.as_str())
+        })
+    })
+}
+
+fn push_source_color_span(
+    spans: &mut Vec<SourceColorSpan>,
+    span: SpanReport,
+    color: SourceColor,
+    depth: usize,
+) {
+    if span.start < span.end {
+        let order = spans.len();
+        spans.push(SourceColorSpan {
+            span,
+            color,
+            depth,
+            order,
+        });
+    }
+}
+
+fn render_source_colors(input: &str, spans: &[SourceColorSpan]) -> String {
+    let mut boundaries = vec![0, input.len()];
+    for colored in spans {
+        if input.get(colored.span.start..colored.span.end).is_some() {
+            boundaries.push(colored.span.start);
+            boundaries.push(colored.span.end);
+        }
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    let mut rendered = String::with_capacity(input.len() + spans.len() * 12);
+    let mut active_color = None;
+    for window in boundaries.windows(2) {
+        let [start, end] = *window else {
+            continue;
+        };
+        let Some(text) = input.get(start..end) else {
+            continue;
+        };
+        let color = spans
+            .iter()
+            .filter(|colored| {
+                colored.span.start <= start
+                    && end <= colored.span.end
+                    && input.get(colored.span.start..colored.span.end).is_some()
+            })
+            .max_by_key(|colored| (colored.depth, colored.order))
+            .map(|colored| colored.color);
+        if color != active_color {
+            match color {
+                Some(color) => {
+                    rendered.push_str("\x1b[");
+                    rendered.push_str(color.ansi_code());
+                    rendered.push('m');
+                }
+                None => rendered.push_str("\x1b[0m"),
+            }
+            active_color = color;
+        }
+        rendered.push_str(text);
+    }
+    if active_color.is_some() {
+        rendered.push_str("\x1b[0m");
+    }
+    rendered
+}
+
 fn effect_report(input: &str, candidate: EffectCandidate, catalog: &Catalog) -> EffectReport {
+    let mut source_colors = Vec::new();
+    collect_effect_colors(&candidate, &mut source_colors, 0);
     let EffectCandidate {
         matched,
-        expressions,
+        parsed_captures,
         handler,
         metadata,
         ..
     } = candidate;
+    let expressions = parsed_captures
+        .into_iter()
+        .filter_map(|capture| match capture.result.value {
+            Some(ParsedCaptureValue::Expression(expression)) => Some(expression),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     let syntax = syntax_identity(&matched, catalog, SyntaxCategory::Effect);
     let pattern = pattern_report(matched.pattern_index, &matched.pattern, catalog, true);
     let span = match_span(&matched.matched.span);
@@ -612,6 +1025,7 @@ fn effect_report(input: &str, candidate: EffectCandidate, catalog: &Catalog) -> 
         marks,
         handler,
         metadata,
+        source_colors,
     }
 }
 
@@ -843,6 +1257,15 @@ fn expression_report(
 ) -> ExpressionReport {
     let (expression, pattern) = match &node.kind {
         ExpressionNodeKind::Grouped => (ExpressionIdentityReport::Grouped, None),
+        ExpressionNodeKind::List { conjunction } => (
+            ExpressionIdentityReport::List {
+                conjunction: match conjunction {
+                    ExpressionListConjunction::And => ExpressionListConjunctionReport::And,
+                    ExpressionListConjunction::Or => ExpressionListConjunctionReport::Or,
+                },
+            },
+            None,
+        ),
         ExpressionNodeKind::Registered {
             definition_id,
             registration_id,
@@ -902,6 +1325,28 @@ fn expression_report(
                 None,
             )
         }
+        ExpressionNodeKind::Arithmetic {
+            operator,
+            operation_registration_id,
+        } => {
+            let addon = catalog
+                .operations()
+                .values()
+                .flatten()
+                .find(|operation| operation.registration_id.as_str() == operation_registration_id)
+                .map(|operation| AddonReport {
+                    name: operation.addon.name.clone(),
+                    version: operation.addon.version.clone(),
+                });
+            (
+                ExpressionIdentityReport::Arithmetic {
+                    operator: operator.clone(),
+                    operation_registration_id: operation_registration_id.clone(),
+                    addon,
+                },
+                None,
+            )
+        }
         ExpressionNodeKind::Custom { parser_id } => (
             ExpressionIdentityReport::Custom {
                 parser_id: parser_id.clone(),
@@ -939,6 +1384,36 @@ fn expression_report(
             })
             .collect()
     };
+    let operands = if !truncated && matches!(node.kind, ExpressionNodeKind::Arithmetic { .. }) {
+        node.children
+            .iter()
+            .map(|child| expression_report(child, input, catalog, depth + 1))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let items = if !truncated && matches!(node.kind, ExpressionNodeKind::List { .. }) {
+        node.children
+            .iter()
+            .map(|child| expression_report(child, input, catalog, depth + 1))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let embedded_expressions = if !truncated
+        && matches!(
+            node.kind,
+            ExpressionNodeKind::Variable { .. }
+                | ExpressionNodeKind::Literal { .. }
+                | ExpressionNodeKind::Custom { .. }
+        ) {
+        node.children
+            .iter()
+            .map(|child| expression_report(child, input, catalog, depth + 1))
+            .collect()
+    } else {
+        Vec::new()
+    };
     ExpressionReport {
         source: source_slice(input, node.span.mapped.virtual_range),
         span,
@@ -956,6 +1431,9 @@ fn expression_report(
         },
         inner,
         arguments,
+        operands,
+        items,
+        embedded_expressions,
         metadata: node.metadata.clone(),
         truncated,
     }
@@ -1014,9 +1492,10 @@ fn mark_report(mark: &ParseMarkCapture) -> MarkReport {
 }
 
 fn failure_report(failure: PatternFailure) -> FailureReport {
+    let span = match_span(&failure.span);
     FailureReport {
-        offset: failure.offset,
-        span: match_span(&failure.span),
+        offset: span.start,
+        span,
         reasons: failure
             .reasons
             .into_iter()
@@ -1025,8 +1504,12 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                     FailureReasonReport::Literal { expected }
                 }
                 PatternFailureReason::Regex { pattern } => FailureReasonReport::Regex { pattern },
+                PatternFailureReason::Expression => FailureReasonReport::Expression,
                 PatternFailureReason::TypeExpression { expected } => {
                     FailureReasonReport::TypeExpression { expected }
+                }
+                PatternFailureReason::EventRestricted { supported, current } => {
+                    FailureReasonReport::EventRestricted { supported, current }
                 }
                 PatternFailureReason::TrailingInput => FailureReasonReport::TrailingInput,
                 PatternFailureReason::HookRejected { reason } => {
@@ -1034,6 +1517,96 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                 }
             })
             .collect(),
+        contexts: Vec::new(),
+        related: Vec::new(),
+        interpretations: Vec::new(),
+    }
+}
+
+fn candidate_failure_report(
+    candidate: &EffectCandidateFailure,
+    candidates: &[EffectCandidateFailure],
+    catalog: &Catalog,
+) -> FailureReport {
+    let trace = &candidate.matched.trace;
+    let mut report = failure_trace_report(trace.clone());
+    report.related = candidate
+        .matched
+        .related
+        .iter()
+        .cloned()
+        .map(failure_trace_report)
+        .collect();
+    report.interpretations = candidates
+        .iter()
+        .filter(|alternative| {
+            alternative.matched.registration_id != candidate.matched.registration_id
+                || alternative.matched.pattern_index != candidate.matched.pattern_index
+        })
+        .filter(|alternative| alternative.matched.pattern.is_some())
+        .take(3)
+        .map(|alternative| FailureInterpretationReport {
+            syntax: syntax_identity_from_ids(
+                &alternative.matched.definition_id,
+                &alternative.matched.registration_id,
+                catalog,
+                SyntaxCategory::Effect,
+            ),
+            pattern_index: alternative.matched.pattern_index,
+            pattern: alternative.matched.pattern.clone(),
+            span: match_span(&alternative.matched.trace.root_cause().failure.span),
+        })
+        .collect();
+    report
+}
+
+fn failure_trace_report(trace: FailureTrace) -> FailureReport {
+    let mut report = failure_report(trace.root_cause().failure.clone());
+    report.contexts = failure_contexts(&trace);
+    report
+}
+
+fn failure_contexts(trace: &FailureTrace) -> Vec<FailureContextReport> {
+    let mut contexts = Vec::new();
+    let mut current = Some(trace);
+    while let Some(trace) = current {
+        if let Some(frame) = &trace.frame {
+            contexts.push(FailureContextReport {
+                syntax_kind: match_syntax_kind(frame.kind).to_owned(),
+                definition_id: frame.definition_id.clone(),
+                registration_id: frame.registration_id.clone(),
+                pattern_index: frame.pattern_index,
+                pattern: frame.pattern.clone(),
+                role: match frame.role {
+                    FailureFrameRole::TypeExpressionCapture => {
+                        FailureContextRoleReport::PatternElement
+                    }
+                    FailureFrameRole::ConditionCapture { index } => {
+                        FailureContextRoleReport::ConditionCapture { index }
+                    }
+                    FailureFrameRole::EffectCapture { index } => {
+                        FailureContextRoleReport::EffectCapture { index }
+                    }
+                },
+                span: match_span(&frame.input_span),
+                pattern_span: frame.pattern_span.map(pattern_span),
+            });
+        }
+        current = trace.cause.as_deref();
+    }
+    contexts
+}
+
+fn match_syntax_kind(kind: MatchSyntaxKind) -> &'static str {
+    match kind {
+        MatchSyntaxKind::Event => "Event",
+        MatchSyntaxKind::Condition => "Condition",
+        MatchSyntaxKind::Effect => "Effect",
+        MatchSyntaxKind::Expression => "Expression",
+        MatchSyntaxKind::Type => "Type",
+        MatchSyntaxKind::Function => "Function",
+        MatchSyntaxKind::Section => "Section",
+        MatchSyntaxKind::Structure => "Structure",
     }
 }
 
@@ -1057,6 +1630,126 @@ fn pattern_span(span: PatternSpan) -> SpanReport {
 
 fn source_slice(input: &str, span: TextRange) -> String {
     span.slice(input).unwrap_or_default().to_owned()
+}
+
+fn write_failure(
+    writer: &mut dyn Write,
+    source: &str,
+    failure: &FailureReport,
+    color: bool,
+    message: &str,
+) -> io::Result<()> {
+    let primary_index = failure
+        .reasons
+        .iter()
+        .position(|reason| matches!(reason, FailureReasonReport::TypeExpression { .. }))
+        .or((!failure.reasons.is_empty()).then_some(0));
+    let primary = primary_index
+        .and_then(|index| failure.reasons.get(index))
+        .map(FailureReasonReport::human)
+        .unwrap_or_else(|| "Effect parsing stopped here".to_owned());
+    let start = failure.span.start.min(source.len());
+    let end = failure.span.end.min(source.len()).max(start);
+    let mut labels = vec![LabeledSpan::new(Some(primary), start, end - start)];
+    let mut labeled_spans = vec![(start, end)];
+    for related in &failure.related {
+        let related_start = related.span.start.min(source.len());
+        let related_end = related.span.end.min(source.len()).max(related_start);
+        if labeled_spans.contains(&(related_start, related_end)) {
+            continue;
+        }
+        let label = related
+            .reasons
+            .iter()
+            .find(|reason| matches!(reason, FailureReasonReport::TypeExpression { .. }))
+            .or_else(|| related.reasons.first())
+            .map(FailureReasonReport::human)
+            .unwrap_or_else(|| "related parse failure".to_owned());
+        labels.push(LabeledSpan::new(
+            Some(label),
+            related_start,
+            related_end - related_start,
+        ));
+        labeled_spans.push((related_start, related_end));
+    }
+    for context in failure.contexts.iter().rev() {
+        let context_start = context.span.start.min(source.len());
+        let context_end = context.span.end.min(source.len()).max(context_start);
+        if labeled_spans.contains(&(context_start, context_end)) {
+            continue;
+        }
+        labels.push(LabeledSpan::new(
+            Some(context.role.human(&context.syntax_kind)),
+            context_start,
+            context_end - context_start,
+        ));
+        labeled_spans.push((context_start, context_end));
+        if labels.len() >= 8 {
+            break;
+        }
+    }
+    let mut diagnostic = MietteDiagnostic::new(message)
+        .with_code("effectcommandcli::parse")
+        .with_labels(labels);
+    let has_type_failure = matches!(
+        primary_index.and_then(|index| failure.reasons.get(index)),
+        Some(FailureReasonReport::TypeExpression { .. })
+    );
+    let mut help = failure
+        .reasons
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != primary_index)
+        .map(|(_, reason)| reason)
+        .filter(|reason| {
+            !has_type_failure
+                || !matches!(
+                    reason,
+                    FailureReasonReport::Literal { .. } | FailureReasonReport::Regex { .. }
+                )
+        })
+        .map(FailureReasonReport::human)
+        .collect::<Vec<_>>();
+    let mut patterns = Vec::new();
+    for context in &failure.contexts {
+        let value = format!("{} pattern: {}", context.syntax_kind, context.pattern);
+        if !patterns.contains(&value) {
+            patterns.push(value);
+        }
+    }
+    help.extend(patterns);
+    for interpretation in &failure.interpretations {
+        if let Some(pattern) = &interpretation.pattern {
+            help.push(format!(
+                "also considered {} pattern: {pattern}",
+                interpretation.syntax.display_name()
+            ));
+        }
+    }
+    let token = source.get(start..end).unwrap_or_default().trim();
+    if !token.is_empty()
+        && token
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        help.push(format!("if {token:?} is a variable, write {{{token}}}"));
+    }
+    if !help.is_empty() {
+        diagnostic = diagnostic.with_help(help.join("\n"));
+    }
+    let report = miette::Report::new(diagnostic)
+        .with_source_code(NamedSource::new("effect.sk", source.to_owned()));
+    let theme = if color {
+        GraphicalTheme::unicode()
+    } else {
+        GraphicalTheme::unicode_nocolor()
+    };
+    let mut rendered = String::new();
+    GraphicalReportHandler::new_themed(theme)
+        .with_urls(false)
+        .render_report(&mut rendered, report.as_ref())
+        .map_err(io::Error::other)?;
+    write!(writer, "{rendered}")
 }
 
 fn write_identity(
@@ -1188,6 +1881,16 @@ fn write_expression(
         ExpressionIdentityReport::Grouped => {
             writeln!(writer, "{prefix}resolved: groupedExpression")?;
         }
+        ExpressionIdentityReport::List { conjunction } => {
+            writeln!(
+                writer,
+                "{prefix}resolved: expressionList ({})",
+                match conjunction {
+                    ExpressionListConjunctionReport::And => "and",
+                    ExpressionListConjunctionReport::Or => "or",
+                }
+            )?;
+        }
         ExpressionIdentityReport::Registered { syntax } => {
             writeln!(writer, "{prefix}resolved: registeredExpression")?;
             write_identity(writer, syntax, indent + 1)?;
@@ -1215,6 +1918,20 @@ fn write_expression(
                 write_identity(writer, syntax, indent + 1)?;
             }
         }
+        ExpressionIdentityReport::Arithmetic {
+            operator,
+            operation_registration_id,
+            addon,
+        } => {
+            writeln!(writer, "{prefix}resolved: arithmetic ({operator})")?;
+            writeln!(
+                writer,
+                "{prefix}operationRegistrationId: {operation_registration_id}"
+            )?;
+            if let Some(addon) = addon {
+                writeln!(writer, "{prefix}addon: {} {}", addon.name, addon.version)?;
+            }
+        }
         ExpressionIdentityReport::Custom { parser_id } => {
             writeln!(writer, "{prefix}resolved: custom ({parser_id})")?;
         }
@@ -1225,6 +1942,12 @@ fn write_expression(
     }
     if let Some(multiplicity) = expression.multiplicity {
         writeln!(writer, "{prefix}multiplicity: {multiplicity:?}")?;
+    }
+    if !expression.metadata.is_empty() {
+        writeln!(writer, "{prefix}metadata:")?;
+        for (key, value) in &expression.metadata {
+            writeln!(writer, "{prefix}  {key}: {value}")?;
+        }
     }
     if let Some(pattern) = &expression.pattern {
         writeln!(
@@ -1250,6 +1973,25 @@ fn write_expression(
                     write_expression(writer, value, indent + 3)?;
                 }
             }
+        }
+    } else if !expression.operands.is_empty() {
+        writeln!(writer, "{prefix}operands:")?;
+        for (index, operand) in expression.operands.iter().enumerate() {
+            let side = ["left", "right"].get(index).copied().unwrap_or("operand");
+            writeln!(writer, "{prefix}  {side}:")?;
+            write_expression(writer, operand, indent + 2)?;
+        }
+    } else if !expression.items.is_empty() {
+        writeln!(writer, "{prefix}items:")?;
+        for (index, item) in expression.items.iter().enumerate() {
+            writeln!(writer, "{prefix}  item[{index}]:")?;
+            write_expression(writer, item, indent + 2)?;
+        }
+    } else if !expression.embedded_expressions.is_empty() {
+        writeln!(writer, "{prefix}embeddedExpressions:")?;
+        for (index, embedded) in expression.embedded_expressions.iter().enumerate() {
+            writeln!(writer, "{prefix}  expression[{index}]:")?;
+            write_expression(writer, embedded, indent + 2)?;
         }
     } else if let Some(inner) = &expression.inner {
         writeln!(writer, "{prefix}inner:")?;
@@ -1279,6 +2021,27 @@ fn format_expected_types(expression: &TypeExpressionReport) -> String {
         .join(" | ")
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IncompleteEffectReport {
+    syntax: SyntaxIdentityReport,
+    pattern_index: Option<usize>,
+    pattern: Option<String>,
+    priority: i32,
+    registration_order: usize,
+    resolved_order: Option<usize>,
+    handler: Option<String>,
+    metadata: BTreeMap<String, String>,
+}
+
+fn format_parse_duration(nanoseconds: u64) -> String {
+    if nanoseconds >= 1_000_000 {
+        format!("{:.3} ms", nanoseconds as f64 / 1_000_000.0)
+    } else {
+        format!("{nanoseconds} ns")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1292,5 +2055,212 @@ mod tests {
             .human(),
             "expected expression of type string or number"
         );
+    }
+
+    #[test]
+    fn event_restriction_distinguishes_missing_and_incompatible_contexts() {
+        let supported = vec!["org.bukkit.event.player.PlayerJoinEvent".to_owned()];
+        assert_eq!(
+            FailureReasonReport::EventRestricted {
+                supported: supported.clone(),
+                current: Vec::new(),
+            }
+            .human(),
+            "requires event context: org.bukkit.event.player.PlayerJoinEvent"
+        );
+        assert_eq!(
+            FailureReasonReport::EventRestricted {
+                supported,
+                current: vec!["org.bukkit.event.player.PlayerQuitEvent".to_owned()],
+            }
+            .human(),
+            "only available in org.bukkit.event.player.PlayerJoinEvent; current event is org.bukkit.event.player.PlayerQuitEvent"
+        );
+    }
+
+    #[test]
+    fn failure_renderer_supports_unicode_spans_and_color() {
+        let source = "teleport あ";
+        let start = source.find('あ').unwrap();
+        let failure = FailureReport {
+            offset: start,
+            span: SpanReport {
+                start,
+                end: start + 'あ'.len_utf8(),
+            },
+            reasons: vec![FailureReasonReport::TypeExpression {
+                expected: vec!["entity".to_owned()],
+            }],
+            contexts: Vec::new(),
+            related: Vec::new(),
+            interpretations: Vec::new(),
+        };
+        let mut output = Vec::new();
+
+        write_failure(&mut output, source, &failure, true, "No Effect matched").unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("No Effect matched"));
+        assert!(output.contains("teleport あ"));
+        assert!(output.contains("expected expression of type entity"));
+        assert!(output.contains('\x1b'));
+    }
+
+    #[test]
+    fn failure_renderer_keeps_two_related_typed_capture_labels() {
+        let source = "teleport a to location(b, 2, 3)";
+        let failure = FailureReport {
+            offset: 9,
+            span: SpanReport { start: 9, end: 10 },
+            reasons: vec![FailureReasonReport::TypeExpression {
+                expected: vec!["entities".to_owned()],
+            }],
+            contexts: Vec::new(),
+            related: vec![FailureReport {
+                offset: 14,
+                span: SpanReport { start: 14, end: 31 },
+                reasons: vec![FailureReasonReport::TypeExpression {
+                    expected: vec!["number".to_owned()],
+                }],
+                contexts: Vec::new(),
+                related: Vec::new(),
+                interpretations: Vec::new(),
+            }],
+            interpretations: Vec::new(),
+        };
+        let mut output = Vec::new();
+
+        write_failure(&mut output, source, &failure, false, "No Effect matched").unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("expected expression of type entities"));
+        assert!(output.contains("expected expression of type number"));
+        assert!(output.contains("teleport a to location(b, 2, 3)"));
+    }
+
+    #[test]
+    fn parse_duration_uses_the_smallest_useful_display_unit() {
+        assert_eq!(format_parse_duration(999_999), "999999 ns");
+        assert_eq!(format_parse_duration(1_000_000), "1.000 ms");
+    }
+
+    #[test]
+    fn source_colors_use_deepest_nested_span() {
+        let spans = [
+            SourceColorSpan {
+                span: SpanReport { start: 0, end: 6 },
+                color: SourceColor::Effect,
+                depth: 0,
+                order: 0,
+            },
+            SourceColorSpan {
+                span: SpanReport { start: 0, end: 6 },
+                color: SourceColor::Function,
+                depth: 1,
+                order: 1,
+            },
+            SourceColorSpan {
+                span: SpanReport { start: 4, end: 5 },
+                color: SourceColor::Literal,
+                depth: 2,
+                order: 2,
+            },
+        ];
+
+        assert_eq!(
+            render_source_colors("sin(1)", &spans),
+            "\x1b[38;2;160;160;160msin(\x1b[38;2;255;255;255m1\x1b[38;2;160;160;160m)\x1b[0m"
+        );
+    }
+
+    #[test]
+    fn source_colors_preserve_plain_output_when_disabled() {
+        let effect = EffectReport {
+            syntax: SyntaxIdentityReport {
+                syntax_id: None,
+                definition_id: String::new(),
+                registration_id: String::new(),
+                element_class: None,
+                addon: None,
+            },
+            pattern: PatternReport {
+                index: 0,
+                source: String::new(),
+                elements: Vec::new(),
+            },
+            span: SpanReport { start: 0, end: 6 },
+            elements: Vec::new(),
+            tags: Vec::new(),
+            marks: Vec::new(),
+            handler: None,
+            metadata: BTreeMap::new(),
+            source_colors: Vec::new(),
+        };
+
+        assert_eq!(render_matched_source("sin(1)", &effect, false), "sin(1)");
+    }
+
+    #[test]
+    fn alias_color_uses_the_literal_range_inside_an_item_type() {
+        let metadata = BTreeMap::from([
+            (
+                "nlaocs.core-library/literal-source".to_owned(),
+                "alias".to_owned(),
+            ),
+            (
+                "nlaocs.core-library/literal-range-start".to_owned(),
+                "2".to_owned(),
+            ),
+            (
+                "nlaocs.core-library/literal-range-end".to_owned(),
+                "9".to_owned(),
+            ),
+        ]);
+
+        let alias = literal_alias_span(&metadata, SpanReport { start: 0, end: 9 }).unwrap();
+        assert_eq!(alias.start, 2);
+        assert_eq!(alias.end, 9);
+    }
+
+    #[test]
+    fn source_colors_distinguish_variables_and_literal_sources() {
+        let no_metadata = BTreeMap::new();
+        assert_eq!(
+            literal_source_color("core.literal.string", &no_metadata),
+            SourceColor::Literal
+        );
+        assert_eq!(
+            literal_source_color("core.literal.number", &no_metadata),
+            SourceColor::Literal
+        );
+        assert_eq!(
+            literal_source_color("core.literal.type", &no_metadata),
+            SourceColor::Literal
+        );
+        assert_eq!(
+            literal_source_color("core.literal.entity-data", &no_metadata),
+            SourceColor::Literal
+        );
+        assert_eq!(
+            literal_source_color("core.literal.boolean", &no_metadata),
+            SourceColor::Literal
+        );
+        assert_eq!(
+            literal_source_color("core.literal.item-type", &no_metadata),
+            SourceColor::Literal
+        );
+        assert_eq!(
+            literal_source_color("core.literal.class-info", &no_metadata),
+            SourceColor::TypeName
+        );
+        assert_eq!(
+            literal_source_color(
+                "core.literal.type",
+                &BTreeMap::from([("type-code-name".to_owned(), "classinfo".to_owned())]),
+            ),
+            SourceColor::TypeName
+        );
+        assert_eq!(SourceColor::Variable.ansi_code(), "38;2;0;255;255");
+        assert_eq!(SourceColor::Literal.ansi_code(), "38;2;255;255;255");
     }
 }

@@ -47,8 +47,15 @@ Human output identifies the selected Effect, addon, implementation class,
 registration pattern, pattern AST, captures, expected Skript types, resolved
 Java return types, multiplicity, nested Expressions, parse tags, parse marks,
 alternatives, and the farthest useful failure. JSON reports carry
-`schemaVersion: 1` so consumers can version their reader independently from the
-SSG schema.
+`schemaVersion: 3` so consumers can version their reader independently from the
+SSG schema. Human reports include `parseTime` in milliseconds for durations of
+at least one millisecond and in nanoseconds for shorter parses. JSON reports
+expose the duration as integer nanoseconds in `parseDurationNs`. The duration
+covers parsing only; loading and indexing the SSG snapshot is excluded.
+
+Human parse failures use `miette` to label the farthest failure span directly
+in the source. Human formatting may evolve for readability; JSON output is the
+stable machine-readable contract and keeps its existing report shape.
 
 `patternElements` is the complete AST of the selected registration pattern,
 including branches that were not selected. `elements` contains the regex and typed
@@ -58,6 +65,10 @@ Some addons intentionally register catch-all Effects. For example,
 skript-reflect registers an expression statement as `[1:await] <.+>`, so any
 non-empty input may be a valid Effect in snapshots containing that addon. The CLI
 reports the selected catch-all instead of manufacturing an unknown result.
+
+When a registration matches a meaningful prefix but one typed capture fails,
+the result is `incomplete`. It preserves the Effect identity and underlines the
+failed capture; `unknown` is reserved for input with no recognizable candidate.
 
 Exit codes are stable:
 

@@ -66,6 +66,18 @@ fn loads_and_indexes_modern_multi_addon_snapshot() {
     );
     assert!(catalog.alias("stone").is_some());
 
+    let material = catalog
+        .type_by_code_name("material")
+        .expect("material type must be indexed");
+    assert!(material.usage.is_empty());
+    assert!(material.enum_values.iter().any(|value| value == "stone"));
+    assert!(!material.has_parser);
+    assert!(
+        catalog
+            .type_literals("stone")
+            .all(|value| value.code_name.as_str() != "material")
+    );
+
     let first_plural_rule = &catalog.plural_rules().rules()[0];
     assert_eq!(first_plural_rule.addon().name(), "SkriptDummyAddon");
 }
@@ -107,6 +119,49 @@ fn loads_legacy_264_on_minecraft_1122() {
         expression.return_type_multiplicity_state == ResolutionState::Unresolved
             && expression.accepted_changers_state == ResolutionState::Unresolved
     }));
+}
+
+#[test]
+fn into_catalog_exposes_the_complete_source_view() {
+    let snapshot = load(modern_fixture()).expect("modern schema 3 fixture must load");
+    let expected_snapshot_id = snapshot.manifest().snapshot_id.clone();
+    let catalog = snapshot.into_catalog();
+    let source = catalog
+        .source()
+        .expect("SSG-loaded catalogs must retain their source view");
+
+    assert_eq!(source.format, "ssg");
+    assert_eq!(source.schema_version, 3);
+    assert_eq!(source.snapshot_id, expected_snapshot_id);
+    assert_eq!(
+        source.document_names().collect::<Vec<_>>(),
+        ssg::ALL_FILES.to_vec()
+    );
+
+    let manifest = fs::read(modern_fixture().join("Manifest.json")).unwrap();
+    let effects = fs::read(modern_fixture().join("Effects.json")).unwrap();
+    assert_eq!(source.document("Manifest.json"), Some(manifest.as_slice()));
+    assert_eq!(source.document("Effects.json"), Some(effects.as_slice()));
+
+    let effect = catalog
+        .syntaxes()
+        .iter()
+        .find(|syntax| matches!(syntax, Syntax::Effect(_)))
+        .expect("modern fixture must contain an effect");
+    let registration_id = effect.registration_id().as_str().to_owned();
+    let definition_id = effect.definition_id().as_str().to_owned();
+    assert!(
+        source
+            .records_by_registration_id(&registration_id)
+            .iter()
+            .any(|record| record.document == "Effects.json")
+    );
+    assert!(
+        source
+            .records_by_definition_id(&definition_id)
+            .iter()
+            .any(|record| record.document == "Effects.json")
+    );
 }
 
 #[test]

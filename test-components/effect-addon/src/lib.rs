@@ -14,9 +14,10 @@ use nlaocs::skript_parser_addon::{
     state_store,
     types::{
         AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput,
-        CapabilityRequirement, CompatibilityError, ComponentManifest, Diagnostic,
-        DiagnosticSeverity, EffectTiming, HookDecision, HookEffects, HookInvocation, HookMode,
-        HookOutput, HookPayload, HookPhase, HookSubscription, HookTarget, HostProfile, Rejection,
+        CapabilityRequirement, CatalogAnnotation, CatalogAnnotationTarget, CompatibilityError,
+        ComponentManifest, ContextUpdate, Diagnostic, DiagnosticSeverity, EffectTiming,
+        HookDecision, HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase,
+        HookSelector, HookSubscription, HookTarget, HostProfile, MetadataEntry, Rejection,
         StateEncoding, StateNamespaceDeclaration, StateNamespaceVisibility, StateScope, StateValue,
         SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
     },
@@ -29,6 +30,7 @@ use parser_wasm::{
 
 const COMPONENT_ID: &str = "test.effect-addon";
 const CATEGORY_SUBSCRIPTION: &str = "effect.category";
+const NOT_APPLICABLE_SUBSCRIPTION: &str = "effect.not-applicable";
 const REPLACE_SUBSCRIPTION: &str = "effect.replace";
 const REJECT_SUBSCRIPTION: &str = "effect.reject";
 const REPLACE_REGISTRATION: &str = "effect:skriptdummyaddon:e5a642b47ab7df334a25242d4626e480fcf4a4ecb07bd4a4124d973d7c337d5f:9c25d42b2baa05a39b30588bfc37b2996faba3d05060ba445e0c09893a96ccfc:0";
@@ -37,6 +39,30 @@ const STATE_NAMESPACE: &str = "effect-state";
 const STATE_SCHEMA: &str = "nlaocs.test.effect-state";
 
 struct EffectAddon;
+
+fn empty_selector() -> HookSelector {
+    HookSelector {
+        pattern_index: None,
+        pattern_source: None,
+        mark: None,
+        tags: Vec::new(),
+        captures: Vec::new(),
+        return_type: None,
+        multiplicity: None,
+        metadata: Vec::new(),
+    }
+}
+
+fn replacement_selector() -> HookSelector {
+    HookSelector {
+        metadata: vec![MetadataEntry {
+            key: "catalog-annotation".to_owned(),
+            value: "replace".to_owned(),
+            owner_component_id: Some(COMPONENT_ID.to_owned()),
+        }],
+        ..empty_selector()
+    }
+}
 
 impl addon::Guest for EffectAddon {
     fn manifest() -> ComponentManifest {
@@ -62,30 +88,50 @@ impl addon::Guest for EffectAddon {
             subscriptions: vec![
                 HookSubscription {
                     id: CATEGORY_SUBSCRIPTION.to_owned(),
-                    target: HookTarget::SyntaxDefinition(SyntaxKind::Effect),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Effect),
                     phase: HookPhase::Effect,
                     priority: 0,
                     mode: HookMode::Transform,
                     capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    selector: empty_selector(),
+                },
+                HookSubscription {
+                    id: NOT_APPLICABLE_SUBSCRIPTION.to_owned(),
+                    target: HookTarget::Registration(REPLACE_REGISTRATION.to_owned()),
+                    phase: HookPhase::Effect,
+                    priority: -20,
+                    mode: HookMode::Override,
+                    capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    selector: empty_selector(),
                 },
                 HookSubscription {
                     id: REPLACE_SUBSCRIPTION.to_owned(),
-                    target: HookTarget::ExactRegistration(REPLACE_REGISTRATION.to_owned()),
+                    target: HookTarget::Registration(REPLACE_REGISTRATION.to_owned()),
                     phase: HookPhase::Effect,
                     priority: -10,
                     mode: HookMode::Override,
                     capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    selector: replacement_selector(),
                 },
                 HookSubscription {
                     id: REJECT_SUBSCRIPTION.to_owned(),
-                    target: HookTarget::ExactRegistration(REJECT_REGISTRATION.to_owned()),
+                    target: HookTarget::Registration(REJECT_REGISTRATION.to_owned()),
                     phase: HookPhase::Effect,
                     priority: -10,
                     mode: HookMode::Override,
                     capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    selector: empty_selector(),
                 },
             ],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: vec![CatalogAnnotation {
+                target: CatalogAnnotationTarget::Registration(REPLACE_REGISTRATION.to_owned()),
+                metadata: vec![MetadataEntry {
+                    key: "catalog-annotation".to_owned(),
+                    value: "replace".to_owned(),
+                    owner_component_id: None,
+                }],
+            }],
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,
@@ -139,6 +185,35 @@ impl hooks::Guest for EffectAddon {
                     effects: empty_effects(),
                 })
             }
+            NOT_APPLICABLE_SUBSCRIPTION => {
+                record_state("not-applicable")?;
+                let candidate = payload
+                    .candidate
+                    .as_mut()
+                    .ok_or_else(|| addon_error("not-applicable hook requires a candidate"))?;
+                candidate
+                    .metadata
+                    .push(nlaocs::skript_parser_addon::types::MetadataEntry {
+                        key: "temporary".to_owned(),
+                        value: "discarded".to_owned(),
+                        owner_component_id: None,
+                    });
+                let span = candidate.span.clone();
+                Ok(HookOutput {
+                    decision: HookDecision::NotApplicable,
+                    replacement: Some(HookPayload::Effect(payload)),
+                    effects: HookEffects {
+                        diagnostics: vec![Diagnostic {
+                            code: "effect-fixture-not-applicable".to_owned(),
+                            message: "NotApplicable diagnostic must be rolled back".to_owned(),
+                            severity: DiagnosticSeverity::Warning,
+                            span,
+                            related: Vec::new(),
+                        }],
+                        ..empty_effects()
+                    },
+                })
+            }
             REPLACE_SUBSCRIPTION => {
                 record_state("replace")?;
                 let candidate = payload
@@ -150,6 +225,7 @@ impl hooks::Guest for EffectAddon {
                     .push(nlaocs::skript_parser_addon::types::MetadataEntry {
                         key: "wasm".to_owned(),
                         value: "replaced".to_owned(),
+                        owner_component_id: None,
                     });
                 Ok(HookOutput {
                     decision: HookDecision::Handled,
@@ -166,12 +242,27 @@ impl hooks::Guest for EffectAddon {
                             code: "effect-fixture-reject".to_owned(),
                             message: "Effect rejected by the fixture addon".to_owned(),
                             severity: DiagnosticSeverity::Warning,
-                            span: payload.span,
+                            span: payload.span.clone(),
                             related: Vec::new(),
                         }],
                     }),
                     replacement: None,
-                    effects: empty_effects(),
+                    effects: HookEffects {
+                        diagnostics: vec![Diagnostic {
+                            code: "effect-fixture-reject-effects".to_owned(),
+                            message: "Reject HookEffects must be rolled back".to_owned(),
+                            severity: DiagnosticSeverity::Warning,
+                            span: payload.span.clone(),
+                            related: Vec::new(),
+                        }],
+                        context_updates: vec![ContextUpdate {
+                            syntax_context: 0,
+                            key: "reject-effects-must-be-rolled-back".to_owned(),
+                            value: None,
+                        }],
+                        parse_requests: Vec::new(),
+                        parse_results: Vec::new(),
+                    },
                 })
             }
             _ => Err(addon_error("unknown Effect subscription")),
@@ -217,6 +308,7 @@ fn empty_effects() -> HookEffects {
         diagnostics: Vec::new(),
         context_updates: Vec::new(),
         parse_requests: Vec::new(),
+        parse_results: Vec::new(),
     }
 }
 

@@ -45,7 +45,7 @@ fn parser_context() -> ExpressionParseContext {
 }
 
 #[test]
-fn condition_pipeline_uses_core_expression_leaves() {
+fn condition_pipeline_uses_core_expression_candidates() {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
         HostConfig {
@@ -70,7 +70,7 @@ fn condition_pipeline_uses_core_expression_leaves() {
             },
             ConditionParserConfig::default(),
         )
-        .expect("Condition must parse through CoreLibrary leaves");
+        .expect("Condition must parse through CoreLibrary Expression candidates");
 
     let selected = result.matches.selected.expect("Condition must be selected");
     assert!(matches!(
@@ -80,7 +80,7 @@ fn condition_pipeline_uses_core_expression_leaves() {
     assert_eq!(selected.node.expressions.len(), 1);
     assert!(result.calls.iter().any(|call| {
         call.component_id == "nlaocs.core-library"
-            && call.subscription_id == "core.expression-leaves"
+            && call.subscription_id == "core.expression-candidates"
     }));
     transaction.cancel().unwrap();
 }
@@ -155,7 +155,7 @@ fn whether_and_ternary_parse_condition_captures_through_core_library() {
         .matches
         .selected
         .expect("whether Expression must parse");
-    assert_eq!(parsed.node.conditions.len(), 1);
+    assert_eq!(parsed.node.conditions().count(), 1);
     assert_eq!(parsed.node.multiplicity, Some(Multiplicity::Single));
 
     let ternary = "\"yes\" if dummy fixture condition else \"no\"";
@@ -183,7 +183,7 @@ fn whether_and_ternary_parse_condition_captures_through_core_library() {
             ternary_matches.failure
         )
     });
-    assert_eq!(parsed.node.conditions.len(), 1);
+    assert_eq!(parsed.node.conditions().count(), 1);
     assert_eq!(parsed.node.children.len(), 2);
     assert_eq!(
         parsed.node.return_type.as_ref().map(ClassName::as_str),

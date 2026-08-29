@@ -11,7 +11,7 @@ pub use report::AnalysisReport;
 pub use session::{EffectCommandSession, EffectCommandSessionError};
 
 use std::ffi::OsString;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
 /// Stable exit code for a successfully matched Effect or a clean REPL exit.
@@ -36,12 +36,14 @@ pub fn run_from_environment() -> u8 {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stderr = io::stderr();
-    run_with_io(
+    let color = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    run_with_io_mode(
         std::env::args_os().skip(1),
         default_snapshot,
         stdin.lock(),
         stdout.lock(),
         stderr.lock(),
+        color,
     )
 }
 
@@ -53,8 +55,26 @@ pub fn run_with_io<I, S, R, W, E>(
     args: I,
     default_snapshot: PathBuf,
     input: R,
+    output: W,
+    error: E,
+) -> u8
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+    R: BufRead,
+    W: Write,
+    E: Write,
+{
+    run_with_io_mode(args, default_snapshot, input, output, error, false)
+}
+
+fn run_with_io_mode<I, S, R, W, E>(
+    args: I,
+    default_snapshot: PathBuf,
+    input: R,
     mut output: W,
     mut error: E,
+    color: bool,
 ) -> u8
 where
     I: IntoIterator<Item = S>,
@@ -96,7 +116,9 @@ where
         RunMode::Once(effect) => match session.analyze(&effect) {
             Ok(report) => {
                 let matched = report.matched();
-                if let Err(render_error) = report.write(options.output, &mut output) {
+                if let Err(render_error) =
+                    report.write_with_color(options.output, &mut output, color)
+                {
                     let _ = writeln!(error, "error: failed to write output: {render_error}");
                     return EXIT_FAILURE;
                 }
@@ -107,6 +129,6 @@ where
                 EXIT_FAILURE
             }
         },
-        RunMode::Repl => repl::run(&mut session, options.output, input, output, error),
+        RunMode::Repl => repl::run(&mut session, options.output, input, output, error, color),
     }
 }

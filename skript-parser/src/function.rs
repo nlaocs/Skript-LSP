@@ -11,14 +11,14 @@
 //! and
 //! [`FunctionArgumentParser`](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/org/skriptlang/skript/common/function/FunctionArgumentParser.java).
 
-use crate::TextRange;
 use crate::expression::{
     ExpressionCandidate, ExpressionExpectedType, ExpressionNode, ExpressionNodeKind,
-    ExpressionParseEnvironment, ExpressionParseError, ExpressionSession,
+    ExpressionParseEnvironment, ExpressionParseError, ExpressionSession, PrefixParse,
 };
 use crate::pattern_match::{
     find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
 };
+use crate::{FailureTrace, PatternFailure, PatternFailureReason, TextRange, choose_failure_trace};
 use std::collections::{BTreeMap, HashSet};
 use syntaxes::{ClassName, Function, Multiplicity, ParameterModifier};
 
@@ -181,19 +181,29 @@ enum Selection {
     Ambiguous,
 }
 
+struct DefinitionParse {
+    candidate: Option<ExpressionCandidate>,
+    failure: Option<FailureTrace>,
+}
+
+struct ParameterParse {
+    nodes: Option<Vec<ExpressionNode>>,
+    failure: Option<FailureTrace>,
+}
+
 pub(crate) fn parse_function_call<E: ExpressionParseEnvironment>(
     session: &mut ExpressionSession<'_, E>,
     range: TextRange,
     candidate_ends: &[usize],
     expected_types: &[ExpressionExpectedType],
     depth: usize,
-) -> Result<Vec<ExpressionCandidate>, ExpressionParseError> {
+) -> Result<PrefixParse, ExpressionParseError> {
     let Some(call) = parse_call_syntax(session.source().virtual_source(), range, candidate_ends)
     else {
-        return Ok(Vec::new());
+        return Ok(PrefixParse::default());
     };
     if duplicate_named_argument(&call.arguments) {
-        return Ok(Vec::new());
+        return Ok(PrefixParse::default());
     }
 
     let definitions = session.function_definitions(&call.name)?;
@@ -207,7 +217,7 @@ pub(crate) fn parse_function_call<E: ExpressionParseEnvironment>(
         })
         .collect::<Vec<_>>();
     if definitions.is_empty() {
-        return Ok(Vec::new());
+        return Ok(PrefixParse::default());
     }
 
     let exact = definitions
@@ -215,9 +225,15 @@ pub(crate) fn parse_function_call<E: ExpressionParseEnvironment>(
         .copied()
         .filter(|definition| !definition.is_list_signature())
         .collect::<Vec<_>>();
-    match select_unique(session, &call, &exact, depth, false)? {
-        Selection::One(candidate) => return Ok(vec![*candidate]),
-        Selection::Ambiguous => return Ok(Vec::new()),
+    let (exact, exact_failure) = select_unique(session, &call, &exact, depth, false)?;
+    match exact {
+        Selection::One(candidate) => {
+            return Ok(PrefixParse {
+                candidates: vec![*candidate],
+                failure: None,
+            });
+        }
+        Selection::Ambiguous => return Ok(PrefixParse::default()),
         Selection::None => {}
     }
 
@@ -226,9 +242,17 @@ pub(crate) fn parse_function_call<E: ExpressionParseEnvironment>(
         .copied()
         .filter(|definition| definition.is_list_signature())
         .collect::<Vec<_>>();
-    Ok(match select_unique(session, &call, &list, depth, true)? {
-        Selection::One(candidate) => vec![*candidate],
-        Selection::None | Selection::Ambiguous => Vec::new(),
+    let (list, list_failure) = select_unique(session, &call, &list, depth, true)?;
+    Ok(match list {
+        Selection::One(candidate) => PrefixParse {
+            candidates: vec![*candidate],
+            failure: None,
+        },
+        Selection::None => PrefixParse {
+            candidates: Vec::new(),
+            failure: choose_failure_trace(exact_failure, list_failure),
+        },
+        Selection::Ambiguous => PrefixParse::default(),
     })
 }
 
@@ -238,9 +262,10 @@ fn select_unique<E: ExpressionParseEnvironment>(
     definitions: &[&FunctionDefinition],
     depth: usize,
     list_signature: bool,
-) -> Result<Selection, ExpressionParseError> {
+) -> Result<(Selection, Option<FailureTrace>), ExpressionParseError> {
     let mut selected = None;
     let mut selected_transaction_open = false;
+    let mut failure = None;
     for definition in definitions {
         session
             .begin_semantic_candidate()
@@ -264,7 +289,8 @@ fn select_unique<E: ExpressionParseEnvironment>(
                 return Err(error);
             }
         };
-        let Some(candidate) = parsed else {
+        failure = choose_failure_trace(failure, parsed.failure);
+        let Some(candidate) = parsed.candidate else {
             session
                 .finish_semantic_candidate(false)
                 .map_err(environment_error)?;
@@ -282,7 +308,7 @@ fn select_unique<E: ExpressionParseEnvironment>(
         session
             .finish_semantic_candidate(false)
             .map_err(environment_error)?;
-        return Ok(Selection::Ambiguous);
+        return Ok((Selection::Ambiguous, failure));
     }
 
     if selected_transaction_open {
@@ -290,9 +316,12 @@ fn select_unique<E: ExpressionParseEnvironment>(
             .finish_semantic_candidate(true)
             .map_err(environment_error)?;
     }
-    Ok(selected.map_or(Selection::None, |candidate| {
-        Selection::One(Box::new(candidate))
-    }))
+    Ok((
+        selected.map_or(Selection::None, |candidate| {
+            Selection::One(Box::new(candidate))
+        }),
+        failure,
+    ))
 }
 
 fn parse_exact_definition<E: ExpressionParseEnvironment>(
@@ -300,17 +329,23 @@ fn parse_exact_definition<E: ExpressionParseEnvironment>(
     call: &CallSyntax,
     definition: &FunctionDefinition,
     depth: usize,
-) -> Result<Option<ExpressionCandidate>, ExpressionParseError> {
+) -> Result<DefinitionParse, ExpressionParseError> {
     let required = definition
         .parameters
         .iter()
         .filter(|parameter| !parameter.optional)
         .count();
     if call.arguments.len() < required || call.arguments.len() > definition.parameters.len() {
-        return Ok(None);
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
     }
     let Some(mapped) = map_exact_arguments(&definition.parameters, &call.arguments) else {
-        return Ok(None);
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
     };
     build_candidate(session, call, definition, mapped, depth)
 }
@@ -320,7 +355,7 @@ fn parse_list_definition<E: ExpressionParseEnvironment>(
     call: &CallSyntax,
     definition: &FunctionDefinition,
     depth: usize,
-) -> Result<Option<ExpressionCandidate>, ExpressionParseError> {
+) -> Result<DefinitionParse, ExpressionParseError> {
     let parameter = &definition.parameters[0];
     if call.arguments.len() > 1
         && call
@@ -328,16 +363,25 @@ fn parse_list_definition<E: ExpressionParseEnvironment>(
             .iter()
             .any(|argument| argument.kind == ArgumentKind::Named)
     {
-        return Ok(None);
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
     }
     if let [argument] = call.arguments.as_slice()
         && argument.kind == ArgumentKind::Named
         && argument.name.as_deref() != Some(parameter.name.as_str())
     {
-        return Ok(None);
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
     }
     if call.arguments.is_empty() && !parameter.optional {
-        return Ok(None);
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
     }
 
     let supplied_name = call.arguments.first().and_then(|argument| {
@@ -345,11 +389,15 @@ fn parse_list_definition<E: ExpressionParseEnvironment>(
             .then(|| argument.name.clone())
             .flatten()
     });
+    // Skript parses all outer arguments of a one-parameter plural Function as
+    // one Expression list. Keeping the commas here is what makes `(1,2),3`
+    // a nested list (invalid) while allowing both `1,2` and `(1,2)`.
     let values = call
         .arguments
-        .iter()
-        .map(|argument| argument.value)
-        .collect::<Vec<_>>();
+        .first()
+        .zip(call.arguments.last())
+        .map(|(first, last)| vec![TextRange::new(first.value.start, last.value.end)])
+        .unwrap_or_default();
     build_candidate(
         session,
         call,
@@ -459,17 +507,22 @@ fn build_candidate<E: ExpressionParseEnvironment>(
     definition: &FunctionDefinition,
     mapped: Vec<MappedArgument>,
     depth: usize,
-) -> Result<Option<ExpressionCandidate>, ExpressionParseError> {
+) -> Result<DefinitionParse, ExpressionParseError> {
     let mut children = Vec::new();
     let mut arguments = Vec::with_capacity(definition.parameters.len());
+    let mut failure = None;
     for (parameter, mapped) in definition.parameters.iter().zip(mapped) {
         let child_start = children.len();
         for value in mapped.values {
-            let Some(mut parsed) = parse_parameter_value(session, value, parameter, depth + 1)?
-            else {
-                return Ok(None);
+            let parsed = parse_parameter_value(session, value, parameter, depth + 1)?;
+            failure = choose_failure_trace(failure, parsed.failure);
+            let Some(mut nodes) = parsed.nodes else {
+                return Ok(DefinitionParse {
+                    candidate: None,
+                    failure,
+                });
             };
-            children.append(&mut parsed);
+            children.append(&mut nodes);
         }
         let child_count = children.len() - child_start;
         arguments.push(FunctionArgument {
@@ -491,29 +544,32 @@ fn build_candidate<E: ExpressionParseEnvironment>(
         "function.registration-id".to_owned(),
         definition.registration_id.clone(),
     );
-    Ok(Some(ExpressionCandidate {
-        node: ExpressionNode {
-            kind: ExpressionNodeKind::Function {
-                parser_id: definition.parser_id.clone(),
+    Ok(DefinitionParse {
+        candidate: Some(ExpressionCandidate {
+            node: ExpressionNode {
+                kind: ExpressionNodeKind::Function {
+                    parser_id: definition.parser_id.clone(),
+                },
+                function: Some(FunctionCall {
+                    name: definition.name.clone(),
+                    definition_id: definition.definition_id.clone(),
+                    registration_id: definition.registration_id.clone(),
+                    arguments,
+                }),
+                span: session.map_range(call.range)?,
+                return_type: definition.return_type.clone(),
+                multiplicity: Some(definition.return_multiplicity()),
+                captures: Vec::new(),
+                tags: Vec::new(),
+                mark: 0,
+                children,
+                routed_captures: Vec::new(),
+                metadata,
             },
-            function: Some(FunctionCall {
-                name: definition.name.clone(),
-                definition_id: definition.definition_id.clone(),
-                registration_id: definition.registration_id.clone(),
-                arguments,
-            }),
-            span: session.map_range(call.range)?,
-            return_type: definition.return_type.clone(),
-            multiplicity: Some(definition.return_multiplicity()),
-            captures: Vec::new(),
-            tags: Vec::new(),
-            mark: 0,
-            children,
-            conditions: Vec::new(),
-            metadata,
-        },
-        expected_alternative: None,
-    }))
+            expected_alternative: None,
+        }),
+        failure: None,
+    })
 }
 
 fn parse_parameter_value<E: ExpressionParseEnvironment>(
@@ -521,48 +577,82 @@ fn parse_parameter_value<E: ExpressionParseEnvironment>(
     range: TextRange,
     parameter: &FunctionParameterDefinition,
     depth: usize,
-) -> Result<Option<Vec<ExpressionNode>>, ExpressionParseError> {
+) -> Result<ParameterParse, ExpressionParseError> {
     if range.is_empty() {
-        return Ok(None);
+        return Ok(ParameterParse {
+            nodes: None,
+            failure: None,
+        });
     }
-    if let Some(node) = parse_one(session, range, parameter, depth)? {
-        return Ok(Some(vec![node]));
-    }
-    if parameter.single {
-        return Ok(None);
-    }
-
-    let input = session.source().virtual_source();
-    let list_range = unwrapped_list_range(input, range).unwrap_or(range);
-    let Some(parts) = split_expression_list(input, list_range) else {
-        return Ok(None);
-    };
-    if parts.len() < 2 {
-        return Ok(None);
-    }
-    let mut nodes = Vec::with_capacity(parts.len());
-    for part in parts {
-        let Some(node) = parse_one(session, part, parameter, depth)? else {
-            return Ok(None);
-        };
-        nodes.push(node);
-    }
-    Ok(Some(nodes))
-}
-
-fn parse_one<E: ExpressionParseEnvironment>(
-    session: &mut ExpressionSession<'_, E>,
-    range: TextRange,
-    parameter: &FunctionParameterDefinition,
-    depth: usize,
-) -> Result<Option<ExpressionNode>, ExpressionParseError> {
     let expected = [ExpressionExpectedType {
         class_name: parameter.parameter_type.clone(),
         plural: !parameter.single,
     }];
-    let mut candidates =
-        session.parse_prefixes(range, &[range.end], &expected, true, true, 0, depth)?;
-    Ok((!candidates.is_empty()).then(|| candidates.remove(0).node))
+    let mut parsed =
+        session.parse_prefixes_detailed(range, &[range.end], &expected, true, true, 0, depth)?;
+    let Some(node) = (!parsed.candidates.is_empty()).then(|| parsed.candidates.remove(0).node)
+    else {
+        let failure = parsed.failure.or_else(|| {
+            let expected = session
+                .catalog()
+                .types()
+                .find(|value| value.original_class == parameter.parameter_type)
+                .map_or_else(
+                    || parameter.parameter_type.as_str().to_owned(),
+                    |value| value.code_name.as_str().to_owned(),
+                );
+            session.map_range(range).ok().map(|span| {
+                FailureTrace::leaf(PatternFailure {
+                    span,
+                    reasons: vec![PatternFailureReason::TypeExpression {
+                        expected: vec![expected],
+                    }],
+                })
+            })
+        });
+        return Ok(ParameterParse {
+            nodes: None,
+            failure,
+        });
+    };
+    if parameter.single {
+        return Ok(ParameterParse {
+            nodes: Some(vec![node]),
+            failure: None,
+        });
+    }
+    Ok(ParameterParse {
+        nodes: flatten_function_list(node),
+        failure: None,
+    })
+}
+
+fn flatten_function_list(mut node: ExpressionNode) -> Option<Vec<ExpressionNode>> {
+    if !is_expression_list(&node) {
+        return Some(vec![node]);
+    }
+    while matches!(node.kind, ExpressionNodeKind::Grouped) && node.children.len() == 1 {
+        node = node.children.remove(0);
+    }
+    match node.kind {
+        ExpressionNodeKind::List {
+            conjunction: crate::ExpressionListConjunction::And,
+        } if node.children.iter().any(is_expression_list) => None,
+        ExpressionNodeKind::List {
+            conjunction: crate::ExpressionListConjunction::And,
+        } => Some(node.children),
+        ExpressionNodeKind::List {
+            conjunction: crate::ExpressionListConjunction::Or,
+        } => None,
+        _ => Some(vec![node]),
+    }
+}
+
+fn is_expression_list(node: &ExpressionNode) -> bool {
+    matches!(node.kind, ExpressionNodeKind::List { .. })
+        || (matches!(node.kind, ExpressionNodeKind::Grouped)
+            && node.children.len() == 1
+            && is_expression_list(&node.children[0]))
 }
 
 fn parse_call_syntax(
@@ -686,101 +776,6 @@ fn duplicate_named_argument(arguments: &[ParsedArgument]) -> bool {
                 .as_ref()
                 .is_some_and(|name| !names.insert(name))
     })
-}
-
-fn unwrapped_list_range(input: &str, range: TextRange) -> Option<TextRange> {
-    if !range.slice(input)?.starts_with('(') {
-        return None;
-    }
-    let close = find_parenthesis_end(input, range.start + '('.len_utf8(), range.end)?;
-    if close + ')'.len_utf8() != range.end {
-        return None;
-    }
-    let raw = TextRange::new(range.start + '('.len_utf8(), close);
-    let local = java_trim_range(raw.slice(input)?);
-    Some(TextRange::new(
-        raw.start + local.start,
-        raw.start + local.end,
-    ))
-}
-
-fn split_expression_list(input: &str, range: TextRange) -> Option<Vec<TextRange>> {
-    let mut parts = Vec::new();
-    let mut start = range.start;
-    let mut cursor = range.start;
-    let mut depth = 0usize;
-    while cursor < range.end {
-        let ch = input.get(cursor..range.end)?.chars().next()?;
-        match ch {
-            '"' => {
-                cursor = find_quote_end(input, cursor + ch.len_utf8(), range.end)? + ch.len_utf8();
-                continue;
-            }
-            '{' => {
-                cursor =
-                    find_variable_end(input, cursor + ch.len_utf8(), range.end)? + '}'.len_utf8();
-                continue;
-            }
-            '(' => depth = depth.saturating_add(1),
-            ')' if depth > 0 => depth -= 1,
-            ',' if depth == 0 => {
-                push_trimmed(input, TextRange::new(start, cursor), &mut parts)?;
-                start = cursor + ch.len_utf8();
-            }
-            _ if depth == 0 => {
-                if let Some((separator_start, separator_end, is_or)) =
-                    conjunction_at(input, cursor, range.end)
-                {
-                    if is_or {
-                        return None;
-                    }
-                    push_trimmed(input, TextRange::new(start, separator_start), &mut parts)?;
-                    start = separator_end;
-                    cursor = separator_end;
-                    continue;
-                }
-            }
-            _ => {}
-        }
-        cursor += ch.len_utf8();
-    }
-    push_trimmed(input, TextRange::new(start, range.end), &mut parts)?;
-    Some(parts)
-}
-
-fn conjunction_at(input: &str, cursor: usize, end: usize) -> Option<(usize, usize, bool)> {
-    let text = input.get(cursor..end)?;
-    for (word, is_or) in [("and", false), ("or", true)] {
-        let Some(prefix) = text.get(..word.len()) else {
-            continue;
-        };
-        if prefix.eq_ignore_ascii_case(word)
-            && cursor > 0
-            && input[..cursor]
-                .chars()
-                .next_back()
-                .is_some_and(char::is_whitespace)
-            && text[word.len()..]
-                .chars()
-                .next()
-                .is_some_and(char::is_whitespace)
-        {
-            return Some((cursor, cursor + word.len(), is_or));
-        }
-    }
-    None
-}
-
-fn push_trimmed(input: &str, range: TextRange, parts: &mut Vec<TextRange>) -> Option<()> {
-    let local = java_trim_range(range.slice(input)?);
-    if local.is_empty() {
-        return None;
-    }
-    parts.push(TextRange::new(
-        range.start + local.start,
-        range.start + local.end,
-    ));
-    Some(())
 }
 
 fn component_type(class_name: &ClassName) -> ClassName {

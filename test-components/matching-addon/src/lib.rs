@@ -18,7 +18,7 @@ use nlaocs::skript_parser_addon::{
     types::{
         AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput,
         CapabilityRequirement, CompatibilityError, ComponentManifest, ContextUpdate, HookDecision,
-        HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase,
+        HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
         HookSubscription, HookTarget, HostProfile, MatchingScope, MatchingStatus, MatchingTiming,
         StateEncoding, StateNamespaceDeclaration, StateNamespaceVisibility, StateScope, StateValue,
         TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
@@ -37,6 +37,19 @@ const STATE_NAMESPACE: &str = "matching-state";
 const STATE_SCHEMA: &str = "nlaocs.test.matching-state";
 
 struct MatchingAddon;
+
+fn empty_selector() -> HookSelector {
+    HookSelector {
+        pattern_index: None,
+        pattern_source: None,
+        mark: None,
+        tags: Vec::new(),
+        captures: Vec::new(),
+        return_type: None,
+        multiplicity: None,
+        metadata: Vec::new(),
+    }
+}
 
 impl addon::Guest for MatchingAddon {
     fn manifest() -> ComponentManifest {
@@ -61,13 +74,15 @@ impl addon::Guest for MatchingAddon {
             ],
             subscriptions: vec![HookSubscription {
                 id: SUBSCRIPTION_ID.to_owned(),
-                target: HookTarget::ExactRegistration(REGISTRATION_ID.to_owned()),
+                target: HookTarget::Registration(REGISTRATION_ID.to_owned()),
                 phase: HookPhase::Matching,
                 priority: 0,
                 mode: HookMode::Override,
                 capability_id: CAPABILITY_HOOKS.to_owned(),
+                selector: empty_selector(),
             }],
             registered_syntax_handlers: Vec::new(),
+            catalog_annotations: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
                 name: STATE_NAMESPACE.to_owned(),
                 visibility: StateNamespaceVisibility::Private,
@@ -198,6 +213,7 @@ fn invocation_effects(
             value: None,
         }],
         parse_requests: Vec::new(),
+        parse_results: Vec::new(),
     }
 }
 

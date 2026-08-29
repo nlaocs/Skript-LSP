@@ -12,21 +12,45 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 
 - component ID `nlaocs.core-library`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
+- Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document phaseのcore.health-check subscription 1件
-- leafと登録Expressionの意味解析用core.expression-leaves Transform subscription 1件
+- primitive候補と登録Expressionの意味解析用core.expression-candidates Transform subscription 1件
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
 
 Expression hookは合法split位置にあるbrace付きvariable、quoted string literal、有限の符号付き
-integer/decimal literal、生成された`ClassInfo` literalを認識します。また、`PropExprSize`と
-`ExprParse`の2形式について、context依存の返値metadataを解決します。hostから渡された
+integer/decimal literal、boolean、SSG由来の有限type literal、entity-data literal、生成された
+`ClassInfo` literalを認識します。
+また、`ExprAllBannedEntries`、`ExprAnyOf`、`ExprCustomModelData`、`ExprDefaultValue`、
+`ExprElement`、`ExprEntities`、`ExprFromUUID`、`ExprInventoryInfo`、
+`ExprInventorySlot`、`ExprJoinSplit`、`ExprParse`、`ExprRandom`、
+`ExprRandomCharacter`、`ExprRandomNumber`、`ExprReversedList`、`ExprSets`、
+`ExprShuffledList`、`ExprSortedList`、`ExprTernary`、`ExprWhether`と、標準の
+`PropExprAmount`、`PropExprCustomName`、`PropExprName`、`PropExprNumber`、
+`PropExprScale`、`PropExprSize`、`PropExprValueOf`、`PropExprWXYZ`について、
+動的な意味と返値metadataを解決します。property handlerはSSG metadataからsource classに
+最も近いassignable classを選び、Skriptのproperty初期化規則に合わせます。hostから渡された
 expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
 責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
-text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。CoreLibraryは、
-Function call、Condition、Section、Structure、legacy解析の意味処理をまだ実装していません。
+`%expression%`を含むquoted stringとvariableは、汎用`host.expression` parse requestを返します。
+hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibraryを再度呼び出します。CoreLibraryは
+hostが発行したresult tokenをleaf候補から参照するため、選択されたrootはopaque metadataではなく、
+外側へspanを再配置したnative child ASTになります。
+
+EffectとSection hookは`EffChange`、`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
+Property Expressionは`Properties.json`と、Skriptがchange-in-placeの書き戻しを要求する場合は解析済みsource
+Expressionのcontractからowned `change-contract`を公開します。`EffChange`はこのmetadataを優先し、なければ
+`Expressions.json`または`EventValues.json`の生recordへfallbackします。子を再解析せず
+`acceptChange(SET)`の型とmultiplicityを検証し、SSG contractがunresolvedなら推測で拒否せずwarningを返します。
+EventValueのchanger情報が欠けている場合もunresolvedです。metadata envelopeはschema versionを持ち、
+対象Expression identityへ結び付きます。Property候補はSSGの登録、owner、handler、type、source identityを保持し、
+先行Addon hookが候補indexを選択できます。明示選択のない複数Property登録は、無関係なAddonを合成せず拒否します。生changer lookupには
+record数・byte数上限とbounded cacheがあります。variableの型履歴は意図的に後続実装へ残しています。
+text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
+Function callの照合はnative parserが担当し、Structureとlegacy固有の意味処理は未実装です。
 
 ## WASM Componentである理由
 
@@ -38,6 +62,7 @@ CoreLibraryは必須ですが、意図的にaddon componentと同じWIT worldを
 - 同じresource limitとtrap処理
 - 同じtransactional StateStore
 - 同じdynamic syntax registration API
+- 同じ完全なread-only SSG Catalog API
 
 hostはcomponent IDを特別に扱います。CoreLibraryがない場合やIDが異なる場合は起動に失敗し、
 `ParserHost::unload_addon`によるunloadも拒否します。
@@ -45,7 +70,13 @@ hostはcomponent IDを特別に扱います。CoreLibraryがない場合やIDが
 ## Source構成
 
 `src/lib.rs`が`../parser-wasm/wit`からguest bindingを生成し、`parser-addon` worldがexport
-するすべてのinterfaceを実装します。
+するすべてのinterfaceを実装します。標準構文の処理はsyntax kind別に`src/expressions`、
+`src/effects`、`src/sections`へ配置します。候補終端の反復と候補生成の共通処理は
+`src/expression_candidates.rs`に置き、parser primitiveは`src/primitives`、ClassInfoと
+catalog由来のtype literalは`src/types`に置きます。クラス固有実装はSkriptのJava class名をsnake caseに
+したfileへ置きます。例えば`PropExprWXYZ.java`は`expressions/prop_expr_wxyz.rs`に対応し、
+そのfileがhandler登録と意味解決の両方を所有します。各directoryの`mod.rs`はdispatchと、
+複数classで本当に共有する処理だけを持ちます。
 
 crate typeは2種類あります。
 
