@@ -1,6 +1,15 @@
 package nlaocs:skript-parser-addon@0.19.0;
 
 interface types {
+    /// Stable location of one top-level SSG JSON object in an exact retained source.
+    record catalog-record-ref {
+        source-digest: string,
+        snapshot-id: string,
+        document: string,
+        index: u64,
+        byte-length: u64,
+    }
+
     record abi-version {
         major: u16,
         minor: u16,
@@ -435,6 +444,7 @@ interface types {
     }
 
     record expression-type-option {
+        source-record: option<catalog-record-ref>,
         code-name: string,
         class-name: string,
         type-parse-order: u64,
@@ -453,6 +463,8 @@ interface types {
     }
 
     record expression-literal-option {
+        source-record: option<catalog-record-ref>,
+        literal-index: option<u64>,
         code-name: string,
         class-name: string,
         type-parse-order: u64,
@@ -502,6 +514,9 @@ interface types {
         text: string,
         kind: string,
         parser-id: option<string>,
+        definition-id: option<string>,
+        registration-id: option<string>,
+        pattern-index: option<u64>,
         element-class: option<string>,
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
@@ -513,10 +528,39 @@ interface types {
         implicit: bool,
     }
 
+    enum metadata-resolution-state {
+        resolved,
+        unresolved,
+    }
+
+    record accepted-change-mode {
+        mode: string,
+        accepted-types: list<string>,
+    }
+
     record registered-expression-property-option {
+        source-record: option<catalog-record-ref>,
+        property-source-index: u64,
+        related-type-index: u64,
+        source-child-index: u64,
+        match-kind: string,
+        property-registration-id: string,
+        property-name: string,
+        property-handler-class: string,
+        property-addon-name: string,
+        property-addon-version: string,
         input-class: string,
+        handler-class: string,
+        handler-kind: string,
+        provider-addon-name: option<string>,
+        provider-addon-version: option<string>,
+        type-code-name: string,
+        element-types: list<string>,
         return-types: list<string>,
         supported-axes: list<string>,
+        accepted-changers: list<accepted-change-mode>,
+        accepted-changers-state: option<metadata-resolution-state>,
+        requires-source-expression-change: option<bool>,
     }
 
     enum parse-result-status {
@@ -604,6 +648,8 @@ interface types {
         common-child-return-type: option<string>,
         type-options: list<expression-type-option>,
         property-options: list<registered-expression-property-option>,
+        /// Mutable selection into the immutable property-options list. Empty means no policy chose.
+        selected-property-option-indices: list<u64>,
         effective-return-type: option<string>,
         effective-multiplicity: option<dynamic-multiplicity>,
         metadata: list<metadata-entry>,

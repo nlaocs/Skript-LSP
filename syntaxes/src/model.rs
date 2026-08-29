@@ -287,6 +287,8 @@ pub struct Noun {
 #[derive(Debug, Clone, PartialEq)]
 /// Registered Skript type, parser metadata, and Java representation.
 pub struct Type {
+    /// Zero-based position of this object in `Types.json`.
+    pub source_index: usize,
     pub type_parse_order: usize,
     pub documentation: Documentation,
     pub addon: Addon,

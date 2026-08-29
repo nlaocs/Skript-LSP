@@ -34,6 +34,8 @@ pub const ABI_VERSION: AbiVersion = AbiVersion::new(4, 0);
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
 /// Capability ID for transactional scoped addon state.
 pub const CAPABILITY_STATE_STORE: &str = "parser.state-store";
+/// Capability ID for read-only source snapshot and Catalog relation queries.
+pub const CAPABILITY_CATALOG_DATA: &str = "parser.catalog-data";
 /// Capability ID for runtime syntax registration and override.
 pub const CAPABILITY_DYNAMIC_SYNTAX: &str = "parser.dynamic-syntax";
 /// Capability ID for source-text preprocessing macros.

@@ -3,6 +3,7 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 #![allow(missing_docs)] // `wit_bindgen` owns the generated guest surface.
 
+mod catalog;
 mod effects;
 mod expression_candidates;
 mod expressions;
@@ -29,7 +30,7 @@ use nlaocs::skript_parser_addon::types::{
 #[cfg(test)]
 use nlaocs::skript_parser_addon::types::{RuntimePlugin, RuntimeProfile};
 use parser_wasm::{
-    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EFFECT_PARSER,
+    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_CATALOG_DATA, CAPABILITY_EFFECT_PARSER,
     CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
     CAPABILITY_STRUCTURE_PARSER, Capability as ParserCapability,
     CapabilityRequirement as ParserCapabilityRequirement,
@@ -94,6 +95,11 @@ impl addon::Guest for CoreLibrary {
                     id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
                     minimum_version: 1,
                     required: true,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_CATALOG_DATA.to_owned(),
+                    minimum_version: 1,
+                    required: false,
                 },
             ],
             subscriptions: vec![
@@ -171,6 +177,7 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_SECTION_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STRUCTURE_PARSER, 1),
+            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 1),
         ];
         let capabilities = profile
             .capabilities
@@ -497,7 +504,7 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 5);
+        assert_eq!(manifest.capabilities.len(), 6);
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
         assert_eq!(manifest.subscriptions.len(), 6);
@@ -526,6 +533,8 @@ mod tests {
         assert_eq!(manifest.subscriptions[4].id, SECTION_SUBSCRIPTION_ID);
         assert_eq!(manifest.capabilities[4].id, CAPABILITY_STRUCTURE_PARSER);
         assert_eq!(manifest.subscriptions[5].id, STRUCTURE_SUBSCRIPTION_ID);
+        assert_eq!(manifest.capabilities[5].id, CAPABILITY_CATALOG_DATA);
+        assert!(!manifest.capabilities[5].required);
         assert_eq!(manifest.registered_syntax_handlers.len(), 35);
     }
 
@@ -746,6 +755,8 @@ mod tests {
             [("later", "test.Later", 20), ("earlier", "test.Earlier", 10)]
         {
             payload.literal_options.push(ExpressionLiteralOption {
+                source_record: None,
+                literal_index: None,
                 code_name: code_name.to_owned(),
                 class_name: class_name.to_owned(),
                 type_parse_order,
@@ -791,6 +802,8 @@ mod tests {
             unreachable!();
         };
         payload.literal_options.push(ExpressionLiteralOption {
+            source_record: None,
+            literal_index: None,
             code_name: "itemtype".to_owned(),
             class_name: "ch.njol.skript.aliases.ItemType".to_owned(),
             type_parse_order: 10,
@@ -879,6 +892,7 @@ mod tests {
         };
         payload.expected_types[0].class_name = "ch.njol.skript.classes.ClassInfo".to_owned();
         payload.type_options.push(ExpressionTypeOption {
+            source_record: None,
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
             type_parse_order: 10,
@@ -911,6 +925,7 @@ mod tests {
         };
         payload.expected_types[0].class_name = "ch.njol.skript.classes.ClassInfo".to_owned();
         payload.type_options.push(ExpressionTypeOption {
+            source_record: None,
             code_name: "player".to_owned(),
             class_name: "org.bukkit.entity.Player".to_owned(),
             type_parse_order: 20,
@@ -921,6 +936,8 @@ mod tests {
             has_supplier: false,
         });
         payload.literal_options.push(ExpressionLiteralOption {
+            source_record: None,
+            literal_index: None,
             code_name: "player".to_owned(),
             // SSG's literal option describes the ClassInfo value itself. The
             // represented runtime class is carried by type_options.
@@ -984,6 +1001,9 @@ mod tests {
             text: "all offline players".to_owned(),
             kind: "registered-expression".to_owned(),
             parser_id: None,
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some("org.bukkit.OfflinePlayer".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Multiple),
@@ -1005,6 +1025,9 @@ mod tests {
             text: "number".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1102,6 +1125,56 @@ mod tests {
             assert_eq!(actual, return_type);
             assert_eq!(multiplicity, DynamicMultiplicity::Single);
         }
+
+        let mut ambiguous = registered_expression(
+            "org.skriptlang.skript.common.properties.elements.expressions.PropExprName",
+        );
+        ambiguous.children.push(expression_child(
+            "source",
+            "org.bukkit.entity.Player",
+            DynamicMultiplicity::Single,
+        ));
+        ambiguous.property_options.push(property_option(
+            "org.bukkit.entity.Player",
+            &["java.lang.String"],
+            &[],
+        ));
+        let mut conflicting =
+            property_option("org.bukkit.entity.Player", &["java.lang.Number"], &[]);
+        conflicting.property_registration_id = "property:other".to_owned();
+        conflicting.property_source_index = 1;
+        ambiguous.property_options.push(conflicting);
+        assert!(matches!(
+            expressions::resolve(&ambiguous),
+            Some(expressions::SemanticResolution::Reject(reason))
+                if reason.contains("multiple Property registrations")
+        ));
+        ambiguous.selected_property_option_indices = vec![1];
+        assert!(matches!(
+            expressions::resolve(&ambiguous),
+            Some(expressions::SemanticResolution::Resolved { return_type, .. })
+                if return_type == "java.lang.Number"
+        ));
+
+        let mut mixed_sources = ambiguous.clone();
+        mixed_sources.selected_property_option_indices.clear();
+        mixed_sources.children.push(expression_child(
+            "other source",
+            "org.bukkit.entity.Player",
+            DynamicMultiplicity::Multiple,
+        ));
+        mixed_sources.property_options[1].property_registration_id = mixed_sources.property_options
+            [0]
+        .property_registration_id
+        .clone();
+        mixed_sources.property_options[1].property_source_index =
+            mixed_sources.property_options[0].property_source_index;
+        mixed_sources.property_options[1].source_child_index = 1;
+        assert!(matches!(
+            expressions::resolve(&mixed_sources),
+            Some(expressions::SemanticResolution::Reject(reason))
+                if reason.contains("different source Expressions")
+        ));
     }
 
     #[test]
@@ -1184,6 +1257,9 @@ mod tests {
             text: "number".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1199,6 +1275,17 @@ mod tests {
             &["java.lang.String"],
             &[],
         ));
+        let mut competing_value =
+            property_option("ch.njol.skript.config.Node", &["java.lang.Object"], &[]);
+        competing_value.property_source_index = 1;
+        competing_value.property_registration_id = "property:competing-value".to_owned();
+        value.property_options.push(competing_value);
+        assert!(matches!(
+            expressions::resolve(&value),
+            Some(expressions::SemanticResolution::Reject(reason))
+                if reason.contains("multiple Property registrations")
+        ));
+        value.selected_property_option_indices = vec![0];
         let Some(expressions::SemanticResolution::Resolved { return_type, .. }) =
             expressions::resolve(&value)
         else {
@@ -1214,6 +1301,9 @@ mod tests {
             text: "players".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.entity-data".to_owned()),
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.entity.EntityData".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1273,6 +1363,7 @@ mod tests {
     #[test]
     fn inventory_slot_multiplicity_follows_the_number_expression() {
         let mut slot = registered_expression("ch.njol.skript.expressions.ExprInventorySlot");
+        slot.pattern = "[the] slot[s] %numbers% of %inventory%".to_owned();
         slot.children.push(expression_child(
             "0",
             "java.lang.Long",
@@ -1295,7 +1386,8 @@ mod tests {
         assert_eq!(return_type, "ch.njol.skript.util.slot.Slot");
         assert_eq!(multiplicity, DynamicMultiplicity::Single);
 
-        slot.pattern_index = 1;
+        slot.pattern_index = 99;
+        slot.pattern = "%inventory%'[s] slot[s] %numbers%".to_owned();
         slot.children.swap(0, 1);
         slot.children[1].multiplicity = Some(DynamicMultiplicity::Multiple);
         let Some(expressions::SemanticResolution::Resolved { multiplicity, .. }) =
@@ -1313,6 +1405,9 @@ mod tests {
             text: "element".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1353,6 +1448,9 @@ mod tests {
             text: input.to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
             multiplicity: Some(DynamicMultiplicity::Single),
@@ -1424,6 +1522,9 @@ mod tests {
                 text: "color".to_owned(),
                 kind: "literal".to_owned(),
                 parser_id: Some("core.literal.class-info".to_owned()),
+                definition_id: None,
+                registration_id: None,
+                pattern_index: None,
                 element_class: None,
                 return_type: return_type.map(str::to_owned),
                 multiplicity: Some(DynamicMultiplicity::Single),
@@ -1441,6 +1542,7 @@ mod tests {
         let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
         parse.regex_captures.push("\"value: %numbers%\"".to_owned());
         parse.type_options.push(ExpressionTypeOption {
+            source_record: None,
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
             type_parse_order: 10,
@@ -1600,6 +1702,7 @@ mod tests {
             common_child_return_type: None,
             type_options: Vec::new(),
             property_options: Vec::<RegisteredExpressionPropertyOption>::new(),
+            selected_property_option_indices: Vec::new(),
             effective_return_type: Some("java.lang.Object".to_owned()),
             effective_multiplicity: Some(DynamicMultiplicity::Both),
             metadata: Vec::new(),
@@ -1615,6 +1718,9 @@ mod tests {
             text: text.to_owned(),
             kind: "custom".to_owned(),
             parser_id: None,
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
             element_class: None,
             return_type: Some(return_type.to_owned()),
             multiplicity: Some(multiplicity),
@@ -1628,7 +1734,23 @@ mod tests {
         supported_axes: &[&str],
     ) -> RegisteredExpressionPropertyOption {
         RegisteredExpressionPropertyOption {
+            source_record: None,
+            property_source_index: 0,
+            related_type_index: 0,
+            source_child_index: 0,
+            match_kind: "exact".to_owned(),
+            property_registration_id: "property:test".to_owned(),
+            property_name: "test".to_owned(),
+            property_handler_class: "test.PropertyHandler".to_owned(),
+            property_addon_name: "TestAddon".to_owned(),
+            property_addon_version: "1.0.0".to_owned(),
             input_class: input_class.to_owned(),
+            handler_class: "test.TypePropertyHandler".to_owned(),
+            handler_kind: "expression".to_owned(),
+            provider_addon_name: Some("TestAddon".to_owned()),
+            provider_addon_version: Some("1.0.0".to_owned()),
+            type_code_name: "test".to_owned(),
+            element_types: Vec::new(),
             return_types: return_types
                 .iter()
                 .map(|value| (*value).to_owned())
@@ -1637,6 +1759,9 @@ mod tests {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
+            accepted_changers: Vec::new(),
+            accepted_changers_state: None,
+            requires_source_expression_change: None,
         }
     }
 

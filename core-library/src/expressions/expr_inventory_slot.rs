@@ -13,14 +13,10 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
     matches(payload, HANDLER_ID).then(|| {
-        let number_index = match payload.pattern_index {
-            0 => 0,
-            1 => 1,
-            _ => {
-                return SemanticResolution::Reject(
-                    "inventory slot Expression has an unknown pattern".to_owned(),
-                );
-            }
+        let Some(number_index) = number_child_index(&payload.pattern) else {
+            return SemanticResolution::Reject(
+                "inventory slot Expression has an unknown pattern".to_owned(),
+            );
         };
         let Some(multiplicity) = payload
             .children
@@ -37,4 +33,28 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             metadata: vec![metadata("semantic-mode", "inventory-slot")],
         }
     })
+}
+
+fn number_child_index(pattern: &str) -> Option<usize> {
+    let numbers = pattern.find("%numbers%")?;
+    let inventory = pattern.find("%inventory%")?;
+    Some(usize::from(inventory < numbers))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::number_child_index;
+
+    #[test]
+    fn derives_the_number_capture_from_pattern_order() {
+        assert_eq!(
+            number_child_index("[the] slot[s] %numbers% of %inventory%"),
+            Some(0)
+        );
+        assert_eq!(
+            number_child_index("%inventory%'[s] slot[s] %numbers%"),
+            Some(1)
+        );
+        assert_eq!(number_child_index("slot"), None);
+    }
 }

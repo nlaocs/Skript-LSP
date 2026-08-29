@@ -6,7 +6,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     mem,
     sync::{
         Arc,
@@ -59,19 +59,22 @@ use skript_parser::{
     apply_tree_edit,
 };
 use syntaxes::{
-    Catalog, ClassName, DefinitionId, DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId,
-    DynamicSyntaxInput, DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot,
-    DynamicSyntaxUpdate, Multiplicity, PossibleReturnTypesState, RegistrationId, ResolutionState,
-    ReturnTypeState, SyntaxKind as CatalogSyntaxKind, SyntaxOverrideTarget, SyntaxReference,
+    Catalog, CatalogSourceRecord, ChangeMode as CatalogChangeMode, ClassName, DefinitionId,
+    DynamicMultiplicity, DynamicRegistryError, DynamicSyntaxId, DynamicSyntaxInput,
+    DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, DynamicSyntaxSnapshot, DynamicSyntaxUpdate,
+    Multiplicity, PossibleReturnTypesState, RegistrationId, ResolutionState, ReturnTypeState,
+    SyntaxKind as CatalogSyntaxKind, SyntaxOverrideTarget, SyntaxReference,
 };
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::bindings::ParserAddon;
+use crate::bindings::nlaocs::skript_parser_addon::catalog_data as wit_catalog_data;
 use crate::bindings::nlaocs::skript_parser_addon::dynamic_syntax_registry as wit_dynamic_registry;
 use crate::bindings::nlaocs::skript_parser_addon::state_store as wit_state_store;
 use crate::bindings::nlaocs::skript_parser_addon::types::{
-    AddonAttachment as WitAddonAttachment, DynamicMultiplicity as WitDynamicMultiplicity,
+    AcceptedChangeMode as WitAcceptedChangeMode, AddonAttachment as WitAddonAttachment,
+    CatalogRecordRef as WitCatalogRecordRef, DynamicMultiplicity as WitDynamicMultiplicity,
     DynamicRegistryError as WitDynamicRegistryError,
     DynamicRegistryErrorKind as WitDynamicRegistryErrorKind,
     DynamicSyntaxDefinition as WitDynamicSyntaxDefinition,
@@ -93,13 +96,13 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionTypeOption as WitExpressionTypeOption,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
     Indentation as WitIndentation, LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry,
-    OriginKind as WitOriginKind, ParseResultStatus as WitParseResultStatus,
-    ParseSummary as WitParseSummary, ParsedCapture as WitParsedCapture,
-    RawDiagnostic as WitRawDiagnostic, RawDiagnosticCode as WitRawDiagnosticCode,
-    RawDiagnosticSeverity as WitRawDiagnosticSeverity, RawInvalidReason as WitRawInvalidReason,
-    RawLine as WitRawLine, RawNodeKind as WitRawNodeKind, RawRelatedSpan as WitRawRelatedSpan,
-    RawTreeNode as WitRawTreeNode, RawTrivia as WitRawTrivia, RawTriviaKind as WitRawTriviaKind,
-    RegisteredExpressionChild as WitRegisteredExpressionChild,
+    MetadataResolutionState as WitMetadataResolutionState, OriginKind as WitOriginKind,
+    ParseResultStatus as WitParseResultStatus, ParseSummary as WitParseSummary,
+    ParsedCapture as WitParsedCapture, RawDiagnostic as WitRawDiagnostic,
+    RawDiagnosticCode as WitRawDiagnosticCode, RawDiagnosticSeverity as WitRawDiagnosticSeverity,
+    RawInvalidReason as WitRawInvalidReason, RawLine as WitRawLine, RawNodeKind as WitRawNodeKind,
+    RawRelatedSpan as WitRawRelatedSpan, RawTreeNode as WitRawTreeNode, RawTrivia as WitRawTrivia,
+    RawTriviaKind as WitRawTriviaKind, RegisteredExpressionChild as WitRegisteredExpressionChild,
     RegisteredExpressionPayload as WitRegisteredExpressionPayload,
     RegisteredExpressionPropertyOption as WitRegisteredExpressionPropertyOption,
     RegisteredExpressionTag as WitRegisteredExpressionTag,
@@ -124,12 +127,12 @@ use crate::state::{
     StateStoreConfig, StateValue,
 };
 use crate::{
-    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CONTEXT_UPDATES,
-    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
-    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE,
-    CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
-    CapabilityRequirement, CompatibilityError, REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
-    validate_compatibility,
+    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CATALOG_DATA,
+    CAPABILITY_CONTEXT_UPDATES, CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER,
+    CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
+    CAPABILITY_STATE_STORE, CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TEXT_MACRO,
+    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
+    REGISTERED_CONTEXT_ALL_TYPE_OPTIONS, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
@@ -155,6 +158,8 @@ pub const CORE_LIBRARY_COMPONENT_ID: &str = "nlaocs.core-library";
 /// Defaults are intentionally bounded for untrusted addon components. Callers
 /// may tune individual budgets and attach an SSG [Catalog] to enable dynamic
 /// syntax registration, while zero-valued quotas and durations are rejected.
+/// When both carry source identity, `syntax_catalog` and `runtime_profile` must
+/// identify the same snapshot and schema.
 ///
 /// # Examples
 ///
@@ -194,6 +199,7 @@ pub struct HostConfig {
     pub max_tree_macro_expansion_depth: usize,
     pub max_tree_macro_nodes: usize,
     pub max_tree_macro_calls: usize,
+    pub max_catalog_response_bytes: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
     pub runtime_profile: RuntimeProfile,
@@ -245,6 +251,7 @@ impl Default for HostConfig {
             max_tree_macro_expansion_depth: 64,
             max_tree_macro_nodes: 100_000,
             max_tree_macro_calls: 4_096,
+            max_catalog_response_bytes: 32 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
             runtime_profile: RuntimeProfile::default(),
@@ -273,12 +280,32 @@ impl HostConfig {
             || self.max_raw_tree_depth == 0
             || self.max_tree_macro_expansion_depth == 0
             || self.max_tree_macro_nodes == 0
-            || self.max_tree_macro_calls == 0;
+            || self.max_tree_macro_calls == 0
+            || self.max_catalog_response_bytes == 0;
         if invalid {
-            Err(HostError::InvalidConfiguration)
-        } else {
-            Ok(())
+            return Err(HostError::InvalidConfiguration);
         }
+        if let Some(source) = self.syntax_catalog.as_deref().and_then(Catalog::source) {
+            if let Some(profile_snapshot_id) = self.runtime_profile.snapshot_id.as_deref()
+                && profile_snapshot_id != source.snapshot_id
+            {
+                return Err(HostError::CatalogProfileMismatch {
+                    field: "snapshot ID",
+                    profile: profile_snapshot_id.to_owned(),
+                    catalog: source.snapshot_id.clone(),
+                });
+            }
+            if let Some(profile_schema_version) = self.runtime_profile.snapshot_schema_version
+                && profile_schema_version != source.schema_version
+            {
+                return Err(HostError::CatalogProfileMismatch {
+                    field: "schema version",
+                    profile: profile_schema_version.to_string(),
+                    catalog: source.schema_version.to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn deadline_ticks(&self) -> u64 {
@@ -295,6 +322,14 @@ pub enum HostError {
     CoreLibraryMissing,
     #[error("invalid parser host configuration: every quota and duration must be non-zero")]
     InvalidConfiguration,
+    #[error(
+        "runtime profile {field} {profile:?} does not match source Catalog {field} {catalog:?}"
+    )]
+    CatalogProfileMismatch {
+        field: &'static str,
+        profile: String,
+        catalog: String,
+    },
     #[error("failed to create the Wasmtime engine: {message}")]
     Engine { message: String },
     #[error("failed to compile component {component_id}: {message}")]
@@ -728,9 +763,181 @@ struct StoreData {
     invocation: Option<InvocationTransaction>,
     dynamic_syntax_update: Option<DynamicSyntaxUpdate>,
     dynamic_syntax_available: bool,
+    catalog: Option<Arc<Catalog>>,
+    max_catalog_response_bytes: usize,
 }
 
 impl crate::bindings::nlaocs::skript_parser_addon::types::Host for StoreData {}
+
+impl wit_catalog_data::Host for StoreData {
+    fn source(
+        &mut self,
+    ) -> Result<Option<wit_catalog_data::CatalogSource>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog
+            .source()
+            .map(|source| wit_catalog_data::CatalogSource {
+                format: source.format.clone(),
+                schema_version: source.schema_version,
+                snapshot_id: source.snapshot_id.clone(),
+                source_digest: source.source_digest.clone(),
+            }))
+    }
+
+    fn documents(
+        &mut self,
+        offset: u64,
+        limit: u32,
+    ) -> Result<wit_catalog_data::CatalogDocumentPage, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let documents = catalog.source().map_or_else(Vec::new, |source| {
+            source
+                .document_names()
+                .map(|name| (name, source.document(name).map_or(0, <[u8]>::len)))
+                .collect()
+        });
+        catalog_document_page(&documents, offset, limit, self.max_catalog_response_bytes)
+    }
+
+    fn read_document(
+        &mut self,
+        name: String,
+        offset: u64,
+        max_bytes: u32,
+    ) -> Result<Option<wit_catalog_data::CatalogChunk>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let Some(bytes) = catalog.source().and_then(|source| source.document(&name)) else {
+            return Ok(None);
+        };
+        catalog_chunk(bytes, offset, max_bytes, self.max_catalog_response_bytes).map(Some)
+    }
+
+    fn records_by_registration_id(
+        &mut self,
+        id: String,
+        offset: u64,
+        limit: u32,
+    ) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let records = catalog
+            .source()
+            .map_or(&[][..], |source| source.records_by_registration_id(&id));
+        let snapshot_id = catalog
+            .source()
+            .map(|source| source.snapshot_id.as_str())
+            .unwrap_or_default();
+        let source_digest = catalog
+            .source()
+            .map(|source| source.source_digest.as_str())
+            .unwrap_or_default();
+        catalog_record_page(
+            records,
+            source_digest,
+            snapshot_id,
+            offset,
+            limit,
+            self.max_catalog_response_bytes,
+        )
+    }
+
+    fn records_by_definition_id(
+        &mut self,
+        id: String,
+        offset: u64,
+        limit: u32,
+    ) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let records = catalog
+            .source()
+            .map_or(&[][..], |source| source.records_by_definition_id(&id));
+        let snapshot_id = catalog
+            .source()
+            .map(|source| source.snapshot_id.as_str())
+            .unwrap_or_default();
+        let source_digest = catalog
+            .source()
+            .map(|source| source.source_digest.as_str())
+            .unwrap_or_default();
+        catalog_record_page(
+            records,
+            source_digest,
+            snapshot_id,
+            offset,
+            limit,
+            self.max_catalog_response_bytes,
+        )
+    }
+
+    fn read_record(
+        &mut self,
+        source_digest: String,
+        snapshot_id: String,
+        document: String,
+        index: u64,
+        offset: u64,
+        max_bytes: u32,
+    ) -> Result<Option<wit_catalog_data::CatalogChunk>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let Some(source) = catalog.source() else {
+            return Ok(None);
+        };
+        if source.source_digest != source_digest {
+            return Err(invalid_catalog_input(
+                "catalog record reference belongs to a different retained source",
+            ));
+        }
+        if source.snapshot_id != snapshot_id {
+            return Err(invalid_catalog_input(
+                "catalog record reference belongs to a different snapshot",
+            ));
+        }
+        let Some(index) = usize::try_from(index).ok() else {
+            return Ok(None);
+        };
+        let Some(record) = source.record(&document, index) else {
+            return Ok(None);
+        };
+        catalog_chunk(
+            &record.json,
+            offset,
+            max_bytes,
+            self.max_catalog_response_bytes,
+        )
+        .map(Some)
+    }
+
+    fn class_known(&mut self, class_name: String) -> Result<bool, wit_catalog_data::CatalogError> {
+        Ok(self.catalog()?.class(&class_name).is_some())
+    }
+
+    fn is_class_assignable(
+        &mut self,
+        source_class: String,
+        target_class: String,
+    ) -> Result<wit_catalog_data::TypeRelation, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog_type_relation(
+            catalog,
+            &source_class,
+            &target_class,
+            catalog.is_class_assignable(&source_class, &target_class),
+        ))
+    }
+
+    fn can_convert(
+        &mut self,
+        source_class: String,
+        target_class: String,
+    ) -> Result<wit_catalog_data::TypeRelation, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog_type_relation(
+            catalog,
+            &source_class,
+            &target_class,
+            catalog.can_convert(&source_class, &target_class),
+        ))
+    }
+}
 
 impl wit_state_store::Host for StoreData {
     fn get(
@@ -983,6 +1190,15 @@ fn wit_dynamic_registry_error(error: DynamicRegistryError) -> WitDynamicRegistry
 }
 
 impl StoreData {
+    fn catalog(&self) -> Result<&Catalog, wit_catalog_data::CatalogError> {
+        self.catalog
+            .as_deref()
+            .ok_or_else(|| wit_catalog_data::CatalogError {
+                kind: wit_catalog_data::CatalogErrorKind::Unavailable,
+                message: "catalog data requires an SSG Catalog".to_owned(),
+            })
+    }
+
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
         self.invocation
             .as_mut()
@@ -1003,6 +1219,167 @@ impl StoreData {
                 message: "dynamic syntax updates are only available during initialization and document prepass hooks".to_owned(),
             })
     }
+}
+
+fn invalid_catalog_input(message: impl Into<String>) -> wit_catalog_data::CatalogError {
+    wit_catalog_data::CatalogError {
+        kind: wit_catalog_data::CatalogErrorKind::InvalidInput,
+        message: message.into(),
+    }
+}
+
+fn catalog_type_relation(
+    catalog: &Catalog,
+    source_class: &str,
+    target_class: &str,
+    compatible: bool,
+) -> wit_catalog_data::TypeRelation {
+    if compatible {
+        wit_catalog_data::TypeRelation::Compatible
+    } else if catalog.class(source_class).is_none() || catalog.class(target_class).is_none() {
+        wit_catalog_data::TypeRelation::Unknown
+    } else {
+        wit_catalog_data::TypeRelation::Incompatible
+    }
+}
+
+fn catalog_record_ref(
+    catalog: &Catalog,
+    document: &str,
+    index: usize,
+    registration_id: &str,
+) -> Option<WitCatalogRecordRef> {
+    let source = catalog.source()?;
+    let record = source
+        .records_by_registration_id(registration_id)
+        .iter()
+        .find(|record| record.document == document && record.index == index)?;
+    Some(WitCatalogRecordRef {
+        source_digest: source.source_digest.clone(),
+        snapshot_id: source.snapshot_id.clone(),
+        document: record.document.clone(),
+        index: record.index as u64,
+        byte_length: record.json.len() as u64,
+    })
+}
+
+fn catalog_chunk(
+    bytes: &[u8],
+    offset: u64,
+    max_bytes: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogChunk, wit_catalog_data::CatalogError> {
+    if max_bytes == 0 {
+        return Err(invalid_catalog_input("catalog chunk size must be non-zero"));
+    }
+    let offset = usize::try_from(offset)
+        .map_err(|_| invalid_catalog_input("catalog chunk offset is too large"))?;
+    if offset > bytes.len() {
+        return Err(invalid_catalog_input(format!(
+            "catalog chunk offset {offset} exceeds the {}-byte value",
+            bytes.len()
+        )));
+    }
+    let length = (max_bytes as usize)
+        .min(response_limit)
+        .min(bytes.len() - offset);
+    Ok(wit_catalog_data::CatalogChunk {
+        media_type: "application/json".to_owned(),
+        offset: offset as u64,
+        total_length: bytes.len() as u64,
+        bytes: bytes[offset..offset + length].to_vec(),
+    })
+}
+
+fn catalog_record_page(
+    records: &[CatalogSourceRecord],
+    source_digest: &str,
+    snapshot_id: &str,
+    offset: u64,
+    limit: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+    let (offset, end) = catalog_page_bounds(records.len(), offset, limit)?;
+    let mut bytes = 0usize;
+    let mut items = Vec::new();
+    for record in &records[offset..end] {
+        let item_bytes = source_digest.len() + snapshot_id.len() + record.document.len() + 24;
+        if bytes.saturating_add(item_bytes) > response_limit {
+            if items.is_empty() {
+                return Err(wit_catalog_data::CatalogError {
+                    kind: wit_catalog_data::CatalogErrorKind::ResponseTooLarge,
+                    message: "one catalog record reference exceeds the response limit".to_owned(),
+                });
+            }
+            break;
+        }
+        bytes += item_bytes;
+        items.push(WitCatalogRecordRef {
+            source_digest: source_digest.to_owned(),
+            snapshot_id: snapshot_id.to_owned(),
+            document: record.document.clone(),
+            index: record.index as u64,
+            byte_length: record.json.len() as u64,
+        });
+    }
+    let next = offset + items.len();
+    Ok(wit_catalog_data::CatalogRecordPage {
+        items,
+        next_offset: (next < records.len()).then_some(next as u64),
+    })
+}
+
+fn catalog_document_page(
+    documents: &[(&str, usize)],
+    offset: u64,
+    limit: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogDocumentPage, wit_catalog_data::CatalogError> {
+    let (offset, end) = catalog_page_bounds(documents.len(), offset, limit)?;
+    let mut bytes = 0usize;
+    let mut items = Vec::new();
+    for (name, byte_length) in &documents[offset..end] {
+        let item_bytes = name.len() + 32;
+        if bytes.saturating_add(item_bytes) > response_limit {
+            if items.is_empty() {
+                return Err(wit_catalog_data::CatalogError {
+                    kind: wit_catalog_data::CatalogErrorKind::ResponseTooLarge,
+                    message: "one catalog document descriptor exceeds the response limit"
+                        .to_owned(),
+                });
+            }
+            break;
+        }
+        bytes += item_bytes;
+        items.push(wit_catalog_data::CatalogDocumentInfo {
+            name: (*name).to_owned(),
+            media_type: "application/json".to_owned(),
+            byte_length: *byte_length as u64,
+        });
+    }
+    let next = offset + items.len();
+    Ok(wit_catalog_data::CatalogDocumentPage {
+        items,
+        next_offset: (next < documents.len()).then_some(next as u64),
+    })
+}
+
+fn catalog_page_bounds(
+    length: usize,
+    offset: u64,
+    limit: u32,
+) -> Result<(usize, usize), wit_catalog_data::CatalogError> {
+    if limit == 0 {
+        return Err(invalid_catalog_input("catalog page size must be non-zero"));
+    }
+    let offset = usize::try_from(offset)
+        .map_err(|_| invalid_catalog_input("catalog page offset is too large"))?;
+    if offset > length {
+        return Err(invalid_catalog_input(format!(
+            "catalog page offset {offset} exceeds the {length}-item collection"
+        )));
+    }
+    Ok((offset, offset.saturating_add(limit as usize).min(length)))
 }
 
 struct ComponentEntry {
@@ -2263,6 +2640,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 .iter()
                 .map(|child| {
                     let (kind, parser_id) = expression_node_identity(child);
+                    let (definition_id, registration_id, pattern_index) =
+                        expression_node_registration(child);
                     WitRegisteredExpressionChild {
                         text: child
                             .span
@@ -2272,6 +2651,9 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                             .to_owned(),
                         kind: kind.to_owned(),
                         parser_id: parser_id.map(str::to_owned),
+                        definition_id,
+                        registration_id,
+                        pattern_index,
                         element_class: expression_node_element_class(
                             child,
                             self.hooks.host.config.syntax_catalog.as_deref(),
@@ -2296,6 +2678,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             ),
             type_options,
             property_options,
+            selected_property_option_indices: Vec::new(),
             effective_return_type: request
                 .declared_return_type
                 .map(|value| value.as_str().to_owned()),
@@ -2338,8 +2721,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         if !same_registered_expression_identity(&output, &original) {
             return Err("registered Expression hook changed immutable request fields".to_owned());
         }
+        validate_selected_property_options(&output)?;
         let changed = output.effective_return_type != original.effective_return_type
             || output.effective_multiplicity != original.effective_multiplicity
+            || output.selected_property_option_indices != original.selected_property_option_indices
             || !same_metadata_entries(&output.metadata, &original.metadata);
         if !changed && matches!(result.decision, HookDecision::ContinueProcessing) {
             if !original.regex_captures.is_empty() {
@@ -3732,6 +4117,14 @@ fn all_expression_type_options(catalog: Option<&Catalog>) -> Vec<WitExpressionTy
         .into_iter()
         .flat_map(Catalog::types)
         .map(|value| WitExpressionTypeOption {
+            source_record: catalog.and_then(|catalog| {
+                catalog_record_ref(
+                    catalog,
+                    "Types.json",
+                    value.source_index,
+                    value.registration_id.as_str(),
+                )
+            }),
             code_name: value.code_name.as_str().to_owned(),
             class_name: value.original_class.as_str().to_owned(),
             type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
@@ -3780,6 +4173,13 @@ fn expression_literal_options(
                 }
                 let literal = matched.literal;
                 options.push(WitExpressionLiteralOption {
+                    source_record: catalog_record_ref(
+                        catalog,
+                        "Types.json",
+                        value.source_index,
+                        value.registration_id.as_str(),
+                    ),
+                    literal_index: matched.literal_index.map(|index| index as u64),
                     code_name: value.code_name.as_str().to_owned(),
                     class_name: value.original_class.as_str().to_owned(),
                     type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
@@ -3878,59 +4278,187 @@ fn registered_property_options(
     };
     let source_types = children
         .iter()
-        .filter_map(|child| child.return_type.as_ref())
-        .filter(|class| !class.as_str().ends_with(".ClassInfo"))
+        .enumerate()
+        // Target-type helpers describe a requested result, not the Property holder.
+        .filter(|(_, child)| expression_child_semantic_role(child) != Some("target-type"))
+        .filter_map(|(index, child)| child.return_type.as_ref().map(|ty| (index, ty)))
         .collect::<Vec<_>>();
-    let related_types = catalog
+    let mut selected: Vec<(
+        usize,
+        &syntaxes::Property,
+        usize,
+        &syntaxes::TypeProperty,
+        usize,
+        &'static str,
+    )> = Vec::new();
+    for (property_source_index, property) in catalog
         .properties()
         .iter()
-        .filter(|property| property.name == property_name)
-        .flat_map(|property| property.related_types.iter())
-        .collect::<Vec<_>>();
-    let mut selected: Vec<&syntaxes::TypeProperty> = Vec::new();
-    for source_type in source_types {
-        let mut closest: Option<&syntaxes::TypeProperty> = None;
-        for option in &related_types {
-            if option.type_class.as_str() == source_type.as_str() {
-                closest = Some(*option);
-                break;
+        .enumerate()
+        .filter(|(_, property)| property.name == property_name)
+    {
+        for (source_child_index, source_type) in &source_types {
+            let mut closest: Option<(usize, &syntaxes::TypeProperty, &'static str)> = None;
+            for (related_type_index, option) in property.related_types.iter().enumerate() {
+                if option.type_class.as_str() == source_type.as_str() {
+                    closest = Some((related_type_index, option, "exact"));
+                    break;
+                }
+                if catalog.is_class_assignable(source_type.as_str(), option.type_class.as_str())
+                    && closest.is_none_or(|(_, current, _)| {
+                        catalog.is_class_assignable(
+                            option.type_class.as_str(),
+                            current.type_class.as_str(),
+                        )
+                    })
+                {
+                    closest = Some((related_type_index, option, "assignable"));
+                }
             }
-            if catalog.is_class_assignable(source_type.as_str(), option.type_class.as_str())
-                && closest.is_none_or(|current| {
-                    catalog.is_class_assignable(
-                        option.type_class.as_str(),
-                        current.type_class.as_str(),
-                    )
-                })
-            {
-                closest = Some(*option);
+            if let Some((related_type_index, option, match_kind)) = closest {
+                selected.push((
+                    property_source_index,
+                    property,
+                    related_type_index,
+                    option,
+                    *source_child_index,
+                    match_kind,
+                ));
             }
-        }
-        if let Some(option) = closest
-            && selected
-                .iter()
-                .all(|selected| selected.type_class != option.type_class)
-        {
-            selected.push(option);
         }
     }
     selected
         .into_iter()
-        .map(|option| WitRegisteredExpressionPropertyOption {
-            input_class: option.type_class.as_str().to_owned(),
-            return_types: option
-                .possible_return_types
-                .as_ref()
-                .filter(|types| !types.is_empty())
-                .cloned()
-                .or_else(|| option.return_type.clone().map(|value| vec![value]))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|value| value.as_str().to_owned())
-                .collect(),
-            supported_axes: option.supported_axes.clone().unwrap_or_default(),
-        })
+        .map(
+            |(
+                property_source_index,
+                property,
+                related_type_index,
+                option,
+                source_child_index,
+                match_kind,
+            )| {
+                WitRegisteredExpressionPropertyOption {
+                    source_record: catalog_record_ref(
+                        catalog,
+                        "Properties.json",
+                        property_source_index,
+                        property.registration_id.as_str(),
+                    ),
+                    property_source_index: property_source_index as u64,
+                    related_type_index: related_type_index as u64,
+                    source_child_index: source_child_index as u64,
+                    match_kind: match_kind.to_owned(),
+                    property_registration_id: property.registration_id.as_str().to_owned(),
+                    property_name: property.name.clone(),
+                    property_handler_class: property.handler_class.as_str().to_owned(),
+                    property_addon_name: property.addon.name.clone(),
+                    property_addon_version: property.addon.version.clone(),
+                    input_class: option.type_class.as_str().to_owned(),
+                    handler_class: option.handler_class.as_str().to_owned(),
+                    handler_kind: property_handler_kind_name(&option.handler_kind).to_owned(),
+                    provider_addon_name: option.provider.as_ref().map(|addon| addon.name.clone()),
+                    provider_addon_version: option
+                        .provider
+                        .as_ref()
+                        .map(|addon| addon.version.clone()),
+                    type_code_name: option.type_code_name.as_str().to_owned(),
+                    element_types: option
+                        .element_types
+                        .clone()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|value| value.as_str().to_owned())
+                        .collect(),
+                    return_types: option
+                        .possible_return_types
+                        .as_ref()
+                        .filter(|types| !types.is_empty())
+                        .cloned()
+                        .or_else(|| option.return_type.clone().map(|value| vec![value]))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|value| value.as_str().to_owned())
+                        .collect(),
+                    supported_axes: option.supported_axes.clone().unwrap_or_default(),
+                    accepted_changers: option
+                        .accepted_changers
+                        .as_ref()
+                        .map(|modes| {
+                            modes
+                                .iter()
+                                .map(|(mode, types)| WitAcceptedChangeMode {
+                                    mode: catalog_change_mode_name(*mode).to_owned(),
+                                    accepted_types: types
+                                        .iter()
+                                        .map(|value| value.as_str().to_owned())
+                                        .collect(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    accepted_changers_state: option.expression_metadata_state.map(|state| {
+                        match state {
+                            ResolutionState::Resolved => WitMetadataResolutionState::Resolved,
+                            ResolutionState::Unresolved => WitMetadataResolutionState::Unresolved,
+                        }
+                    }),
+                    requires_source_expression_change: option.requires_source_expression_change,
+                }
+            },
+        )
         .collect()
+}
+
+fn expression_child_semantic_role(node: &skript_parser::ExpressionNode) -> Option<&str> {
+    node.metadata
+        .get("semantic-role")
+        .map(String::as_str)
+        // Older CoreLibrary artifacts used target-class before roles were explicit.
+        .or_else(|| {
+            node.metadata
+                .contains_key("target-class")
+                .then_some("target-type")
+        })
+}
+
+fn property_handler_kind_name(kind: &syntaxes::PropertyHandlerKind) -> &'static str {
+    match kind {
+        syntaxes::PropertyHandlerKind::Expression => "expression",
+        syntaxes::PropertyHandlerKind::Condition => "condition",
+        syntaxes::PropertyHandlerKind::Contains => "contains",
+        syntaxes::PropertyHandlerKind::TypedValue => "typed-value",
+        syntaxes::PropertyHandlerKind::Wxyz => "wxyz",
+        syntaxes::PropertyHandlerKind::Custom => "custom",
+    }
+}
+
+fn catalog_change_mode_name(mode: CatalogChangeMode) -> &'static str {
+    match mode {
+        CatalogChangeMode::Add => "ADD",
+        CatalogChangeMode::Set => "SET",
+        CatalogChangeMode::Remove => "REMOVE",
+        CatalogChangeMode::RemoveAll => "REMOVE_ALL",
+        CatalogChangeMode::Delete => "DELETE",
+        CatalogChangeMode::Reset => "RESET",
+    }
+}
+
+fn expression_node_registration(
+    node: &ExpressionNode,
+) -> (Option<String>, Option<String>, Option<u64>) {
+    match &node.kind {
+        ExpressionNodeKind::Registered {
+            definition_id,
+            registration_id,
+            pattern_index,
+        } => (
+            Some(definition_id.clone()),
+            Some(registration_id.clone()),
+            u64::try_from(*pattern_index).ok(),
+        ),
+        _ => (None, None, None),
+    }
 }
 
 fn expression_node_element_class(
@@ -3982,7 +4510,8 @@ fn same_expression_type_options(
 ) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
-            left.code_name == right.code_name
+            same_catalog_record_ref(&left.source_record, &right.source_record)
+                && left.code_name == right.code_name
                 && left.class_name == right.class_name
                 && left.type_parse_order == right.type_parse_order
                 && left.singular == right.singular
@@ -3999,11 +4528,42 @@ fn same_expression_literal_options(
 ) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
-            left.code_name == right.code_name
+            same_catalog_record_ref(&left.source_record, &right.source_record)
+                && left.literal_index == right.literal_index
+                && left.code_name == right.code_name
                 && left.class_name == right.class_name
                 && left.type_parse_order == right.type_parse_order
                 && same_wit_range(&left.range, &right.range)
+                && left.canonical_value == right.canonical_value
+                && left.source == right.source
+                && left.plural == right.plural
+                && left.addon_name == right.addon_name
+                && left.addon_version == right.addon_version
+                && left.parser_class == right.parser_class
+                && left.parse_contexts == right.parse_contexts
+                && left.value_class == right.value_class
+                && left.represented_class == right.represented_class
+                && left.variable_name == right.variable_name
+                && left.debug_text == right.debug_text
+                && left.enum_constant == right.enum_constant
         })
+}
+
+fn same_catalog_record_ref(
+    left: &Option<WitCatalogRecordRef>,
+    right: &Option<WitCatalogRecordRef>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.source_digest == right.source_digest
+                && left.snapshot_id == right.snapshot_id
+                && left.document == right.document
+                && left.index == right.index
+                && left.byte_length == right.byte_length
+        }
+        _ => false,
+    }
 }
 
 fn multiplicity_to_wit(value: Multiplicity) -> WitDynamicMultiplicity {
@@ -4076,6 +4636,11 @@ fn same_registered_expression_identity(
             .zip(&right.children)
             .all(|(left, right)| {
                 left.text == right.text
+                    && left.kind == right.kind
+                    && left.parser_id == right.parser_id
+                    && left.definition_id == right.definition_id
+                    && left.registration_id == right.registration_id
+                    && left.pattern_index == right.pattern_index
                     && left.element_class == right.element_class
                     && left.return_type == right.return_type
                     && left.multiplicity == right.multiplicity
@@ -4090,10 +4655,69 @@ fn same_registered_expression_identity(
             .iter()
             .zip(&right.property_options)
             .all(|(left, right)| {
-                left.input_class == right.input_class
+                same_catalog_record_ref(&left.source_record, &right.source_record)
+                    && left.property_source_index == right.property_source_index
+                    && left.related_type_index == right.related_type_index
+                    && left.source_child_index == right.source_child_index
+                    && left.match_kind == right.match_kind
+                    && left.property_registration_id == right.property_registration_id
+                    && left.property_name == right.property_name
+                    && left.property_handler_class == right.property_handler_class
+                    && left.property_addon_name == right.property_addon_name
+                    && left.property_addon_version == right.property_addon_version
+                    && left.input_class == right.input_class
+                    && left.handler_class == right.handler_class
+                    && left.handler_kind == right.handler_kind
+                    && left.provider_addon_name == right.provider_addon_name
+                    && left.provider_addon_version == right.provider_addon_version
+                    && left.type_code_name == right.type_code_name
+                    && left.element_types == right.element_types
                     && left.return_types == right.return_types
                     && left.supported_axes == right.supported_axes
+                    && same_accepted_changers(&left.accepted_changers, &right.accepted_changers)
+                    && left.accepted_changers_state == right.accepted_changers_state
+                    && left.requires_source_expression_change
+                        == right.requires_source_expression_change
             })
+}
+
+fn validate_selected_property_options(
+    payload: &WitRegisteredExpressionPayload,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    let mut source_child_index = None;
+    for index in &payload.selected_property_option_indices {
+        let index = usize::try_from(*index)
+            .map_err(|_| "selected Property option index does not fit host memory".to_owned())?;
+        if index >= payload.property_options.len() {
+            return Err(format!(
+                "selected Property option index {index} is outside the {}-option payload",
+                payload.property_options.len()
+            ));
+        }
+        if !seen.insert(index) {
+            return Err(format!(
+                "selected Property option index {index} is repeated"
+            ));
+        }
+        let option = &payload.property_options[index];
+        if source_child_index
+            .replace(option.source_child_index)
+            .is_some_and(|previous| previous != option.source_child_index)
+        {
+            return Err(
+                "selected Property options refer to different source Expressions".to_owned(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn same_accepted_changers(left: &[WitAcceptedChangeMode], right: &[WitAcceptedChangeMode]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.mode == right.mode && left.accepted_types == right.accepted_types
+        })
 }
 
 fn same_matching_path(left: &[MatchingPathSegment], right: &[MatchingPathSegment]) -> bool {
@@ -4423,6 +5047,10 @@ impl ParserHost {
         }
         config.validate()?;
         let state_store = StateStore::new(config.state_store.clone())?;
+        let catalog_source_available = config
+            .syntax_catalog
+            .as_ref()
+            .is_some_and(|catalog| catalog.source().is_some());
         let dynamic_syntax_registry = config
             .syntax_catalog
             .clone()
@@ -4441,7 +5069,10 @@ impl ParserHost {
             .map_err(|error| HostError::Engine {
                 message: format!("failed to register parser addon host imports: {error}"),
             })?;
-        let capabilities = configured_host_capabilities(dynamic_syntax_registry.is_some());
+        let capabilities = configured_host_capabilities(
+            dynamic_syntax_registry.is_some(),
+            catalog_source_available,
+        );
         let mut host = Self {
             engine,
             linker,
@@ -7110,8 +7741,14 @@ pub fn host_capabilities() -> Vec<Capability> {
     .to_vec()
 }
 
-fn configured_host_capabilities(dynamic_syntax_available: bool) -> Vec<Capability> {
+fn configured_host_capabilities(
+    dynamic_syntax_available: bool,
+    catalog_source_available: bool,
+) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
+    if catalog_source_available {
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 1));
+    }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
     }
@@ -7807,6 +8444,8 @@ fn create_store(engine: &Engine, config: &HostConfig) -> Store<StoreData> {
             invocation: None,
             dynamic_syntax_update: None,
             dynamic_syntax_available: config.syntax_catalog.is_some(),
+            catalog: config.syntax_catalog.clone(),
+            max_catalog_response_bytes: config.max_catalog_response_bytes,
         },
     );
     store.limiter(|data| &mut data.limits);
@@ -7837,12 +8476,12 @@ fn classify_component_error(
     } else if operation == "compile" {
         HostError::ComponentCompile {
             component_id,
-            message: error.to_string(),
+            message: format!("{error:#}"),
         }
     } else {
         HostError::ComponentInstantiation {
             component_id,
-            message: error.to_string(),
+            message: format!("{error:#}"),
         }
     }
 }
@@ -7908,7 +8547,15 @@ fn normalize_hook_metadata(
         (
             HookPayload::RegisteredExpression(original),
             HookPayload::RegisteredExpression(replacement),
-        ) => merge_owned_metadata(&original.metadata, &mut replacement.metadata, component_id),
+        ) => {
+            if !same_registered_expression_identity(replacement, original) {
+                return Err(
+                    "registered Expression hook changed immutable request fields".to_owned(),
+                );
+            }
+            validate_selected_property_options(replacement)?;
+            merge_owned_metadata(&original.metadata, &mut replacement.metadata, component_id)
+        }
         (HookPayload::Expression(original), HookPayload::Expression(replacement)) => {
             for candidate in &mut replacement.candidates {
                 let previous = original.candidates.iter().find(|previous| {
@@ -9383,19 +10030,36 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(metadata_entries_size(&value.candidate.metadata)),
-        HookPayload::Expression(value) => value.input.len().saturating_add(
-            value
-                .candidates
-                .iter()
-                .map(|candidate| {
-                    candidate
-                        .parser_id
-                        .len()
-                        .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
-                        .saturating_add(metadata_entries_size(&candidate.metadata))
-                })
-                .fold(0usize, usize::saturating_add),
-        ),
+        HookPayload::Expression(value) => value
+            .input
+            .len()
+            .saturating_add(
+                value
+                    .type_options
+                    .iter()
+                    .map(expression_type_option_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .literal_options
+                    .iter()
+                    .map(expression_literal_option_size)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .candidates
+                    .iter()
+                    .map(|candidate| {
+                        candidate
+                            .parser_id
+                            .len()
+                            .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(metadata_entries_size(&candidate.metadata))
+                    })
+                    .fold(0usize, usize::saturating_add),
+            ),
         HookPayload::RegisteredExpression(value) => value
             .input
             .len()
@@ -9441,6 +10105,10 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                         child
                             .text
                             .len()
+                            .saturating_add(child.kind.len())
+                            .saturating_add(child.parser_id.as_ref().map_or(0, String::len))
+                            .saturating_add(child.definition_id.as_ref().map_or(0, String::len))
+                            .saturating_add(child.registration_id.as_ref().map_or(0, String::len))
                             .saturating_add(child.element_class.as_ref().map_or(0, String::len))
                             .saturating_add(child.return_type.as_ref().map_or(0, String::len))
                             .saturating_add(metadata_entries_size(&child.metadata))
@@ -9464,21 +10132,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                 value
                     .type_options
                     .iter()
-                    .map(|option| {
-                        option
-                            .code_name
-                            .len()
-                            .saturating_add(option.class_name.len())
-                            .saturating_add(option.singular.len())
-                            .saturating_add(option.plural.len())
-                            .saturating_add(
-                                option
-                                    .user_input_patterns
-                                    .iter()
-                                    .map(String::len)
-                                    .fold(0usize, usize::saturating_add),
-                            )
-                    })
+                    .map(expression_type_option_size)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -9487,8 +10141,40 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .iter()
                     .map(|option| {
                         option
-                            .input_class
+                            .match_kind
                             .len()
+                            .saturating_add(
+                                option
+                                    .source_record
+                                    .as_ref()
+                                    .map_or(0, catalog_record_ref_size),
+                            )
+                            .saturating_add(mem::size_of::<u64>() * 3)
+                            .saturating_add(option.property_registration_id.len())
+                            .saturating_add(option.property_name.len())
+                            .saturating_add(option.property_handler_class.len())
+                            .saturating_add(option.property_addon_name.len())
+                            .saturating_add(option.property_addon_version.len())
+                            .saturating_add(option.input_class.len())
+                            .saturating_add(option.handler_class.len())
+                            .saturating_add(option.handler_kind.len())
+                            .saturating_add(
+                                option.provider_addon_name.as_ref().map_or(0, String::len),
+                            )
+                            .saturating_add(
+                                option
+                                    .provider_addon_version
+                                    .as_ref()
+                                    .map_or(0, String::len),
+                            )
+                            .saturating_add(option.type_code_name.len())
+                            .saturating_add(
+                                option
+                                    .element_types
+                                    .iter()
+                                    .map(String::len)
+                                    .fold(0usize, usize::saturating_add),
+                            )
                             .saturating_add(
                                 option
                                     .return_types
@@ -9503,8 +10189,29 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                                     .map(String::len)
                                     .fold(0usize, usize::saturating_add),
                             )
+                            .saturating_add(
+                                option
+                                    .accepted_changers
+                                    .iter()
+                                    .map(|change| {
+                                        change.mode.len().saturating_add(
+                                            change
+                                                .accepted_types
+                                                .iter()
+                                                .map(String::len)
+                                                .fold(0usize, usize::saturating_add),
+                                        )
+                                    })
+                                    .fold(0usize, usize::saturating_add),
+                            )
                     })
                     .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                value
+                    .selected_property_option_indices
+                    .len()
+                    .saturating_mul(mem::size_of::<u64>()),
             )
             .saturating_add(value.effective_return_type.as_ref().map_or(0, String::len))
             .saturating_add(metadata_entries_size(&value.metadata)),
@@ -9540,6 +10247,58 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::Diagnostic(value) => diagnostic_size(value),
         HookPayload::Parser(value) => parse_request_size(value),
     }
+}
+
+fn catalog_record_ref_size(record: &WitCatalogRecordRef) -> usize {
+    record
+        .source_digest
+        .len()
+        .saturating_add(record.snapshot_id.len())
+        .saturating_add(record.document.len())
+        .saturating_add(mem::size_of::<u64>() * 2)
+}
+
+fn expression_type_option_size(option: &WitExpressionTypeOption) -> usize {
+    option
+        .source_record
+        .as_ref()
+        .map_or(0, catalog_record_ref_size)
+        .saturating_add(option.code_name.len())
+        .saturating_add(option.class_name.len())
+        .saturating_add(option.singular.len())
+        .saturating_add(option.plural.len())
+        .saturating_add(
+            option
+                .user_input_patterns
+                .iter()
+                .map(String::len)
+                .fold(0usize, usize::saturating_add),
+        )
+}
+
+fn expression_literal_option_size(option: &WitExpressionLiteralOption) -> usize {
+    option
+        .source_record
+        .as_ref()
+        .map_or(0, catalog_record_ref_size)
+        .saturating_add(option.code_name.len())
+        .saturating_add(option.class_name.len())
+        .saturating_add(option.canonical_value.len())
+        .saturating_add(option.addon_name.len())
+        .saturating_add(option.addon_version.len())
+        .saturating_add(option.parser_class.as_ref().map_or(0, String::len))
+        .saturating_add(
+            option
+                .parse_contexts
+                .iter()
+                .map(String::len)
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(option.value_class.as_ref().map_or(0, String::len))
+        .saturating_add(option.represented_class.as_ref().map_or(0, String::len))
+        .saturating_add(option.variable_name.as_ref().map_or(0, String::len))
+        .saturating_add(option.debug_text.as_ref().map_or(0, String::len))
+        .saturating_add(option.enum_constant.as_ref().map_or(0, String::len))
 }
 
 fn effect_candidate_size(
@@ -9816,6 +10575,59 @@ mod tests {
     };
     use wasmtime::{Instance, Module as WasmtimeModule};
 
+    #[test]
+    fn source_catalog_and_dynamic_syntax_capabilities_are_independent() {
+        let normalized_only = configured_host_capabilities(true, false);
+        assert!(
+            normalized_only
+                .iter()
+                .any(|capability| capability.id == CAPABILITY_DYNAMIC_SYNTAX)
+        );
+        assert!(
+            normalized_only
+                .iter()
+                .all(|capability| capability.id != CAPABILITY_CATALOG_DATA)
+        );
+
+        let source_catalog = configured_host_capabilities(true, true);
+        assert!(
+            source_catalog
+                .iter()
+                .any(|capability| capability.id == CAPABILITY_CATALOG_DATA)
+        );
+    }
+
+    #[test]
+    fn type_and_literal_options_reference_their_exact_ssg_record() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let catalog = ssg::load(fixture).unwrap().into_catalog();
+
+        let type_options = all_expression_type_options(Some(&catalog));
+        assert!(!type_options.is_empty());
+        assert!(type_options.iter().all(|option| {
+            option
+                .source_record
+                .as_ref()
+                .is_some_and(|record| record.document == "Types.json")
+        }));
+
+        let literal_options = expression_literal_options(
+            Some(&catalog),
+            "zombie",
+            ParserTextRange::new(0, 6),
+            &[6],
+            &[],
+        );
+        assert!(!literal_options.is_empty());
+        assert!(literal_options.iter().all(|option| {
+            option
+                .source_record
+                .as_ref()
+                .is_some_and(|record| record.document == "Types.json")
+        }));
+    }
+
     fn subscription(
         id: &str,
         target: HookTarget,
@@ -9967,6 +10779,7 @@ mod tests {
             common_child_return_type: None,
             type_options: Vec::new(),
             property_options: Vec::new(),
+            selected_property_option_indices: Vec::new(),
             effective_return_type: Some("java.lang.String".to_owned()),
             effective_multiplicity: Some(WitDynamicMultiplicity::Single),
             metadata: vec![WitMetadataEntry {
@@ -9983,6 +10796,16 @@ mod tests {
             replacement,
             effects: empty_effects(),
         }
+    }
+
+    #[test]
+    fn rejects_a_property_selection_outside_the_immutable_option_list() {
+        let HookPayload::RegisteredExpression(mut payload) = registered_expression() else {
+            unreachable!();
+        };
+        payload.selected_property_option_indices = vec![0];
+
+        assert!(validate_selected_property_options(&payload).is_err());
     }
 
     #[test]

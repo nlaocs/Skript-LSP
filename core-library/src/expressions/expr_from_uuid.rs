@@ -21,13 +21,20 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "UUID lookup Expression requires a UUID source".to_owned(),
             );
         };
-        let (return_type, mode) = match payload.pattern_index {
-            0 if payload.tags.iter().any(|tag| tag.value == "offline") => {
+        let (return_type, mode) = match payload.pattern.as_str() {
+            pattern
+                if pattern.contains("player")
+                    && payload.tags.iter().any(|tag| tag.value == "offline") =>
+            {
                 ("org.bukkit.OfflinePlayer", "offline-player-from-uuid")
             }
-            0 => ("org.bukkit.entity.Player", "player-from-uuid"),
-            1 => ("org.bukkit.entity.Entity", "entity-from-uuid"),
-            2 => ("org.bukkit.World", "world-from-uuid"),
+            pattern if pattern.contains("player") => {
+                ("org.bukkit.entity.Player", "player-from-uuid")
+            }
+            pattern if pattern.contains("entit") => {
+                ("org.bukkit.entity.Entity", "entity-from-uuid")
+            }
+            pattern if pattern.contains("world") => ("org.bukkit.World", "world-from-uuid"),
             _ => {
                 return SemanticResolution::Reject(
                     "UUID lookup Expression has an unknown pattern".to_owned(),
@@ -51,7 +58,7 @@ mod tests {
         RegisteredExpressionTag, SourceOrigin, TextRange,
     };
 
-    fn payload(pattern_index: u64, offline: bool) -> RegisteredExpressionPayload {
+    fn payload(pattern: &str, offline: bool) -> RegisteredExpressionPayload {
         let range = TextRange { start: 0, end: 1 };
         RegisteredExpressionPayload {
             input: "uuid".to_owned(),
@@ -59,8 +66,8 @@ mod tests {
             registration_id: "expression:test:0".to_owned(),
             element_class: "ch.njol.skript.expressions.ExprFromUUID".to_owned(),
             related_property: None,
-            pattern_index,
-            pattern: "uuid".to_owned(),
+            pattern_index: 99,
+            pattern: pattern.to_owned(),
             span: MappedSpan {
                 virtual_range: range,
                 origins: vec![SourceOrigin {
@@ -89,6 +96,9 @@ mod tests {
                 text: "uuid".to_owned(),
                 kind: "literal".to_owned(),
                 parser_id: None,
+                definition_id: None,
+                registration_id: None,
+                pattern_index: None,
                 element_class: None,
                 return_type: Some("java.util.UUID".to_owned()),
                 multiplicity: Some(DynamicMultiplicity::Single),
@@ -98,15 +108,16 @@ mod tests {
             common_child_return_type: None,
             type_options: Vec::new(),
             property_options: Vec::new(),
+            selected_property_option_indices: Vec::new(),
             effective_return_type: None,
             effective_multiplicity: None,
             metadata: Vec::new(),
         }
     }
 
-    fn return_type(pattern_index: u64, offline: bool) -> String {
+    fn return_type(pattern: &str, offline: bool) -> String {
         let Some(SemanticResolution::Resolved { return_type, .. }) =
-            resolve(&payload(pattern_index, offline))
+            resolve(&payload(pattern, offline))
         else {
             panic!("UUID pattern must resolve");
         };
@@ -114,15 +125,24 @@ mod tests {
     }
 
     #[test]
-    fn selects_player_entity_and_world_patterns() {
-        assert_eq!(return_type(0, false), "org.bukkit.entity.Player");
-        assert_eq!(return_type(1, false), "org.bukkit.entity.Entity");
-        assert_eq!(return_type(2, false), "org.bukkit.World");
+    fn selects_player_entity_and_world_from_pattern_meaning() {
+        assert_eq!(
+            return_type("[:offline[ ]]player[s] from %uuids%", false),
+            "org.bukkit.entity.Player"
+        );
+        assert_eq!(
+            return_type("entit(y|ies) from %uuids%", false),
+            "org.bukkit.entity.Entity"
+        );
+        assert_eq!(
+            return_type("world[s] from %uuids%", false),
+            "org.bukkit.World"
+        );
     }
 
     #[test]
     fn offline_tag_selects_offline_player_and_preserves_source_multiplicity() {
-        let mut input = payload(0, true);
+        let mut input = payload("[:offline[ ]]player[s] from %uuids%", true);
         input.children[0].multiplicity = Some(DynamicMultiplicity::Multiple);
         let result = resolve(&input);
 
@@ -139,14 +159,14 @@ mod tests {
     #[test]
     fn rejects_an_unknown_pattern() {
         assert!(matches!(
-            resolve(&payload(3, false)),
+            resolve(&payload("uuid", false)),
             Some(SemanticResolution::Reject(_))
         ));
     }
 
     #[test]
     fn rejects_a_missing_uuid_source() {
-        let mut missing = payload(0, false);
+        let mut missing = payload("player from %uuid%", false);
         missing.children.clear();
 
         assert!(matches!(

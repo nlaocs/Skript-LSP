@@ -122,6 +122,49 @@ fn loads_legacy_264_on_minecraft_1122() {
 }
 
 #[test]
+fn into_catalog_exposes_the_complete_source_view() {
+    let snapshot = load(modern_fixture()).expect("modern schema 3 fixture must load");
+    let expected_snapshot_id = snapshot.manifest().snapshot_id.clone();
+    let catalog = snapshot.into_catalog();
+    let source = catalog
+        .source()
+        .expect("SSG-loaded catalogs must retain their source view");
+
+    assert_eq!(source.format, "ssg");
+    assert_eq!(source.schema_version, 3);
+    assert_eq!(source.snapshot_id, expected_snapshot_id);
+    assert_eq!(
+        source.document_names().collect::<Vec<_>>(),
+        ssg::ALL_FILES.to_vec()
+    );
+
+    let manifest = fs::read(modern_fixture().join("Manifest.json")).unwrap();
+    let effects = fs::read(modern_fixture().join("Effects.json")).unwrap();
+    assert_eq!(source.document("Manifest.json"), Some(manifest.as_slice()));
+    assert_eq!(source.document("Effects.json"), Some(effects.as_slice()));
+
+    let effect = catalog
+        .syntaxes()
+        .iter()
+        .find(|syntax| matches!(syntax, Syntax::Effect(_)))
+        .expect("modern fixture must contain an effect");
+    let registration_id = effect.registration_id().as_str().to_owned();
+    let definition_id = effect.definition_id().as_str().to_owned();
+    assert!(
+        source
+            .records_by_registration_id(&registration_id)
+            .iter()
+            .any(|record| record.document == "Effects.json")
+    );
+    assert!(
+        source
+            .records_by_definition_id(&definition_id)
+            .iter()
+            .any(|record| record.document == "Effects.json")
+    );
+}
+
+#[test]
 fn rejects_unsupported_schema_before_reading_data_files() {
     let directory = tempfile::tempdir().unwrap();
     let mut manifest: serde_json::Value =

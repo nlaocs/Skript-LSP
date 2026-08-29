@@ -889,7 +889,7 @@ fn collect_parsed_capture_colors(
             Some(ParsedCaptureValue::Section(section)) => {
                 collect_parsed_capture_colors(&section.parsed_captures, spans, depth)
             }
-            Some(ParsedCaptureValue::Raw(_)) | None => {}
+            Some(ParsedCaptureValue::Event(_) | ParsedCaptureValue::Raw(_)) | None => {}
         }
     }
 }

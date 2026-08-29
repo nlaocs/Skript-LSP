@@ -1,6 +1,6 @@
 use super::{SemanticResolution, matches, metadata, property, register_handler};
 use crate::nlaocs::skript_parser_addon::types::{
-    RegisteredExpressionPayload, RegisteredSyntaxHandler,
+    DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
 };
 
 const CLASS_SUFFIX: &str = ".PropExprWXYZ";
@@ -19,8 +19,11 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "WXYZ Expression requires a selected axis".to_owned(),
             );
         };
-        let options = payload
-            .property_options
+        let options = match property::selected_options(payload) {
+            Ok(options) => options,
+            Err(reason) => return SemanticResolution::Reject(reason),
+        };
+        let options = options
             .iter()
             .filter(|option| {
                 option
@@ -30,9 +33,14 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             })
             .cloned()
             .collect::<Vec<_>>();
+        let source = property::source_child_for_options(payload, &options);
         match property::resolve_options(
+            &payload.registration_id,
             &options,
-            property::source_multiplicity(payload),
+            source,
+            source
+                .and_then(|child| child.multiplicity)
+                .unwrap_or(DynamicMultiplicity::Both),
             "wxyz-property",
         ) {
             SemanticResolution::Resolved {

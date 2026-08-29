@@ -8,8 +8,129 @@ use crate::{
     AliasRegistry, Class, ClassKind, ClassName, Comparator, Converter, Difference, EventValue,
     Function, Operation, Operator, Property, Syntax, Type, TypeLiteral,
 };
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    sync::Arc,
+};
 use syntax_pattern_parser::syntax::PluralRules;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One top-level JSON object retained from the source snapshot.
+pub struct CatalogSourceRecord {
+    pub document: String,
+    pub index: usize,
+    pub json: Arc<[u8]>,
+}
+
+#[derive(Debug, Clone)]
+/// Opaque, forward-compatible documents and indexes behind a normalized catalog.
+///
+/// The parser uses normalized [`Catalog`] values. WASM addons and diagnostics can
+/// use this source view when they need an SSG field that the normalized model does
+/// not interpret yet. Original document bytes retain unknown fields verbatim;
+/// indexed records are re-serialized JSON objects and do not promise whitespace or
+/// object-key order.
+pub struct CatalogSource {
+    pub format: String,
+    pub schema_version: u32,
+    pub snapshot_id: String,
+    /// Digest of every retained source filename and exact byte sequence.
+    pub source_digest: String,
+    documents: BTreeMap<String, Arc<[u8]>>,
+    records: HashMap<(String, usize), CatalogSourceRecord>,
+    registration_records: HashMap<String, Vec<CatalogSourceRecord>>,
+    definition_records: HashMap<String, Vec<CatalogSourceRecord>>,
+}
+
+impl CatalogSource {
+    /// Retains caller-validated source documents and indexes top-level registration objects.
+    ///
+    /// This type does not verify snapshot digests itself. Production callers should obtain it
+    /// through `ssg::load`; direct construction is intended for other validated producers and tests.
+    pub fn from_json_documents(
+        format: impl Into<String>,
+        schema_version: u32,
+        snapshot_id: impl Into<String>,
+        documents: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self, serde_json::Error> {
+        let documents = documents
+            .into_iter()
+            .map(|(name, bytes)| (name, Arc::<[u8]>::from(bytes)))
+            .collect::<BTreeMap<_, _>>();
+        let mut registration_records: HashMap<String, Vec<CatalogSourceRecord>> = HashMap::new();
+        let mut definition_records: HashMap<String, Vec<CatalogSourceRecord>> = HashMap::new();
+        let mut indexed_records = HashMap::new();
+
+        for (document, bytes) in &documents {
+            let value: Value = serde_json::from_slice(bytes)?;
+            let Some(records) = value.as_array() else {
+                continue;
+            };
+            for (index, value) in records.iter().enumerate() {
+                let Some(object) = value.as_object() else {
+                    continue;
+                };
+                let record = CatalogSourceRecord {
+                    document: document.clone(),
+                    index,
+                    json: Arc::from(serde_json::to_vec(value)?),
+                };
+                indexed_records.insert((document.clone(), index), record.clone());
+                if let Some(id) = object.get("registrationId").and_then(Value::as_str) {
+                    registration_records
+                        .entry(id.to_owned())
+                        .or_default()
+                        .push(record.clone());
+                }
+                if let Some(id) = object.get("definitionId").and_then(Value::as_str) {
+                    definition_records
+                        .entry(id.to_owned())
+                        .or_default()
+                        .push(record);
+                }
+            }
+        }
+
+        let source_digest = source_digest(&documents);
+        Ok(Self {
+            format: format.into(),
+            schema_version,
+            snapshot_id: snapshot_id.into(),
+            source_digest,
+            documents,
+            records: indexed_records,
+            registration_records,
+            definition_records,
+        })
+    }
+
+    /// Returns source document names in deterministic order.
+    pub fn document_names(&self) -> impl Iterator<Item = &str> {
+        self.documents.keys().map(String::as_str)
+    }
+
+    /// Returns the exact caller-retained bytes of one source document.
+    pub fn document(&self, name: &str) -> Option<&[u8]> {
+        self.documents.get(name).map(AsRef::as_ref)
+    }
+
+    /// Returns one indexed top-level JSON object by its source location.
+    pub fn record(&self, document: &str, index: usize) -> Option<&CatalogSourceRecord> {
+        self.records.get(&(document.to_owned(), index))
+    }
+
+    /// Returns every raw object carrying the requested registration ID.
+    pub fn records_by_registration_id(&self, id: &str) -> &[CatalogSourceRecord] {
+        self.registration_records.get(id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns every raw object carrying the requested definition ID.
+    pub fn records_by_definition_id(&self, id: &str) -> &[CatalogSourceRecord] {
+        self.definition_records.get(id).map_or(&[], Vec::as_slice)
+    }
+}
 
 #[derive(Debug, Clone)]
 /// Explicit, unindexed inputs used to construct a `Catalog`.
@@ -66,6 +187,7 @@ pub struct CatalogParts {
 pub struct Catalog {
     parts: CatalogParts,
     index: CatalogIndex,
+    source: Option<Arc<CatalogSource>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -82,6 +204,7 @@ pub enum TypeLiteralSource {
 pub struct TypeLiteralMatch<'a> {
     pub type_info: &'a Type,
     pub literal: Option<&'a TypeLiteral>,
+    pub literal_index: Option<usize>,
     pub canonical_value: &'a str,
     pub plural: bool,
     pub source: TypeLiteralSource,
@@ -307,7 +430,25 @@ impl Catalog {
                 .insert(class.name.as_str().to_owned(), position);
         }
 
-        Self { parts, index }
+        Self {
+            parts,
+            index,
+            source: None,
+        }
+    }
+
+    /// Attaches caller-validated source documents used to build this catalog.
+    ///
+    /// This does not prove that the normalized values came from `source`. Production callers
+    /// should use `ssg::load`; this escape hatch exists for tests and other validated producers.
+    pub fn with_unchecked_source(mut self, source: CatalogSource) -> Self {
+        self.source = Some(Arc::new(source));
+        self
+    }
+
+    /// Returns the opaque source snapshot when this catalog came from SSG.
+    pub fn source(&self) -> Option<&CatalogSource> {
+        self.source.as_deref()
     }
 
     /// Returns every syntax in generator registration order.
@@ -441,6 +582,7 @@ impl Catalog {
                     literal: entry
                         .literal_position
                         .and_then(|position| value.type_literals.get(position)),
+                    literal_index: entry.literal_position,
                     canonical_value: entry.canonical_value.as_str(),
                     plural: entry.plural,
                     source: entry.source,
@@ -795,6 +937,21 @@ impl Catalog {
     pub fn plural_rules(&self) -> &PluralRules {
         &self.parts.plural_rules
     }
+}
+
+fn source_digest(documents: &BTreeMap<String, Arc<[u8]>>) -> String {
+    let mut digest = Sha256::new();
+    for (name, bytes) in documents {
+        digest.update((name.len() as u64).to_be_bytes());
+        digest.update(name.as_bytes());
+        digest.update((bytes.len() as u64).to_be_bytes());
+        digest.update(bytes);
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn common_class_result(class_name: &str) -> ClassName {

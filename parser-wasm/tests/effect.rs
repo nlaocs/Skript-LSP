@@ -71,6 +71,7 @@ fn effect_catalog() -> Arc<Catalog> {
 fn full_dynamic_catalog() -> Arc<Catalog> {
     let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
     let source = snapshot.catalog();
+    let source_view = source.source().cloned().expect("SSG source view");
     let mut syntaxes = source.syntaxes().to_vec();
     for syntax in &mut syntaxes {
         if let Syntax::Type(value) = syntax
@@ -100,19 +101,22 @@ fn full_dynamic_catalog() -> Arc<Catalog> {
             expression.possible_return_types_state = PossibleReturnTypesState::Unresolved;
         }
     }
-    Arc::new(Catalog::new(CatalogParts {
-        syntaxes,
-        converters: source.converters().to_vec(),
-        comparators: source.comparators().to_vec(),
-        event_values: source.event_values().to_vec(),
-        properties: source.properties().to_vec(),
-        operators: source.operators().to_vec(),
-        operations: source.operations().clone(),
-        differences: source.differences().to_vec(),
-        classes: source.classes().to_vec(),
-        aliases: source.aliases().clone(),
-        plural_rules: source.plural_rules().clone(),
-    }))
+    Arc::new(
+        Catalog::new(CatalogParts {
+            syntaxes,
+            converters: source.converters().to_vec(),
+            comparators: source.comparators().to_vec(),
+            event_values: source.event_values().to_vec(),
+            properties: source.properties().to_vec(),
+            operators: source.operators().to_vec(),
+            operations: source.operations().clone(),
+            differences: source.differences().to_vec(),
+            classes: source.classes().to_vec(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+        })
+        .with_unchecked_source(source_view),
+    )
 }
 
 #[test]
@@ -503,7 +507,7 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
 }
 
 #[test]
-fn eff_change_matches_skript_variable_multiplicity_rules() {
+fn eff_change_matches_skript_static_change_rules() {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
         HostConfig {
@@ -566,6 +570,88 @@ fn eff_change_matches_skript_variable_multiplicity_rules() {
         single_value.matches.selected.is_some(),
         "a single value must be assignable to a single variable: {:#?}",
         single_value.matches.unknown
+    );
+
+    let valid_expression = parse_effect(&mut host, &transaction, 19, "set whitelist to true");
+    assert!(
+        valid_expression.matches.selected.is_some(),
+        "whitelist accepts Boolean SET values: {:#?}",
+        valid_expression.matches.unknown
+    );
+
+    let wrong_expression_type =
+        parse_effect(&mut host, &transaction, 19, "set whitelist to \"test\"");
+    assert!(wrong_expression_type.matches.selected.is_none());
+    assert!(
+        wrong_expression_type
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.code == "core.eff-change.incompatible-set-type"
+                    && diagnostic.message.contains("java.lang.Boolean")
+            })
+    );
+
+    let valid_property = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set x of velocity of all players to 1",
+    );
+    assert!(
+        valid_property.matches.selected.is_some(),
+        "WXYZ must use the Property handler's SET contract and the source Expression's changeability: {:#?}",
+        valid_property.matches.unknown
+    );
+
+    let wrong_property_type = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set x of velocity of all players to \"test\"",
+    );
+    assert!(wrong_property_type.matches.selected.is_none());
+    assert!(
+        wrong_property_type
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.code == "core.eff-change.incompatible-set-type"
+                    && diagnostic.message.contains("java.lang.Float")
+            }),
+        "WXYZ must reject a String SET value using Properties.json: {:#?}",
+        wrong_property_type.effects.diagnostics
+    );
+
+    let unsupported_expression = parse_effect(
+        &mut host,
+        &transaction,
+        19,
+        "set dummy direct registry expression to \"test\"",
+    );
+    assert!(unsupported_expression.matches.selected.is_none());
+    assert!(
+        unsupported_expression
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "core.eff-change.unsupported-set")
+    );
+
+    let unresolved_expression =
+        parse_effect(&mut host, &transaction, 19, "set maximum double value to 1");
+    assert!(
+        unresolved_expression.matches.selected.is_some(),
+        "an unresolved SSG contract must warn instead of guessing"
+    );
+    assert!(
+        unresolved_expression
+            .effects
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "core.eff-change.unresolved-change-contract")
     );
 
     transaction.cancel().unwrap();
@@ -953,6 +1039,7 @@ fn nested_parenthesized_expressions_work_inside_effects() {
 
 fn full_dynamic_catalog_with_vector_overload() -> Arc<Catalog> {
     let source = full_dynamic_catalog();
+    let source_view = source.source().cloned().expect("SSG source view");
     let mut syntaxes = source.syntaxes().to_vec();
     let mut vector = source
         .functions_named("vector")
@@ -973,19 +1060,22 @@ fn full_dynamic_catalog_with_vector_overload() -> Arc<Catalog> {
         .collect();
     syntaxes.push(Syntax::Function(vector));
 
-    Arc::new(Catalog::new(CatalogParts {
-        syntaxes,
-        converters: source.converters().to_vec(),
-        comparators: source.comparators().to_vec(),
-        event_values: source.event_values().to_vec(),
-        properties: source.properties().to_vec(),
-        operators: source.operators().to_vec(),
-        operations: source.operations().clone(),
-        differences: source.differences().to_vec(),
-        classes: source.classes().to_vec(),
-        aliases: source.aliases().clone(),
-        plural_rules: source.plural_rules().clone(),
-    }))
+    Arc::new(
+        Catalog::new(CatalogParts {
+            syntaxes,
+            converters: source.converters().to_vec(),
+            comparators: source.comparators().to_vec(),
+            event_values: source.event_values().to_vec(),
+            properties: source.properties().to_vec(),
+            operators: source.operators().to_vec(),
+            operations: source.operations().clone(),
+            differences: source.differences().to_vec(),
+            classes: source.classes().to_vec(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+        })
+        .with_unchecked_source(source_view),
+    )
 }
 
 #[test]
