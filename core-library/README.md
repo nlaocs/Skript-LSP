@@ -16,6 +16,7 @@ The component currently provides the integration foundation:
   versions and the enabled plugin list
 - one core.health-check subscription at the Document phase
 - one core.expression-candidates Transform subscription for primitive and registered Expression semantics
+- Effect, Section, and Structure subscriptions for class-specific semantics
 - typed exports for hooks and text, tree, and AST macro interfaces
 
 The health hook validates its target, phase, and payload, then continues
@@ -59,11 +60,21 @@ missing EventValue changer data is unresolved as well. The metadata envelope is
 schema-versioned and bound to its Expression identity. Property candidates keep
 their SSG registration, owner, handler, type, and source identities. An earlier
 addon hook may select candidate indexes; CoreLibrary refuses an ambiguity with
-no explicit selection instead of merging unrelated addons.
-Raw changer lookups are bounded by record/byte limits and a bounded cache.
-Variable type history remains intentionally deferred. Text, tree, and AST macro
-exports currently return `unsupported-capability`. Function-call matching remains
-in the native parser; Structure and legacy-specific semantics are not implemented.
+no explicit selection instead of merging unrelated addons. Raw changer lookups
+are bounded by record/byte limits and a bounded cache. Variable type history
+remains intentionally deferred.
+
+The Structure hook implements `StructEvent`, `StructFunction`, and
+`StructCommand`. It claims semantic captures through registered handler IDs,
+selects Trigger or EntryValidator body parsing, and derives Event context from
+the captured SSG Event data. Structure matching, `NodeType`, EntryValidator,
+and RawTree traversal remain native parser responsibilities. Third-party addons
+can implement their own Structure internals through the same hook without a
+CoreLibrary change.
+
+Text, tree, and AST macro exports currently return `unsupported-capability`.
+Function-call matching remains in the native parser; legacy-specific semantics
+are not implemented.
 
 ## Why It Is a WASM Component
 
@@ -86,8 +97,8 @@ it.
 
 `src/lib.rs` generates guest bindings from `../parser-wasm/wit` and implements
 all interfaces exported by the `parser-addon` world. Built-in syntax behavior
-is grouped by syntax kind under `src/expressions`, `src/effects`, and
-`src/sections`. Candidate-end iteration and common candidate construction live in
+is grouped by syntax kind under `src/expressions`, `src/effects`,
+`src/sections`, and `src/structures`. Candidate-end iteration and common candidate construction live in
 `src/expression_candidates.rs`. Parser primitives live under `src/primitives`,
 while ClassInfo-backed and catalog-backed type literals live under `src/types`.
 Each class-specific implementation keeps the Skript Java class name in snake case,

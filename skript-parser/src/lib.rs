@@ -5,6 +5,7 @@ mod arithmetic;
 mod catalog_match;
 mod condition;
 mod effect;
+mod event;
 mod expansion;
 mod expression;
 mod expression_list;
@@ -14,6 +15,7 @@ mod pattern_match;
 mod raw_tree;
 mod section;
 mod source_map;
+mod structure;
 mod text;
 mod tree_edit;
 
@@ -23,6 +25,8 @@ pub use catalog_match::*;
 pub use condition::*;
 /// Effect parsing over lossless Simple nodes and recursive Expressions.
 pub use effect::*;
+/// Event-header matching used by StructEvent and addon Structure handlers.
+pub use event::*;
 /// Macro expansion identities, syntax contexts, and provenance graph.
 pub use expansion::*;
 /// Recursive Expression parsing over SSG registrations and parser extensions.
@@ -41,6 +45,8 @@ pub use raw_tree::*;
 pub use section::*;
 /// Original/virtual source mapping and validated text transformations.
 pub use source_map::*;
+/// Top-level Structure parsing and EntryValidator enforcement.
+pub use structure::*;
 /// UTF-8 byte range primitives shared by every parser stage.
 pub use text::*;
 /// Validated transformations over lossless raw trees.

@@ -237,6 +237,15 @@ matching Skript's `Condition.parse` behavior. Typed captures reuse the current
 child Expressions. Unknown input retains its mapped span and farthest pattern
 failure for later diagnostics.
 
+## Event Parsing
+
+`parse_event` matches an Event header without assuming which Structure owns it.
+It preserves the selected SSG identities, event class, reference Bukkit event
+classes, cancellability, regex captures, and addon metadata. Registered capture
+bindings can therefore use `host.event` from a Structure hook while the native
+parser remains independent of `StructEvent` and other Skript implementation
+classes.
+
 ## Section Parsing
 
 `parse_section` consumes one `RawNodeKind::Section` and recursively claims its
@@ -251,6 +260,23 @@ context after the body finishes. The parent context is then restored. Unknown
 headers, unclaimed body lines, and multiple successful claims remain available
 as partial AST nodes and `SectionDiagnostic` values instead of aborting the
 whole subtree.
+
+## Structure Parsing
+
+`parse_structures` performs Skript's two-pass top-level flow: it first matches
+and enters every Structure header, then parses the selected bodies. Native code
+owns registration order, `NodeType`, lossless RawTree traversal, and declarative
+`EntryValidator` behavior. Supported entry forms include literal, Expression,
+Trigger, Container, Section, defaults, repeated entries, custom separators, and
+nested validators. Unknown addon `EntryData` is retained with its raw source and
+a diagnostic instead of being discarded.
+
+`ExpressionParseEnvironment::enter_structure` and `exit_structure` form the
+extension boundary. An environment may reject a header, derive a body context,
+select `None`, `Raw`, `Entries`, or `Trigger` parsing, attach metadata, and
+inspect the parsed body. Skript-specific Structure semantics such as
+`StructEvent`, `StructFunction`, and `StructCommand` belong in WASM components,
+not this native module.
 
 ## Invariants
 
@@ -282,7 +308,9 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `function` | registered Function calls, named/optional/list arguments, overloads, and document lookup extension |
 | `effect` | Simple-node Effect candidates, dynamic metadata, nested Expressions, and unknown recovery |
 | `condition` | registration-order Condition matching, outer-parenthesis handling, and nested Expressions |
+| `event` | Event header matching, reference event classes, cancellability, and semantic captures |
 | `section` | recursive Section/Effect bodies, scoped contexts, semantic captures, and partial recovery |
+| `structure` | top-level two-pass Structure parsing, NodeType, EntryValidator, and WASM lifecycle hooks |
 | `catalog_match` | adapters from static Catalogs and frozen dynamic snapshots |
 
 All public items are re-exported from the crate root.
@@ -299,4 +327,4 @@ anchors, invalid segment layouts, and property tests for identity mappings and
 arbitrary UTF-8 Text edit application. RawTree tests cover Skript's comment
 cases, LF/CRLF/no-final-newline inputs, spaces and tabs, nested Sections,
 recoverable invalid indentation, empty Sections, block comments, macro origins,
-and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, Function calls and document shadowing, and the full multi-addon Catalog. Effect tests use real schema 3 DummyAddon registrations for plain, typed, dynamic, and unknown lines.
+and lossless arbitrary UTF-8 input. Pattern matcher tests cover structural elements, Skript literal and split rules, UTF-8 captures, tags, marks, ranking, hooks, limits, generated-source mapping, SSG pattern corpora, and arbitrary UTF-8 property cases. Expression tests cover static and dynamic registrations, Core-style leaves, expected-type and multiplicity filtering, nested and left recursion, deterministic ordering, Function calls and document shadowing, and the full multi-addon Catalog. Effect tests use real schema 3 DummyAddon registrations for plain, typed, dynamic, and unknown lines. Structure tests cover NodeType filtering, defaults, repeated and nested entries, custom separators, unknown addon EntryData, and body-end diagnostics.
