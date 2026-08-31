@@ -12,7 +12,9 @@ use crate::nlaocs::skript_parser_addon::types::{MetadataEntry, MetadataResolutio
 pub(crate) const CHANGE_CONTRACT_METADATA_KEY: &str = "change-contract";
 const CHANGE_CONTRACT_SCHEMA_VERSION: u32 = 1;
 const MAX_CACHED_CHANGE_CONTRACTS: usize = 1_024;
+#[cfg(target_arch = "wasm32")]
 const MAX_SOURCE_RECORDS_PER_LOOKUP: usize = 256;
+#[cfg(target_arch = "wasm32")]
 const MAX_SOURCE_BYTES_PER_LOOKUP: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +46,58 @@ pub(crate) enum TypeRelation {
     Compatible,
     Incompatible,
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ComparatorContract {
+    pub relation: TypeRelation,
+    pub supports_ordering: Option<bool>,
+    pub supports_inversion: Option<bool>,
+    pub registration_id: Option<String>,
+    pub reversed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PropertyHandlerContract {
+    pub property_registration_id: String,
+    pub property_name: String,
+    pub input_class: String,
+    pub handler_class: String,
+    pub handler_kind: String,
+    pub element_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TypeSerializationContract {
+    pub type_class: String,
+    pub has_serializer: bool,
+    pub serialize_as: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EventValueOption {
+    pub event_class: String,
+    pub value_class: String,
+    pub time: i32,
+    pub registration_id: String,
+    pub patterns: Vec<String>,
+    pub excludes: Vec<String>,
+    pub exclude_error_message: Option<String>,
+    pub resolution_order: u64,
+    pub registration_order: Option<u64>,
+    pub accepted_changers: BTreeMap<String, Vec<AcceptedChangeType>>,
+    pub context_dependent: Option<bool>,
+    pub has_custom_input_validator: Option<bool>,
+    pub has_custom_event_validator: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DifferenceOption {
+    pub input_class: String,
+    pub return_class: String,
+    pub registration_id: String,
+    pub registration_order: u64,
+    pub hierarchy_distance: Option<u64>,
 }
 
 impl AcceptedChangeType {
@@ -78,10 +132,101 @@ enum ResolutionState {
 
 static CHANGE_CONTRACTS: LazyLock<RwLock<HashMap<String, Option<ChangeContract>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static EXPERIMENTS: LazyLock<RwLock<HashMap<String, Vec<CatalogExperiment>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CatalogExperiment {
+    pub code_name: String,
+    pub phase: String,
+    pub known: bool,
+}
 
 struct SourceRecord {
     document: String,
     bytes: Vec<u8>,
+}
+
+pub(crate) fn experiments() -> Result<Vec<CatalogExperiment>, String> {
+    let digest = catalog_source_digest()?;
+    if let Some(cached) = EXPERIMENTS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&digest)
+        .cloned()
+    {
+        return Ok(cached);
+    }
+    let experiments = catalog_experiments()?;
+    EXPERIMENTS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(digest, experiments.clone());
+    Ok(experiments)
+}
+
+#[cfg(test)]
+fn collect_experiments(value: &serde_json::Value, output: &mut Vec<CatalogExperiment>) {
+    match value {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_experiments(value, output);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            if let Some(experimental) = object.get("experimentalSyntax").and_then(|v| v.as_object())
+            {
+                for key in ["required", "disallowed"] {
+                    for experiment in experimental
+                        .get(key)
+                        .and_then(|value| value.as_array())
+                        .into_iter()
+                        .flatten()
+                    {
+                        let Some(experiment) = experiment.as_object() else {
+                            continue;
+                        };
+                        let (Some(code_name), Some(phase)) = (
+                            experiment.get("codeName").and_then(|value| value.as_str()),
+                            experiment.get("phase").and_then(|value| value.as_str()),
+                        ) else {
+                            continue;
+                        };
+                        output.push(CatalogExperiment {
+                            code_name: code_name.to_owned(),
+                            phase: phase.to_owned(),
+                            known: experiment
+                                .get("known")
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(false),
+                        });
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn catalog_experiments() -> Result<Vec<CatalogExperiment>, String> {
+    crate::nlaocs::skript_parser_addon::catalog_data::experiments()
+        .map(|experiments| {
+            experiments
+                .into_iter()
+                .map(|experiment| CatalogExperiment {
+                    code_name: experiment.code_name,
+                    phase: experiment.phase,
+                    known: experiment.known,
+                })
+                .collect()
+        })
+        .map_err(|error| error.message)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn catalog_experiments() -> Result<Vec<CatalogExperiment>, String> {
+    Ok(Vec::new())
 }
 
 pub(crate) fn expression_change_contract(
@@ -123,6 +268,131 @@ pub(crate) fn expression_change_contract(
     }
     cache.insert(cache_key, contract.clone());
     Ok(contract)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn type_change_contract(class_name: &str) -> Result<Option<ChangeContract>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::change_contract_for_type(class_name)
+        .map_err(|error| error.message)
+        .map(|contract| {
+            contract.map(|contract| ChangeContract::Resolved {
+                modes: if contract.has_changer {
+                    contract
+                        .modes
+                        .into_iter()
+                        .map(|mode| {
+                            (
+                                mode.mode,
+                                mode.accepted_types
+                                    .into_iter()
+                                    .map(accepted_change_type)
+                                    .collect(),
+                            )
+                        })
+                        .collect()
+                } else {
+                    BTreeMap::new()
+                },
+            })
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn type_change_contract(_class_name: &str) -> Result<Option<ChangeContract>, String> {
+    Ok(None)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn type_serialization_contract(
+    class_name: &str,
+) -> Result<Option<TypeSerializationContract>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::serialization_contract_for_type(class_name)
+        .map_err(|error| error.message)
+        .map(|contract| {
+            contract.map(|contract| TypeSerializationContract {
+                type_class: contract.type_class,
+                has_serializer: contract.has_serializer,
+                serialize_as: contract.serialize_as,
+            })
+        })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn event_values_for(event_class: &str) -> Result<Vec<EventValueOption>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::event_values_for(event_class)
+        .map_err(|error| error.message)
+        .map(|values| values.into_iter().map(event_value_option).collect())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn event_values_for_input(
+    event_class: &str,
+    input: &str,
+) -> Result<Vec<EventValueOption>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::event_values_for_input(event_class, input)
+        .map_err(|error| error.message)
+        .map(|values| values.into_iter().map(event_value_option).collect())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn event_value_option(
+    value: crate::nlaocs::skript_parser_addon::catalog_data::EventValueOption,
+) -> EventValueOption {
+    EventValueOption {
+        event_class: value.event_class,
+        value_class: value.value_class,
+        time: value.time,
+        registration_id: value.registration_id,
+        patterns: value.patterns,
+        excludes: value.excludes,
+        exclude_error_message: value.exclude_error_message,
+        resolution_order: value.resolution_order,
+        registration_order: value.registration_order,
+        accepted_changers: value
+            .accepted_changers
+            .into_iter()
+            .map(|mode| {
+                (
+                    mode.mode,
+                    mode.accepted_types
+                        .into_iter()
+                        .map(accepted_change_type)
+                        .collect(),
+                )
+            })
+            .collect(),
+        context_dependent: value.context_dependent,
+        has_custom_input_validator: value.has_custom_input_validator,
+        has_custom_event_validator: value.has_custom_event_validator,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn event_values_for(_event_class: &str) -> Result<Vec<EventValueOption>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn event_values_for_input(
+    _event_class: &str,
+    _input: &str,
+) -> Result<Vec<EventValueOption>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn type_serialization_contract(
+    _class_name: &str,
+) -> Result<Option<TypeSerializationContract>, String> {
+    Ok(None)
 }
 
 pub(crate) fn change_contract_metadata(
@@ -283,6 +553,110 @@ pub(crate) fn is_class_assignable(
     target_class: &str,
 ) -> Result<TypeRelation, String> {
     is_class_assignable_from_host(source_class, target_class)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn hierarchy_distance(superclass: &str, subclass: &str) -> Result<Option<u64>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::hierarchy_distance(superclass, subclass).map_err(|error| error.message)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn difference_options_for_type(
+    input_class: &str,
+) -> Result<Vec<DifferenceOption>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::difference_options_for_type(input_class)
+        .map_err(|error| error.message)
+        .map(|options| {
+            options
+                .into_iter()
+                .map(|option| DifferenceOption {
+                    input_class: option.input_class,
+                    return_class: option.return_class,
+                    registration_id: option.registration_id,
+                    registration_order: option.registration_order,
+                    hierarchy_distance: option.hierarchy_distance,
+                })
+                .collect()
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn difference_options_for_type(
+    _input_class: &str,
+) -> Result<Vec<DifferenceOption>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn hierarchy_distance(superclass: &str, subclass: &str) -> Result<Option<u64>, String> {
+    Ok((superclass == subclass).then_some(0))
+}
+
+pub(crate) fn child_change_contract(
+    child: &crate::nlaocs::skript_parser_addon::types::RegisteredExpressionChild,
+) -> Result<Option<ChangeContract>, String> {
+    let subject_id = child
+        .registration_id
+        .as_deref()
+        .or(child.parser_id.as_deref());
+    if let Some(subject_id) = subject_id
+        && let Some(contract) = change_contract_from_metadata(&child.metadata, subject_id)?
+    {
+        return Ok(Some(contract));
+    }
+    if let Some(registration_id) = child.registration_id.as_deref()
+        && let Some(contract) = expression_change_contract(registration_id)?
+    {
+        return Ok(Some(contract));
+    }
+    if child.kind == "expression-list" || child.kind == "variable" {
+        return Ok(None);
+    }
+    child
+        .return_type
+        .as_deref()
+        .map(type_change_contract)
+        .transpose()
+        .map(Option::flatten)
+}
+
+pub(crate) fn container_element_type(class_name: &str) -> Result<Option<String>, String> {
+    container_element_type_from_host(class_name)
+}
+
+pub(crate) fn class_known(class_name: &str) -> Result<bool, String> {
+    class_known_from_host(class_name)
+}
+
+pub(crate) fn declared_method_exists(
+    class_name: &str,
+    method_name: &str,
+    parameter_types: &[&str],
+    return_type: Option<&str>,
+) -> Result<Option<bool>, String> {
+    declared_method_exists_from_host(class_name, method_name, parameter_types, return_type)
+}
+
+pub(crate) fn common_assignable_class(classes: &[String]) -> Result<Option<String>, String> {
+    common_assignable_class_from_host(classes)
+}
+
+pub(crate) fn comparator_for_types(
+    first_class: &str,
+    second_class: &str,
+) -> Result<ComparatorContract, String> {
+    comparator_for_types_from_host(first_class, second_class)
+}
+
+pub(crate) fn property_handlers_for_type(
+    property_name: &str,
+    source_class: &str,
+) -> Result<Vec<PropertyHandlerContract>, String> {
+    property_handlers_for_type_from_host(property_name, source_class)
 }
 
 fn parse_change_contract(bytes: &[u8]) -> Result<ChangeContract, String> {
@@ -488,6 +862,148 @@ fn is_class_assignable_from_host(
     .map_err(|error| error.message)
 }
 
+#[cfg(target_arch = "wasm32")]
+fn container_element_type_from_host(class_name: &str) -> Result<Option<String>, String> {
+    crate::nlaocs::skript_parser_addon::catalog_data::container_element_type(class_name)
+        .map_err(|error| error.message)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn container_element_type_from_host(_class_name: &str) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn class_known_from_host(class_name: &str) -> Result<bool, String> {
+    crate::nlaocs::skript_parser_addon::catalog_data::class_known(class_name)
+        .map_err(|error| error.message)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn class_known_from_host(_class_name: &str) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn declared_method_exists_from_host(
+    class_name: &str,
+    method_name: &str,
+    parameter_types: &[&str],
+    return_type: Option<&str>,
+) -> Result<Option<bool>, String> {
+    let parameter_types = parameter_types
+        .iter()
+        .map(|parameter| (*parameter).to_owned())
+        .collect::<Vec<_>>();
+    crate::nlaocs::skript_parser_addon::catalog_data::declared_method_exists(
+        class_name,
+        method_name,
+        &parameter_types,
+        return_type,
+    )
+    .map_err(|error| error.message)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn declared_method_exists_from_host(
+    _class_name: &str,
+    _method_name: &str,
+    _parameter_types: &[&str],
+    _return_type: Option<&str>,
+) -> Result<Option<bool>, String> {
+    Ok(None)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn common_assignable_class_from_host(classes: &[String]) -> Result<Option<String>, String> {
+    crate::nlaocs::skript_parser_addon::catalog_data::common_assignable_class(classes)
+        .map_err(|error| error.message)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn comparator_for_types_from_host(
+    first_class: &str,
+    second_class: &str,
+) -> Result<ComparatorContract, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::comparator_for_types(first_class, second_class)
+        .map(|contract| ComparatorContract {
+            relation: match contract.relation {
+                catalog_data::TypeRelation::Compatible => TypeRelation::Compatible,
+                catalog_data::TypeRelation::Incompatible => TypeRelation::Incompatible,
+                catalog_data::TypeRelation::Unknown => TypeRelation::Unknown,
+            },
+            supports_ordering: contract.supports_ordering,
+            supports_inversion: contract.supports_inversion,
+            registration_id: contract.registration_id,
+            reversed: contract.reversed,
+        })
+        .map_err(|error| error.message)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn comparator_for_types_from_host(
+    first_class: &str,
+    second_class: &str,
+) -> Result<ComparatorContract, String> {
+    Ok(ComparatorContract {
+        relation: if first_class == second_class {
+            TypeRelation::Compatible
+        } else {
+            TypeRelation::Unknown
+        },
+        supports_ordering: (first_class == second_class).then_some(false),
+        supports_inversion: (first_class == second_class).then_some(true),
+        registration_id: None,
+        reversed: false,
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn property_handlers_for_type_from_host(
+    property_name: &str,
+    source_class: &str,
+) -> Result<Vec<PropertyHandlerContract>, String> {
+    crate::nlaocs::skript_parser_addon::catalog_data::property_handlers_for_type(
+        property_name,
+        source_class,
+    )
+    .map(|handlers| {
+        handlers
+            .into_iter()
+            .map(|handler| PropertyHandlerContract {
+                property_registration_id: handler.property_registration_id,
+                property_name: handler.property_name,
+                input_class: handler.input_class,
+                handler_class: handler.handler_class,
+                handler_kind: handler.handler_kind,
+                element_types: handler.element_types,
+            })
+            .collect()
+    })
+    .map_err(|error| error.message)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn property_handlers_for_type_from_host(
+    _property_name: &str,
+    _source_class: &str,
+) -> Result<Vec<PropertyHandlerContract>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn common_assignable_class_from_host(classes: &[String]) -> Result<Option<String>, String> {
+    Ok(match classes {
+        [] => None,
+        [first, rest @ ..] if rest.iter().all(|class_name| class_name == first) => {
+            Some(first.clone())
+        }
+        _ => Some("java.lang.Object".to_owned()),
+    })
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn is_class_assignable_from_host(
     source_class: &str,
@@ -507,6 +1023,31 @@ mod tests {
         AcceptedChangeMode, DynamicMultiplicity, RegisteredExpressionChild,
         RegisteredExpressionPropertyOption,
     };
+
+    #[test]
+    fn indexes_experiments_from_arbitrary_syntax_documents() {
+        let value = serde_json::json!([{
+            "definitionId": "effect:addon:test",
+            "experimentalSyntax": {
+                "required": [{
+                    "codeName": "addon preview",
+                    "phase": "experimental",
+                    "known": true
+                }],
+                "disallowed": []
+            }
+        }]);
+        let mut experiments = Vec::new();
+        collect_experiments(&value, &mut experiments);
+        assert_eq!(
+            experiments,
+            vec![CatalogExperiment {
+                code_name: "addon preview".to_owned(),
+                phase: "experimental".to_owned(),
+                known: true,
+            }]
+        );
+    }
 
     #[test]
     fn preserves_resolved_and_unresolved_change_contracts() {
@@ -753,6 +1294,9 @@ mod tests {
             pattern_index: Some(0),
             element_class: Some("test.Source".to_owned()),
             return_type: Some("org.bukkit.util.Vector".to_owned()),
+            possible_return_types: vec!["org.bukkit.util.Vector".to_owned()],
+            possible_return_types_state:
+                crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![
                 change_contract_metadata("expression:test:source:0", &contract).unwrap(),

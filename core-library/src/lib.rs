@@ -4,9 +4,13 @@
 #![allow(missing_docs)] // `wit_bindgen` owns the generated guest surface.
 
 mod catalog;
+mod conditions;
 mod effects;
+mod experiments;
 mod expression_candidates;
 mod expressions;
+mod language;
+mod loop_context;
 mod primitives;
 mod runtime;
 mod sections;
@@ -22,18 +26,20 @@ wit_bindgen::generate!({
 use exports::nlaocs::skript_parser_addon::{addon, ast_macro, hooks, text_macro, tree_macro};
 use nlaocs::skript_parser_addon::types::{
     AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput, CapabilityRequirement,
-    CompatibilityError, CompatibilityErrorKind, ComponentManifest, ExpressionPayload, HookDecision,
-    HookEffects, HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
-    HookSubscription, HookTarget, HostProfile, ParseResult, RegisteredExpressionPayload,
-    SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
+    CompatibilityError, CompatibilityErrorKind, ComponentManifest, Diagnostic, DiagnosticSeverity,
+    ExpressionPayload, HookDecision, HookEffects, HookInvocation, HookMode, HookOutput,
+    HookPayload, HookPhase, HookSelector, HookSubscription, HookTarget, HostProfile, ParseResult,
+    RegisteredExpressionPayload, StateNamespaceDeclaration, StateNamespaceVisibility, SyntaxKind,
+    TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
 };
 #[cfg(test)]
 use nlaocs::skript_parser_addon::types::{RuntimePlugin, RuntimeProfile};
 use parser_wasm::{
-    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_CATALOG_DATA, CAPABILITY_EFFECT_PARSER,
+    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_CATALOG_DATA,
+    CAPABILITY_CONDITION_PARSER, CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER,
     CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
-    CAPABILITY_STRUCTURE_PARSER, Capability as ParserCapability,
-    CapabilityRequirement as ParserCapabilityRequirement,
+    CAPABILITY_STATE_STORE, CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TREE_MACRO,
+    Capability as ParserCapability, CapabilityRequirement as ParserCapabilityRequirement,
     CompatibilityError as ParserCompatibilityError, validate_compatibility,
 };
 
@@ -41,10 +47,13 @@ const COMPONENT_ID: &str = "nlaocs.core-library";
 const COMPONENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const HEALTH_CHECK_SUBSCRIPTION_ID: &str = "core.health-check";
 const EXPRESSION_SUBSCRIPTION_ID: &str = "core.expression-candidates";
+const TYPE_SUBSCRIPTION_ID: &str = "core.type-candidates";
 const REGISTERED_EXPRESSION_SUBSCRIPTION_ID: &str = "core.registered-expression-semantics";
+const CONDITION_SUBSCRIPTION_ID: &str = "core.condition-semantics";
 const EFFECT_SUBSCRIPTION_ID: &str = "core.effect-semantics";
 const SECTION_SUBSCRIPTION_ID: &str = "core.section-semantics";
 const STRUCTURE_SUBSCRIPTION_ID: &str = "core.structure-semantics";
+const OPTIONS_MACRO_SUBSCRIPTION_ID: &str = "core.options-preprocessor";
 
 fn empty_hook_selector() -> HookSelector {
     HookSelector {
@@ -87,6 +96,11 @@ impl addon::Guest for CoreLibrary {
                     required: true,
                 },
                 CapabilityRequirement {
+                    id: CAPABILITY_CONDITION_PARSER.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
+                CapabilityRequirement {
                     id: CAPABILITY_SECTION_PARSER.to_owned(),
                     minimum_version: 1,
                     required: true,
@@ -97,8 +111,23 @@ impl addon::Guest for CoreLibrary {
                     required: true,
                 },
                 CapabilityRequirement {
-                    id: CAPABILITY_CATALOG_DATA.to_owned(),
+                    id: CAPABILITY_TREE_MACRO.to_owned(),
                     minimum_version: 1,
+                    required: true,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_STATE_STORE.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_DYNAMIC_SYNTAX.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_CATALOG_DATA.to_owned(),
+                    minimum_version: 2,
                     required: false,
                 },
             ],
@@ -131,6 +160,24 @@ impl addon::Guest for CoreLibrary {
                     selector: empty_hook_selector(),
                 },
                 HookSubscription {
+                    id: TYPE_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Type),
+                    phase: HookPhase::Expression,
+                    priority: 0,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
+                },
+                HookSubscription {
+                    id: CONDITION_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Condition),
+                    phase: HookPhase::Condition,
+                    priority: 0,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_CONDITION_PARSER.to_owned(),
+                    selector: empty_hook_selector(),
+                },
+                HookSubscription {
                     id: EFFECT_SUBSCRIPTION_ID.to_owned(),
                     target: HookTarget::SyntaxKind(SyntaxKind::Effect),
                     phase: HookPhase::Effect,
@@ -157,16 +204,43 @@ impl addon::Guest for CoreLibrary {
                     capability_id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
                     selector: empty_hook_selector(),
                 },
+                HookSubscription {
+                    id: OPTIONS_MACRO_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::ParseStage,
+                    phase: HookPhase::Tree,
+                    priority: i32::MIN,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_TREE_MACRO.to_owned(),
+                    selector: empty_hook_selector(),
+                },
             ],
             registered_syntax_handlers: {
                 let mut handlers = expressions::handlers();
+                handlers.extend(conditions::handlers());
                 handlers.extend(effects::handlers());
                 handlers.extend(sections::handlers());
                 handlers.extend(structures::handlers());
                 handlers
             },
             catalog_annotations: Vec::new(),
-            state_namespaces: Vec::new(),
+            state_namespaces: vec![
+                StateNamespaceDeclaration {
+                    name: "commands".to_owned(),
+                    visibility: StateNamespaceVisibility::Private,
+                    schema_id: "nlaocs.core-library.commands".to_owned(),
+                    schema_version: 1,
+                    readers: Vec::new(),
+                    writers: Vec::new(),
+                },
+                StateNamespaceDeclaration {
+                    name: "aliases".to_owned(),
+                    visibility: StateNamespaceVisibility::Private,
+                    schema_id: "nlaocs.core-library.aliases".to_owned(),
+                    schema_version: 1,
+                    readers: Vec::new(),
+                    writers: Vec::new(),
+                },
+            ],
         }
     }
 
@@ -175,9 +249,13 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_HOOKS, 1),
             ParserCapabilityRequirement::required(CAPABILITY_EXPRESSION_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_CONDITION_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_SECTION_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STRUCTURE_PARSER, 1),
-            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_TREE_MACRO, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
+            ParserCapabilityRequirement::optional(CAPABILITY_DYNAMIC_SYNTAX, 1),
+            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 2),
         ];
         let capabilities = profile
             .capabilities
@@ -195,9 +273,39 @@ impl addon::Guest for CoreLibrary {
         )
         .map_err(map_compatibility_error)?;
 
+        let skript_version = require_skript_version(runtime_profile.skript_version.as_deref())?;
+
+        if capabilities
+            .iter()
+            .any(|capability| capability.id == CAPABILITY_DYNAMIC_SYNTAX && capability.version >= 1)
+        {
+            structures::register_missing(skript_version).map_err(|message| CompatibilityError {
+                kind: CompatibilityErrorKind::InvalidManifest,
+                subject: CAPABILITY_DYNAMIC_SYNTAX.to_owned(),
+                message,
+            })?;
+        }
         runtime::replace(runtime_profile, registered_handler_bindings);
         Ok(())
     }
+}
+
+fn require_skript_version(version: Option<&str>) -> Result<&str, CompatibilityError> {
+    let version = version
+        .filter(|version| !version.trim().is_empty())
+        .ok_or_else(|| CompatibilityError {
+            kind: CompatibilityErrorKind::InvalidManifest,
+            subject: "runtime.skript-version".to_owned(),
+            message: "CoreLibrary requires the Skript version from the SSG snapshot".to_owned(),
+        })?;
+    if runtime::parse_skript_version(version).is_none() {
+        return Err(CompatibilityError {
+            kind: CompatibilityErrorKind::InvalidManifest,
+            subject: "runtime.skript-version".to_owned(),
+            message: format!("CoreLibrary cannot parse the Skript version `{version}`"),
+        });
+    }
+    Ok(version)
 }
 
 impl hooks::Guest for CoreLibrary {
@@ -205,7 +313,9 @@ impl hooks::Guest for CoreLibrary {
         match input.context.subscription_id.as_str() {
             HEALTH_CHECK_SUBSCRIPTION_ID => health_check(input),
             EXPRESSION_SUBSCRIPTION_ID => parse_expressions(input),
+            TYPE_SUBSCRIPTION_ID => parse_type(input),
             REGISTERED_EXPRESSION_SUBSCRIPTION_ID => parse_registered_expression(input),
+            CONDITION_SUBSCRIPTION_ID => parse_condition_semantics(input),
             EFFECT_SUBSCRIPTION_ID => parse_effect_semantics(input),
             SECTION_SUBSCRIPTION_ID => parse_section_semantics(input),
             STRUCTURE_SUBSCRIPTION_ID => parse_structure_semantics(input),
@@ -274,6 +384,54 @@ fn parse_registered_expression(input: HookInvocation) -> Result<HookOutput, Addo
             "CoreLibrary registered Expression semantics require a registered Expression payload",
         )),
     }
+}
+
+fn parse_type(input: HookInvocation) -> Result<HookOutput, AddonError> {
+    if !matches!(input.phase, HookPhase::Expression)
+        || !matches!(
+            input.target,
+            HookTarget::SyntaxKind(SyntaxKind::Expression)
+                | HookTarget::SyntaxKind(SyntaxKind::Type)
+                | HookTarget::Definition(_)
+                | HookTarget::Registration(_)
+        )
+    {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary Type parser requires a Type syntax target",
+        ));
+    }
+    let HookPayload::Expression(mut payload) = input.payload else {
+        return Err(addon_error(
+            AddonErrorKind::InvalidPayload,
+            "CoreLibrary Type parser requires an Expression payload",
+        ));
+    };
+    if payload.active_type.is_some() {
+        return Ok(HookOutput {
+            decision: HookDecision::NotApplicable,
+            replacement: None,
+            effects: empty_effects(),
+        });
+    }
+    if let Some(candidate) = expression_candidates::parse_types(&payload) {
+        payload.candidates.push(candidate);
+        Ok(HookOutput {
+            decision: HookDecision::ContinueProcessing,
+            replacement: Some(HookPayload::Expression(payload)),
+            effects: empty_effects(),
+        })
+    } else {
+        Ok(HookOutput {
+            decision: HookDecision::ContinueProcessing,
+            replacement: None,
+            effects: empty_effects(),
+        })
+    }
+}
+
+fn parse_condition_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
+    conditions::parse(input)
 }
 
 fn parse_effect_semantics(input: HookInvocation) -> Result<HookOutput, AddonError> {
@@ -349,24 +507,67 @@ fn resolve_registered_expression(
             effects: empty_effects(),
         });
     };
-    let (return_type, multiplicity, metadata) = match resolution {
-        expressions::SemanticResolution::Resolved {
-            return_type,
-            multiplicity,
-            metadata,
-        } => (return_type, multiplicity, metadata),
-        expressions::SemanticResolution::Reject(reason) => {
-            return Ok(HookOutput {
-                decision: HookDecision::Reject(nlaocs::skript_parser_addon::types::Rejection {
-                    reason,
-                    diagnostics: Vec::new(),
-                }),
-                replacement: None,
-                effects: empty_effects(),
-            });
-        }
-    };
+    let (return_type, possible_return_types, possible_return_types_state, multiplicity, metadata) =
+        match resolution {
+            expressions::SemanticResolution::Resolved {
+                return_type,
+                possible_return_types,
+                possible_return_types_state,
+                multiplicity,
+                metadata,
+            } => (
+                return_type,
+                possible_return_types,
+                possible_return_types_state,
+                multiplicity,
+                metadata,
+            ),
+            expressions::SemanticResolution::Unresolved { reason, metadata } => {
+                payload.effective_possible_return_types_state =
+                    nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Unresolved;
+                payload.metadata.extend(metadata);
+                payload
+                    .metadata
+                    .push(nlaocs::skript_parser_addon::types::MetadataEntry {
+                        owner_component_id: None,
+                        key: "semantic-state".to_owned(),
+                        value: "unresolved".to_owned(),
+                    });
+                let mut effects = empty_effects();
+                effects.diagnostics.push(Diagnostic {
+                    code: "core.expression.unresolved-semantics".to_owned(),
+                    message: reason,
+                    severity: DiagnosticSeverity::Warning,
+                    span: payload.span.clone(),
+                    related: Vec::new(),
+                });
+                return Ok(HookOutput {
+                    decision: HookDecision::ContinueProcessing,
+                    replacement: Some(HookPayload::RegisteredExpression(payload)),
+                    effects,
+                });
+            }
+            expressions::SemanticResolution::Reject(reason) => {
+                let diagnostic = Diagnostic {
+                    code: "core.expression.semantic-rejected".to_owned(),
+                    message: reason.clone(),
+                    severity: DiagnosticSeverity::Error,
+                    span: payload.span.clone(),
+                    related: Vec::new(),
+                };
+                return Ok(HookOutput {
+                    decision: HookDecision::Reject(nlaocs::skript_parser_addon::types::Rejection {
+                        reason,
+                        diagnostics: vec![diagnostic],
+                    }),
+                    replacement: None,
+                    effects: empty_effects(),
+                });
+            }
+        };
     payload.effective_return_type = Some(return_type);
+    payload.effective_possible_return_types = possible_return_types;
+    payload.effective_possible_return_types_state = possible_return_types_state;
     payload.effective_multiplicity = Some(multiplicity);
     payload.metadata.extend(metadata);
     Ok(HookOutput {
@@ -403,8 +604,8 @@ impl text_macro::Guest for CoreLibrary {
 }
 
 impl tree_macro::Guest for CoreLibrary {
-    fn expand(_input: TreeMacroInput) -> Result<TreeMacroOutput, AddonError> {
-        Err(unsupported_macro("tree"))
+    fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonError> {
+        Ok(structures::expand_options(input))
     }
 }
 
@@ -504,10 +705,10 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 6);
+        assert_eq!(manifest.capabilities.len(), 10);
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
-        assert_eq!(manifest.subscriptions.len(), 6);
+        assert_eq!(manifest.subscriptions.len(), 9);
         assert_eq!(manifest.subscriptions[0].id, HEALTH_CHECK_SUBSCRIPTION_ID);
         assert!(matches!(
             manifest.subscriptions[0].target,
@@ -528,14 +729,63 @@ mod tests {
             HookMode::Transform
         ));
         assert_eq!(manifest.capabilities[2].id, CAPABILITY_EFFECT_PARSER);
-        assert_eq!(manifest.subscriptions[3].id, EFFECT_SUBSCRIPTION_ID);
-        assert_eq!(manifest.capabilities[3].id, CAPABILITY_SECTION_PARSER);
-        assert_eq!(manifest.subscriptions[4].id, SECTION_SUBSCRIPTION_ID);
-        assert_eq!(manifest.capabilities[4].id, CAPABILITY_STRUCTURE_PARSER);
-        assert_eq!(manifest.subscriptions[5].id, STRUCTURE_SUBSCRIPTION_ID);
-        assert_eq!(manifest.capabilities[5].id, CAPABILITY_CATALOG_DATA);
-        assert!(!manifest.capabilities[5].required);
-        assert_eq!(manifest.registered_syntax_handlers.len(), 35);
+        assert_eq!(manifest.subscriptions[3].id, TYPE_SUBSCRIPTION_ID);
+        assert!(matches!(
+            manifest.subscriptions[3].target,
+            HookTarget::SyntaxKind(SyntaxKind::Type)
+        ));
+        assert_eq!(manifest.capabilities[3].id, CAPABILITY_CONDITION_PARSER);
+        assert_eq!(manifest.subscriptions[4].id, CONDITION_SUBSCRIPTION_ID);
+        assert_eq!(manifest.subscriptions[5].id, EFFECT_SUBSCRIPTION_ID);
+        assert_eq!(manifest.capabilities[4].id, CAPABILITY_SECTION_PARSER);
+        assert_eq!(manifest.subscriptions[6].id, SECTION_SUBSCRIPTION_ID);
+        assert_eq!(manifest.capabilities[5].id, CAPABILITY_STRUCTURE_PARSER);
+        assert_eq!(manifest.subscriptions[7].id, STRUCTURE_SUBSCRIPTION_ID);
+        assert_eq!(manifest.capabilities[6].id, CAPABILITY_TREE_MACRO);
+        assert!(manifest.capabilities[6].required);
+        assert_eq!(manifest.subscriptions[8].id, OPTIONS_MACRO_SUBSCRIPTION_ID);
+        assert_eq!(manifest.capabilities[7].id, CAPABILITY_STATE_STORE);
+        assert!(manifest.capabilities[7].required);
+        assert_eq!(manifest.capabilities[8].id, CAPABILITY_DYNAMIC_SYNTAX);
+        assert!(!manifest.capabilities[8].required);
+        assert_eq!(manifest.capabilities[9].id, CAPABILITY_CATALOG_DATA);
+        assert!(!manifest.capabilities[9].required);
+        assert_eq!(manifest.state_namespaces.len(), 2);
+        assert_eq!(manifest.state_namespaces[0].name, "commands");
+        assert_eq!(manifest.state_namespaces[1].name, "aliases");
+        assert_eq!(manifest.registered_syntax_handlers.len(), 118);
+        for handler_id in [
+            "core.condition.cond-compare",
+            "core.condition.prop-cond-contains",
+            "core.effect.eff-continue",
+            "core.effect.eff-exit",
+            "core.effect.eff-sort",
+            "core.effect.eff-suppress-type-hints",
+            "core.effect.eff-transform",
+            "core.expression.expr-filter",
+            "core.expression.expr-input",
+            "core.structure.struct-example",
+        ] {
+            assert!(
+                manifest
+                    .registered_syntax_handlers
+                    .iter()
+                    .any(|handler| handler.handler_id == handler_id),
+                "missing {handler_id}"
+            );
+        }
+        let conditional_capture = manifest
+            .registered_syntax_handlers
+            .iter()
+            .find(|handler| handler.handler_id == "core.section.sec-conditional.condition")
+            .expect("condition-bearing SecConditional patterns need their own capture binding");
+        assert_eq!(conditional_capture.capture_parsers.len(), 1);
+        assert!(
+            conditional_capture
+                .pattern_sources
+                .iter()
+                .any(|pattern| pattern == "[:parse] if <.+>")
+        );
     }
 
     #[test]
@@ -595,6 +845,19 @@ mod tests {
     }
 
     #[test]
+    fn core_library_requires_an_explicit_skript_version() {
+        let missing = require_skript_version(None).unwrap_err();
+        assert!(matches!(
+            missing.kind,
+            CompatibilityErrorKind::InvalidManifest
+        ));
+        assert_eq!(missing.subject, "runtime.skript-version");
+        assert!(require_skript_version(Some("2.6.4")).is_ok());
+        assert!(require_skript_version(Some("2.16.0-pre1")).is_ok());
+        assert!(require_skript_version(Some("unknown")).is_err());
+    }
+
+    #[test]
     fn initialization_retains_runtime_version_and_plugins() {
         let profile = HostProfile {
             abi: AbiVersion {
@@ -615,11 +878,27 @@ mod tests {
                     version: 1,
                 },
                 Capability {
+                    id: CAPABILITY_CONDITION_PARSER.to_owned(),
+                    version: 1,
+                },
+                Capability {
                     id: CAPABILITY_SECTION_PARSER.to_owned(),
                     version: 1,
                 },
                 Capability {
                     id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_TREE_MACRO.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_STATE_STORE.to_owned(),
+                    version: 1,
+                },
+                Capability {
+                    id: CAPABILITY_DYNAMIC_SYNTAX.to_owned(),
                     version: 1,
                 },
             ],
@@ -684,7 +963,7 @@ mod tests {
             ("-42.5", "core.literal.number", ExpressionLeafKind::Literal),
         ];
         for (text, parser_id, kind) in cases {
-            let output = <CoreLibrary as hooks::Guest>::invoke(expression_invocation(text))
+            let output = invoke_expression_pipeline(expression_invocation(text))
                 .expect("CoreLibrary Expression invocation must succeed");
             let Some(HookPayload::Expression(payload)) = output.replacement else {
                 panic!("recognized leaf must replace the Expression payload");
@@ -728,8 +1007,7 @@ mod tests {
     #[test]
     fn boolean_literals_use_skript_english_spellings() {
         for (text, value) in [("true", "true"), ("yes", "true"), ("off", "false")] {
-            let output =
-                <CoreLibrary as hooks::Guest>::invoke(expression_invocation(text)).unwrap();
+            let output = invoke_expression_pipeline(expression_invocation(text)).unwrap();
             let Some(HookPayload::Expression(payload)) = output.replacement else {
                 panic!("boolean literal must be returned");
             };
@@ -742,6 +1020,61 @@ mod tests {
                 metadata_value(&payload.candidates[0].metadata, "boolean-value"),
                 Some(value)
             );
+        }
+    }
+
+    #[test]
+    fn type_parsers_follow_ssg_registration_order_instead_of_core_dispatch_order() {
+        for (boolean_order, custom_order, expected_parser) in [
+            (20, 10, "core.literal.type"),
+            (1, 10, "core.literal.boolean"),
+        ] {
+            let mut invocation = expression_invocation("true");
+            let HookPayload::Expression(payload) = &mut invocation.payload else {
+                unreachable!();
+            };
+            payload.type_options.push(ExpressionTypeOption {
+                source_record: None,
+                definition_id: "type:boolean".to_owned(),
+                registration_id: "type:boolean:0".to_owned(),
+                code_name: "boolean".to_owned(),
+                class_name: "java.lang.Boolean".to_owned(),
+                type_parse_order: boolean_order,
+                singular: "boolean".to_owned(),
+                plural: "booleans".to_owned(),
+                user_input_patterns: vec!["booleans?".to_owned()],
+                has_parser: true,
+                parse_contexts: vec!["DEFAULT".to_owned()],
+                has_supplier: false,
+            });
+            payload.literal_options.push(ExpressionLiteralOption {
+                source_record: None,
+                literal_index: None,
+                code_name: "custom".to_owned(),
+                class_name: "test.Custom".to_owned(),
+                type_parse_order: custom_order,
+                range: TextRange { start: 0, end: 4 },
+                canonical_value: "true".to_owned(),
+                source: ExpressionLiteralSource::Supplier,
+                plural: false,
+                addon_name: "fixture".to_owned(),
+                addon_version: "1.0.0".to_owned(),
+                parser_class: None,
+                parse_contexts: Vec::new(),
+                value_class: None,
+                represented_class: None,
+                variable_name: None,
+                debug_text: None,
+                enum_constant: None,
+                alias_all: None,
+                alias_type_count: None,
+            });
+
+            let output = invoke_expression_pipeline(invocation).unwrap();
+            let Some(HookPayload::Expression(payload)) = output.replacement else {
+                panic!("a type literal must be returned");
+            };
+            assert_eq!(payload.candidates[0].parser_id, expected_parser);
         }
     }
 
@@ -773,10 +1106,12 @@ mod tests {
                 variable_name: None,
                 debug_text: None,
                 enum_constant: None,
+                alias_all: None,
+                alias_type_count: None,
             });
         }
 
-        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let output = invoke_expression_pipeline(invocation).unwrap();
         let Some(HookPayload::Expression(payload)) = output.replacement else {
             panic!("finite type literal must be returned");
         };
@@ -796,63 +1131,67 @@ mod tests {
     }
 
     #[test]
-    fn item_type_literal_accepts_a_numeric_amount_prefix() {
-        let mut invocation = expression_invocation("2 stone");
-        let HookPayload::Expression(payload) = &mut invocation.payload else {
-            unreachable!();
-        };
-        payload.literal_options.push(ExpressionLiteralOption {
-            source_record: None,
-            literal_index: None,
-            code_name: "itemtype".to_owned(),
-            class_name: "ch.njol.skript.aliases.ItemType".to_owned(),
-            type_parse_order: 10,
-            range: TextRange { start: 2, end: 7 },
-            canonical_value: "stone".to_owned(),
-            source: ExpressionLiteralSource::Alias,
-            plural: false,
-            addon_name: "Skript".to_owned(),
-            addon_version: "2.15.4".to_owned(),
-            parser_class: Some(
-                "org.skriptlang.skript.bukkit.base.types.ItemTypeClassInfo$ItemTypeParser"
-                    .to_owned(),
-            ),
-            parse_contexts: vec!["DEFAULT".to_owned()],
-            value_class: None,
-            represented_class: None,
-            variable_name: None,
-            debug_text: None,
-            enum_constant: None,
-        });
+    fn item_type_literal_accepts_bare_and_amount_prefixed_aliases() {
+        for (input, literal_start, amount) in [("stone", 0, None), ("2 stone", 2, Some("2"))] {
+            let mut invocation = expression_invocation(input);
+            let HookPayload::Expression(payload) = &mut invocation.payload else {
+                unreachable!();
+            };
+            payload.literal_options.push(ExpressionLiteralOption {
+                source_record: None,
+                literal_index: None,
+                code_name: "itemtype".to_owned(),
+                class_name: "ch.njol.skript.aliases.ItemType".to_owned(),
+                type_parse_order: 10,
+                range: TextRange {
+                    start: literal_start,
+                    end: input.len() as u64,
+                },
+                canonical_value: "stone".to_owned(),
+                source: ExpressionLiteralSource::Alias,
+                plural: false,
+                addon_name: "Skript".to_owned(),
+                addon_version: "2.15.4".to_owned(),
+                parser_class: Some(
+                    "org.skriptlang.skript.bukkit.base.types.ItemTypeClassInfo$ItemTypeParser"
+                        .to_owned(),
+                ),
+                parse_contexts: vec!["DEFAULT".to_owned()],
+                value_class: None,
+                represented_class: None,
+                variable_name: None,
+                debug_text: None,
+                enum_constant: None,
+                alias_all: Some(false),
+                alias_type_count: Some(1),
+            });
 
-        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
-        let Some(HookPayload::Expression(payload)) = output.replacement else {
-            panic!("amount-prefixed item type must be returned");
-        };
-        let candidate = &payload.candidates[0];
-        assert_eq!(candidate.parser_id, "core.literal.item-type");
-        assert_eq!(candidate.range.start, 0);
-        assert_eq!(candidate.range.end, 7);
-        assert_eq!(
-            candidate.return_type.as_deref(),
-            Some("ch.njol.skript.aliases.ItemType")
-        );
-        assert_eq!(
-            metadata_value(&candidate.metadata, "literal-amount"),
-            Some("2")
-        );
-        assert_eq!(
-            metadata_value(&candidate.metadata, "literal-canonical"),
-            Some("stone")
-        );
-        assert_eq!(
-            metadata_value(&candidate.metadata, "literal-range-start"),
-            Some("2")
-        );
-        assert_eq!(
-            metadata_value(&candidate.metadata, "literal-range-end"),
-            Some("7")
-        );
+            let output = invoke_expression_pipeline(invocation).unwrap();
+            let Some(HookPayload::Expression(payload)) = output.replacement else {
+                panic!("item type alias must be returned");
+            };
+            let candidate = &payload.candidates[0];
+            assert_eq!(candidate.parser_id, "core.literal.item-type");
+            assert_eq!(candidate.range.start, 0);
+            assert_eq!(candidate.range.end, input.len() as u64);
+            assert_eq!(
+                candidate.return_type.as_deref(),
+                Some("ch.njol.skript.aliases.ItemType")
+            );
+            assert_eq!(
+                metadata_value(&candidate.metadata, "literal-amount"),
+                amount
+            );
+            assert_eq!(
+                metadata_value(&candidate.metadata, "literal-canonical"),
+                Some("stone")
+            );
+            let expected_start = literal_start.to_string();
+            assert_eq!(
+                metadata_value(&candidate.metadata, "literal-range-start"),
+                Some(expected_start.as_str())
+            );
+        }
     }
 
     #[test]
@@ -878,7 +1217,7 @@ mod tests {
 
     #[test]
     fn expression_hook_candidates_leave_unknown_input_untouched() {
-        let output = <CoreLibrary as hooks::Guest>::invoke(expression_invocation("not a leaf"))
+        let output = invoke_expression_pipeline(expression_invocation("not a leaf"))
             .expect("unknown input is a normal no-match");
         assert!(output.replacement.is_none());
         assert!(matches!(output.decision, HookDecision::ContinueProcessing));
@@ -893,6 +1232,8 @@ mod tests {
         payload.expected_types[0].class_name = "ch.njol.skript.classes.ClassInfo".to_owned();
         payload.type_options.push(ExpressionTypeOption {
             source_record: None,
+            definition_id: "type:number".to_owned(),
+            registration_id: "type:number:0".to_owned(),
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
             type_parse_order: 10,
@@ -900,10 +1241,11 @@ mod tests {
             plural: "numbers".to_owned(),
             user_input_patterns: vec!["number".to_owned(), "numbers".to_owned()],
             has_parser: true,
+            parse_contexts: vec!["PARSE".to_owned()],
             has_supplier: true,
         });
 
-        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let output = invoke_expression_pipeline(invocation).unwrap();
         let Some(HookPayload::Expression(payload)) = output.replacement else {
             panic!("ClassInfo literal must be returned");
         };
@@ -926,6 +1268,8 @@ mod tests {
         payload.expected_types[0].class_name = "ch.njol.skript.classes.ClassInfo".to_owned();
         payload.type_options.push(ExpressionTypeOption {
             source_record: None,
+            definition_id: "type:player".to_owned(),
+            registration_id: "type:player:0".to_owned(),
             code_name: "player".to_owned(),
             class_name: "org.bukkit.entity.Player".to_owned(),
             type_parse_order: 20,
@@ -933,12 +1277,27 @@ mod tests {
             plural: "players".to_owned(),
             user_input_patterns: vec!["player".to_owned(), "players".to_owned()],
             has_parser: true,
+            parse_contexts: vec!["DEFAULT".to_owned(), "COMMAND".to_owned()],
             has_supplier: false,
+        });
+        payload.type_options.push(ExpressionTypeOption {
+            source_record: None,
+            definition_id: "type:classinfo".to_owned(),
+            registration_id: "type:classinfo:0".to_owned(),
+            code_name: "classinfo".to_owned(),
+            class_name: "ch.njol.skript.classes.ClassInfo".to_owned(),
+            type_parse_order: 117,
+            singular: "type".to_owned(),
+            plural: "types".to_owned(),
+            user_input_patterns: vec!["types?".to_owned()],
+            has_parser: true,
+            parse_contexts: vec!["PARSE".to_owned()],
+            has_supplier: true,
         });
         payload.literal_options.push(ExpressionLiteralOption {
             source_record: None,
             literal_index: None,
-            code_name: "player".to_owned(),
+            code_name: "classinfo".to_owned(),
             // SSG's literal option describes the ClassInfo value itself. The
             // represented runtime class is carried by type_options.
             class_name: "ch.njol.skript.classes.ClassInfo".to_owned(),
@@ -956,9 +1315,11 @@ mod tests {
             variable_name: None,
             debug_text: None,
             enum_constant: None,
+            alias_all: None,
+            alias_type_count: None,
         });
 
-        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let output = invoke_expression_pipeline(invocation).unwrap();
         let Some(HookPayload::Expression(payload)) = output.replacement else {
             panic!("ClassInfo parser must win over a same-spelled value literal");
         };
@@ -976,8 +1337,30 @@ mod tests {
             unreachable!();
         };
         payload.expected_types[0].class_name = "ch.njol.skript.entity.EntityData".to_owned();
+        payload.literal_options.push(ExpressionLiteralOption {
+            source_record: None,
+            literal_index: Some(0),
+            code_name: "entitydata".to_owned(),
+            class_name: "ch.njol.skript.entity.EntityData".to_owned(),
+            type_parse_order: 107,
+            range: TextRange { start: 0, end: 7 },
+            canonical_value: "players".to_owned(),
+            source: ExpressionLiteralSource::Supplier,
+            plural: true,
+            addon_name: "Skript".to_owned(),
+            addon_version: "2.15.4".to_owned(),
+            parser_class: Some("ch.njol.skript.entity.EntityData$1".to_owned()),
+            parse_contexts: Vec::new(),
+            value_class: Some("ch.njol.skript.entity.EntityData".to_owned()),
+            represented_class: Some("org.bukkit.entity.Player".to_owned()),
+            variable_name: None,
+            debug_text: Some("players".to_owned()),
+            enum_constant: None,
+            alias_all: None,
+            alias_type_count: None,
+        });
 
-        let output = <CoreLibrary as hooks::Guest>::invoke(invocation).unwrap();
+        let output = invoke_expression_pipeline(invocation).unwrap();
         let Some(HookPayload::Expression(payload)) = output.replacement else {
             panic!("entity data literal must be returned");
         };
@@ -993,7 +1376,7 @@ mod tests {
     }
 
     #[test]
-    fn size_count_and_parse_expression_resolve_dynamic_metadata() {
+    fn size_count_expression_resolves_dynamic_metadata() {
         let mut size = registered_expression(
             "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize",
         );
@@ -1006,6 +1389,8 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some("org.bukkit.OfflinePlayer".to_owned()),
+            possible_return_types: vec!["org.bukkit.OfflinePlayer".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Multiple),
             metadata: Vec::new(),
         });
@@ -1018,33 +1403,6 @@ mod tests {
             panic!("list size must resolve");
         };
         assert_eq!(return_type, "java.lang.Long");
-        assert_eq!(multiplicity, DynamicMultiplicity::Single);
-
-        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
-        parse.children.push(RegisteredExpressionChild {
-            text: "number".to_owned(),
-            kind: "literal".to_owned(),
-            parser_id: Some("core.literal.class-info".to_owned()),
-            definition_id: None,
-            registration_id: None,
-            pattern_index: None,
-            element_class: None,
-            return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
-            multiplicity: Some(DynamicMultiplicity::Single),
-            metadata: vec![
-                metadata("target-class", "java.lang.Number"),
-                metadata("has-parser", "true"),
-            ],
-        });
-        let expressions::SemanticResolution::Resolved {
-            return_type,
-            multiplicity,
-            ..
-        } = expressions::resolve(&parse).expect("ExprParse handler must be registered")
-        else {
-            panic!("typed parse must resolve");
-        };
-        assert_eq!(return_type, "java.lang.Number");
         assert_eq!(multiplicity, DynamicMultiplicity::Single);
     }
 
@@ -1072,6 +1430,7 @@ mod tests {
             return_type,
             multiplicity,
             metadata: resolved_metadata,
+            ..
         } = expressions::resolve(&wxyz).expect("PropExprWXYZ handler must be registered")
         else {
             panic!("location x coordinate must resolve");
@@ -1262,6 +1621,8 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
+            possible_return_types: vec!["ch.njol.skript.classes.ClassInfo".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![metadata("target-class", "java.lang.Number")],
         });
@@ -1306,6 +1667,8 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.entity.EntityData".to_owned()),
+            possible_return_types: vec!["ch.njol.skript.entity.EntityData".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![
                 metadata("literal-represented-class", "org.bukkit.entity.Player"),
@@ -1386,7 +1749,7 @@ mod tests {
         assert_eq!(return_type, "ch.njol.skript.util.slot.Slot");
         assert_eq!(multiplicity, DynamicMultiplicity::Single);
 
-        slot.pattern_index = 99;
+        slot.pattern_index = 1;
         slot.pattern = "%inventory%'[s] slot[s] %numbers%".to_owned();
         slot.children.swap(0, 1);
         slot.children[1].multiplicity = Some(DynamicMultiplicity::Multiple);
@@ -1410,6 +1773,8 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
+            possible_return_types: vec!["ch.njol.skript.classes.ClassInfo".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![metadata("target-class", "java.lang.Object")],
         });
@@ -1423,6 +1788,7 @@ mod tests {
             return_type,
             multiplicity,
             metadata,
+            ..
         }) = expressions::resolve(&random)
         else {
             panic!("ExprRandom handler must resolve a typed source");
@@ -1453,6 +1819,8 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some("ch.njol.skript.classes.ClassInfo".to_owned()),
+            possible_return_types: vec!["ch.njol.skript.classes.ClassInfo".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: vec![
                 metadata("target-class", "java.awt.Color"),
@@ -1527,6 +1895,12 @@ mod tests {
                 pattern_index: None,
                 element_class: None,
                 return_type: return_type.map(str::to_owned),
+                possible_return_types: return_type.into_iter().map(str::to_owned).collect(),
+                possible_return_types_state: if return_type.is_some() {
+                    ExpressionPossibleReturnTypesState::Complete
+                } else {
+                    ExpressionPossibleReturnTypesState::Unresolved
+                },
                 multiplicity: Some(DynamicMultiplicity::Single),
                 metadata: child_metadata,
             });
@@ -1538,89 +1912,35 @@ mod tests {
     }
 
     #[test]
-    fn parse_pattern_derives_plural_result_shape() {
-        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
-        parse.regex_captures.push("\"value: %numbers%\"".to_owned());
-        parse.type_options.push(ExpressionTypeOption {
-            source_record: None,
-            code_name: "number".to_owned(),
-            class_name: "java.lang.Number".to_owned(),
-            type_parse_order: 10,
-            singular: "number".to_owned(),
-            plural: "numbers".to_owned(),
-            user_input_patterns: vec!["number".to_owned(), "numbers".to_owned()],
-            has_parser: true,
-            has_supplier: false,
-        });
-        let expressions::SemanticResolution::Resolved {
-            return_type,
-            multiplicity,
-            ..
-        } = expressions::resolve(&parse).expect("ExprParse handler must be registered")
-        else {
-            panic!("pattern parse must resolve");
-        };
-        assert_eq!(return_type, "java.lang.Number");
-        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
-    }
-
-    #[test]
-    fn parse_pattern_ignores_escaped_percent_signs() {
-        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
-        parse
-            .regex_captures
-            .push(r#""value: \%unknown\%""#.to_owned());
-
-        let expressions::SemanticResolution::Resolved {
-            return_type,
-            multiplicity,
-            ..
-        } = expressions::resolve(&parse).expect("escaped percent pattern must resolve")
-        else {
-            panic!("escaped percent signs must not create placeholders");
-        };
-        assert_eq!(return_type, "java.lang.Object");
-        assert_eq!(multiplicity, DynamicMultiplicity::Single);
-    }
-
-    #[test]
-    fn parse_pattern_ignores_percent_signs_inside_regexes() {
-        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
-        parse.regex_captures.push(r#""<%+>""#.to_owned());
-
-        let expressions::SemanticResolution::Resolved {
-            return_type,
-            multiplicity,
-            ..
-        } = expressions::resolve(&parse).expect("regex percent pattern must resolve")
-        else {
-            panic!("regex percent signs must not create placeholders");
-        };
-        assert_eq!(return_type, "java.lang.Object");
-        assert_eq!(multiplicity, DynamicMultiplicity::Single);
-    }
-
-    #[test]
-    fn parse_pattern_rejects_unknown_types() {
-        let mut parse = registered_expression("ch.njol.skript.expressions.ExprParse");
-        parse
-            .regex_captures
-            .push(r#""value: %unknown%""#.to_owned());
-
-        let Some(expressions::SemanticResolution::Reject(reason)) = expressions::resolve(&parse)
-        else {
-            panic!("unknown parse pattern types must be rejected");
-        };
-        assert!(reason.contains("unknown type in parse pattern: unknown"));
-    }
-
-    #[test]
     fn health_check_rejects_unknown_subscriptions() {
         let mut input = health_check_invocation();
         input.context.subscription_id = "unknown".to_owned();
 
         let error = <CoreLibrary as hooks::Guest>::invoke(input).unwrap_err();
         assert!(matches!(error.kind, AddonErrorKind::UnsupportedHook));
+    }
+
+    fn invoke_expression_pipeline(
+        mut invocation: HookInvocation,
+    ) -> Result<HookOutput, AddonError> {
+        let expression = <CoreLibrary as hooks::Guest>::invoke(invocation.clone())?;
+        if !expression.effects.parse_requests.is_empty() {
+            return Ok(expression);
+        }
+        let expression_replacement = expression.replacement.clone();
+        if let Some(payload) = expression_replacement.clone() {
+            invocation.payload = payload;
+        }
+        invocation.context.subscription_id = TYPE_SUBSCRIPTION_ID.to_owned();
+        invocation.target = HookTarget::SyntaxKind(SyntaxKind::Type);
+        let typed = <CoreLibrary as hooks::Guest>::invoke(invocation)?;
+        if typed.replacement.is_some() {
+            Ok(typed)
+        } else if expression_replacement.is_some() {
+            Ok(expression)
+        } else {
+            Ok(typed)
+        }
     }
 
     fn expression_invocation(text: &str) -> HookInvocation {
@@ -1642,6 +1962,12 @@ mod tests {
             parse_results: Vec::new(),
             payload: HookPayload::Expression(ExpressionPayload {
                 input: text.to_owned(),
+                context: crate::nlaocs::skript_parser_addon::types::ParseContext {
+                    syntax_context: 0,
+                    event_classes: Vec::new(),
+                    values: Vec::new(),
+                },
+                active_type: None,
                 remaining: range,
                 span: MappedSpan {
                     virtual_range: range,
@@ -1670,6 +1996,11 @@ mod tests {
     fn registered_expression(element_class: &str) -> RegisteredExpressionPayload {
         let range = TextRange { start: 0, end: 1 };
         RegisteredExpressionPayload {
+            context: crate::nlaocs::skript_parser_addon::types::ParseContext {
+                syntax_context: 0,
+                event_classes: Vec::new(),
+                values: Vec::new(),
+            },
             input: "x".to_owned(),
             definition_id: "expression:test".to_owned(),
             registration_id: "expression:test:0".to_owned(),
@@ -1694,6 +2025,7 @@ mod tests {
             return_type_state: ExpressionReturnTypeState::Dynamic,
             possible_return_types: Vec::new(),
             possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
+            time: 0,
             regex_captures: Vec::new(),
             tags: Vec::<RegisteredExpressionTag>::new(),
             mark: 0,
@@ -1704,6 +2036,8 @@ mod tests {
             property_options: Vec::<RegisteredExpressionPropertyOption>::new(),
             selected_property_option_indices: Vec::new(),
             effective_return_type: Some("java.lang.Object".to_owned()),
+            effective_possible_return_types: Vec::new(),
+            effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
             effective_multiplicity: Some(DynamicMultiplicity::Both),
             metadata: Vec::new(),
         }
@@ -1723,6 +2057,8 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some(return_type.to_owned()),
+            possible_return_types: vec![return_type.to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(multiplicity),
             metadata: Vec::new(),
         }

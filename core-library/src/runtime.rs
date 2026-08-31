@@ -14,11 +14,14 @@ static CURRENT_PROFILE: LazyLock<RwLock<Option<RuntimeProfile>>> =
 static REGISTERED_HANDLER_BINDINGS: LazyLock<RwLock<Vec<RegisteredHandlerBinding>>> =
     LazyLock::new(|| RwLock::new(Vec::new()));
 
+const LATEST_SUPPORTED_SKRIPT: (u64, u64) = (2, 16);
+
 /// Replaces the profile after the host has successfully validated it.
 pub(crate) fn replace(
     profile: RuntimeProfile,
     registered_handler_bindings: Vec<RegisteredHandlerBinding>,
 ) {
+    crate::language::clear();
     let mut current = CURRENT_PROFILE
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -36,13 +39,28 @@ pub(crate) fn handler_matches(handler_id: &str, registration_id: &str) -> bool {
     let bindings = REGISTERED_HANDLER_BINDINGS
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    bindings.iter().any(|binding| {
+    if bindings.iter().any(|binding| {
         binding.handler_id == handler_id
             && binding
                 .registration_ids
                 .iter()
                 .any(|id| id == registration_id)
-    })
+    }) {
+        return true;
+    }
+    drop(bindings);
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        return crate::nlaocs::skript_parser_addon::catalog_data::registered_handler_matches(
+            handler_id,
+            registration_id,
+        )
+        .unwrap_or(false);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    false
 }
 
 /// Returns a snapshot of the profile most recently accepted by initialization.
@@ -57,9 +75,58 @@ pub(crate) fn current() -> Option<RuntimeProfile> {
 pub(crate) fn skript_at_least(major: u64, minor: u64) -> Option<bool> {
     let profile = current()?;
     let version = profile.skript_version?;
-    let mut components = version
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|component| !component.is_empty())
-        .filter_map(|component| component.parse::<u64>().ok());
-    Some((components.next()?, components.next()?) >= (major, minor))
+    let version = parse_skript_version(&version)?;
+    (version <= LATEST_SUPPORTED_SKRIPT).then_some(version >= (major, minor))
+}
+
+pub(crate) fn skript_at_least_patch(major: u64, minor: u64, patch: u64) -> Option<bool> {
+    let profile = current()?;
+    let version = profile.skript_version?;
+    let version = parse_skript_patch_version(&version)?;
+    (version.0 < LATEST_SUPPORTED_SKRIPT.0
+        || (version.0 == LATEST_SUPPORTED_SKRIPT.0 && version.1 <= LATEST_SUPPORTED_SKRIPT.1))
+        .then_some(version >= (major, minor, patch))
+}
+
+pub(crate) fn parse_skript_version(version: &str) -> Option<(u64, u64)> {
+    parse_skript_patch_version(version).map(|(major, minor, _)| (major, minor))
+}
+
+pub(crate) fn parse_skript_patch_version(version: &str) -> Option<(u64, u64, u64)> {
+    let numeric = version
+        .trim()
+        .split(|character: char| !character.is_ascii_digit() && character != '.')
+        .next()?;
+    let mut components = numeric.split('.');
+    let major = components.next()?.parse().ok()?;
+    let minor = components.next()?.parse().ok()?;
+    let patch = components
+        .next()
+        .map(str::parse)
+        .transpose()
+        .ok()?
+        .unwrap_or(0);
+    Some((major, minor, patch))
+}
+
+pub(crate) fn snapshot_schema_at_least(version: u32) -> Option<bool> {
+    current()?
+        .snapshot_schema_version
+        .map(|schema| schema >= version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LATEST_SUPPORTED_SKRIPT, parse_skript_patch_version, parse_skript_version};
+
+    #[test]
+    fn parses_supported_skript_version_shapes() {
+        assert_eq!(parse_skript_version("2.15.4"), Some((2, 15)));
+        assert_eq!(parse_skript_version("2.16.0-pre1"), Some((2, 16)));
+        assert_eq!(parse_skript_version("unknown"), None);
+        assert_eq!(parse_skript_version("2"), None);
+        assert_eq!(parse_skript_patch_version("2.9.5"), Some((2, 9, 5)));
+        assert_eq!(parse_skript_patch_version("2.9"), Some((2, 9, 0)));
+        assert_eq!(LATEST_SUPPORTED_SKRIPT, (2, 16));
+    }
 }

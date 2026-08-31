@@ -1,3 +1,4 @@
+use super::variable;
 use crate::expression_candidates::{candidate, metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     Diagnostic, DiagnosticSeverity, DynamicMultiplicity, ExpressionExpectedType,
@@ -123,8 +124,7 @@ struct Container<'a> {
 
 impl<'a> Container<'a> {
     fn from_text(payload: &ExpressionPayload, text: &'a str) -> Option<Self> {
-        if payload.allow_literals && text.len() >= 2 && text.starts_with('"') && text.ends_with('"')
-        {
+        if payload.allow_literals && is_quoted_correctly(text) {
             return Some(Self {
                 kind: "string",
                 parser_id: "core.literal.variable-string",
@@ -137,6 +137,7 @@ impl<'a> Container<'a> {
             && text.len() >= 3
             && text.starts_with('{')
             && text.ends_with('}')
+            && variable::is_valid_variable_name_body(&text[1..text.len() - 1], true)
         {
             return Some(Self {
                 kind: "variable-name",
@@ -167,6 +168,34 @@ impl<'a> Container<'a> {
             DynamicMultiplicity::Single
         }
     }
+}
+
+/// Matches `VariableString.isQuotedCorrectly(string, true)` from Skript.
+/// A single quote is valid only inside an embedded `%...%` expression; outside
+/// one, literal quotes must occur in doubled pairs.
+fn is_quoted_correctly(text: &str) -> bool {
+    if text.len() < 2 || !text.starts_with('"') || !text.ends_with('"') {
+        return false;
+    }
+    let mut quote = false;
+    let mut percentage = false;
+    for character in text[1..text.len() - 1].chars() {
+        if percentage {
+            if character == '%' {
+                percentage = false;
+            }
+            continue;
+        }
+        if quote && character != '"' {
+            return false;
+        }
+        if character == '"' {
+            quote = !quote;
+        } else if character == '%' {
+            percentage = true;
+        }
+    }
+    !quote
 }
 
 fn embedded_ranges(input: &str) -> Result<Vec<std::ops::Range<usize>>, usize> {
@@ -253,7 +282,7 @@ fn subspan(payload: &ExpressionPayload, absolute_start: usize, absolute_end: usi
 
 #[cfg(test)]
 mod tests {
-    use super::embedded_ranges;
+    use super::{embedded_ranges, is_quoted_correctly};
 
     #[test]
     fn finds_expressions_and_skips_escaped_percent_signs() {
@@ -274,5 +303,14 @@ mod tests {
     #[test]
     fn rejects_an_unclosed_expression() {
         assert_eq!(embedded_ranges("hello %player"), Err(6));
+    }
+
+    #[test]
+    fn follows_skript_quote_rules_around_interpolations() {
+        assert!(is_quoted_correctly("\"hello\""));
+        assert!(is_quoted_correctly("\"say \"\"hello\"\"\""));
+        assert!(is_quoted_correctly("\"value: %\"quoted\"%\""));
+        assert!(!is_quoted_correctly("\"say \"hello\"\""));
+        assert!(!is_quoted_correctly("hello"));
     }
 }
