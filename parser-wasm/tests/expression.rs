@@ -1,4 +1,4 @@
-use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
+use parser_wasm::host::{HostConfig, InvocationContext, ParserHost, RuntimeProfile};
 use skript_parser::{
     ExpressionExpectedType, ExpressionNode, ExpressionNodeKind, ExpressionParseContext,
     ExpressionParseRequest, ExpressionParserConfig, MappedSource, PatternCapture, TextRange,
@@ -48,9 +48,13 @@ fn expression_catalog() -> Arc<Catalog> {
         operators: Vec::new(),
         operations: BTreeMap::new(),
         differences: Vec::new(),
-        classes: Vec::new(),
+        classes: source.classes().to_vec(),
         aliases: source.aliases().clone(),
         plural_rules: source.plural_rules().clone(),
+        language: source
+            .language_entries()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
     }))
 }
 
@@ -61,6 +65,17 @@ fn full_catalog() -> Arc<Catalog> {
             .catalog()
             .clone(),
     )
+}
+
+fn expression_host_config() -> HostConfig {
+    HostConfig {
+        syntax_catalog: Some(expression_catalog()),
+        runtime_profile: RuntimeProfile {
+            skript_version: Some("2.15.4".to_owned()),
+            ..RuntimeProfile::default()
+        },
+        ..HostConfig::default()
+    }
 }
 
 fn context(revision: u64) -> InvocationContext {
@@ -88,7 +103,80 @@ fn parser_context() -> ExpressionParseContext {
     }
 }
 
+#[test]
+fn rejected_expression_promotes_only_its_semantic_diagnostic() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_catalog()),
+            runtime_profile: RuntimeProfile {
+                skript_version: Some("2.15.4".to_owned()),
+                ..RuntimeProfile::default()
+            },
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/expression.sk", 99)
+        .unwrap();
+    let text = "\"hello\" parsed as string";
+    let source = MappedSource::identity(text);
+    let result = host
+        .parse_expression_in_parse(
+            &transaction,
+            context(99),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![expected_type("java.lang.Object")],
+                context: parser_context(),
+            },
+            ExpressionParserConfig::default(),
+        )
+        .expect("semantic rejection remains recoverable");
+
+    assert!(result.matches.selected.is_none());
+    assert_eq!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "core.expression.semantic-rejected")
+            .count(),
+        1,
+        "failure={:#?}; effects={:#?}",
+        result.matches.failure,
+        result.effects
+    );
+    let failure = format!("{:#?}", result.matches.failure);
+    assert!(
+        failure.contains("parsing text as text is not supported"),
+        "{failure}"
+    );
+    transaction.cancel().unwrap();
+}
+
 fn parse_fixture_expression(text: &str, revision: u64) -> ExpressionNode {
+    parse_fixture_expression_as(text, "java.lang.Object", true, revision)
+}
+
+fn parse_fixture_expression_as(
+    text: &str,
+    class_name: &str,
+    plural: bool,
+    revision: u64,
+) -> ExpressionNode {
+    parse_fixture_expression_as_in_events(text, class_name, plural, &[], revision)
+}
+
+fn parse_fixture_expression_as_in_events(
+    text: &str,
+    class_name: &str,
+    plural: bool,
+    event_classes: &[&str],
+    revision: u64,
+) -> ExpressionNode {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
         HostConfig {
@@ -113,23 +201,95 @@ fn parse_fixture_expression(text: &str, revision: u64) -> ExpressionNode {
                 source: &source,
                 range: TextRange::new(0, text.len()),
                 expected_types: vec![ExpressionExpectedType {
-                    class_name: ClassName("java.lang.Object".to_owned()),
-                    plural: true,
+                    class_name: ClassName(class_name.to_owned()),
+                    plural,
                 }],
-                context: parser_context(),
+                context: ExpressionParseContext {
+                    event_classes: event_classes
+                        .iter()
+                        .map(|class_name| ClassName((*class_name).to_owned()))
+                        .collect(),
+                    ..parser_context()
+                },
             },
             ExpressionParserConfig::default(),
         )
         .unwrap_or_else(|error| panic!("fixture Expression parse failed: {error:?}"));
     let selected = result.matches.selected.unwrap_or_else(|| {
         panic!(
-            "fixture Expression was not selected: failure={:#?}, alternatives={:#?}",
-            result.matches.failure, result.matches.alternatives
+            "fixture Expression was not selected: failure={:#?}, alternatives={:#?}, effects={:#?}, calls={:#?}, component_failures={:#?}",
+            result.matches.failure,
+            result.matches.alternatives,
+            result.effects,
+            result.calls,
+            result.failures
         )
     });
     let node = selected.node;
     transaction.cancel().unwrap();
     node
+}
+
+#[test]
+fn superclass_handler_preserves_unknown_simple_literal_multiplicity() {
+    let node = parse_fixture_expression_as("console", "java.lang.Object", false, 35);
+    assert_registered(&node);
+    assert_return(
+        &node,
+        "org.bukkit.command.ConsoleCommandSender",
+        syntaxes::Multiplicity::Both,
+    );
+}
+
+#[test]
+fn event_value_expression_uses_the_current_event_registration() {
+    let node = parse_fixture_expression_as_in_events(
+        "damage cause",
+        "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+        false,
+        &["org.bukkit.event.entity.EntityDamageEvent"],
+        36,
+    );
+    assert_registered(&node);
+    assert_return(
+        &node,
+        "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+        syntaxes::Multiplicity::Single,
+    );
+}
+
+#[test]
+fn regex_mapping_capture_reenters_the_expression_parser() {
+    let node = parse_fixture_expression_as(
+        "(1, 2) transformed using [input * 2]",
+        "java.lang.Number",
+        true,
+        37,
+    );
+    assert_registered(&node);
+    assert_return(&node, "java.lang.Number", syntaxes::Multiplicity::Multiple);
+    assert!(
+        node.parsed_captures().iter().any(|capture| {
+            capture.binding.parser_id == skript_parser::HOST_EXPRESSION_PARSER_ID
+        })
+    );
+}
+
+#[test]
+fn attacked_expression_preserves_the_entity_data_subtype() {
+    let node = parse_fixture_expression_as_in_events(
+        "the attacked zombie",
+        "org.bukkit.entity.Zombie",
+        false,
+        &["org.bukkit.event.entity.EntityDamageEvent"],
+        38,
+    );
+    assert_registered(&node);
+    assert_return(
+        &node,
+        "org.bukkit.entity.Zombie",
+        syntaxes::Multiplicity::Single,
+    );
 }
 
 fn assert_registered(node: &ExpressionNode) {
@@ -142,6 +302,12 @@ fn assert_return(node: &ExpressionNode, class_name: &str, multiplicity: syntaxes
         Some(class_name)
     );
     assert_eq!(node.multiplicity, Some(multiplicity));
+}
+
+#[test]
+fn numeric_literal_is_assignable_to_the_number_parameter_type() {
+    let node = parse_fixture_expression_as("1", "java.lang.Number", false, 29);
+    assert_return(&node, "java.lang.Long", syntaxes::Multiplicity::Single);
 }
 
 #[test]
@@ -192,6 +358,47 @@ fn any_of_all_players_collapses_a_list_to_one_player() {
         "org.bukkit.entity.Player",
         syntaxes::Multiplicity::Multiple,
     );
+}
+
+#[test]
+fn plural_type_name_parses_as_class_info_literal() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/expression.sk", 33)
+        .unwrap();
+    let source = MappedSource::identity("players");
+    let result = host
+        .parse_expression_in_parse(
+            &transaction,
+            context(33),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, source.virtual_source().len()),
+                expected_types: vec![expected_type("ch.njol.skript.classes.ClassInfo")],
+                context: parser_context(),
+            },
+            ExpressionParserConfig::default(),
+        )
+        .unwrap();
+    let selected = result.matches.selected.unwrap_or_else(|| {
+        panic!(
+            "plural ClassInfo literal was not selected: failure={:#?}, effects={:#?}, calls={:#?}, component_failures={:#?}",
+            result.matches.failure, result.effects, result.calls, result.failures
+        )
+    });
+    assert!(matches!(
+        selected.node.kind,
+        ExpressionNodeKind::Literal { ref parser_id }
+            if parser_id == "core.literal.class-info"
+    ));
+    transaction.cancel().unwrap();
 }
 
 #[test]
@@ -250,18 +457,12 @@ fn default_value_expression_resolves_to_one_object() {
 
 #[test]
 fn core_library_and_registered_expressions_share_one_recursive_parser() {
-    let mut host = ParserHost::new(
-        CORE_LIBRARY,
-        HostConfig {
-            syntax_catalog: Some(expression_catalog()),
-            ..HostConfig::default()
-        },
-    )
-    .expect("CoreLibrary must load");
+    let mut host =
+        ParserHost::new(CORE_LIBRARY, expression_host_config()).expect("CoreLibrary must load");
     let cases = [
         ("\"hello\"", "java.lang.String", "core.literal.string"),
         ("{message}", "java.lang.String", "core.variable"),
-        ("42", "java.lang.Long", "core.literal.number"),
+        ("42", "java.lang.Number", "core.literal.number"),
     ];
 
     for (index, (text, expected, parser_id)) in cases.into_iter().enumerate() {
@@ -287,7 +488,12 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
                 ExpressionParserConfig::default(),
             )
             .expect("CoreLibrary leaf must parse");
-        let selected = result.matches.selected.expect("leaf must be selected");
+        let selected = result.matches.selected.unwrap_or_else(|| {
+            panic!(
+                "{text:?} must select a leaf; failures: {:#?}",
+                result.matches.failure
+            )
+        });
         assert!(matches!(
             selected.node.kind,
             ExpressionNodeKind::Literal { parser_id: ref actual }
@@ -345,14 +551,8 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
 
 #[test]
 fn variable_strings_and_variable_names_parse_embedded_expressions() {
-    let mut host = ParserHost::new(
-        CORE_LIBRARY,
-        HostConfig {
-            syntax_catalog: Some(expression_catalog()),
-            ..HostConfig::default()
-        },
-    )
-    .expect("CoreLibrary must load");
+    let mut host =
+        ParserHost::new(CORE_LIBRARY, expression_host_config()).expect("CoreLibrary must load");
     for (revision, text, expected, parser_id) in [
         (
             20,
@@ -510,14 +710,8 @@ fn variable_string_rebases_registered_expression_from_nonzero_parse_result_root(
 
 #[test]
 fn no_match_rolls_back_expression_hook_state_revision() {
-    let mut host = ParserHost::new(
-        CORE_LIBRARY,
-        HostConfig {
-            syntax_catalog: Some(expression_catalog()),
-            ..HostConfig::default()
-        },
-    )
-    .expect("CoreLibrary must load");
+    let mut host =
+        ParserHost::new(CORE_LIBRARY, expression_host_config()).expect("CoreLibrary must load");
     let transaction = host
         .begin_parse("file:///workspace", "file:///workspace/expression.sk", 1)
         .unwrap();

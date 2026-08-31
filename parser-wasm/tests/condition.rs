@@ -82,6 +82,83 @@ fn condition_pipeline_uses_core_expression_candidates() {
         call.component_id == "nlaocs.core-library"
             && call.subscription_id == "core.expression-candidates"
     }));
+    assert!(result.calls.iter().any(|call| {
+        call.component_id == "nlaocs.core-library"
+            && call.subscription_id == "core.condition-semantics"
+    }));
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn comparison_semantics_follow_registered_comparator_ordering() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/condition.sk", 4)
+        .unwrap();
+
+    let ordered = "1 is less than 2";
+    let source = MappedSource::identity(ordered);
+    let result = host
+        .parse_condition_in_parse(
+            &transaction,
+            context(4),
+            ConditionParseRequest {
+                source: &source,
+                range: TextRange::new(0, ordered.len()),
+                context: parser_context(),
+            },
+            ConditionParserConfig::default(),
+        )
+        .expect("numeric comparison must parse");
+    let selected = result.matches.selected.unwrap_or_else(|| {
+        panic!(
+            "numbers support ordering; unknown={:#?}; calls={:#?}; failures={:#?}",
+            result.matches.unknown, result.calls, result.failures
+        )
+    });
+    assert_eq!(
+        selected
+            .node
+            .metadata
+            .get("nlaocs.core-library/semantic-mode")
+            .map(String::as_str),
+        Some("comparison")
+    );
+
+    let unordered = "\"a\" is greater than \"b\"";
+    let source = MappedSource::identity(unordered);
+    let result = host
+        .parse_condition_in_parse(
+            &transaction,
+            context(4),
+            ConditionParseRequest {
+                source: &source,
+                range: TextRange::new(0, unordered.len()),
+                context: parser_context(),
+            },
+            ConditionParserConfig::default(),
+        )
+        .expect("rejected comparison remains recoverable");
+    assert!(result.matches.selected.is_none());
+    assert_eq!(
+        result
+            .effects
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "core.cond-compare.ordering-unsupported")
+            .count(),
+        1,
+        "only the selected semantic rejection must be promoted"
+    );
+    let failure = format!("{:#?}", result.matches.unknown.unwrap().failure);
+    assert!(failure.contains("does not support ordering"), "{failure}");
     transaction.cancel().unwrap();
 }
 
