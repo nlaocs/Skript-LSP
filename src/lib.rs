@@ -36,9 +36,14 @@ pub fn core_library_component() -> &'static [u8] {
 /// # Examples
 ///
 /// ~~~no_run
-/// let host = skript_lsp::new_parser_host(
-///     parser_wasm::HostConfig::default(),
-/// )?;
+/// let config = parser_wasm::HostConfig {
+///     runtime_profile: parser_wasm::RuntimeProfile {
+///         skript_version: Some("2.15.4".to_owned()),
+///         ..parser_wasm::RuntimeProfile::default()
+///     },
+///     ..parser_wasm::HostConfig::default()
+/// };
+/// let host = skript_lsp::new_parser_host(config)?;
 ///
 /// assert_eq!(host.components()[0].component_id, "nlaocs.core-library");
 /// # Ok::<(), parser_wasm::HostError>(())
@@ -71,8 +76,14 @@ mod tests {
 
     #[test]
     fn bundled_core_library_initializes_the_parser_host() {
-        let host = new_parser_host(parser_wasm::HostConfig::default())
-            .expect("bundled CoreLibrary must initialize");
+        let host = new_parser_host(parser_wasm::HostConfig {
+            runtime_profile: parser_wasm::RuntimeProfile {
+                skript_version: Some("2.15.4".to_owned()),
+                ..parser_wasm::RuntimeProfile::default()
+            },
+            ..parser_wasm::HostConfig::default()
+        })
+        .expect("bundled CoreLibrary must initialize");
         let components = host.components();
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].component_id, "nlaocs.core-library");
