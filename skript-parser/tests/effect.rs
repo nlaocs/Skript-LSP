@@ -1,9 +1,10 @@
 use skript_parser::{
-    EffectParseRequest, EffectParserConfig, ExpressionLeafCandidate, ExpressionLeafKind,
-    ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment, FailureTrace,
-    MappedSource, MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue,
-    PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookScope,
-    PatternHookTiming, PatternMatchEnvironment, RawTreeOptions, TextRange, TypeExpressionOutcome,
+    EffectParseRequest, EffectParserConfig, EffectSemanticDecision, EffectSemanticRequest,
+    ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest,
+    ExpressionParseContext, ExpressionParseEnvironment, FailureTrace, MappedSource,
+    MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue, PatternFailureReason,
+    PatternHookControl, PatternHookEvent, PatternHookScope, PatternHookTiming,
+    PatternMatchEnvironment, RawTreeOptions, TextRange, TypeExpressionOutcome,
     TypeExpressionRequest, parse_effect, parse_effect_with_snapshot, parse_raw_tree,
 };
 use std::collections::BTreeMap;
@@ -50,6 +51,10 @@ fn effect_fixture() -> Catalog {
         classes: Vec::new(),
         aliases: source.aliases().clone(),
         plural_rules: source.plural_rules().clone(),
+        language: source
+            .language_entries()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
     })
 }
 
@@ -115,6 +120,79 @@ fn parses_real_effect_without_placeholders_and_ignores_trailing_comment() {
 }
 
 #[derive(Default)]
+struct RejectEffectEnvironment;
+
+impl PatternMatchEnvironment for RejectEffectEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for RejectEffectEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        _request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        Ok(ExpressionLeafParse::default())
+    }
+
+    fn resolve_effect_candidate(
+        &mut self,
+        request: EffectSemanticRequest<'_>,
+    ) -> Result<EffectSemanticDecision, String> {
+        assert_eq!(request.input, "dummy effect registered through wrapper");
+        Ok(EffectSemanticDecision::Reject {
+            reason: "rejected by test semantics".to_owned(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+#[test]
+fn semantic_environment_can_reject_a_structurally_matched_effect() {
+    let catalog = effect_fixture();
+    let source = MappedSource::identity("dummy effect registered through wrapper");
+    let node = simple_node(&source);
+    let result = parse_effect(
+        &catalog,
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut RejectEffectEnvironment,
+        EffectParserConfig::default(),
+    )
+    .expect("semantic rejection is a recoverable parse result");
+
+    assert!(result.selected.is_none());
+    let unknown = result
+        .unknown
+        .expect("rejected Effect must remain diagnosable");
+    let failure = unknown
+        .failures
+        .primary()
+        .expect("semantic rejection must be ranked");
+    assert!(failure.matched.trace.root_cause().failure.reasons.iter().any(
+        |reason| matches!(reason, PatternFailureReason::HookRejected { reason } if reason == "rejected by test semantics")
+    ));
+}
+
+#[derive(Default)]
 struct StringLiteralEnvironment;
 
 impl PatternMatchEnvironment for StringLiteralEnvironment {
@@ -137,12 +215,12 @@ impl ExpressionParseEnvironment for StringLiteralEnvironment {
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+    ) -> Result<ExpressionLeafParse, String> {
         let Some(remaining) = request.remaining.slice(request.input) else {
-            return Ok(Vec::new());
+            return Ok(ExpressionLeafParse::default());
         };
         if !remaining.starts_with('"') {
-            return Ok(Vec::new());
+            return Ok(ExpressionLeafParse::default());
         }
         Ok(request
             .candidate_ends
@@ -162,7 +240,8 @@ impl ExpressionParseEnvironment for StringLiteralEnvironment {
                 children: Vec::new(),
                 metadata: BTreeMap::new(),
             })
-            .collect())
+            .collect::<Vec<_>>()
+            .into())
     }
 
     fn state_revision(&self) -> Result<u64, String> {
@@ -221,6 +300,9 @@ fn parses_dynamic_effect_and_retains_its_handler_metadata() {
         after: Vec::new(),
         return_type: None,
         return_multiplicity: None,
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
         handler: "effect.handle".to_owned(),
         metadata: BTreeMap::from([("owner".to_owned(), "fixture".to_owned())]),
         component_load_order: 1,
@@ -262,6 +344,81 @@ fn parses_dynamic_effect_and_retains_its_handler_metadata() {
     assert_eq!(
         selected.metadata.get("owner").map(String::as_str),
         Some("fixture")
+    );
+}
+
+#[test]
+fn retains_later_fully_matched_effects_as_alternatives() {
+    let catalog = effect_fixture();
+    let pattern = "ambiguous dynamic";
+    let parsed = syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules()).unwrap();
+    let first_id = DynamicSyntaxId::new("test.dynamic", "first");
+    let second_id = DynamicSyntaxId::new("test.dynamic", "second");
+    let definition = |id: DynamicSyntaxId, declaration_order| DynamicSyntaxDefinition {
+        id,
+        kind: SyntaxKind::Effect,
+        patterns: vec![DynamicPattern {
+            source: pattern.to_owned(),
+            parsed: parsed.clone(),
+        }],
+        priority: 0,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: None,
+        return_multiplicity: None,
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
+        handler: "effect.handle".to_owned(),
+        metadata: BTreeMap::new(),
+        component_load_order: 1,
+        declaration_order,
+    };
+    let dynamic = DynamicSyntaxSnapshot {
+        document_id: "file:///workspace/test.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([
+            (first_id.clone(), definition(first_id.clone(), 0)),
+            (second_id.clone(), definition(second_id.clone(), 1)),
+        ]),
+        overrides: BTreeMap::new(),
+        candidates: vec![
+            RankedSyntaxCandidate {
+                source: SyntaxCandidateSource::Dynamic(first_id),
+                kind: SyntaxKind::Effect,
+                overrides: Vec::new(),
+            },
+            RankedSyntaxCandidate {
+                source: SyntaxCandidateSource::Dynamic(second_id),
+                kind: SyntaxKind::Effect,
+                overrides: Vec::new(),
+            },
+        ],
+    };
+    let source = MappedSource::identity(pattern);
+    let node = simple_node(&source);
+    let result = parse_effect_with_snapshot(
+        &catalog,
+        Some(&dynamic),
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        EffectParserConfig::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        result.selected.unwrap().matched.registration_id,
+        "dynamic:test.dynamic/first"
+    );
+    assert_eq!(result.alternatives.len(), 1);
+    assert_eq!(
+        result.alternatives[0].matched.registration_id,
+        "dynamic:test.dynamic/second"
     );
 }
 
@@ -358,8 +515,8 @@ impl ExpressionParseEnvironment for SyntheticEffectEnvironment {
     fn parse_expression_leaf(
         &mut self,
         _request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
-        Ok(Vec::new())
+    ) -> Result<ExpressionLeafParse, String> {
+        Ok(ExpressionLeafParse::default())
     }
 
     fn state_revision(&self) -> Result<u64, String> {

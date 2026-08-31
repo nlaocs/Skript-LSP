@@ -253,6 +253,16 @@ pub trait PatternMatchHooks {
         Ok(())
     }
 
+    /// Captures extension-owned state for one matcher backtracking branch.
+    fn checkpoint_branch(&mut self) -> Result<Option<u64>, String> {
+        Ok(None)
+    }
+
+    /// Restores extension-owned state before exploring a saved branch.
+    fn restore_branch(&mut self, _checkpoint: u64) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Returns whether native matching may evaluate a pattern containing regex elements.
     fn allows_regex_pattern(
         &mut self,
@@ -291,6 +301,16 @@ pub trait PatternMatchEnvironment {
     /// Finalizes one matcher invocation and its selected candidate state.
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
+        Ok(())
+    }
+
+    /// Captures extension-owned state for one matcher backtracking branch.
+    fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+        Ok(None)
+    }
+
+    /// Restores extension-owned state before exploring a saved branch.
+    fn restore_pattern_branch(&mut self, _checkpoint: u64) -> Result<(), String> {
         Ok(())
     }
 
@@ -338,6 +358,14 @@ impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
 
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         self.hooks.finish_match(accepted)
+    }
+
+    fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+        self.hooks.checkpoint_branch()
+    }
+
+    fn restore_pattern_branch(&mut self, checkpoint: u64) -> Result<(), String> {
+        self.hooks.restore_branch(checkpoint)
     }
 
     fn allows_regex_pattern(
@@ -617,6 +645,7 @@ struct MatchState {
     marks: Vec<ParseMarkCapture>,
     pending_implicit_tag: Option<PendingImplicitTag>,
     recovered_failures: Vec<FailureTrace>,
+    extension_checkpoint: Option<u64>,
 }
 
 impl MatchState {
@@ -629,6 +658,7 @@ impl MatchState {
             marks: Vec::new(),
             pending_implicit_tag: None,
             recovered_failures: Vec::new(),
+            extension_checkpoint: None,
         }
     }
 }
@@ -791,19 +821,38 @@ impl FailureTracker {
     ) {
         let specificity = cause.as_ref().map_or(0, FailureTrace::specificity);
         let current_specificity = self.cause.as_deref().map_or(0, FailureTrace::specificity);
-        if !self.initialized
-            || specificity > current_specificity
-            || (specificity == current_specificity && offset > self.offset)
-        {
+        let candidate_range = cause
+            .as_ref()
+            .map(|trace| trace.root_cause().failure.span.mapped.virtual_range)
+            .or(range)
+            .unwrap_or_else(|| TextRange::empty(offset));
+        let current_range = self
+            .cause
+            .as_deref()
+            .map(|trace| trace.root_cause().failure.span.mapped.virtual_range)
+            .or(self.range)
+            .unwrap_or_else(|| TextRange::empty(self.offset));
+        let rank = crate::failure::compare_failure_rank(
+            current_range,
+            current_specificity,
+            candidate_range,
+            specificity,
+        );
+        if !self.initialized || rank == std::cmp::Ordering::Greater {
             self.offset = offset;
             self.range = range;
             self.reasons.clear();
+            self.reasons.insert(reason);
             self.frame = frame.clone();
             self.cause = cause.clone().map(Box::new);
             self.initialized = true;
+            return;
         }
         let selected_specificity = self.cause.as_deref().map_or(0, FailureTrace::specificity);
-        if specificity == selected_specificity && offset == self.offset {
+        if rank == std::cmp::Ordering::Equal
+            && specificity == selected_specificity
+            && offset == self.offset
+        {
             if self.range.is_none() {
                 self.range = range;
             }
@@ -821,14 +870,32 @@ impl FailureTracker {
         }
         let specificity = self.cause.as_deref().map_or(0, FailureTrace::specificity);
         let other_specificity = other.cause.as_deref().map_or(0, FailureTrace::specificity);
-        if !self.initialized
-            || other_specificity > specificity
-            || (other_specificity == specificity && other.offset > self.offset)
-        {
+        let current_range = self
+            .cause
+            .as_deref()
+            .map(|trace| trace.root_cause().failure.span.mapped.virtual_range)
+            .or(self.range)
+            .unwrap_or_else(|| TextRange::empty(self.offset));
+        let other_range = other
+            .cause
+            .as_deref()
+            .map(|trace| trace.root_cause().failure.span.mapped.virtual_range)
+            .or(other.range)
+            .unwrap_or_else(|| TextRange::empty(other.offset));
+        let rank = crate::failure::compare_failure_rank(
+            current_range,
+            specificity,
+            other_range,
+            other_specificity,
+        );
+        if !self.initialized || rank == std::cmp::Ordering::Greater {
             *self = other;
             return;
         }
-        if other_specificity == specificity && other.offset == self.offset {
+        if rank == std::cmp::Ordering::Equal
+            && other_specificity == specificity
+            && other.offset == self.offset
+        {
             if self.range.is_none() {
                 self.range = other.range;
             }
@@ -1078,17 +1145,22 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
     } else {
         None
     };
-    candidate_failures.sort_by_key(|candidate| {
-        let root = candidate.trace.root_cause();
-        let range = root.failure.span.mapped.virtual_range;
-        (
-            std::cmp::Reverse(candidate.trace.specificity()),
-            std::cmp::Reverse(range.end),
-            std::cmp::Reverse(range.end.saturating_sub(range.start)),
-            candidate.resolved_order.is_none(),
-            candidate.resolved_order.unwrap_or(usize::MAX),
-            candidate.priority,
-            candidate.registration_order,
+    candidate_failures.sort_by(|current, candidate| {
+        crate::failure::compare_failure_trace_rank(&current.trace, &candidate.trace).then_with(
+            || {
+                (
+                    current.resolved_order.is_none(),
+                    current.resolved_order.unwrap_or(usize::MAX),
+                    current.priority,
+                    current.registration_order,
+                )
+                    .cmp(&(
+                        candidate.resolved_order.is_none(),
+                        candidate.resolved_order.unwrap_or(usize::MAX),
+                        candidate.priority,
+                        candidate.registration_order,
+                    ))
+            },
         )
     });
     candidate_failures.truncate(engine.config.max_candidate_failures);
@@ -1122,6 +1194,7 @@ fn tracker_trace(tracker: &FailureTracker, failure: &PatternFailure) -> FailureT
         failure: failure.clone(),
         frame: tracker.frame.clone(),
         cause: tracker.cause.clone(),
+        semantic_diagnostics: Vec::new(),
     }
 }
 
@@ -1312,6 +1385,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 .find(|state| state.cursor == self.trim_range.end)
                 .cloned()
             {
+                if let Some(checkpoint) = state.extension_checkpoint {
+                    self.environment
+                        .restore_pattern_branch(checkpoint)
+                        .map_err(|message| PatternMatchError::Hook { message })?;
+                }
                 let value = CandidateMatch {
                     kind: candidate.kind,
                     definition_id: candidate.definition_id.to_owned(),
@@ -1557,6 +1635,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         path: &mut Vec<PatternPathSegment>,
         outer_tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
+        if let Some(checkpoint) = state.extension_checkpoint {
+            self.environment
+                .restore_pattern_branch(checkpoint)
+                .map_err(|message| PatternMatchError::Hook { message })?;
+        }
         self.visit_state()?;
         if index == elements.len() {
             return Ok(vec![state]);
@@ -1604,6 +1687,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             TextRange::empty(start),
             PatternHookOutcome::Pending,
         )?;
+        let mut state = state;
+        if let Some(checkpoint) = self
+            .environment
+            .checkpoint_pattern_branch()
+            .map_err(|message| PatternMatchError::Hook { message })?
+        {
+            state.extension_checkpoint = Some(checkpoint);
+        }
         let original = state.clone();
         let mut transitions = match control {
             PatternHookControl::Continue => {
@@ -1623,6 +1714,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         };
 
         if transitions.is_empty() {
+            if let Some(checkpoint) = original.extension_checkpoint {
+                self.environment
+                    .restore_pattern_branch(checkpoint)
+                    .map_err(|message| PatternMatchError::Hook { message })?;
+            }
             match self.dispatch_hook(
                 PatternHookScope::Element,
                 PatternHookTiming::After,
@@ -1637,6 +1733,13 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     self.validate_hook_range(range, TextRange::new(start, self.trim_range.end))?;
                     let mut state = original;
                     state.cursor = range.end;
+                    if let Some(checkpoint) = self
+                        .environment
+                        .checkpoint_pattern_branch()
+                        .map_err(|message| PatternMatchError::Hook { message })?
+                    {
+                        state.extension_checkpoint = Some(checkpoint);
+                    }
                     transitions.push(state);
                 }
                 PatternHookControl::Fail(reason) => self
@@ -1649,8 +1752,13 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
 
         let mut accepted = Vec::with_capacity(transitions.len());
         for mut transition in transitions {
+            if let Some(checkpoint) = transition.extension_checkpoint {
+                self.environment
+                    .restore_pattern_branch(checkpoint)
+                    .map_err(|message| PatternMatchError::Hook { message })?;
+            }
             let range = TextRange::new(start, transition.cursor);
-            match self.dispatch_hook(
+            let keep = match self.dispatch_hook(
                 PatternHookScope::Element,
                 PatternHookTiming::After,
                 path,
@@ -1658,19 +1766,32 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 range,
                 PatternHookOutcome::Matched { range },
             )? {
-                PatternHookControl::Continue => accepted.push(transition),
+                PatternHookControl::Continue => true,
                 PatternHookControl::Match(replacement) => {
                     self.validate_hook_range(
                         replacement,
                         TextRange::new(start, self.trim_range.end),
                     )?;
                     transition.cursor = replacement.end;
-                    accepted.push(transition);
+                    true
                 }
-                PatternHookControl::Fail(reason) => self.failure.record(
-                    transition.cursor,
-                    PatternFailureReason::HookRejected { reason },
-                ),
+                PatternHookControl::Fail(reason) => {
+                    self.failure.record(
+                        transition.cursor,
+                        PatternFailureReason::HookRejected { reason },
+                    );
+                    false
+                }
+            };
+            if keep {
+                if let Some(checkpoint) = self
+                    .environment
+                    .checkpoint_pattern_branch()
+                    .map_err(|message| PatternMatchError::Hook { message })?
+                {
+                    transition.extension_checkpoint = Some(checkpoint);
+                }
+                accepted.push(transition);
             }
         }
         Ok(accepted)
@@ -1738,9 +1859,18 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     state.tags.push(ParseTagCapture {
                         value: tag.clone(),
                         pattern_span: element.span,
-                        input_span,
+                        input_span: input_span.clone(),
                         implicit: false,
                     });
+                    if let Ok(mark) = tag.parse::<i32>() {
+                        state.mark ^= mark;
+                        state.marks.push(ParseMarkCapture {
+                            value: mark,
+                            pattern_span: element.span,
+                            input_span,
+                            accumulated: state.mark,
+                        });
+                    }
                     state.pending_implicit_tag = None;
                 }
                 Ok(vec![state])
@@ -1968,6 +2098,13 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 pattern_span,
                 message,
             })?;
+        let resolution_checkpoint = if outcome.resolutions.is_empty() {
+            None
+        } else {
+            self.environment
+                .checkpoint_pattern_branch()
+                .map_err(|message| PatternMatchError::Hook { message })?
+        };
         let cause = outcome.failure;
 
         let recovery_boundaries = boundaries.clone();
@@ -1986,6 +2123,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 return Err(PatternMatchError::InvalidTypeResolution { range });
             }
             let mut next = state.clone();
+            if resolution_checkpoint.is_some() {
+                next.extension_checkpoint = resolution_checkpoint;
+            }
             next.cursor = range.end;
             next.captures.push(PatternCapture::TypeExpression {
                 pattern_span,
@@ -2052,6 +2192,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     },
                     frame,
                     cause: cause.map(Box::new),
+                    semantic_diagnostics: Vec::new(),
                 };
                 for end in recovery_boundaries {
                     if end <= state.cursor {

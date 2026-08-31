@@ -113,6 +113,9 @@ pub enum PatternElement {
     /// Typed expression placeholder such as `%strings%`.
     TypeExpr(PatternTypeExpr),
     /// Colon parse tag attached to the following element.
+    ///
+    /// During matching, a numeric tag also acts as an XOR parse mark, matching
+    /// Skript's `ParseTagPatternElement` behavior for patterns such as `1:loop`.
     ParseTag(String),
     /// Numeric parse mark attached with `¦`.
     ParseMark(i32),

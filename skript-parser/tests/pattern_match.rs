@@ -2,9 +2,10 @@ use skript_parser::{
     CandidateMatches, MappedSource, MatchInput, MatchPattern, MatchSyntaxKind,
     NoopPatternMatchHooks, PatternCandidate, PatternCapture, PatternFailureReason,
     PatternHookControl, PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
-    PatternMatchError, PatternMatchHooks, PatternMatchLimit, PatternMatcherConfig,
-    RejectTypeExpressions, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
-    TypeExpressionResolution, TypeExpressionResolver, match_pattern_candidates,
+    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatchLimit,
+    PatternMatcherConfig, RejectTypeExpressions, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver,
+    match_pattern_candidates, match_pattern_candidates_with_environment,
 };
 use syntax_pattern_parser::syntax::{
     self, ParseResult, PatternElement, PluralRules, Span, Spanned,
@@ -179,6 +180,74 @@ fn delegates_types_only_at_legal_skript_boundaries() {
 }
 
 #[test]
+fn successful_type_resolution_keeps_its_branch_state_for_after_hooks() {
+    #[derive(Default)]
+    struct Environment {
+        state: u8,
+        checkpoints: Vec<u8>,
+        observed_after_state: Option<u8>,
+    }
+
+    impl PatternMatchEnvironment for Environment {
+        fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+            let checkpoint = self.checkpoints.len() as u64;
+            self.checkpoints.push(self.state);
+            Ok(Some(checkpoint))
+        }
+
+        fn restore_pattern_branch(&mut self, checkpoint: u64) -> Result<(), String> {
+            self.state = *self
+                .checkpoints
+                .get(checkpoint as usize)
+                .ok_or_else(|| "unknown checkpoint".to_owned())?;
+            Ok(())
+        }
+
+        fn resolve_type(
+            &mut self,
+            request: TypeExpressionRequest<'_>,
+        ) -> Result<TypeExpressionOutcome, String> {
+            self.state = 1;
+            Ok(vec![TypeExpressionResolution {
+                range: TextRange::new(request.remaining.start, request.candidate_ends[0]),
+                alternative_index: Some(0),
+                resolution_id: Some("expression:stateful".to_owned()),
+            }]
+            .into())
+        }
+
+        fn dispatch_hook(
+            &mut self,
+            event: PatternHookEvent<'_>,
+        ) -> Result<PatternHookControl, String> {
+            if event.scope == PatternHookScope::Element
+                && event.timing == PatternHookTiming::After
+                && matches!(event.outcome, PatternHookOutcome::Matched { .. })
+            {
+                self.observed_after_state = Some(self.state);
+            }
+            Ok(PatternHookControl::Continue)
+        }
+    }
+
+    let source = "%string%";
+    let pattern = parse(source);
+    let input = "value";
+    let mapped = MappedSource::identity(input);
+    let mut environment = Environment::default();
+    let result = match_pattern_candidates_with_environment(
+        MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+        &[candidate(source, &pattern, 0)],
+        &mut environment,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    assert!(result.selected.is_some());
+    assert_eq!(environment.observed_after_state, Some(1));
+}
+
+#[test]
 fn carries_type_boundary_lookahead_out_of_nested_groups() {
     struct Resolver;
     impl TypeExpressionResolver for Resolver {
@@ -304,6 +373,18 @@ fn records_explicit_implicit_tags_and_xor_marks() {
     assert_eq!(selected.matched.tags[0].value, "bar");
     assert!(!selected.matched.tags[0].implicit);
     assert_eq!(selected.matched.mark, 3);
+
+    // Skript's ParseTagPatternElement treats a numeric `:` tag as both a tag
+    // and an XOR parse mark. EffExit relies on this legacy `1:loop` form.
+    let source = "(section|1:loop|2:conditional)";
+    let pattern = parse(source);
+    let selected = match_one("loop", source, &pattern)
+        .unwrap()
+        .selected
+        .unwrap();
+    assert_eq!(selected.matched.tags[0].value, "1");
+    assert_eq!(selected.matched.mark, 1);
+    assert_eq!(selected.matched.marks[0].value, 1);
 
     let source = ":(foo|bar)";
     let pattern = parse(source);
