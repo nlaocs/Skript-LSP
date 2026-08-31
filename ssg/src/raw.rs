@@ -245,6 +245,7 @@ pub struct Event {
     pub reference_events: Vec<String>,
     pub event_values: Vec<EventValue>,
     pub cancellable: bool,
+    pub priority_supported: Option<bool>,
     pub has_on_prefix: bool,
 }
 
@@ -486,6 +487,8 @@ pub struct EventValue {
     pub patterns: Option<Vec<String>>,
     pub accepted_changers: Option<ChangeModes>,
     pub context_dependent: Option<bool>,
+    pub has_custom_input_validator: Option<bool>,
+    pub has_custom_event_validator: Option<bool>,
     pub addon: Addon,
     pub registration_id: String,
 }
@@ -577,7 +580,19 @@ pub struct Class {
     pub super_class: Option<String>,
     pub interfaces: Vec<String>,
     pub component_type: Option<String>,
+    pub container_element_type: Option<String>,
+    pub methods: Option<Vec<ClassMethod>>,
     pub provider: Option<Addon>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassMethod {
+    pub name: String,
+    pub parameter_types: Vec<String>,
+    pub return_type: String,
+    #[serde(rename = "static")]
+    pub is_static: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -660,4 +675,6 @@ pub struct Snapshot {
     pub classes: Vec<Class>,
     pub aliases: Aliases,
     pub plural_rules: PluralRules,
+    /// Effective global language key/value entries (schema 5 and later).
+    pub language: BTreeMap<String, String>,
 }
