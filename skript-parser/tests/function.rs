@@ -1,9 +1,10 @@
 use skript_parser::{
-    ExpressionExpectedType, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafRequest,
-    ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseRequest,
-    ExpressionParserConfig, FunctionDefinition, FunctionLookupRequest, FunctionParameterDefinition,
-    MappedSource, PatternHookControl, PatternHookEvent, PatternMatchEnvironment, TextRange,
-    TypeExpressionOutcome, TypeExpressionRequest, parse_expression,
+    ExpressionExpectedType, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse,
+    ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment,
+    ExpressionParseRequest, ExpressionParserConfig, FunctionDefinition, FunctionLookupRequest,
+    FunctionParameterDefinition, FunctionVersionPolicy, MappedSource, PatternHookControl,
+    PatternHookEvent, PatternMatchEnvironment, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, parse_expression,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -37,7 +38,7 @@ impl ExpressionParseEnvironment for DocumentFunctionEnvironment {
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+    ) -> Result<ExpressionLeafParse, String> {
         let candidate = request.candidate_ends.iter().rev().find_map(|end| {
             let range = TextRange::new(request.remaining.start, *end);
             let text = range.slice(request.input)?;
@@ -51,7 +52,7 @@ impl ExpressionParseEnvironment for DocumentFunctionEnvironment {
                 metadata: BTreeMap::new(),
             })
         });
-        Ok(candidate.into_iter().collect())
+        Ok(candidate.into_iter().collect::<Vec<_>>().into())
     }
 
     fn lookup_functions(
@@ -60,6 +61,8 @@ impl ExpressionParseEnvironment for DocumentFunctionEnvironment {
     ) -> Result<Vec<FunctionDefinition>, String> {
         Ok(match request.name {
             "local" | "sin" => vec![document_function(request.name)],
+            "named_disabled" => vec![named_arguments_disabled_function(request.name)],
+            "wide_named" => vec![wide_named_function(request.name)],
             "plural_then_singles" => vec![three_number_function(request.name, false)],
             "single_then_singles" => vec![three_number_function(request.name, true)],
             _ => Vec::new(),
@@ -121,6 +124,20 @@ fn three_number_function(name: &str, first_single: bool) -> FunctionDefinition {
         ],
         metadata: BTreeMap::new(),
     }
+}
+
+fn named_arguments_disabled_function(name: &str) -> FunctionDefinition {
+    let mut definition = document_function(name);
+    definition
+        .metadata
+        .insert("function.named-arguments".to_owned(), "false".to_owned());
+    definition
+}
+
+fn wide_named_function(name: &str) -> FunctionDefinition {
+    let mut definition = document_function(name);
+    definition.parameters[0].name = "target value".to_owned();
+    definition
 }
 
 #[test]
@@ -264,4 +281,70 @@ fn document_signature_shadows_the_same_catalog_signature() {
         .function
         .expect("Function must be structured");
     assert_eq!(call.definition_id, "document:function:sin");
+}
+
+#[test]
+fn a_definition_policy_can_reject_named_call_arguments() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let text = "named_disabled(value: 1)";
+    let source = MappedSource::identity(text);
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![ExpressionExpectedType {
+                class_name: ClassName("java.lang.Object".to_owned()),
+                plural: false,
+            }],
+            context: ExpressionParseContext::default(),
+        },
+        &mut DocumentFunctionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("a policy rejection must remain a recoverable parse result");
+
+    assert!(
+        result.selected.is_none(),
+        "the call parser must honor a definition's named-argument policy"
+    );
+}
+
+#[test]
+fn named_argument_names_follow_the_skript_version_grammar() {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let text = "wide_named(target value: 1)";
+    let source = MappedSource::identity(text);
+    let parse = |policy| {
+        let config = ExpressionParserConfig {
+            function: policy,
+            ..ExpressionParserConfig::default()
+        };
+        parse_expression(
+            snapshot.catalog(),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![ExpressionExpectedType {
+                    class_name: ClassName("java.lang.Object".to_owned()),
+                    plural: false,
+                }],
+                context: ExpressionParseContext::default(),
+            },
+            &mut DocumentFunctionEnvironment,
+            config,
+        )
+        .expect("Function parsing must remain recoverable")
+    };
+
+    assert!(
+        parse(FunctionVersionPolicy::for_skript_version(2, 14, 3))
+            .selected
+            .is_none()
+    );
+    assert!(
+        parse(FunctionVersionPolicy::for_skript_version(2, 15, 0))
+            .selected
+            .is_some()
+    );
 }

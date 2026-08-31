@@ -57,7 +57,7 @@ use syntaxes::{ClassName, Function, Multiplicity, ParameterModifier};
 /// };
 /// assert_eq!(definition.name, "double");
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionDefinition {
     pub parser_id: String,
     pub name: String,
@@ -117,6 +117,12 @@ impl FunctionDefinition {
 
     fn is_list_signature(&self) -> bool {
         self.parameters.len() == 1 && !self.parameters[0].single
+    }
+
+    fn allows_named_arguments(&self) -> bool {
+        self.metadata
+            .get("function.named-arguments")
+            .is_none_or(|value| value != "false")
     }
 }
 
@@ -198,8 +204,12 @@ pub(crate) fn parse_function_call<E: ExpressionParseEnvironment>(
     expected_types: &[ExpressionExpectedType],
     depth: usize,
 ) -> Result<PrefixParse, ExpressionParseError> {
-    let Some(call) = parse_call_syntax(session.source().virtual_source(), range, candidate_ends)
-    else {
+    let Some(call) = parse_call_syntax(
+        session.source().virtual_source(),
+        range,
+        candidate_ends,
+        session.function_policy(),
+    ) else {
         return Ok(PrefixParse::default());
     };
     if duplicate_named_argument(&call.arguments) {
@@ -330,6 +340,17 @@ fn parse_exact_definition<E: ExpressionParseEnvironment>(
     definition: &FunctionDefinition,
     depth: usize,
 ) -> Result<DefinitionParse, ExpressionParseError> {
+    if call
+        .arguments
+        .iter()
+        .any(|argument| argument.kind == ArgumentKind::Named)
+        && !definition.allows_named_arguments()
+    {
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
+    }
     let required = definition
         .parameters
         .iter()
@@ -357,6 +378,17 @@ fn parse_list_definition<E: ExpressionParseEnvironment>(
     depth: usize,
 ) -> Result<DefinitionParse, ExpressionParseError> {
     let parameter = &definition.parameters[0];
+    if call
+        .arguments
+        .iter()
+        .any(|argument| argument.kind == ArgumentKind::Named)
+        && !definition.allows_named_arguments()
+    {
+        return Ok(DefinitionParse {
+            candidate: None,
+            failure: None,
+        });
+    }
     if call.arguments.len() > 1
         && call
             .arguments
@@ -558,6 +590,12 @@ fn build_candidate<E: ExpressionParseEnvironment>(
                 }),
                 span: session.map_range(call.range)?,
                 return_type: definition.return_type.clone(),
+                possible_return_types: definition.return_type.iter().cloned().collect(),
+                possible_return_types_state: if definition.return_type.is_some() {
+                    syntaxes::PossibleReturnTypesState::Complete
+                } else {
+                    syntaxes::PossibleReturnTypesState::Unresolved
+                },
                 multiplicity: Some(definition.return_multiplicity()),
                 captures: Vec::new(),
                 tags: Vec::new(),
@@ -659,6 +697,7 @@ fn parse_call_syntax(
     input: &str,
     range: TextRange,
     candidate_ends: &[usize],
+    policy: crate::FunctionVersionPolicy,
 ) -> Option<CallSyntax> {
     let mut cursor = range.start;
     let first = input.get(cursor..range.end)?.chars().next()?;
@@ -685,12 +724,16 @@ fn parse_call_syntax(
     let argument_range = TextRange::new(cursor + '('.len_utf8(), close);
     Some(CallSyntax {
         name,
-        arguments: split_arguments(input, argument_range)?,
+        arguments: split_arguments(input, argument_range, policy)?,
         range: TextRange::new(range.start, end),
     })
 }
 
-fn split_arguments(input: &str, range: TextRange) -> Option<Vec<ParsedArgument>> {
+fn split_arguments(
+    input: &str,
+    range: TextRange,
+    policy: crate::FunctionVersionPolicy,
+) -> Option<Vec<ParsedArgument>> {
     if range.is_empty() {
         return Some(Vec::new());
     }
@@ -713,7 +756,9 @@ fn split_arguments(input: &str, range: TextRange) -> Option<Vec<ParsedArgument>>
             '(' => depth = depth.saturating_add(1),
             ')' if depth > 0 => depth -= 1,
             ',' if depth == 0 => {
-                if let Some(argument) = parsed_argument(input, TextRange::new(start, cursor)) {
+                if let Some(argument) =
+                    parsed_argument(input, TextRange::new(start, cursor), policy)
+                {
                     parts.push(argument);
                 }
                 start = cursor + ch.len_utf8();
@@ -722,13 +767,17 @@ fn split_arguments(input: &str, range: TextRange) -> Option<Vec<ParsedArgument>>
         }
         cursor += ch.len_utf8();
     }
-    if let Some(argument) = parsed_argument(input, TextRange::new(start, range.end)) {
+    if let Some(argument) = parsed_argument(input, TextRange::new(start, range.end), policy) {
         parts.push(argument);
     }
     Some(parts)
 }
 
-fn parsed_argument(input: &str, range: TextRange) -> Option<ParsedArgument> {
+fn parsed_argument(
+    input: &str,
+    range: TextRange,
+    policy: crate::FunctionVersionPolicy,
+) -> Option<ParsedArgument> {
     let text = range.slice(input)?;
     let local = java_trim_range(text);
     if local.is_empty() {
@@ -736,21 +785,33 @@ fn parsed_argument(input: &str, range: TextRange) -> Option<ParsedArgument> {
     }
     let trimmed = TextRange::new(range.start + local.start, range.start + local.end);
     let value = trimmed.slice(input)?;
-    let mut cursor = 0usize;
-    for ch in value.chars() {
-        if ch != '_' && !ch.is_ascii_alphanumeric() {
-            break;
+    let named_end = if !policy.allow_named_arguments {
+        None
+    } else if policy.wide_named_argument_names {
+        value.find(':').filter(|end| {
+            *end > 0
+                && !value[..*end]
+                    .chars()
+                    .any(|character| matches!(character, ':' | '(' | ')' | '{' | '}' | '"' | ','))
+        })
+    } else {
+        let mut end = 0usize;
+        for character in value.chars() {
+            if character != '_' && !character.is_ascii_alphanumeric() {
+                break;
+            }
+            end += character.len_utf8();
         }
-        cursor += ch.len_utf8();
-    }
-    if cursor > 0 && value.get(cursor..)?.starts_with(':') {
+        (end > 0 && value.get(end..).is_some_and(|tail| tail.starts_with(':'))).then_some(end)
+    };
+    if let Some(cursor) = named_end {
         let raw_value = TextRange::new(trimmed.start + cursor + 1, trimmed.end);
         let raw_text = raw_value.slice(input)?;
         let local_value = java_trim_range(raw_text);
-        if !raw_text.is_empty() {
+        if !local_value.is_empty() {
             return Some(ParsedArgument {
                 kind: ArgumentKind::Named,
-                name: Some(value[..cursor].to_owned()),
+                name: Some(value[..cursor].trim().to_owned()),
                 value: TextRange::new(
                     raw_value.start + local_value.start,
                     raw_value.start + local_value.end,
