@@ -1,5 +1,6 @@
 use super::{
     SemanticResolution, matches, metadata, optional_integer_amount_multiplicity, register_handler,
+    resolved_with_metadata,
 };
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
@@ -30,10 +31,10 @@ fn resolution(
     multiplicity: DynamicMultiplicity,
     implicit_amount: bool,
 ) -> SemanticResolution {
-    SemanticResolution::Resolved {
-        return_type: STRING.to_owned(),
+    resolved_with_metadata(
+        STRING.to_owned(),
         multiplicity,
-        metadata: vec![
+        vec![
             metadata("semantic-mode", "random-character"),
             metadata("alphanumeric", if alphanumeric { "true" } else { "false" }),
             metadata(
@@ -45,7 +46,7 @@ fn resolution(
                 },
             ),
         ],
-    }
+    )
 }
 
 #[cfg(test)]
@@ -63,6 +64,9 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some(return_type.to_owned()),
+            possible_return_types: vec![return_type.to_owned()],
+            possible_return_types_state:
+                crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: Vec::new(),
         }
@@ -122,6 +126,7 @@ mod tests {
             return_type,
             multiplicity,
             metadata,
+            ..
         } = resolution(true, DynamicMultiplicity::Single, true)
         else {
             panic!("random character resolution must succeed");

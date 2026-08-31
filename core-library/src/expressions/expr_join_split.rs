@@ -1,7 +1,9 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
+use super::{SemanticResolution, matches, metadata, register_handler, resolved_with_metadata};
 use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
+    DynamicMultiplicity, RegisteredExpressionChild, RegisteredExpressionPayload,
+    RegisteredSyntaxHandler,
 };
+use fancy_regex::Regex;
 
 const CLASS_SUFFIX: &str = ".ExprJoinSplit";
 const HANDLER_ID: &str = "core.expression.expr-join-split";
@@ -13,11 +15,19 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
     matches(payload, HANDLER_ID).then(|| {
-        let Some(operation) = operation(&payload.pattern) else {
+        // ExprJoinSplit.init() uses matchedPattern == 0 for join and >= 3 for regex split.
+        // The five pattern indices are stable from Skript 2.6.4 through 2.16.x.
+        let Some(operation) = operation(payload.pattern_index) else {
             return SemanticResolution::Reject(
-                "join/split Expression has an unknown registration pattern".to_owned(),
+                "join/split Expression has an unknown pattern index".to_owned(),
             );
         };
+        if let Err(reason) = validate_literal_regex_delimiter(
+            matches!(operation, JoinSplitOperation::Split { regex: true }),
+            payload.children.get(1),
+        ) {
+            return SemanticResolution::Reject(reason);
+        }
 
         let (operation_name, multiplicity, regex) = match operation {
             JoinSplitOperation::Join => ("join", DynamicMultiplicity::Single, false),
@@ -36,31 +46,52 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             output_metadata.push(metadata("without-trailing-empty", "true"));
         }
 
-        SemanticResolution::Resolved {
-            return_type: STRING.to_owned(),
-            multiplicity,
-            metadata: output_metadata,
-        }
+        resolved_with_metadata(STRING.to_owned(), multiplicity, output_metadata)
     })
 }
 
+#[derive(Clone, Copy)]
 enum JoinSplitOperation {
     Join,
     Split { regex: bool },
 }
 
-// The registration text is stable across Skript 2.15.4 and 2.16.0. It also
-// expresses the same distinction as ExprJoinSplit's `matchedPattern == 0`.
-fn operation(pattern: &str) -> Option<JoinSplitOperation> {
-    let pattern = pattern.trim_start();
-    if pattern.starts_with("(concat[enate]|join)") {
-        Some(JoinSplitOperation::Join)
-    } else if pattern.starts_with("regex ") {
-        Some(JoinSplitOperation::Split { regex: true })
-    } else if pattern.starts_with("split ") || pattern.starts_with("%string% split ") {
-        Some(JoinSplitOperation::Split { regex: false })
-    } else {
-        None
+fn validate_literal_regex_delimiter(
+    regex: bool,
+    delimiter: Option<&RegisteredExpressionChild>,
+) -> Result<(), String> {
+    if !regex {
+        return Ok(());
+    }
+    let Some(delimiter) = delimiter
+        .filter(|child| child.kind == "literal" && child.return_type.as_deref() == Some(STRING))
+    else {
+        return Ok(());
+    };
+    let Some(value) = decode_string_literal(&delimiter.text) else {
+        return Ok(());
+    };
+    Regex::new(&value)
+        .map(|_| ())
+        .map_err(|_| format!("'{value}' is not a valid regular expression"))
+}
+
+fn decode_string_literal(value: &str) -> Option<String> {
+    let value = value.trim();
+    Some(
+        value
+            .strip_prefix('"')?
+            .strip_suffix('"')?
+            .replace("\"\"", "\""),
+    )
+}
+
+fn operation(pattern_index: u64) -> Option<JoinSplitOperation> {
+    match pattern_index {
+        0 => Some(JoinSplitOperation::Join),
+        1 | 2 => Some(JoinSplitOperation::Split { regex: false }),
+        3 | 4 => Some(JoinSplitOperation::Split { regex: true }),
+        _ => None,
     }
 }
 
@@ -71,28 +102,57 @@ fn has_tag(payload: &RegisteredExpressionPayload, tag: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState;
 
-    #[test]
-    fn classifies_join_and_split_from_registration_text() {
-        assert!(matches!(
-            operation(
-                "(concat[enate]|join) %strings% [(with|using|by) [[the] delimiter] %-string%]"
-            ),
-            Some(JoinSplitOperation::Join)
-        ));
-        assert!(matches!(
-            operation("split %string% (at|using|by) [[the] delimiter] %string%"),
-            Some(JoinSplitOperation::Split { regex: false })
-        ));
-        assert!(matches!(
-            operation("regex %string% split (at|using|by) [[the] delimiter] %string%"),
-            Some(JoinSplitOperation::Split { regex: true })
-        ));
+    fn delimiter(text: &str, literal: bool) -> RegisteredExpressionChild {
+        RegisteredExpressionChild {
+            text: text.to_owned(),
+            kind: if literal { "literal" } else { "variable" }.to_owned(),
+            parser_id: literal.then(|| "core.literal.string".to_owned()),
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
+            element_class: None,
+            return_type: Some(STRING.to_owned()),
+            possible_return_types: vec![STRING.to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+            multiplicity: Some(DynamicMultiplicity::Single),
+            metadata: Vec::new(),
+        }
     }
 
     #[test]
-    fn rejects_unrelated_registration_text_without_using_pattern_index() {
-        assert!(operation("join %strings% with %string%").is_none());
-        assert!(operation("expression %objects%").is_none());
+    fn classifies_join_and_split_from_skript_pattern_index() {
+        assert!(matches!(operation(0), Some(JoinSplitOperation::Join)));
+        for pattern_index in [1, 2] {
+            assert!(matches!(
+                operation(pattern_index),
+                Some(JoinSplitOperation::Split { regex: false })
+            ));
+        }
+        for pattern_index in [3, 4] {
+            assert!(matches!(
+                operation(pattern_index),
+                Some(JoinSplitOperation::Split { regex: true })
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_an_unknown_pattern_index() {
+        assert!(operation(5).is_none());
+    }
+
+    #[test]
+    fn rejects_an_invalid_literal_regex_delimiter() {
+        assert!(validate_literal_regex_delimiter(true, Some(&delimiter("\"[\"", true))).is_err());
+    }
+
+    #[test]
+    fn leaves_dynamic_and_plain_delimiters_for_runtime_evaluation() {
+        assert!(
+            validate_literal_regex_delimiter(true, Some(&delimiter("{_delimiter}", false))).is_ok()
+        );
+        assert!(validate_literal_regex_delimiter(false, Some(&delimiter("\"[\"", true))).is_ok());
     }
 }

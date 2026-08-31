@@ -1,4 +1,4 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
+use super::{SemanticResolution, matches, metadata, register_handler, resolved_with_metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     RegisteredExpressionPayload, RegisteredSyntaxHandler,
 };
@@ -13,9 +13,10 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
     matches(payload, HANDLER_ID).then(|| {
-        let Some(number_index) = number_child_index(&payload.pattern) else {
+        // ExprInventorySlot.init() selects exprs[0] for matchedPattern 0 and exprs[1] for pattern 1.
+        let Some(number_index) = number_child_index(payload.pattern_index) else {
             return SemanticResolution::Reject(
-                "inventory slot Expression has an unknown pattern".to_owned(),
+                "inventory slot Expression has an unknown pattern index".to_owned(),
             );
         };
         let Some(multiplicity) = payload
@@ -27,18 +28,20 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "inventory slot Expression requires a resolved slot number".to_owned(),
             );
         };
-        SemanticResolution::Resolved {
-            return_type: SLOT.to_owned(),
+        resolved_with_metadata(
+            SLOT.to_owned(),
             multiplicity,
-            metadata: vec![metadata("semantic-mode", "inventory-slot")],
-        }
+            vec![metadata("semantic-mode", "inventory-slot")],
+        )
     })
 }
 
-fn number_child_index(pattern: &str) -> Option<usize> {
-    let numbers = pattern.find("%numbers%")?;
-    let inventory = pattern.find("%inventory%")?;
-    Some(usize::from(inventory < numbers))
+fn number_child_index(pattern_index: u64) -> Option<usize> {
+    match pattern_index {
+        0 => Some(0),
+        1 => Some(1),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -46,15 +49,9 @@ mod tests {
     use super::number_child_index;
 
     #[test]
-    fn derives_the_number_capture_from_pattern_order() {
-        assert_eq!(
-            number_child_index("[the] slot[s] %numbers% of %inventory%"),
-            Some(0)
-        );
-        assert_eq!(
-            number_child_index("%inventory%'[s] slot[s] %numbers%"),
-            Some(1)
-        );
-        assert_eq!(number_child_index("slot"), None);
+    fn derives_the_number_capture_from_skript_pattern_index() {
+        assert_eq!(number_child_index(0), Some(0));
+        assert_eq!(number_child_index(1), Some(1));
+        assert_eq!(number_child_index(2), None);
     }
 }

@@ -1,4 +1,4 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
+use super::{SemanticResolution, matches, metadata, register_handler, resolved_with_metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, RegisteredExpressionPayload, RegisteredExpressionTag,
     RegisteredSyntaxHandler,
@@ -16,21 +16,21 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
     matches(payload, HANDLER_ID).then(|| {
         let ip_addresses = has_tag(&payload.tags, "ips");
-        SemanticResolution::Resolved {
-            return_type: if ip_addresses {
+        resolved_with_metadata(
+            if ip_addresses {
                 STRING.to_owned()
             } else {
                 OFFLINE_PLAYER.to_owned()
             },
-            multiplicity: DynamicMultiplicity::Multiple,
-            metadata: vec![
+            DynamicMultiplicity::Multiple,
+            vec![
                 metadata("semantic-mode", "all-banned-entries"),
                 metadata(
                     "entry-kind",
                     if ip_addresses { "ip-address" } else { "player" },
                 ),
             ],
-        }
+        )
     })
 }
 

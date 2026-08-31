@@ -1,10 +1,14 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
+use super::{
+    SemanticResolution, matches, metadata, metadata_value, register_handler,
+    resolved_with_possible_types,
+};
 use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
+    DynamicMultiplicity, MetadataEntry, RegisteredExpressionPayload, RegisteredSyntaxHandler,
 };
 
 const CLASS_SUFFIX: &str = ".ExprSortedList";
 const HANDLER_ID: &str = "core.expression.expr-sorted-list";
+const KEY_PROVIDER: &str = "expression.capability.key-provider";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     register_handler(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
@@ -25,12 +29,26 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "sorted list Expression requires a typed source Expression".to_owned(),
             );
         };
-        SemanticResolution::Resolved {
-            return_type: return_type.to_owned(),
-            multiplicity: DynamicMultiplicity::Multiple,
-            metadata: vec![metadata("semantic-mode", "sorted-list")],
-        }
+        resolved_with_possible_types(
+            return_type.to_owned(),
+            if child.possible_return_types.is_empty() {
+                vec![return_type.to_owned()]
+            } else {
+                child.possible_return_types.clone()
+            },
+            child.possible_return_types_state,
+            DynamicMultiplicity::Multiple,
+            key_preserving_metadata("sorted-list", &child.metadata),
+        )
     })
+}
+
+fn key_preserving_metadata(mode: &str, source: &[MetadataEntry]) -> Vec<MetadataEntry> {
+    let mut output = vec![metadata("semantic-mode", mode)];
+    if metadata_value(source, KEY_PROVIDER) == Some("true") {
+        output.push(metadata(KEY_PROVIDER, "true"));
+    }
+    output
 }
 
 #[cfg(test)]
@@ -41,9 +59,14 @@ mod tests {
         RegisteredExpressionChild, RegisteredExpressionPayload, SourceOrigin, TextRange,
     };
 
-    fn payload(multiplicity: DynamicMultiplicity) -> RegisteredExpressionPayload {
+    fn payload(multiplicity: DynamicMultiplicity, keyed: bool) -> RegisteredExpressionPayload {
         let range = TextRange { start: 0, end: 1 };
         RegisteredExpressionPayload {
+            context: crate::nlaocs::skript_parser_addon::types::ParseContext {
+                syntax_context: 0,
+                event_classes: Vec::new(),
+                values: Vec::new(),
+            },
             input: "sorted players".to_owned(),
             definition_id: "expression:test".to_owned(),
             registration_id: "expression:test:0".to_owned(),
@@ -65,6 +88,7 @@ mod tests {
             return_type_state: ExpressionReturnTypeState::Dynamic,
             possible_return_types: Vec::new(),
             possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
+            time: 0,
             regex_captures: Vec::new(),
             tags: Vec::new(),
             mark: 0,
@@ -77,8 +101,13 @@ mod tests {
                 pattern_index: None,
                 element_class: None,
                 return_type: Some("org.bukkit.entity.Player".to_owned()),
+                possible_return_types: vec!["org.bukkit.entity.Player".to_owned()],
+                possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
                 multiplicity: Some(multiplicity),
-                metadata: Vec::new(),
+                metadata: keyed
+                    .then(|| metadata(KEY_PROVIDER, "true"))
+                    .into_iter()
+                    .collect(),
             }],
             parsed_captures: Vec::new(),
             common_child_return_type: None,
@@ -86,6 +115,8 @@ mod tests {
             property_options: Vec::new(),
             selected_property_option_indices: Vec::new(),
             effective_return_type: None,
+            effective_possible_return_types: Vec::new(),
+            effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
             effective_multiplicity: None,
             metadata: Vec::new(),
         }
@@ -93,7 +124,7 @@ mod tests {
 
     #[test]
     fn delegates_the_child_type_and_returns_multiple() {
-        let result = resolve(&payload(DynamicMultiplicity::Multiple));
+        let result = resolve(&payload(DynamicMultiplicity::Multiple, false));
 
         assert!(matches!(
             result,
@@ -108,8 +139,25 @@ mod tests {
     #[test]
     fn rejects_a_single_source_expression() {
         assert!(matches!(
-            resolve(&payload(DynamicMultiplicity::Single)),
+            resolve(&payload(DynamicMultiplicity::Single, false)),
             Some(SemanticResolution::Reject(_))
         ));
+    }
+
+    #[test]
+    fn preserves_keys_only_for_a_keyed_source() {
+        let Some(SemanticResolution::Resolved { metadata, .. }) =
+            resolve(&payload(DynamicMultiplicity::Multiple, true))
+        else {
+            panic!("keyed sorted list must resolve");
+        };
+        assert_eq!(metadata_value(&metadata, KEY_PROVIDER), Some("true"));
+
+        let Some(SemanticResolution::Resolved { metadata, .. }) =
+            resolve(&payload(DynamicMultiplicity::Multiple, false))
+        else {
+            panic!("unkeyed sorted list must resolve");
+        };
+        assert_eq!(metadata_value(&metadata, KEY_PROVIDER), None);
     }
 }
