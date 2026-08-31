@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use syntax_pattern_parser::syntax::PluralRules;
 use syntaxes::{
     Addon, AliasItem, AliasRegistry, AliasTarget, Catalog, CatalogParts, CatalogSource, Class,
-    ClassKind, ClassName, Converter, DefinitionId, Documentation, EventValue, Function,
-    FunctionParameter, Noun, RegistrationId, Syntax, Type, TypeCodeName, TypeLiteral,
-    TypeLiteralSource,
+    ClassKind, ClassMethod, ClassName, Converter, DefinitionId, Difference, Documentation,
+    EventValue, Function, FunctionParameter, Noun, RegistrationId, Syntax, Type, TypeCodeName,
+    TypeLiteral, TypeLiteralSource,
 };
 
 fn id(value: &str) -> RegistrationId {
@@ -30,6 +30,8 @@ fn class(name: &str, super_class: Option<&str>, interfaces: &[&str]) -> Class {
         super_class: super_class.map(class_name),
         interfaces: interfaces.iter().map(|value| class_name(value)).collect(),
         component_type: None,
+        container_element_type: None,
+        methods: None,
         provider: None,
     }
 }
@@ -52,6 +54,8 @@ fn event_value(
         patterns: Some(Vec::new()),
         accepted_changers: Some(BTreeMap::new()),
         context_dependent: None,
+        has_custom_input_validator: None,
+        has_custom_event_validator: None,
         addon: addon(),
         registration_id: id(&format!("event-value-{resolution_order}")),
     }
@@ -163,7 +167,26 @@ fn parts() -> CatalogParts {
             }"#,
         )
         .unwrap(),
+        language: BTreeMap::new(),
     }
+}
+
+#[test]
+fn language_values_preserve_exact_keys_and_deterministic_iteration() {
+    let mut parts = parts();
+    parts.language = BTreeMap::from([
+        ("message.empty".to_owned(), String::new()),
+        ("message.send".to_owned(), "Send".to_owned()),
+    ]);
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(catalog.language_value("message.send"), Some("Send"));
+    assert_eq!(catalog.language_value("message.empty"), Some(""));
+    assert_eq!(catalog.language_value("MESSAGE.SEND"), None);
+    assert_eq!(
+        catalog.language_entries().collect::<Vec<_>>(),
+        [("message.empty", ""), ("message.send", "Send")]
+    );
 }
 
 #[test]
@@ -182,6 +205,62 @@ fn class_assignability_follows_superclasses_and_interfaces() {
     assert!(catalog.is_class_assignable("test.Leaf", "test.Named"));
     assert!(!catalog.is_class_assignable("test.Root", "test.Leaf"));
     assert!(!catalog.is_class_assignable("test.Missing", "test.Root"));
+    assert_eq!(
+        catalog.hierarchy_distance("test.Leaf", "test.Leaf"),
+        Some(0)
+    );
+    assert_eq!(
+        catalog.hierarchy_distance("test.Root", "test.Leaf"),
+        Some(2)
+    );
+    assert_eq!(
+        catalog.hierarchy_distance("test.Named", "test.Leaf"),
+        Some(3)
+    );
+    assert_eq!(catalog.hierarchy_distance("test.Leaf", "test.Root"), None);
+}
+
+#[test]
+fn difference_options_prefer_exact_then_nearest_registered_input() {
+    let mut parts = parts();
+    parts.classes = vec![
+        class("java.lang.Object", None, &[]),
+        class("java.lang.Number", Some("java.lang.Object"), &[]),
+        class("java.lang.Long", Some("java.lang.Number"), &[]),
+    ];
+    parts.differences = vec![
+        Difference {
+            input_type: class_name("java.lang.Object"),
+            return_type: class_name("java.lang.Object"),
+            registration_order: 0,
+            addon: addon(),
+            registration_id: id("object-difference"),
+        },
+        Difference {
+            input_type: class_name("java.lang.Number"),
+            return_type: class_name("java.lang.Number"),
+            registration_order: 1,
+            addon: addon(),
+            registration_id: id("number-difference"),
+        },
+        Difference {
+            input_type: class_name("java.lang.Long"),
+            return_type: class_name("java.lang.Long"),
+            registration_order: 2,
+            addon: addon(),
+            registration_id: id("long-difference"),
+        },
+    ];
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog
+            .difference_options_for_type("java.lang.Long")
+            .into_iter()
+            .map(|difference| difference.registration_id.as_str())
+            .collect::<Vec<_>>(),
+        ["long-difference", "number-difference", "object-difference"]
+    );
 }
 
 #[test]
@@ -771,5 +850,42 @@ fn detailed_matches_keep_type_parse_order_and_source_order() {
             ("later", TypeLiteralSource::ParserPattern, false),
             ("later", TypeLiteralSource::Supplier, false),
         ]
+    );
+}
+
+#[test]
+fn declared_method_queries_preserve_unavailable_and_exact_signatures() {
+    let mut parts = parts();
+    let mut player = class("org.bukkit.entity.Player", None, &[]);
+    player.methods = Some(vec![ClassMethod {
+        name: "transfer".to_owned(),
+        parameter_types: vec![class_name("java.lang.String"), class_name("int")],
+        return_type: class_name("void"),
+        is_static: false,
+    }]);
+    parts.classes.push(player);
+    let catalog = Catalog::new(parts);
+
+    assert_eq!(
+        catalog.declared_method_exists(
+            "org.bukkit.entity.Player",
+            "transfer",
+            &["java.lang.String", "int"],
+            None,
+        ),
+        Some(true)
+    );
+    assert_eq!(
+        catalog.declared_method_exists(
+            "org.bukkit.entity.Player",
+            "transfer",
+            &["java.lang.String"],
+            None,
+        ),
+        Some(false)
+    );
+    assert_eq!(
+        catalog.declared_method_exists("java.lang.Object", "toString", &[], None),
+        None
     );
 }

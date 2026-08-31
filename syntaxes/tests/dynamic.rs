@@ -3,9 +3,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use syntax_pattern_parser::syntax::{self, PluralRules};
 use syntaxes::{
     Addon, AliasRegistry, Catalog, CatalogParts, ClassName, CommonSyntax, DefinitionId,
-    Documentation, DynamicRegistryError, DynamicSyntaxId, DynamicSyntaxInput,
-    DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, Effect, Pattern, RegistrationId, Syntax,
-    SyntaxCandidateSource, SyntaxKind, SyntaxOverrideTarget, SyntaxReference,
+    Documentation, DynamicRegistryError, DynamicStructureBodyMode, DynamicSyntaxId,
+    DynamicSyntaxInput, DynamicSyntaxOverrideInput, DynamicSyntaxRegistry, Effect, EntryData,
+    EntryKind, EntryValidator, NodeType, Pattern, RegistrationId, Syntax, SyntaxCandidateSource,
+    SyntaxKind, SyntaxOverrideTarget, SyntaxReference,
 };
 
 fn plural_rules() -> PluralRules {
@@ -92,6 +93,7 @@ fn catalog() -> Arc<Catalog> {
             targets: Vec::new(),
         },
         plural_rules: plural_rules(),
+        language: BTreeMap::new(),
     }))
 }
 
@@ -105,6 +107,9 @@ fn dynamic_effect(local_id: &str, pattern: &str) -> DynamicSyntaxInput {
         after: Vec::new(),
         return_type: None,
         return_multiplicity: None,
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
         handler: format!("handle-{local_id}"),
         metadata: BTreeMap::new(),
     }
@@ -119,6 +124,23 @@ fn dynamic_candidates(snapshot: &syntaxes::DynamicSyntaxSnapshot) -> Vec<String>
             SyntaxCandidateSource::Static(_) => None,
         })
         .collect()
+}
+
+fn string_entry(key: &str) -> EntryData {
+    EntryData {
+        key: key.to_owned(),
+        default_value: Some(syntaxes::parse_json_value(r#""default""#).unwrap()),
+        optional: false,
+        multiple: false,
+        entry_data_class: ClassName("test.StringEntryData".to_owned()),
+        kind: EntryKind::Literal,
+        separator: Some(": ".to_owned()),
+        value_type: Some(ClassName("java.lang.String".to_owned())),
+        string_mode: None,
+        return_types: Vec::new(),
+        flags: None,
+        nested_validator: None,
+    }
 }
 
 #[test]
@@ -349,5 +371,91 @@ fn stale_document_revisions_are_rejected() {
             latest: 2,
             ..
         }
+    ));
+}
+
+#[test]
+fn dynamic_structure_retains_node_body_and_entry_validator_metadata() {
+    let registry = DynamicSyntaxRegistry::new(catalog());
+    let mut update = registry.begin_initial_update("test.structure", 0).unwrap();
+    update
+        .register(DynamicSyntaxInput {
+            local_id: "root".to_owned(),
+            kind: SyntaxKind::Structure,
+            patterns: vec!["root".to_owned()],
+            priority: 0,
+            before: Vec::new(),
+            after: Vec::new(),
+            return_type: None,
+            return_multiplicity: None,
+            structure_node_type: Some(NodeType::Section),
+            structure_body_mode: Some(DynamicStructureBodyMode::Entries),
+            entry_validator: Some(EntryValidator {
+                entry_data: vec![string_entry("name")],
+            }),
+            handler: "test.structure.root".to_owned(),
+            metadata: BTreeMap::new(),
+        })
+        .unwrap();
+    update.commit().unwrap();
+    registry.begin_document("file:///structure.sk", 1).unwrap();
+    let snapshot = registry.freeze("file:///structure.sk", 1).unwrap();
+    let definition = snapshot
+        .definitions
+        .get(&DynamicSyntaxId::new("test.structure", "root"))
+        .unwrap();
+
+    assert_eq!(definition.structure_node_type, Some(NodeType::Section));
+    assert_eq!(
+        definition.structure_body_mode,
+        Some(DynamicStructureBodyMode::Entries)
+    );
+    assert_eq!(
+        definition.entry_validator.as_ref().unwrap().entry_data[0].default_value,
+        Some(syntaxes::parse_json_value(r#""default""#).unwrap())
+    );
+}
+
+#[test]
+fn dynamic_structure_metadata_is_rejected_for_other_kinds_and_invalid_combinations() {
+    let registry = DynamicSyntaxRegistry::new(catalog());
+    let mut update = registry.begin_initial_update("test.validation", 0).unwrap();
+
+    let mut non_structure = dynamic_effect("non-structure", "not a structure");
+    non_structure.structure_node_type = Some(NodeType::Section);
+    assert!(matches!(
+        update.register(non_structure),
+        Err(DynamicRegistryError::InvalidInput { .. })
+    ));
+
+    let mut missing_validator = dynamic_effect("missing-validator", "structure");
+    missing_validator.kind = SyntaxKind::Structure;
+    missing_validator.structure_body_mode = Some(DynamicStructureBodyMode::Entries);
+    assert!(matches!(
+        update.register(missing_validator),
+        Err(DynamicRegistryError::InvalidInput { .. })
+    ));
+
+    let mut simple_trigger = dynamic_effect("simple-trigger", "simple");
+    simple_trigger.kind = SyntaxKind::Structure;
+    simple_trigger.structure_node_type = Some(NodeType::Simple);
+    simple_trigger.structure_body_mode = Some(DynamicStructureBodyMode::Trigger);
+    assert!(matches!(
+        update.register(simple_trigger),
+        Err(DynamicRegistryError::InvalidInput { .. })
+    ));
+
+    let mut container_without_validator = dynamic_effect("bad-container", "container");
+    container_without_validator.kind = SyntaxKind::Structure;
+    container_without_validator.structure_node_type = Some(NodeType::Section);
+    container_without_validator.entry_validator = Some(EntryValidator {
+        entry_data: vec![EntryData {
+            kind: EntryKind::Container,
+            ..string_entry("container")
+        }],
+    });
+    assert!(matches!(
+        update.register(container_without_validator),
+        Err(DynamicRegistryError::InvalidInput { .. })
     ));
 }

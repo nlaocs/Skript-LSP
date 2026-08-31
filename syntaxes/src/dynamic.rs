@@ -11,7 +11,9 @@ use std::{
 
 use syntax_pattern_parser::syntax::{self, ParseResult};
 
-use crate::{Catalog, DefinitionId, RegistrationId, SyntaxKind};
+use crate::{
+    Catalog, DefinitionId, EntryKind, EntryValidator, NodeType, RegistrationId, SyntaxKind,
+};
 
 const MAX_ITEMS_PER_COMPONENT: usize = 256;
 const MAX_PATTERNS_PER_SYNTAX: usize = 64;
@@ -48,6 +50,28 @@ pub enum DynamicMultiplicity {
     Both,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Body parser that a dynamic Structure selects by default.
+///
+/// This is kept in the catalog crate so dynamic registrations do not depend on
+/// the parser crate. The parser converts it to its native body mode at the
+/// Structure boundary.
+pub enum DynamicStructureBodyMode {
+    None,
+    Raw,
+    Entries,
+    Trigger,
+}
+
+/// Parses a WIT Structure default value without reducing it to a scalar.
+///
+/// The dynamic ABI transports defaults as JSON text so `null`, arrays, objects,
+/// and numeric values retain their JSON meaning until the catalog model owns
+/// them as `serde_json::Value`.
+pub fn parse_json_value(value: &str) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::from_str(value)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Static or dynamic target used by ordering constraints.
 pub enum SyntaxReference {
@@ -63,7 +87,7 @@ pub struct DynamicPattern {
     pub parsed: ParseResult,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 /// Unqualified syntax declaration supplied by a component.
 pub struct DynamicSyntaxInput {
     pub local_id: String,
@@ -74,11 +98,17 @@ pub struct DynamicSyntaxInput {
     pub after: Vec<SyntaxReference>,
     pub return_type: Option<String>,
     pub return_multiplicity: Option<DynamicMultiplicity>,
+    /// Structure-only node shape. `None` means `Both`, matching static SSG data.
+    pub structure_node_type: Option<NodeType>,
+    /// Structure-only default body parser. `None` enables static-style inference.
+    pub structure_body_mode: Option<DynamicStructureBodyMode>,
+    /// Structure-only declarative EntryValidator.
+    pub entry_validator: Option<EntryValidator>,
     pub handler: String,
     pub metadata: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 /// Validated, component-qualified dynamic syntax definition.
 pub struct DynamicSyntaxDefinition {
     pub id: DynamicSyntaxId,
@@ -89,6 +119,9 @@ pub struct DynamicSyntaxDefinition {
     pub after: Vec<SyntaxReference>,
     pub return_type: Option<String>,
     pub return_multiplicity: Option<DynamicMultiplicity>,
+    pub structure_node_type: Option<NodeType>,
+    pub structure_body_mode: Option<DynamicStructureBodyMode>,
+    pub entry_validator: Option<EntryValidator>,
     pub handler: String,
     pub metadata: BTreeMap<String, String>,
     pub component_load_order: usize,
@@ -149,7 +182,7 @@ pub struct RankedSyntaxCandidate {
     pub overrides: Vec<DynamicHandler>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 /// Immutable candidate view frozen for one document revision.
 pub struct DynamicSyntaxSnapshot {
     pub document_id: String,
@@ -197,13 +230,13 @@ pub enum DynamicRegistryError {
     Internal { message: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum StoredItem {
     Definition(DynamicSyntaxDefinition),
     Override(DynamicSyntaxOverride),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct ComponentLayer {
     load_order: usize,
     items: BTreeMap<String, StoredItem>,
@@ -259,6 +292,9 @@ struct RegistryInner {
 ///         after: Vec::new(),
 ///         return_type: None,
 ///         return_multiplicity: None,
+///         structure_node_type: None,
+///         structure_body_mode: None,
+///         entry_validator: None,
 ///         handler: "handle-announce".to_owned(),
 ///         metadata: BTreeMap::new(),
 ///     })?;
@@ -550,6 +586,7 @@ impl DynamicSyntaxUpdate {
         validate_local_id(&input.local_id)?;
         validate_handler(&input.handler)?;
         validate_metadata(&input.metadata)?;
+        validate_structure_registration(&input)?;
         if input.patterns.is_empty() {
             return Err(DynamicRegistryError::InvalidInput {
                 message: format!("dynamic syntax {} has no patterns", input.local_id),
@@ -686,6 +723,9 @@ impl DynamicSyntaxUpdate {
                             after: input.after,
                             return_type: input.return_type,
                             return_multiplicity: input.return_multiplicity,
+                            structure_node_type: input.structure_node_type,
+                            structure_body_mode: input.structure_body_mode,
+                            entry_validator: input.entry_validator,
                             handler: input.handler,
                             metadata: input.metadata,
                             component_load_order: self.component_load_order,
@@ -1141,6 +1181,125 @@ fn validate_local_id(value: &str) -> Result<(), DynamicRegistryError> {
 
 fn validate_handler(value: &str) -> Result<(), DynamicRegistryError> {
     validate_identifier("dynamic syntax handler", value)
+}
+
+fn validate_structure_registration(input: &DynamicSyntaxInput) -> Result<(), DynamicRegistryError> {
+    let has_structure_fields = input.structure_node_type.is_some()
+        || input.structure_body_mode.is_some()
+        || input.entry_validator.is_some();
+    if input.kind != SyntaxKind::Structure {
+        if has_structure_fields {
+            return Err(DynamicRegistryError::InvalidInput {
+                message: format!(
+                    "dynamic syntax {} uses Structure-only metadata but is {:?}",
+                    input.local_id, input.kind
+                ),
+            });
+        }
+        return Ok(());
+    }
+
+    let node_type = input.structure_node_type.unwrap_or(NodeType::Both);
+    if node_type == NodeType::Simple && input.entry_validator.is_some() {
+        return Err(DynamicRegistryError::InvalidInput {
+            message: format!(
+                "dynamic Structure {} cannot attach an EntryValidator to a Simple node",
+                input.local_id
+            ),
+        });
+    }
+
+    if input.structure_body_mode == Some(DynamicStructureBodyMode::Entries)
+        && input.entry_validator.is_none()
+    {
+        return Err(DynamicRegistryError::InvalidInput {
+            message: format!(
+                "dynamic Structure {} selects Entries without an EntryValidator",
+                input.local_id
+            ),
+        });
+    }
+
+    if input.entry_validator.is_some()
+        && input
+            .structure_body_mode
+            .is_some_and(|mode| mode != DynamicStructureBodyMode::Entries)
+    {
+        return Err(DynamicRegistryError::InvalidInput {
+            message: format!(
+                "dynamic Structure {} supplies an EntryValidator with body mode other than Entries",
+                input.local_id
+            ),
+        });
+    }
+
+    if node_type == NodeType::Simple
+        && input
+            .structure_body_mode
+            .is_some_and(|mode| mode != DynamicStructureBodyMode::None)
+    {
+        return Err(DynamicRegistryError::InvalidInput {
+            message: format!(
+                "dynamic Structure {} selects {:?} for a Simple node",
+                input.local_id,
+                input.structure_body_mode.expect("mode was checked")
+            ),
+        });
+    }
+
+    if let Some(validator) = input.entry_validator.as_ref() {
+        validate_entry_validator(validator, 0, &input.local_id)?;
+    }
+    Ok(())
+}
+
+fn validate_entry_validator(
+    validator: &EntryValidator,
+    depth: usize,
+    local_id: &str,
+) -> Result<(), DynamicRegistryError> {
+    const MAX_VALIDATOR_DEPTH: usize = 64;
+    if depth > MAX_VALIDATOR_DEPTH {
+        return Err(DynamicRegistryError::InvalidInput {
+            message: format!(
+                "dynamic Structure {} EntryValidator nesting exceeds {MAX_VALIDATOR_DEPTH} levels",
+                local_id
+            ),
+        });
+    }
+
+    let mut keys = BTreeSet::new();
+    for data in &validator.entry_data {
+        validate_identifier("Structure EntryData key", &data.key)?;
+        validate_identifier("Structure EntryData class", data.entry_data_class.as_str())?;
+        if !keys.insert(data.key.as_str()) {
+            return Err(DynamicRegistryError::InvalidInput {
+                message: format!(
+                    "dynamic Structure {} EntryValidator declares duplicate key {:?}",
+                    local_id, data.key
+                ),
+            });
+        }
+        if data.kind == EntryKind::Container {
+            let Some(nested) = data.nested_validator.as_ref() else {
+                return Err(DynamicRegistryError::InvalidInput {
+                    message: format!(
+                        "dynamic Structure {} container EntryData {:?} has no nested validator",
+                        local_id, data.key
+                    ),
+                });
+            };
+            validate_entry_validator(nested, depth + 1, local_id)?;
+        } else if data.nested_validator.is_some() {
+            return Err(DynamicRegistryError::InvalidInput {
+                message: format!(
+                    "dynamic Structure {} non-container EntryData {:?} has a nested validator",
+                    local_id, data.key
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn validate_metadata(metadata: &BTreeMap<String, String>) -> Result<(), DynamicRegistryError> {

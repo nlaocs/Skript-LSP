@@ -210,6 +210,9 @@ pub struct Event {
     pub reference_events: Vec<ClassName>,
     pub event_values: Vec<EventValue>,
     pub cancellable: bool,
+    /// Whether the SkriptEvent accepts an explicit Bukkit event priority.
+    /// Older snapshots leave this unresolved.
+    pub priority_supported: Option<bool>,
     pub has_on_prefix: bool,
 }
 
@@ -509,6 +512,8 @@ pub struct EventValue {
     pub patterns: Option<Vec<String>>,
     pub accepted_changers: Option<ChangeModes>,
     pub context_dependent: Option<bool>,
+    pub has_custom_input_validator: Option<bool>,
+    pub has_custom_event_validator: Option<bool>,
     pub addon: Addon,
     pub registration_id: RegistrationId,
 }
@@ -597,7 +602,19 @@ pub struct Class {
     pub super_class: Option<ClassName>,
     pub interfaces: Vec<ClassName>,
     pub component_type: Option<ClassName>,
+    pub container_element_type: Option<ClassName>,
+    /// Methods declared directly by this class. `None` means the snapshot predates this data.
+    pub methods: Option<Vec<ClassMethod>>,
     pub provider: Option<Addon>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One exact Java method signature returned by `Class.getDeclaredMethods()`.
+pub struct ClassMethod {
+    pub name: String,
+    pub parameter_types: Vec<ClassName>,
+    pub return_type: ClassName,
+    pub is_static: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
