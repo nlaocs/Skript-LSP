@@ -20,11 +20,23 @@ fn context(revision: u64) -> InvocationContext {
     }
 }
 
-fn host(config: HostConfig) -> ParserHost {
+fn host(mut config: HostConfig) -> ParserHost {
+    config
+        .runtime_profile
+        .skript_version
+        .get_or_insert_with(|| "2.16.0".to_owned());
     let mut host = ParserHost::new(CORE_LIBRARY, config).expect("CoreLibrary must initialize");
     host.load_addon(TREE_MACRO_ADDON)
         .expect("tree macro addon must initialize");
     host
+}
+
+fn core_host(mut config: HostConfig) -> ParserHost {
+    config
+        .runtime_profile
+        .skript_version
+        .get_or_insert_with(|| "2.16.0".to_owned());
+    ParserHost::new(CORE_LIBRARY, config).expect("CoreLibrary must initialize")
 }
 
 fn request(revision: u64, text: &str) -> TreeMacroRequest {
@@ -48,6 +60,15 @@ fn root(tree: &RawTree, index: usize) -> &RawNode {
     tree.get(tree.roots[index]).expect("root must exist")
 }
 
+fn addon_calls(
+    result: &parser_wasm::host::TreeMacroResult,
+) -> impl Iterator<Item = &parser_wasm::host::TreeMacroCall> {
+    result
+        .calls
+        .iter()
+        .filter(|call| call.component_id == COMPONENT_ID)
+}
+
 fn written_keys(transaction: &parser_wasm::state::ParseTransaction) -> Vec<String> {
     transaction
         .read_write_set()
@@ -56,6 +77,43 @@ fn written_keys(transaction: &parser_wasm::state::ParseTransaction) -> Vec<Strin
         .into_iter()
         .map(|entry| entry.key)
         .collect()
+}
+
+#[test]
+fn core_options_macro_follows_skripts_header_and_body_timing() {
+    let input = "options:\n    message: hello\non load:\n    send \"{@message} {@later}\"\ncommand /{@later}:\n    trigger:\n        send \"{@message}\"\noptions:\n    later: test\n";
+    let mut host = core_host(HostConfig::default());
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/test.sk", 40)
+        .expect("parse must begin");
+    let result = host
+        .expand_tree_in_parse(&transaction, request(40, input))
+        .expect("CoreLibrary option expansion must finish");
+
+    assert_eq!(
+        root_texts(&result.tree),
+        ["options", "on load", "command /test", "options"]
+    );
+    let on_load = root(&result.tree, 1);
+    let body = result
+        .tree
+        .get(on_load.children[0])
+        .expect("event body must remain attached");
+    assert_eq!(body.text, "send \"hello test\"");
+    let command = root(&result.tree, 2);
+    let trigger = result
+        .tree
+        .get(command.children[0])
+        .expect("command trigger entry must remain attached");
+    let command_body = result
+        .tree
+        .get(trigger.children[0])
+        .expect("command body must remain attached");
+    assert_eq!(command_body.text, "send \"hello\"");
+    assert!(result.effects.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "core.options.undefined" && diagnostic.message.contains("{@later}")
+    }));
+    transaction.cancel().expect("test parse may be cancelled");
 }
 
 #[test]
@@ -73,12 +131,10 @@ fn replaces_one_node_with_zero_one_or_many_and_reenters_generated_nodes() {
         ["one-expanded", "many-first", "many-second"]
     );
     assert!(result.failures.is_empty());
-    assert_eq!(result.calls.len(), 6);
-    assert!(result.calls.iter().all(|call| call.accepted));
+    assert_eq!(addon_calls(&result).count(), 6);
+    assert!(addon_calls(&result).all(|call| call.accepted));
     assert_eq!(
-        result
-            .calls
-            .iter()
+        addon_calls(&result)
             .filter(|call| call.expansion.is_some())
             .count(),
         3
@@ -232,7 +288,7 @@ fn invalid_edits_and_addon_errors_preserve_nodes_and_rollback_candidate_state() 
 
         assert_eq!(root_texts(&result.tree), [expected]);
         assert_eq!(result.failures.len(), 1);
-        assert!(!result.calls[0].accepted);
+        assert!(addon_calls(&result).any(|call| !call.accepted));
         assert!(written_keys(&transaction).is_empty());
         if text == "addon-error" {
             assert!(matches!(
@@ -267,7 +323,7 @@ fn traps_preserve_the_original_tree_and_rollback_state() {
     assert_eq!(root_texts(&result.tree), ["trap"]);
     assert_eq!(result.failures.len(), 1);
     assert!(matches!(result.failures[0].error, HostError::Trap { .. }));
-    assert!(!result.calls[0].accepted);
+    assert!(addon_calls(&result).any(|call| !call.accepted));
     assert!(written_keys(&transaction).is_empty());
     assert!(
         host.components()

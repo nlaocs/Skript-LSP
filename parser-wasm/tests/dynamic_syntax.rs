@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use parser_wasm::host::{
     CORE_LIBRARY_COMPONENT_ID, DispatchRequest, DispatchTarget, HookDecision, HookPayload,
-    HookPhase, HostConfig, HostError, InvocationContext, ParserHost,
+    HookPhase, HostConfig, HostError, InvocationContext, ParserHost, RuntimeProfile,
 };
 use parser_wasm::{
     CompatibilityError, bindings::nlaocs::skript_parser_addon::types::DocumentPayload,
@@ -70,8 +70,17 @@ fn configured_host(catalog: Arc<syntaxes::Catalog>) -> ParserHost {
 
 #[test]
 fn rejects_dynamic_syntax_addons_without_an_ssg_catalog() {
-    let mut host =
-        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            runtime_profile: RuntimeProfile {
+                skript_version: Some("2.6.4".to_owned()),
+                ..RuntimeProfile::default()
+            },
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must initialize");
     let error = host
         .load_addon(DYNAMIC_SYNTAX_ADDON)
         .expect_err("dynamic syntax capability must not be advertised without a Catalog");
@@ -131,7 +140,14 @@ fn registers_prepass_syntaxes_overrides_and_unloads_component_state() {
     let frozen = host
         .dynamic_syntax_snapshot(&transaction)
         .expect("prepass registrations must freeze");
-    assert_eq!(frozen.definitions.len(), 2);
+    assert_eq!(
+        frozen
+            .definitions
+            .keys()
+            .filter(|id| id.component_id == COMPONENT_ID)
+            .count(),
+        2
+    );
     let dynamic_order = frozen
         .candidates
         .iter()
@@ -184,7 +200,14 @@ fn registers_prepass_syntaxes_overrides_and_unloads_component_state() {
             .keys()
             .all(|id| id.component_id != COMPONENT_ID)
     );
-    assert_eq!(frozen.definitions.len(), 2);
+    assert_eq!(
+        frozen
+            .definitions
+            .keys()
+            .filter(|id| id.component_id == COMPONENT_ID)
+            .count(),
+        2
+    );
     future_transaction.commit().unwrap();
 }
 
