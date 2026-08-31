@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.19.0;
+package nlaocs:skript-parser-addon@0.27.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -115,6 +115,9 @@ interface types {
         after: list<dynamic-syntax-reference>,
         return-type: option<string>,
         return-multiplicity: option<dynamic-multiplicity>,
+        structure-node-type: option<structure-node-type>,
+        structure-body-mode: option<structure-body-mode>,
+        entry-validator: option<structure-entry-validator>,
         handler: string,
         metadata: list<metadata-entry>,
     }
@@ -173,6 +176,7 @@ interface types {
         node,
         matching,
         expression,
+        condition,
         effect,
         section,
         structure,
@@ -228,10 +232,19 @@ interface types {
         selector: hook-selector,
     }
 
+    /// A route used by a registered semantic handler.
+    ///
+    /// A handler may declare multiple targets. They are combined with OR
+    /// semantics, so one handler can cover several static registrations and
+    /// dynamic definitions at the same time.
     variant registered-syntax-handler-target {
         definition(string),
         registration(string),
         class-suffix(string),
+        /// Matches every static registration with this direct Java superclass.
+        super-class(string),
+        /// Matches the opaque handler ID of a dynamic syntax definition.
+        dynamic-handler(string),
     }
 
     record capture-parser-binding {
@@ -244,7 +257,18 @@ interface types {
     record registered-syntax-handler {
         handler-id: string,
         kind: syntax-kind,
-        target: registered-syntax-handler-target,
+        /// At least one target is required.
+        targets: list<registered-syntax-handler-target>,
+        /// Empty accepts every pattern; otherwise the matched index must occur here.
+        pattern-indices: list<u64>,
+        /// Empty accepts every pattern; otherwise the exact source must occur here.
+        pattern-sources: list<string>,
+        /// Every listed parse tag must be present on the matched branch.
+        required-tags: list<string>,
+        /// None of the listed parse tags may be present on the matched branch.
+        forbidden-tags: list<string>,
+        /// Empty accepts every aggregate ParseMark; otherwise one value must match.
+        marks: list<s32>,
         capture-parsers: list<capture-parser-binding>,
         context-requirements: list<string>,
     }
@@ -445,6 +469,8 @@ interface types {
 
     record expression-type-option {
         source-record: option<catalog-record-ref>,
+        definition-id: string,
+        registration-id: string,
         code-name: string,
         class-name: string,
         type-parse-order: u64,
@@ -452,6 +478,7 @@ interface types {
         plural: string,
         user-input-patterns: list<string>,
         has-parser: bool,
+        parse-contexts: list<string>,
         has-supplier: bool,
     }
 
@@ -481,10 +508,14 @@ interface types {
         variable-name: option<string>,
         debug-text: option<string>,
         enum-constant: option<string>,
+        alias-all: option<bool>,
+        alias-type-count: option<u64>,
     }
 
     record expression-payload {
         input: string,
+        context: parse-context,
+        active-type: option<expression-type-option>,
         remaining: text-range,
         span: mapped-span,
         expected-types: list<expression-expected-type>,
@@ -519,6 +550,8 @@ interface types {
         pattern-index: option<u64>,
         element-class: option<string>,
         return-type: option<string>,
+        possible-return-types: list<string>,
+        possible-return-types-state: expression-possible-return-types-state,
         multiplicity: option<dynamic-multiplicity>,
         metadata: list<metadata-entry>,
     }
@@ -584,6 +617,8 @@ interface types {
         element-class: option<string>,
         pattern-index: option<u64>,
         return-type: option<string>,
+        possible-return-types: list<string>,
+        possible-return-types-state: expression-possible-return-types-state,
         multiplicity: option<dynamic-multiplicity>,
         metadata: list<metadata-entry>,
     }
@@ -625,8 +660,23 @@ interface types {
         diagnostics: list<diagnostic>,
     }
 
+    /// Immutable parser context visible to every syntax semantic hook.
+    record parse-context-value {
+        key: string,
+        value: string,
+    }
+
+    record parse-context {
+        syntax-context: syntax-context-id,
+        event-classes: list<string>,
+        values: list<parse-context-value>,
+    }
+
     record registered-expression-payload {
         input: string,
+        context: parse-context,
+        /// Requested Skript time state: past=-1, present=0, future=1.
+        time: s32,
         definition-id: string,
         registration-id: string,
         element-class: string,
@@ -651,6 +701,8 @@ interface types {
         /// Mutable selection into the immutable property-options list. Empty means no policy chose.
         selected-property-option-indices: list<u64>,
         effective-return-type: option<string>,
+        effective-possible-return-types: list<string>,
+        effective-possible-return-types-state: expression-possible-return-types-state,
         effective-multiplicity: option<dynamic-multiplicity>,
         metadata: list<metadata-entry>,
     }
@@ -733,6 +785,7 @@ interface types {
 
     record effect-payload {
         input: string,
+        context: parse-context,
         raw-node-id: node-id,
         span: mapped-span,
         timing: effect-timing,
@@ -742,9 +795,113 @@ interface types {
         near-match: option<effect-near-match>,
     }
 
+    record condition-regex-capture {
+        pattern-span: text-range,
+        value: string,
+        span: mapped-span,
+    }
+
+    record condition-expression-capture {
+        pattern-span: text-range,
+        expression: string,
+        value: string,
+        span: mapped-span,
+        alternative-index: option<u64>,
+        resolution-id: option<string>,
+    }
+
+    variant condition-capture {
+        regex(condition-regex-capture),
+        expression(condition-expression-capture),
+    }
+
+    record condition-tag {
+        value: string,
+        pattern-span: text-range,
+        input-span: mapped-span,
+        implicit: bool,
+    }
+
+    record condition-mark {
+        value: s32,
+        pattern-span: text-range,
+        input-span: mapped-span,
+        accumulated: s32,
+    }
+
+    record condition-candidate {
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        priority: s32,
+        registration-order: u64,
+        pattern-index: u64,
+        pattern: string,
+        span: mapped-span,
+        captures: list<condition-capture>,
+        tags: list<condition-tag>,
+        mark: s32,
+        marks: list<condition-mark>,
+        handler: option<string>,
+        metadata: list<metadata-entry>,
+        children: list<registered-expression-child>,
+    }
+
+    record condition-payload {
+        input: string,
+        context: parse-context,
+        candidate: condition-candidate,
+    }
+
     enum section-timing {
         enter-children,
         exit-children,
+    }
+
+    record syntax-tag {
+        value: string,
+        pattern-span: text-range,
+        input-span: mapped-span,
+        implicit: bool,
+    }
+
+    record syntax-mark {
+        value: s32,
+        pattern-span: text-range,
+        input-span: mapped-span,
+        accumulated: s32,
+    }
+
+    enum section-body-mode {
+        trigger,
+        conditions,
+    }
+
+    enum section-raw-node-kind {
+        blank,
+        comment,
+        simple,
+        section,
+        invalid,
+    }
+
+    record section-raw-node {
+        raw-node-id: node-id,
+        kind: section-raw-node-kind,
+        source: string,
+        span: mapped-span,
+    }
+
+    record section-sibling {
+        raw-node-id: node-id,
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        pattern-index: u64,
+        source: string,
+        span: mapped-span,
+        handler: option<string>,
+        metadata: list<metadata-entry>,
     }
 
     record section-candidate {
@@ -758,15 +915,23 @@ interface types {
         effect-section: bool,
         section-expression: bool,
         regex-captures: list<string>,
+        tags: list<syntax-tag>,
+        mark: s32,
+        marks: list<syntax-mark>,
         parsed-captures: list<parsed-capture>,
+        body-mode: section-body-mode,
         metadata: list<metadata-entry>,
     }
 
     record section-payload {
         input: string,
+        context: parse-context,
         raw-node-id: node-id,
         span: mapped-span,
         timing: section-timing,
+        preceding-siblings: list<section-sibling>,
+        next-sibling: option<section-raw-node>,
+        raw-children: list<section-raw-node>,
         candidate: section-candidate,
     }
 
@@ -808,6 +973,34 @@ interface types {
         unknown,
     }
 
+    /// Complete declarative EntryValidator supplied by a dynamic Structure.
+    ///
+    /// The records are flattened. A root entry has no parent; a nested entry
+    /// stores the zero-based index of its container EntryData in this list.
+    record structure-entry-validator {
+        entry-data: list<structure-entry-data>,
+    }
+
+    /// Lossless EntryData declaration used by a dynamic Structure.
+    ///
+    /// `default-value` contains the original JSON value as a JSON document,
+    /// including JSON null and structured values.
+    record structure-entry-data {
+        parent-entry-index: option<u32>,
+        key: string,
+        default-value: option<string>,
+        optional: bool,
+        multiple: bool,
+        entry-data-class: string,
+        kind: structure-entry-kind,
+        separator: option<string>,
+        value-type: option<string>,
+        string-mode: option<string>,
+        return-types: list<string>,
+        %flags: option<s32>,
+        nested-validator-present: bool,
+    }
+
     record structure-entry {
         raw-node-id: option<node-id>,
         parent-entry: option<u64>,
@@ -819,6 +1012,37 @@ interface types {
         defaulted: bool,
         value-kind: structure-entry-value-kind,
         value-summary: option<parse-summary>,
+    }
+
+    enum function-declaration-scope {
+        global,
+        local,
+    }
+
+    record function-parameter-declaration {
+        name: string,
+        class-name: string,
+        single: bool,
+        default-source: option<string>,
+    }
+
+    record function-return-declaration {
+        class-name: option<string>,
+        single: bool,
+    }
+
+    record function-declaration {
+        source: string,
+        span: text-range,
+        scope: function-declaration-scope,
+        name: string,
+        parameters: list<function-parameter-declaration>,
+        returns: function-return-declaration,
+        metadata: list<metadata-entry>,
+    }
+
+    variant parser-declaration {
+        document-function(function-declaration),
     }
 
     record structure-candidate {
@@ -834,30 +1058,24 @@ interface types {
         declared-node-type: structure-node-type,
         actual-node-type: structure-node-type,
         regex-captures: list<string>,
+        tags: list<syntax-tag>,
+        mark: s32,
+        marks: list<syntax-mark>,
         parsed-captures: list<parsed-capture>,
         body-mode: structure-body-mode,
         child-node-ids: list<node-id>,
         entries: list<structure-entry>,
         handler: option<string>,
         metadata: list<metadata-entry>,
-    }
-
-    record structure-context-value {
-        key: string,
-        value: string,
-    }
-
-    record structure-context {
-        syntax-context: syntax-context-id,
-        event-classes: list<string>,
-        values: list<structure-context-value>,
+        declarations: list<parser-declaration>,
     }
 
     record structure-payload {
         input: string,
         body-tree: raw-tree,
-        context: structure-context,
+        context: parse-context,
         timing: structure-timing,
+        type-options: list<expression-type-option>,
         candidate: structure-candidate,
     }
 
@@ -1135,6 +1353,7 @@ interface types {
         matching(matching-payload),
         expression(expression-payload),
         registered-expression(registered-expression-payload),
+        condition(condition-payload),
         effect(effect-payload),
         section(section-payload),
         structure(structure-payload),
