@@ -144,6 +144,8 @@ fn parse_operation<E: ExpressionParseEnvironment>(
             function: None,
             span: session.map_range(range)?,
             return_type: Some(operation.return_type.clone()),
+            possible_return_types: vec![operation.return_type.clone()],
+            possible_return_types_state: syntaxes::PossibleReturnTypesState::Complete,
             multiplicity: Some(Multiplicity::Single),
             captures: Vec::new(),
             tags: Vec::new(),

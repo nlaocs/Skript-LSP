@@ -1,4 +1,4 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
+use super::{SemanticResolution, matches, metadata, register_handler, resolved_with_metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
 };
@@ -15,8 +15,14 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
     matches(payload, HANDLER_ID).then(|| {
-        let modern = crate::runtime::skript_at_least(2, 16)
-            .unwrap_or_else(|| !payload.pattern.contains("viewer"));
+        // ExprInventoryInfo changed its parse-mark table in Skript 2.16. RuntimeProfile is the
+        // source of truth; guessing from translated pattern text would silently select the wrong
+        // return type when a profile is malformed.
+        let Some(modern) = crate::runtime::skript_at_least(2, 16) else {
+            return SemanticResolution::Reject(
+                "inventory info Expression requires a valid Skript runtime version".to_owned(),
+            );
+        };
         let Some(source_multiplicity) = payload
             .children
             .first()
@@ -33,14 +39,14 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "inventory info Expression has an unknown parse mark".to_owned(),
             );
         };
-        SemanticResolution::Resolved {
-            return_type: return_type.to_owned(),
+        resolved_with_metadata(
+            return_type.to_owned(),
             multiplicity,
-            metadata: vec![
+            vec![
                 metadata("semantic-mode", "inventory-info"),
                 metadata("inventory-info", mode),
             ],
-        }
+        )
     })
 }
 

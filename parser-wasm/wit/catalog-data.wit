@@ -1,8 +1,8 @@
-package nlaocs:skript-parser-addon@0.19.0;
+package nlaocs:skript-parser-addon@0.27.0;
 
 /// Read-only access to the complete retained SSG source and host type relations.
 interface catalog-data {
-    use types.{catalog-record-ref};
+    use types.{accepted-change-mode, catalog-record-ref, expression-literal-option, expression-type-option};
 
     enum catalog-error-kind {
         unavailable,
@@ -49,6 +49,72 @@ interface catalog-data {
         compatible,
         incompatible,
         unknown,
+    }
+
+    /// Comparator resolution after applying Java assignability, inversion, and converters.
+    record comparator-contract {
+        relation: type-relation,
+        supports-ordering: option<bool>,
+        supports-inversion: option<bool>,
+        registration-id: option<string>,
+        reversed: bool,
+    }
+
+    /// One property handler that can receive the requested source class.
+    record property-handler-contract {
+        property-registration-id: string,
+        property-name: string,
+        input-class: string,
+        handler-class: string,
+        handler-kind: string,
+        element-types: list<string>,
+    }
+
+    /// Changer inherited from the closest registered Skript type.
+    record type-change-contract {
+        type-class: string,
+        has-changer: bool,
+        modes: list<accepted-change-mode>,
+    }
+
+    /// Serializer inherited from the closest registered Skript type.
+    record type-serialization-contract {
+        type-class: string,
+        has-serializer: bool,
+        serialize-as: option<string>,
+    }
+
+    /// One EventValues registration visible from an exact event class.
+    record event-value-option {
+        event-class: string,
+        value-class: string,
+        time: s32,
+        registration-id: string,
+        patterns: list<string>,
+        excludes: list<string>,
+        exclude-error-message: option<string>,
+        resolution-order: u64,
+        registration-order: option<u64>,
+        accepted-changers: list<accepted-change-mode>,
+        context-dependent: option<bool>,
+        has-custom-input-validator: option<bool>,
+        has-custom-event-validator: option<bool>,
+    }
+
+    /// One difference operation whose registered input type accepts the requested class.
+    record difference-option {
+        input-class: string,
+        return-class: string,
+        registration-id: string,
+        registration-order: u64,
+        hierarchy-distance: option<u64>,
+    }
+
+    /// One experimental feature referenced by a registered syntax.
+    record catalog-experiment {
+        code-name: string,
+        phase: string,
+        known: bool,
     }
 
     /// Describes the source snapshot retained behind the normalized Catalog.
@@ -98,15 +164,112 @@ interface catalog-data {
     /// Reports whether the normalized Catalog contains this Java class node.
     class-known: func(class-name: string) -> result<bool, catalog-error>;
 
+    /// Replays Skript's exact `Class.getDeclaredMethod` feature probe.
+    /// None means that the class or method metadata is unavailable in this snapshot.
+    declared-method-exists: func(
+        class-name: string,
+        method-name: string,
+        parameter-types: list<string>,
+        return-type: option<string>,
+    ) -> result<option<bool>, catalog-error>;
+
+    /// Returns the element class declared by Skript's ContainerType annotation.
+    container-element-type: func(
+        class-name: string,
+    ) -> result<option<string>, catalog-error>;
+
+    /// Returns inherited EventValues registrations after exclusion filtering.
+    event-values-for: func(
+        event-class: string,
+    ) -> result<list<event-value-option>, catalog-error>;
+
+    /// Returns inherited EventValues whose identifier pattern accepts the input.
+    event-values-for-input: func(
+        event-class: string,
+        input: string,
+    ) -> result<list<event-value-option>, catalog-error>;
+
+    /// Returns one effective value from the runtime Language registry retained by SSG.
+    /// Missing keys and snapshots predating Language.json return none.
+    language-value: func(key: string) -> result<option<string>, catalog-error>;
+
+    /// Returns every experimental feature referenced by the normalized Catalog.
+    experiments: func() -> result<list<catalog-experiment>, catalog-error>;
+
+    /// Matches one runtime Language regex outside the guest fuel budget.
+    language-pattern-matches: func(
+        key: string,
+        fallback-pattern: string,
+        input: string,
+    ) -> result<bool, catalog-error>;
+
+    /// Returns the first ClassInfo whose registered user-input pattern matches.
+    /// The host preserves Skript registration order and evaluates the regexes
+    /// outside the guest fuel and call-time budget.
+    type-for-user-input: func(
+        input: string,
+    ) -> result<option<expression-type-option>, catalog-error>;
+
+    /// Tests one handler identity against this component's host-resolved SSG bindings.
+    registered-handler-matches: func(
+        handler-id: string,
+        registration-id: string,
+    ) -> result<bool, catalog-error>;
+
+    /// Returns the first ClassInfo Skript would use for this Java class and its changer.
+    change-contract-for-type: func(
+        class-name: string,
+    ) -> result<option<type-change-contract>, catalog-error>;
+
+    /// Returns the first ClassInfo Skript would use for persistence checks.
+    serialization-contract-for-type: func(
+        class-name: string,
+    ) -> result<option<type-serialization-contract>, catalog-error>;
+
+    /// Applies the normalized finite literal index to an arbitrary source fragment.
+    type-literal-matches: func(
+        input: string,
+    ) -> result<list<expression-literal-option>, catalog-error>;
+
     /// Applies the host Catalog's Java assignability graph.
     is-class-assignable: func(
         source-class: string,
         target-class: string,
     ) -> result<type-relation, catalog-error>;
 
+    /// Returns Skript's superclass-chain distance when the second class is
+    /// assignable to the first class.
+    hierarchy-distance: func(
+        superclass: string,
+        subclass: string,
+    ) -> result<option<u64>, catalog-error>;
+
+    /// Returns every compatible difference operation in deterministic preference order.
+    difference-options-for-type: func(
+        input-class: string,
+    ) -> result<list<difference-option>, catalog-error>;
+
+    /// Computes Skript's common Java supertype for a non-empty class list.
+    /// Returns none when the retained class graph cannot resolve every input.
+    common-assignable-class: func(
+        classes: list<string>,
+    ) -> result<option<string>, catalog-error>;
+
     /// Applies Skript-compatible assignability and registered converters.
     can-convert: func(
         source-class: string,
         target-class: string,
     ) -> result<type-relation, catalog-error>;
+
+    /// Resolves the comparator Skript would use for the two Java classes.
+    comparator-for-types: func(
+        first-class: string,
+        second-class: string,
+    ) -> result<comparator-contract, catalog-error>;
+
+    /// Returns property handlers whose input class accepts the requested source class.
+    property-handlers-for-type: func(
+        property-name: string,
+        source-class: string,
+    ) -> result<list<property-handler-contract>, catalog-error>;
 }

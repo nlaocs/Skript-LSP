@@ -82,7 +82,7 @@ pub(crate) fn snapshot(
         .map(|operator| operator.sign.as_str())
         .collect::<HashSet<_>>();
 
-    validate_class_graph(snapshot, &class_paths)?;
+    validate_class_graph(manifest.schema_version, snapshot, &class_paths)?;
     validate_type_references(snapshot, &class_paths, &type_paths, &property_names)?;
     validate_syntax_references(snapshot, &class_paths, &event_value_ids)?;
     validate_function_references(snapshot, &class_paths)?;
@@ -464,10 +464,17 @@ fn unique_types(snapshot: &raw::Snapshot) -> Result<HashMap<&str, String>, Snaps
 }
 
 fn validate_class_graph(
+    schema_version: u32,
     snapshot: &raw::Snapshot,
     classes: &HashMap<&str, String>,
 ) -> Result<(), SnapshotError> {
     for (index, class) in snapshot.classes.iter().enumerate() {
+        if schema_version >= 5 && class.methods.is_none() {
+            return Err(SnapshotError::validation(
+                format!("ClassHierarchy.json[{index}].methods"),
+                "schema 5 class records must include declared methods",
+            ));
+        }
         if let Some(parent) = &class.super_class {
             class_ref(
                 classes,
@@ -488,6 +495,26 @@ fn validate_class_graph(
                 &format!("ClassHierarchy.json[{index}].componentType"),
                 component,
             )?;
+        }
+        if let Some(element) = &class.container_element_type {
+            class_ref(
+                classes,
+                &format!("ClassHierarchy.json[{index}].containerElementType"),
+                element,
+            )?;
+        }
+        if let Some(methods) = &class.methods {
+            for (method_index, method) in methods.iter().enumerate() {
+                let path = format!("ClassHierarchy.json[{index}].methods[{method_index}]");
+                non_blank(&format!("{path}.name"), &method.name)?;
+                non_blank(&format!("{path}.returnType"), &method.return_type)?;
+                for (parameter_index, parameter) in method.parameter_types.iter().enumerate() {
+                    non_blank(
+                        &format!("{path}.parameterTypes[{parameter_index}]"),
+                        parameter,
+                    )?;
+                }
+            }
         }
     }
     Ok(())
@@ -1085,6 +1112,7 @@ mod tests {
                         sections: read("Sections.json"),
                         structures: read("Structures.json"),
                         types: read("Types.json"),
+                        language: std::collections::BTreeMap::new(),
                     },
                 )
             })
@@ -1101,6 +1129,15 @@ mod tests {
                 ReturnTypeState::Unresolved
             });
             expression.possible_return_types_state = Some(PossibleReturnTypesState::Unresolved);
+        }
+        (manifest, data)
+    }
+
+    fn schema_five_fixture() -> (raw::Manifest, raw::Snapshot) {
+        let (mut manifest, mut data) = schema_four_fixture();
+        manifest.schema_version = 5;
+        for class in &mut data.classes {
+            class.methods = Some(Vec::new());
         }
         (manifest, data)
     }
@@ -1147,6 +1184,18 @@ mod tests {
             snapshot(&manifest, &data).unwrap_err(),
             "Expressions.json[0].possibleReturnTypes",
             "must not be empty",
+        );
+    }
+
+    #[test]
+    fn schema_five_requires_declared_method_metadata() {
+        let (manifest, mut data) = schema_five_fixture();
+        data.classes[0].methods = None;
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "ClassHierarchy.json[0].methods",
+            "schema 5 class records must include declared methods",
         );
     }
 

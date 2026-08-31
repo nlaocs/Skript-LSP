@@ -8,9 +8,19 @@ pub(crate) fn parse(payload: &ExpressionPayload) -> Option<ExpressionLeafCandida
         let Some(text) = expression_slice(payload, end) else {
             continue;
         };
-        if let Some(candidate) = crate::primitives::parse(payload, text, end)
-            .or_else(|| crate::types::parse(payload, text, end))
-        {
+        if let Some(candidate) = crate::primitives::parse(payload, text, end) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+pub(crate) fn parse_types(payload: &ExpressionPayload) -> Option<ExpressionLeafCandidate> {
+    for end in payload.candidate_ends.iter().copied().rev() {
+        let Some(text) = expression_slice(payload, end) else {
+            continue;
+        };
+        if let Some(candidate) = crate::types::parse(payload, text, end) {
             return Some(candidate);
         }
     }

@@ -11,9 +11,9 @@ use crate::pattern_match::{
 };
 use crate::{
     CandidateFailure, CandidateMatch, ConditionNode, FailureFrame, FailureFrameRole, FailureTrace,
-    MappedSource, MatchInput, MatchPattern, MatchSpan, ParseTagCapture, PatternCandidate,
-    PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl, PatternHookEvent,
-    PatternMatchEnvironment, PatternMatchError, PatternMatcherConfig, TextRange,
+    MappedSource, MatchInput, MatchPattern, MatchSpan, ParseMarkCapture, ParseTagCapture,
+    PatternCandidate, PatternCapture, PatternFailure, PatternFailureReason, PatternHookControl,
+    PatternHookEvent, PatternMatchEnvironment, PatternMatchError, PatternMatcherConfig, TextRange,
     TypeExpressionOutcome, TypeExpressionRequest, TypeExpressionResolution,
     catalog_pattern_candidates, choose_failure_trace, match_pattern_candidates_with_environment,
     snapshot_pattern_candidates,
@@ -56,6 +56,10 @@ pub struct ExpressionParseRequest<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionParserConfig {
     pub matcher: PatternMatcherConfig,
+    /// Version-dependent Function declaration and call grammar.
+    pub function: crate::FunctionVersionPolicy,
+    /// Kinds of root expression that may satisfy this parse request.
+    pub root_mode: ExpressionRootMode,
     pub max_depth: usize,
     pub max_candidates: usize,
     pub max_memo_entries: usize,
@@ -65,9 +69,33 @@ impl Default for ExpressionParserConfig {
     fn default() -> Self {
         Self {
             matcher: PatternMatcherConfig::default(),
+            function: crate::FunctionVersionPolicy::default(),
+            root_mode: ExpressionRootMode::All,
             max_depth: 64,
             max_candidates: 10_000,
             max_memo_entries: 20_000,
+        }
+    }
+}
+
+/// Root-level parser flags corresponding to SkriptParser's public parse modes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExpressionRootMode {
+    /// Accept literals and registered or addon-provided expressions.
+    #[default]
+    All,
+    /// Accept expressions but reject literal leaves.
+    ExpressionsOnly,
+    /// Accept literal leaves but reject registered and custom expressions.
+    LiteralsOnly,
+}
+
+impl ExpressionRootMode {
+    fn flags(self) -> (bool, bool) {
+        match self {
+            Self::All => (true, true),
+            Self::ExpressionsOnly => (false, true),
+            Self::LiteralsOnly => (true, false),
         }
     }
 }
@@ -111,6 +139,9 @@ pub struct ExpressionNode {
     pub function: Option<FunctionCall>,
     pub span: MatchSpan,
     pub return_type: Option<ClassName>,
+    /// Every Java type this node may return, matching Skript's `possibleReturnTypes()`.
+    pub possible_return_types: Vec<ClassName>,
+    pub possible_return_types_state: PossibleReturnTypesState,
     pub multiplicity: Option<Multiplicity>,
     pub captures: Vec<PatternCapture>,
     pub tags: Vec<ParseTagCapture>,
@@ -143,6 +174,144 @@ pub struct RegisteredCaptureBinding {
     pub options: BTreeMap<String, String>,
 }
 
+const CAPTURE_CONTEXT_EVENT_CLASSES: &str = "context.event-classes";
+const CAPTURE_CONTEXT_VALUE_PREFIX: &str = "context.value.";
+const CAPTURE_CONTEXT_CHILD_VALUE_PREFIX: &str = "context.value-from-child.";
+const CAPTURE_EXPRESSION_EXPECTED_TYPES: &str = "expression.expected-types";
+const CAPTURE_EXPRESSION_TIME_STATE: &str = "expression.time-state";
+
+fn capture_context(
+    current: &ExpressionParseContext,
+    binding: &RegisteredCaptureBinding,
+    children: &[ExpressionNode],
+) -> Result<Option<ExpressionParseContext>, String> {
+    let mut next = current.clone();
+    let mut changed = false;
+    if let Some(classes) = binding.options.get(CAPTURE_CONTEXT_EVENT_CLASSES) {
+        let classes = classes
+            .split(';')
+            .map(str::trim)
+            .filter(|class| !class.is_empty())
+            .map(|class| ClassName(class.to_owned()))
+            .collect::<Vec<_>>();
+        if classes.is_empty() {
+            return Err("capture context declares no event classes".to_owned());
+        }
+        next.event_classes = classes;
+        changed = true;
+    }
+    for (key, value) in &binding.options {
+        let Some(key) = key.strip_prefix(CAPTURE_CONTEXT_VALUE_PREFIX) else {
+            continue;
+        };
+        if key.is_empty() {
+            return Err("capture context value key is empty".to_owned());
+        }
+        next.values.insert(key.to_owned(), value.clone());
+        changed = true;
+    }
+    for (key, selector) in &binding.options {
+        let Some(key) = key.strip_prefix(CAPTURE_CONTEXT_CHILD_VALUE_PREFIX) else {
+            continue;
+        };
+        if key.is_empty() {
+            return Err("capture child-derived context value key is empty".to_owned());
+        }
+        if let Some(value) = child_context_value(selector, children)? {
+            next.values.insert(key.to_owned(), value);
+            changed = true;
+        }
+    }
+    Ok(changed.then_some(next))
+}
+
+fn capture_expression_expected_types(
+    binding: &RegisteredCaptureBinding,
+) -> Result<Vec<ExpressionExpectedType>, String> {
+    let Some(value) = binding.options.get(CAPTURE_EXPRESSION_EXPECTED_TYPES) else {
+        return Ok(vec![ExpressionExpectedType {
+            class_name: ClassName("java.lang.Object".to_owned()),
+            plural: true,
+        }]);
+    };
+    let expected = value
+        .split(';')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let (class_name, plural) = value
+                .strip_suffix("[]")
+                .map_or((value, false), |class_name| (class_name, true));
+            ExpressionExpectedType {
+                class_name: ClassName(class_name.to_owned()),
+                plural,
+            }
+        })
+        .collect::<Vec<_>>();
+    if expected.is_empty() {
+        return Err("Expression capture declares no expected types".to_owned());
+    }
+    Ok(expected)
+}
+
+fn capture_expression_time_state(
+    binding: &RegisteredCaptureBinding,
+    default: i32,
+) -> Result<i32, String> {
+    let Some(value) = binding.options.get(CAPTURE_EXPRESSION_TIME_STATE) else {
+        return Ok(default);
+    };
+    match value.as_str() {
+        "-1" => Ok(-1),
+        "0" => Ok(0),
+        "1" => Ok(1),
+        _ => Err(format!(
+            "capture Expression time state must be -1, 0, or 1, found `{value}`"
+        )),
+    }
+}
+
+fn child_context_value(
+    selector: &str,
+    children: &[ExpressionNode],
+) -> Result<Option<String>, String> {
+    let Some((index, field)) = selector.split_once('.') else {
+        return Err(format!("invalid capture child selector `{selector}`"));
+    };
+    let index = index
+        .parse::<usize>()
+        .map_err(|_| format!("invalid capture child index in `{selector}`"))?;
+    let Some(child) = children.get(index) else {
+        return Ok(None);
+    };
+    let value = match field {
+        "return-type" => child
+            .return_type
+            .as_ref()
+            .map(|value| value.as_str().to_owned()),
+        "possible-return-types" => (!child.possible_return_types.is_empty()).then(|| {
+            child
+                .possible_return_types
+                .iter()
+                .map(ClassName::as_str)
+                .collect::<Vec<_>>()
+                .join(";")
+        }),
+        "multiplicity" => child.multiplicity.map(|value| match value {
+            Multiplicity::Single => "single".to_owned(),
+            Multiplicity::Multiple => "multiple".to_owned(),
+            Multiplicity::Both => "both".to_owned(),
+        }),
+        _ => field
+            .strip_prefix("metadata.")
+            .and_then(|key| child.metadata.get(key).cloned()),
+    };
+    if value.is_none() && !field.starts_with("metadata.") {
+        return Err(format!("unknown capture child field in `{selector}`"));
+    }
+    Ok(value)
+}
+
 /// Stable SSG identity of one registered syntax pattern.
 ///
 /// Semantic routing uses these identifiers exclusively. A WASM host may use a
@@ -154,6 +323,15 @@ pub struct RegisteredSyntaxIdentity<'a> {
     pub definition_id: &'a str,
     pub registration_id: &'a str,
     pub pattern_index: Option<usize>,
+    pub pattern_source: Option<&'a str>,
+    pub tags: Option<&'a [ParseTagCapture]>,
+    pub mark: Option<i32>,
+    /// Handler declared by a dynamic syntax definition, when this identity is dynamic.
+    ///
+    /// Static catalog registrations leave this as `None`; keeping the value here
+    /// lets a generic host route semantic handlers without knowing how dynamic
+    /// definitions are stored internally.
+    pub dynamic_handler: Option<&'a str>,
 }
 
 /// Completeness of one generic capture result.
@@ -173,6 +351,8 @@ pub struct ParsedCaptureSemanticSummary {
     pub element_class: Option<ClassName>,
     pub pattern_index: Option<usize>,
     pub return_type: Option<ClassName>,
+    pub possible_return_types: Vec<ClassName>,
+    pub possible_return_types_state: PossibleReturnTypesState,
     pub multiplicity: Option<Multiplicity>,
     pub metadata: BTreeMap<String, String>,
 }
@@ -398,6 +578,17 @@ fn try_map_condition_spans<E>(
 }
 
 fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSummary {
+    if matches!(node.kind, ExpressionNodeKind::Grouped)
+        && let Some(child) = node.children.first()
+    {
+        let mut delegated = expression_semantic_summary(child);
+        delegated.return_type = node.return_type.clone();
+        delegated.possible_return_types = node.possible_return_types.clone();
+        delegated.possible_return_types_state = node.possible_return_types_state;
+        delegated.multiplicity = node.multiplicity;
+        delegated.metadata.extend(node.metadata.clone());
+        return delegated;
+    }
     let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
         ExpressionNodeKind::Grouped => ("grouped-expression", None, None, None),
         ExpressionNodeKind::List { .. } => ("expression-list", None, None, None),
@@ -417,6 +608,17 @@ fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSu
         ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None),
         ExpressionNodeKind::Custom { .. } => ("custom", None, None, None),
     };
+    let mut metadata = node.metadata.clone();
+    if matches!(node.kind, ExpressionNodeKind::List { .. }) {
+        metadata.insert(
+            "parser.expression-list.all-variables".to_owned(),
+            expression_tree_all_variables(node).to_string(),
+        );
+        metadata.insert(
+            "parser.expression-list.any-single-variable".to_owned(),
+            expression_tree_any_single_variable(node).to_string(),
+        );
+    }
     ParsedCaptureSemanticSummary {
         kind: kind.to_owned(),
         definition_id,
@@ -424,8 +626,31 @@ fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSu
         element_class: None,
         pattern_index,
         return_type: node.return_type.clone(),
+        possible_return_types: node.possible_return_types.clone(),
+        possible_return_types_state: node.possible_return_types_state,
         multiplicity: node.multiplicity,
-        metadata: node.metadata.clone(),
+        metadata,
+    }
+}
+
+fn expression_tree_all_variables(node: &ExpressionNode) -> bool {
+    match node.kind {
+        ExpressionNodeKind::Variable { .. } => true,
+        ExpressionNodeKind::Grouped | ExpressionNodeKind::List { .. } => {
+            !node.children.is_empty() && node.children.iter().all(expression_tree_all_variables)
+        }
+        _ => false,
+    }
+}
+
+fn expression_tree_any_single_variable(node: &ExpressionNode) -> bool {
+    match node.kind {
+        ExpressionNodeKind::Variable { .. } => node.multiplicity == Some(Multiplicity::Single),
+        ExpressionNodeKind::Grouped | ExpressionNodeKind::List { .. } => node
+            .children
+            .iter()
+            .any(expression_tree_any_single_variable),
+        _ => false,
     }
 }
 
@@ -458,6 +683,7 @@ pub(crate) fn condition_parsed_capture(capture_index: usize, node: ConditionNode
             definition_id,
             registration_id,
             pattern_index,
+            ..
         } => (
             Some(definition_id.clone()),
             Some(registration_id.clone()),
@@ -483,6 +709,8 @@ pub(crate) fn condition_parsed_capture(capture_index: usize, node: ConditionNode
                 element_class: None,
                 pattern_index,
                 return_type: None,
+                possible_return_types: Vec::new(),
+                possible_return_types_state: PossibleReturnTypesState::Complete,
                 multiplicity: None,
                 metadata: node.metadata.clone(),
             }),
@@ -498,19 +726,28 @@ pub(crate) fn event_parsed_capture(
 ) -> ParsedCapture {
     let span = candidate.span.clone();
     let mut metadata = candidate.metadata.clone();
-    metadata.insert(
-        "parser.event.reference-classes".to_owned(),
-        candidate
-            .reference_events
-            .iter()
-            .map(|value| value.as_str())
-            .collect::<Vec<_>>()
-            .join(";"),
-    );
-    metadata.insert(
-        "parser.event.cancellable".to_owned(),
-        candidate.cancellable.to_string(),
-    );
+    if !candidate.reference_events.is_empty() {
+        metadata
+            .entry("parser.event.reference-classes".to_owned())
+            .or_insert_with(|| {
+                candidate
+                    .reference_events
+                    .iter()
+                    .map(|value| value.as_str())
+                    .collect::<Vec<_>>()
+                    .join(";")
+            });
+    }
+    if let Some(cancellable) = candidate.cancellable {
+        metadata
+            .entry("parser.event.cancellable".to_owned())
+            .or_insert_with(|| cancellable.to_string());
+    }
+    if let Some(priority_supported) = candidate.priority_supported {
+        metadata
+            .entry("parser.event.priority-supported".to_owned())
+            .or_insert_with(|| priority_supported.to_string());
+    }
     let summary = ParsedCaptureSemanticSummary {
         kind: "event".to_owned(),
         definition_id: Some(candidate.matched.definition_id.clone()),
@@ -518,6 +755,8 @@ pub(crate) fn event_parsed_capture(
         element_class: candidate.element_class.clone(),
         pattern_index: Some(candidate.matched.pattern_index),
         return_type: None,
+        possible_return_types: Vec::new(),
+        possible_return_types_state: PossibleReturnTypesState::Complete,
         multiplicity: None,
         metadata,
     };
@@ -534,6 +773,34 @@ pub(crate) fn event_parsed_capture(
 }
 
 /// Selected Section identity supplied around recursive child parsing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SectionBodyMode {
+    #[default]
+    Trigger,
+    Conditions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionRawNodeSummary {
+    pub raw_node_id: crate::RawNodeId,
+    pub kind: crate::RawNodeKind,
+    pub source: String,
+    pub span: MatchSpan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionSiblingSummary {
+    pub raw_node_id: crate::RawNodeId,
+    pub definition_id: String,
+    pub registration_id: String,
+    pub element_class: Option<ClassName>,
+    pub pattern_index: usize,
+    pub source: String,
+    pub span: MatchSpan,
+    pub handler: Option<String>,
+    pub metadata: BTreeMap<String, String>,
+}
+
 pub struct SectionChildrenRequest<'a> {
     pub input: &'a str,
     pub raw_node_id: crate::RawNodeId,
@@ -546,14 +813,41 @@ pub struct SectionChildrenRequest<'a> {
     pub effect_section: bool,
     pub section_expression: bool,
     pub captures: &'a [PatternCapture],
+    pub tags: &'a [ParseTagCapture],
+    pub mark: i32,
+    pub marks: &'a [ParseMarkCapture],
     pub parsed_captures: &'a [ParsedCapture],
+    pub body_mode: SectionBodyMode,
+    pub preceding_siblings: &'a [SectionSiblingSummary],
+    pub next_sibling: Option<&'a SectionRawNodeSummary>,
+    pub raw_children: &'a [SectionRawNodeSummary],
+    pub metadata: &'a BTreeMap<String, String>,
     pub context: &'a ExpressionParseContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SectionChildrenDecision {
-    Accept(ExpressionParseContext),
-    Reject { reason: String },
+    Accept {
+        context: ExpressionParseContext,
+        body_mode: SectionBodyMode,
+        metadata: BTreeMap<String, String>,
+    },
+    Reject {
+        reason: String,
+        diagnostics: Vec<crate::SemanticDiagnostic>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SectionExitDecision {
+    Accept {
+        context: ExpressionParseContext,
+        metadata: BTreeMap<String, String>,
+    },
+    Reject {
+        reason: String,
+        diagnostics: Vec<crate::SemanticDiagnostic>,
+    },
 }
 
 /// One valid Expression candidate in deterministic parser order.
@@ -588,6 +882,8 @@ pub struct ExpressionFailure {
     /// Related opening delimiter, when the primary location is elsewhere.
     pub related_span: Option<MatchSpan>,
     pub expected_types: Vec<ExpressionExpectedType>,
+    /// Ranked registered-pattern cause, including semantic hook diagnostics.
+    pub trace: Option<FailureTrace>,
 }
 
 /// Syntactic reason selected for an unsuccessful complete Expression parse.
@@ -639,11 +935,34 @@ pub struct ExpressionLeafCandidate {
     pub metadata: BTreeMap<String, String>,
 }
 
+/// Candidates and a recoverable semantic failure produced by leaf parsers.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExpressionLeafParse {
+    pub candidates: Vec<ExpressionLeafCandidate>,
+    pub failure: Option<FailureTrace>,
+}
+
+impl From<Vec<ExpressionLeafCandidate>> for ExpressionLeafParse {
+    fn from(candidates: Vec<ExpressionLeafCandidate>) -> Self {
+        Self {
+            candidates,
+            failure: None,
+        }
+    }
+}
+
 /// Context supplied after a registered Expression and all typed captures matched.
 pub struct RegisteredExpressionRequest<'a> {
     pub input: &'a str,
+    pub time: i32,
     pub definition_id: &'a str,
     pub registration_id: &'a str,
+    /// Opaque handler declared by a dynamic syntax definition, if applicable.
+    ///
+    /// Static catalog registrations leave this unset. Keeping the value on
+    /// the request lets a generic host match dynamic context requirements
+    /// without deriving identity from a concrete implementation class.
+    pub dynamic_handler: Option<&'a str>,
     pub element_class: &'a ClassName,
     pub related_property: Option<&'a str>,
     pub pattern_index: usize,
@@ -669,11 +988,14 @@ pub enum RegisteredExpressionDecision {
     UseDeclared,
     Resolved {
         return_type: Option<ClassName>,
+        possible_return_types: Vec<ClassName>,
+        possible_return_types_state: PossibleReturnTypesState,
         multiplicity: Option<Multiplicity>,
         metadata: BTreeMap<String, String>,
     },
     Reject {
         reason: String,
+        diagnostics: Vec<crate::SemanticDiagnostic>,
     },
 }
 
@@ -683,7 +1005,7 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String>;
+    ) -> Result<ExpressionLeafParse, String>;
 
     /// Finalizes state and effects staged while producing the latest leaf set.
     ///
@@ -731,20 +1053,43 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         Ok(())
     }
 
+    /// Applies CoreLibrary or addon semantics to a structurally matched Effect.
+    fn resolve_effect_candidate(
+        &mut self,
+        _request: crate::EffectSemanticRequest<'_>,
+    ) -> Result<crate::EffectSemanticDecision, String> {
+        Ok(crate::EffectSemanticDecision::UseCandidate)
+    }
+
+    /// Applies CoreLibrary or addon semantics to a structurally matched Condition.
+    fn resolve_condition_candidate(
+        &mut self,
+        _request: crate::ConditionSemanticRequest<'_>,
+    ) -> Result<crate::ConditionSemanticDecision, String> {
+        Ok(crate::ConditionSemanticDecision::UseCandidate)
+    }
+
     /// Pushes parser context immediately before a selected Section's children.
     fn enter_section_children(
         &mut self,
         request: SectionChildrenRequest<'_>,
     ) -> Result<SectionChildrenDecision, String> {
-        Ok(SectionChildrenDecision::Accept(request.context.clone()))
+        Ok(SectionChildrenDecision::Accept {
+            context: request.context.clone(),
+            body_mode: request.body_mode,
+            metadata: request.metadata.clone(),
+        })
     }
 
     /// Pops parser context after all children of a selected Section were visited.
     fn exit_section_children(
         &mut self,
-        _request: SectionChildrenRequest<'_>,
-    ) -> Result<(), String> {
-        Ok(())
+        request: SectionChildrenRequest<'_>,
+    ) -> Result<SectionExitDecision, String> {
+        Ok(SectionExitDecision::Accept {
+            context: request.context.clone(),
+            metadata: request.metadata.clone(),
+        })
     }
 
     /// Selects the body parser and context after a top-level Structure header matched.
@@ -760,7 +1105,18 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     }
 
     /// Observes the completed Structure body while its parse state is still transactional.
-    fn exit_structure(&mut self, _request: crate::StructureHookRequest<'_>) -> Result<(), String> {
+    fn exit_structure(
+        &mut self,
+        _request: crate::StructureHookRequest<'_>,
+    ) -> Result<crate::StructureExitDecision, String> {
+        Ok(crate::StructureExitDecision::Accept)
+    }
+
+    /// Discards declarations provisionally emitted by a rejected Structure candidate.
+    fn discard_structure_candidate(
+        &mut self,
+        _candidate: &crate::StructureCandidate,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -806,8 +1162,8 @@ impl ExpressionParseEnvironment for NoopExpressionEnvironment {
     fn parse_expression_leaf(
         &mut self,
         _request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
-        Ok(Vec::new())
+    ) -> Result<ExpressionLeafParse, String> {
+        Ok(ExpressionLeafParse::default())
     }
 
     fn state_revision(&self) -> Result<u64, String> {
@@ -836,7 +1192,6 @@ pub enum ExpressionParseError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MemoKey {
-    // Context and registry candidates are immutable for the lifetime of a session.
     range: TextRange,
     candidate_ends: Vec<usize>,
     expected_type_id: usize,
@@ -844,6 +1199,7 @@ struct MemoKey {
     allow_expressions: bool,
     time: i32,
     allow_lists: bool,
+    context: ExpressionParseContext,
     state_revision: u64,
 }
 
@@ -894,6 +1250,7 @@ pub(crate) struct ExpressionSession<'a, E> {
     source: &'a MappedSource,
     environment: &'a mut E,
     context: ExpressionParseContext,
+    semantic_contexts: Vec<ExpressionParseContext>,
     config: ExpressionParserConfig,
     memo: HashMap<MemoKey, PrefixParse>,
     active: HashSet<MemoKey>,
@@ -970,6 +1327,7 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
 
     let expected_types = request.expected_types;
 
+    let root_mode = config.root_mode;
     let mut session = ExpressionSession::new(
         catalog,
         dynamic_snapshot,
@@ -978,16 +1336,18 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
         request.context,
         config,
     );
-    let candidates = session.parse_prefixes(
+    let (allow_literals, allow_expressions) = root_mode.flags();
+    let parsed = session.parse_prefixes_detailed(
         request.range,
         &[request.range.end],
         &expected_types,
-        true,
-        true,
+        allow_literals,
+        allow_expressions,
         0,
         0,
     )?;
-    let mut candidates = candidates
+    let mut candidates = parsed
+        .candidates
         .into_iter()
         .filter(|candidate| candidate.node.span.local_range.end == request.range.end)
         .collect::<Vec<_>>();
@@ -1000,6 +1360,7 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
             span: session.map_range(primary)?,
             related_span: related.map(|range| session.map_range(range)).transpose()?,
             expected_types,
+            trace: parsed.failure,
         })
     } else {
         None
@@ -1020,7 +1381,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         allow_expressions: bool,
         depth: usize,
     ) -> Result<ExpressionMatches, ExpressionParseError> {
-        let candidates = self.parse_prefixes_mode(
+        let parsed = self.parse_prefixes_mode(
             range,
             &[range.end],
             expected_types,
@@ -1030,7 +1391,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             depth,
             true,
         )?;
-        let mut candidates = candidates
+        let mut candidates = parsed
             .candidates
             .into_iter()
             .filter(|candidate| candidate.node.span.local_range.end == range.end)
@@ -1044,6 +1405,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 span: self.map_range(primary)?,
                 related_span: related.map(|range| self.map_range(range)).transpose()?,
                 expected_types: expected_types.to_vec(),
+                trace: parsed.failure,
             })
         } else {
             None
@@ -1083,6 +1445,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             source,
             environment,
             context,
+            semantic_contexts: Vec::new(),
             config,
             memo: HashMap::new(),
             active: HashSet::new(),
@@ -1204,6 +1567,17 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         self.dynamic_snapshot
     }
 
+    pub(crate) fn dynamic_handler_for_registration(&self, registration_id: &str) -> Option<&str> {
+        self.dynamic_snapshot
+            .and_then(|snapshot| {
+                snapshot
+                    .definitions
+                    .values()
+                    .find(|definition| definition.id.qualified() == registration_id)
+            })
+            .map(|definition| definition.handler.as_str())
+    }
+
     pub(crate) const fn source(&self) -> &'a MappedSource {
         self.source
     }
@@ -1245,15 +1619,28 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     }
 
     pub(crate) fn begin_semantic_candidate(&mut self) -> Result<(), String> {
-        self.environment.begin_semantic_candidate()
+        self.environment.begin_semantic_candidate()?;
+        self.semantic_contexts.push(self.context.clone());
+        Ok(())
     }
 
     pub(crate) fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let context = self
+            .semantic_contexts
+            .pop()
+            .ok_or_else(|| "semantic candidate finished without a matching begin".to_owned())?;
+        if !accepted {
+            self.context = context;
+        }
         self.environment.finish_semantic_candidate(accepted)
     }
 
     pub(crate) fn context(&self) -> &ExpressionParseContext {
         &self.context
+    }
+
+    pub(crate) const fn function_policy(&self) -> crate::FunctionVersionPolicy {
+        self.config.function
     }
 
     pub(crate) fn event_restriction_failure(
@@ -1330,6 +1717,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         context: ExpressionParseContext,
     ) -> ExpressionParseContext {
         std::mem::replace(&mut self.context, context)
+    }
+
+    pub(crate) fn capture_context(
+        &self,
+        binding: &RegisteredCaptureBinding,
+    ) -> Result<Option<ExpressionParseContext>, String> {
+        capture_context(&self.context, binding, &[])
     }
 
     pub(crate) fn ensure_depth(&self, depth: usize) -> Result<(), ExpressionParseError> {
@@ -1417,6 +1811,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             allow_expressions,
             time,
             allow_lists,
+            context: self.context.clone(),
             state_revision: self
                 .environment
                 .state_revision()
@@ -1560,6 +1955,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                     function: None,
                                     span: group_span.clone(),
                                     return_type: child.return_type.clone(),
+                                    possible_return_types: child.possible_return_types.clone(),
+                                    possible_return_types_state: child.possible_return_types_state,
                                     multiplicity: child.multiplicity,
                                     captures: Vec::new(),
                                     tags: Vec::new(),
@@ -1593,8 +1990,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .environment
                 .parse_expression_leaf(leaf_request)
                 .map_err(|message| ExpressionParseError::Environment { message })?;
+            failure = choose_failure_trace(failure, leaves.failure);
             let mut accepted_leaves = Vec::new();
-            for leaf in leaves {
+            for leaf in leaves.candidates {
                 if !self.valid_leaf(
                     &leaf,
                     range,
@@ -1619,12 +2017,20 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         parser_id: leaf.parser_id,
                     },
                 };
+                let possible_return_types = leaf.return_type.iter().cloned().collect();
+                let possible_return_types_state = if leaf.return_type.is_some() {
+                    PossibleReturnTypesState::Complete
+                } else {
+                    PossibleReturnTypesState::Unresolved
+                };
                 accepted_leaves.push(ExpressionCandidate {
                     node: ExpressionNode {
                         kind,
                         function: None,
                         span: self.map_range(leaf.range)?,
                         return_type: leaf.return_type,
+                        possible_return_types,
+                        possible_return_types_state,
                         multiplicity: leaf.multiplicity,
                         captures: Vec::new(),
                         tags: Vec::new(),
@@ -1683,27 +2089,26 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_starts.pop();
                 let matched = matched?;
                 failure = choose_failure_trace(failure, matched.primary_failure().cloned());
-                if let Some(selected) = matched.selected {
-                    match self.registered_node(
-                        selected,
+                for matched in matched.selected.into_iter().chain(matched.alternatives) {
+                    self.environment
+                        .begin_semantic_candidate()
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let resolution = self.registered_node(
+                        matched,
                         candidate_range.start,
                         expected_types,
+                        time,
                         depth,
-                    )? {
-                        RegisteredNodeResolution::Accepted(candidate) => candidates.push(candidate),
-                        RegisteredNodeResolution::Rejected(trace) => {
-                            failure = choose_failure_trace(failure, trace);
+                    )?;
+                    let accepted = matches!(resolution, RegisteredNodeResolution::Accepted(_));
+                    self.environment
+                        .finish_semantic_candidate(accepted)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    match resolution {
+                        RegisteredNodeResolution::Accepted(candidate) => {
+                            candidates.push(candidate);
+                            break;
                         }
-                    }
-                }
-                for alternative in matched.alternatives {
-                    match self.registered_node(
-                        alternative,
-                        candidate_range.start,
-                        expected_types,
-                        depth,
-                    )? {
-                        RegisteredNodeResolution::Accepted(candidate) => candidates.push(candidate),
                         RegisteredNodeResolution::Rejected(trace) => {
                             failure = choose_failure_trace(failure, trace);
                         }
@@ -1809,6 +2214,30 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             }
 
             let return_type = list_return_type(self.catalog, &children);
+            let mut possible_return_types = children
+                .iter()
+                .flat_map(|child| {
+                    if child.possible_return_types.is_empty() {
+                        child.return_type.iter().cloned().collect::<Vec<_>>()
+                    } else {
+                        child.possible_return_types.clone()
+                    }
+                })
+                .collect::<Vec<_>>();
+            possible_return_types.sort();
+            possible_return_types.dedup();
+            let possible_return_types_state = if children.iter().any(|child| {
+                child.possible_return_types_state == PossibleReturnTypesState::Unresolved
+            }) {
+                PossibleReturnTypesState::Unresolved
+            } else if children
+                .iter()
+                .any(|child| child.possible_return_types_state == PossibleReturnTypesState::Partial)
+            {
+                PossibleReturnTypesState::Partial
+            } else {
+                PossibleReturnTypesState::Complete
+            };
             let multiplicity = match conjunction {
                 ExpressionListConjunction::And => Multiplicity::Multiple,
                 ExpressionListConjunction::Or
@@ -1823,19 +2252,22 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 }
                 ExpressionListConjunction::Or => Multiplicity::Multiple,
             };
+            let metadata = common_child_metadata(&children);
             lists.push(ExpressionCandidate {
                 node: ExpressionNode {
                     kind: ExpressionNodeKind::List { conjunction },
                     function: None,
                     span: self.map_range(list_range)?,
                     return_type,
+                    possible_return_types,
+                    possible_return_types_state,
                     multiplicity: Some(multiplicity),
                     captures: Vec::new(),
                     tags: Vec::new(),
                     mark: 0,
                     children,
                     routed_captures: Vec::new(),
-                    metadata: BTreeMap::new(),
+                    metadata,
                 },
                 expected_alternative: None,
             });
@@ -1883,6 +2315,11 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                 definition_id: &candidate.definition_id,
                                 registration_id: &candidate.registration_id,
                                 pattern_index: None,
+                                pattern_source: None,
+                                tags: None,
+                                mark: None,
+                                dynamic_handler: self
+                                    .dynamic_handler_for_registration(&candidate.registration_id),
                             },
                         ) || self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                     }
@@ -1893,6 +2330,11 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                 definition_id: &candidate.definition_id,
                                 registration_id: &candidate.registration_id,
                                 pattern_index: None,
+                                pattern_source: None,
+                                tags: None,
+                                mark: None,
+                                dynamic_handler: self
+                                    .dynamic_handler_for_registration(&candidate.registration_id),
                             },
                         ) || self.return_type_matches(metadata.return_type.as_ref(), expected_types)
                             || metadata.possible_return_types.iter().any(|return_type| {
@@ -2024,6 +2466,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         matched: CandidateMatch,
         frame_start: usize,
         expected_types: &[ExpressionExpectedType],
+        time: i32,
         depth: usize,
     ) -> Result<RegisteredNodeResolution, ExpressionParseError> {
         let metadata = self
@@ -2067,10 +2510,21 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let mut return_type = metadata
             .as_ref()
             .and_then(|value| value.return_type.clone());
+        let mut possible_return_types = metadata
+            .as_ref()
+            .map(|value| value.possible_return_types.clone())
+            .unwrap_or_default();
+        let mut possible_return_types_state = metadata
+            .as_ref()
+            .map(|value| value.possible_return_types_state)
+            .unwrap_or(PossibleReturnTypesState::Unresolved);
         let mut multiplicity = metadata.as_ref().and_then(|value| value.multiplicity);
         let mut node_metadata = metadata
             .as_ref()
             .map_or_else(BTreeMap::new, |value| value.metadata.clone());
+        let dynamic_handler = self
+            .dynamic_handler_for_registration(&matched.registration_id)
+            .map(str::to_owned);
         let capture_bindings = if metadata.is_some() {
             self.environment
                 .registered_capture_bindings(RegisteredSyntaxIdentity {
@@ -2078,6 +2532,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     definition_id: &matched.definition_id,
                     registration_id: &matched.registration_id,
                     pattern_index: Some(matched.pattern_index),
+                    pattern_source: Some(&matched.pattern),
+                    tags: Some(&matched.matched.tags),
+                    mark: Some(matched.matched.mark),
+                    dynamic_handler: dynamic_handler.as_deref(),
                 })
                 .map_err(|message| ExpressionParseError::Environment { message })?
         } else {
@@ -2099,12 +2557,81 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             let local = span.local_range;
             let range = TextRange::new(frame_start + local.start, frame_start + local.end);
             let parsed = match binding.parser_id.as_str() {
+                HOST_EXPRESSION_PARSER_ID => {
+                    let context = capture_context(&self.context, binding, &children)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let expected = capture_expression_expected_types(binding)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let capture_time = capture_expression_time_state(binding, time)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let previous = context.map(|context| self.replace_context(context));
+                    let parsed = self.parse_prefixes_detailed(
+                        range,
+                        &[range.end],
+                        &expected,
+                        true,
+                        true,
+                        capture_time,
+                        depth + 1,
+                    );
+                    if let Some(previous) = previous {
+                        self.replace_context(previous);
+                    }
+                    let parsed = parsed.map_err(|error| ExpressionParseError::Environment {
+                        message: error.to_string(),
+                    })?;
+                    let cause = parsed.failure;
+                    let mut candidates = parsed
+                        .candidates
+                        .into_iter()
+                        .filter(|candidate| candidate.node.span.local_range.end == range.end);
+                    match candidates.next() {
+                        Some(candidate) => expression_parsed_capture(capture_index, candidate.node),
+                        None if binding.required => {
+                            let frame = FailureFrame {
+                                kind: matched.kind,
+                                definition_id: matched.definition_id.clone(),
+                                registration_id: matched.registration_id.clone(),
+                                pattern_index: matched.pattern_index,
+                                pattern: matched.pattern.clone(),
+                                element_path: Vec::new(),
+                                pattern_span: Some(*pattern_span),
+                                input_span: span.clone(),
+                                role: FailureFrameRole::ExpressionCapture {
+                                    index: capture_index,
+                                },
+                            };
+                            return Ok(RegisteredNodeResolution::Rejected(Some(
+                                cause
+                                    .unwrap_or_else(|| {
+                                        crate::effect::nested_failure_trace(span.clone())
+                                    })
+                                    .with_parent(frame),
+                            )));
+                        }
+                        None => ParsedCapture {
+                            capture_index,
+                            binding: binding.clone(),
+                            result: ParsedCaptureResult::failure(
+                                binding.parser_id.clone(),
+                                span.clone(),
+                                "expression capture did not match",
+                            ),
+                        },
+                    }
+                }
                 HOST_CONDITION_PARSER_ID => {
+                    let context = capture_context(&self.context, binding, &children)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let previous = context.map(|context| self.replace_context(context));
                     let parsed =
-                        crate::condition::parse_condition_with_session(self, range, depth + 1)
-                            .map_err(|error| ExpressionParseError::Environment {
-                                message: error.to_string(),
-                            })?;
+                        crate::condition::parse_condition_with_session(self, range, depth + 1);
+                    if let Some(previous) = previous {
+                        self.replace_context(previous);
+                    }
+                    let parsed = parsed.map_err(|error| ExpressionParseError::Environment {
+                        message: error.to_string(),
+                    })?;
                     match parsed.selected {
                         Some(selected) => condition_parsed_capture(capture_index, selected.node),
                         None => {
@@ -2140,13 +2667,19 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     }
                 }
                 HOST_EFFECT_PARSER_ID => {
+                    let context = capture_context(&self.context, binding, &children)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let previous = context.map(|context| self.replace_context(context));
                     let parsed = crate::effect::parse_effect_range_with_session(
                         self,
                         range,
                         crate::RawNodeId::new(0),
                         depth + 1,
-                    )
-                    .map_err(|error| ExpressionParseError::Environment {
+                    );
+                    if let Some(previous) = previous {
+                        self.replace_context(previous);
+                    }
+                    let parsed = parsed.map_err(|error| ExpressionParseError::Environment {
                         message: error.to_string(),
                     })?;
                     match parsed.selected {
@@ -2166,8 +2699,27 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         }
                         None => {
                             if binding.required {
+                                let cause = parsed
+                                    .unknown
+                                    .map(crate::effect::effect_failure_trace)
+                                    .unwrap_or_else(|| {
+                                        crate::effect::nested_failure_trace(span.clone())
+                                    });
+                                let frame = FailureFrame {
+                                    kind: matched.kind,
+                                    definition_id: matched.definition_id.clone(),
+                                    registration_id: matched.registration_id.clone(),
+                                    pattern_index: matched.pattern_index,
+                                    pattern: matched.pattern.clone(),
+                                    element_path: Vec::new(),
+                                    pattern_span: Some(*pattern_span),
+                                    input_span: span.clone(),
+                                    role: FailureFrameRole::EffectCapture {
+                                        index: capture_index,
+                                    },
+                                };
                                 return Ok(RegisteredNodeResolution::Rejected(Some(
-                                    crate::effect::nested_failure_trace(span.clone()),
+                                    cause.with_parent(frame),
                                 )));
                             }
                             ParsedCapture {
@@ -2227,6 +2779,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         definition_id: &matched.definition_id,
                         registration_id: &matched.registration_id,
                         pattern_index: Some(matched.pattern_index),
+                        pattern_source: Some(&matched.pattern),
+                        tags: Some(&matched.matched.tags),
+                        mark: Some(matched.matched.mark),
+                        dynamic_handler: dynamic_handler.as_deref(),
                     })
         });
         if needs_resolution {
@@ -2235,8 +2791,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .environment
                 .resolve_registered_expression(RegisteredExpressionRequest {
                     input: self.source.virtual_source(),
+                    time,
                     definition_id: &matched.definition_id,
                     registration_id: &matched.registration_id,
+                    dynamic_handler: dynamic_handler.as_deref(),
                     element_class: &value.element_class,
                     related_property: value.related_property.as_deref(),
                     pattern_index: matched.pattern_index,
@@ -2260,23 +2818,51 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 RegisteredExpressionDecision::UseDeclared => {}
                 RegisteredExpressionDecision::Resolved {
                     return_type: resolved_return_type,
+                    possible_return_types: resolved_possible_return_types,
+                    possible_return_types_state: resolved_possible_return_types_state,
                     multiplicity: resolved_multiplicity,
                     metadata,
                 } => {
                     return_type = resolved_return_type;
+                    possible_return_types = resolved_possible_return_types;
+                    possible_return_types_state = resolved_possible_return_types_state;
                     multiplicity = resolved_multiplicity;
                     node_metadata.extend(metadata);
                 }
-                RegisteredExpressionDecision::Reject { .. } => {
+                RegisteredExpressionDecision::Reject {
+                    reason,
+                    diagnostics,
+                } => {
                     self.environment
                         .finish_registered_expression(false)
                         .map_err(|message| ExpressionParseError::Environment { message })?;
-                    return Ok(RegisteredNodeResolution::Rejected(None));
+                    return Ok(RegisteredNodeResolution::Rejected(Some(
+                        FailureTrace::leaf(PatternFailure {
+                            span: crate::failure::semantic_failure_span(&span, &diagnostics),
+                            reasons: vec![PatternFailureReason::HookRejected { reason }],
+                        })
+                        .with_parent(FailureFrame {
+                            kind: matched.kind,
+                            definition_id: matched.definition_id.clone(),
+                            registration_id: matched.registration_id.clone(),
+                            pattern_index: matched.pattern_index,
+                            pattern: matched.pattern.clone(),
+                            element_path: Vec::new(),
+                            pattern_span: None,
+                            input_span: span.clone(),
+                            role: FailureFrameRole::SemanticCandidate,
+                        })
+                        .with_semantic_diagnostics(diagnostics),
+                    )));
                 }
             }
         }
-        let accepted = self.return_type_matches(return_type.as_ref(), expected_types)
-            && self.multiplicity_matches(multiplicity, expected_types);
+        let accepted = self.expression_types_match(
+            return_type.as_ref(),
+            &possible_return_types,
+            multiplicity,
+            expected_types,
+        );
         if needs_resolution {
             self.environment
                 .finish_registered_expression(accepted)
@@ -2295,6 +2881,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 function: None,
                 span,
                 return_type,
+                possible_return_types,
+                possible_return_types_state,
                 multiplicity,
                 captures: matched.matched.captures,
                 tags: matched.matched.tags,
@@ -2347,6 +2935,20 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         || (from != "java.lang.Object" && self.catalog.can_convert(from, to))
                 })
             })
+    }
+
+    fn expression_types_match(
+        &self,
+        return_type: Option<&ClassName>,
+        possible_return_types: &[ClassName],
+        multiplicity: Option<Multiplicity>,
+        expected_types: &[ExpressionExpectedType],
+    ) -> bool {
+        (self.return_type_matches(return_type, expected_types)
+            || possible_return_types
+                .iter()
+                .any(|return_type| self.return_type_matches(Some(return_type), expected_types)))
+            && self.multiplicity_matches(multiplicity, expected_types)
     }
 
     pub(crate) fn multiplicity_matches(
@@ -2402,6 +3004,20 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             mapped,
         })
     }
+}
+
+fn common_child_metadata(children: &[ExpressionNode]) -> BTreeMap<String, String> {
+    let Some(first) = children.first() else {
+        return BTreeMap::new();
+    };
+    let mut common = first.metadata.clone();
+    common.retain(|key, value| {
+        children
+            .iter()
+            .skip(1)
+            .all(|child| child.metadata.get(key) == Some(value))
+    });
+    common
 }
 
 fn registration_metadata_index(
@@ -3132,6 +3748,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn capture_options_override_only_the_nested_parser_context() {
+        let current = ExpressionParseContext {
+            syntax_context: 7,
+            event_classes: vec![ClassName("fixture.OuterEvent".to_owned())],
+            values: BTreeMap::from([("outer".to_owned(), "kept".to_owned())]),
+        };
+        let binding = RegisteredCaptureBinding {
+            capture_index: 0,
+            parser_id: HOST_CONDITION_PARSER_ID.to_owned(),
+            required: true,
+            options: BTreeMap::from([
+                (
+                    CAPTURE_CONTEXT_EVENT_CLASSES.to_owned(),
+                    "fixture.ParseEvent; fixture.ContextlessEvent".to_owned(),
+                ),
+                (
+                    "context.value.parser.event-name".to_owned(),
+                    "parse".to_owned(),
+                ),
+            ]),
+        };
+
+        let nested = capture_context(&current, &binding, &[]).unwrap().unwrap();
+        assert_eq!(nested.syntax_context, 7);
+        assert_eq!(nested.event_classes.len(), 2);
+        assert_eq!(nested.values.get("outer").map(String::as_str), Some("kept"));
+        assert_eq!(
+            nested.values.get("parser.event-name").map(String::as_str),
+            Some("parse")
+        );
+        assert_eq!(current.event_classes[0].as_str(), "fixture.OuterEvent");
+    }
+
+    #[test]
+    fn expression_capture_expected_types_use_array_suffix_for_plurality() {
+        let binding = RegisteredCaptureBinding {
+            capture_index: 0,
+            parser_id: HOST_EXPRESSION_PARSER_ID.to_owned(),
+            required: true,
+            options: BTreeMap::from([(
+                CAPTURE_EXPRESSION_EXPECTED_TYPES.to_owned(),
+                "java.lang.String;org.bukkit.entity.Entity[]".to_owned(),
+            )]),
+        };
+
+        let expected = capture_expression_expected_types(&binding).unwrap();
+        assert_eq!(expected.len(), 2);
+        assert_eq!(expected[0].class_name.as_str(), "java.lang.String");
+        assert!(!expected[0].plural);
+        assert_eq!(expected[1].class_name.as_str(), "org.bukkit.entity.Entity");
+        assert!(expected[1].plural);
+    }
+
+    #[test]
+    fn expression_capture_time_state_overrides_the_parent_request() {
+        let binding = RegisteredCaptureBinding {
+            capture_index: 0,
+            parser_id: HOST_EXPRESSION_PARSER_ID.to_owned(),
+            required: true,
+            options: BTreeMap::from([(CAPTURE_EXPRESSION_TIME_STATE.to_owned(), "-1".to_owned())]),
+        };
+        assert_eq!(capture_expression_time_state(&binding, 1).unwrap(), -1);
+    }
+
+    #[test]
     fn pattern_prefilter_matches_unicode_literals() {
         let prefilter = PatternPrefilter {
             left_recursive: false,
@@ -3164,6 +3845,8 @@ mod tests {
                 mapped: source.map_range(TextRange::new(0, 7)).unwrap(),
             },
             return_type: Some(ClassName("java.lang.Object".to_owned())),
+            possible_return_types: vec![ClassName("java.lang.Object".to_owned())],
+            possible_return_types_state: PossibleReturnTypesState::Complete,
             multiplicity: Some(Multiplicity::Single),
             captures: Vec::new(),
             tags: Vec::new(),
@@ -3177,5 +3860,70 @@ mod tests {
 
         assert_eq!(summary.kind, "variable");
         assert_eq!(summary.multiplicity, Some(Multiplicity::Single));
+    }
+
+    #[test]
+    fn capture_context_can_derive_values_from_expression_children() {
+        let source = MappedSource::identity("{values::*}");
+        let child = ExpressionNode {
+            kind: ExpressionNodeKind::Variable {
+                parser_id: "core.variable".to_owned(),
+            },
+            function: None,
+            span: MatchSpan {
+                local_range: TextRange::new(0, 11),
+                mapped: source.map_range(TextRange::new(0, 11)).unwrap(),
+            },
+            return_type: Some(ClassName("java.lang.Object".to_owned())),
+            possible_return_types: vec![ClassName("org.bukkit.entity.Player".to_owned())],
+            possible_return_types_state: PossibleReturnTypesState::Complete,
+            multiplicity: Some(Multiplicity::Multiple),
+            captures: Vec::new(),
+            tags: Vec::new(),
+            mark: 0,
+            children: Vec::new(),
+            routed_captures: Vec::new(),
+            metadata: BTreeMap::from([(
+                "expression.capability.key-provider".to_owned(),
+                "true".to_owned(),
+            )]),
+        };
+        let binding = RegisteredCaptureBinding {
+            capture_index: 1,
+            parser_id: HOST_CONDITION_PARSER_ID.to_owned(),
+            required: true,
+            options: BTreeMap::from([
+                (
+                    "context.value.core.input-source.value-types".to_owned(),
+                    "java.lang.Object".to_owned(),
+                ),
+                (
+                    "context.value-from-child.core.input-source.value-types".to_owned(),
+                    "0.possible-return-types".to_owned(),
+                ),
+                (
+                    "context.value-from-child.core.input-source.has-indices".to_owned(),
+                    "0.metadata.expression.capability.key-provider".to_owned(),
+                ),
+            ]),
+        };
+
+        let nested = capture_context(&ExpressionParseContext::default(), &binding, &[child])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            nested
+                .values
+                .get("core.input-source.value-types")
+                .map(String::as_str),
+            Some("org.bukkit.entity.Player")
+        );
+        assert_eq!(
+            nested
+                .values
+                .get("core.input-source.has-indices")
+                .map(String::as_str),
+            Some("true")
+        );
     }
 }

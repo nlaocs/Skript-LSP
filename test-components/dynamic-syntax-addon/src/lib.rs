@@ -98,6 +98,9 @@ impl addon::Guest for DynamicSyntaxAddon {
             after: Vec::new(),
             return_type: None,
             return_multiplicity: None,
+            structure_node_type: None,
+            structure_body_mode: None,
+            entry_validator: None,
             handler: "dynamic.initial-effect".to_owned(),
             metadata: Vec::new(),
         })
@@ -141,6 +144,9 @@ impl hooks::Guest for DynamicSyntaxAddon {
             })],
             return_type: None,
             return_multiplicity: None,
+            structure_node_type: None,
+            structure_body_mode: None,
+            entry_validator: None,
             handler: "dynamic.prepass-effect".to_owned(),
             metadata: Vec::new(),
         })

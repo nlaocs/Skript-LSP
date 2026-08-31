@@ -10,10 +10,11 @@ use crate::{
     ExpressionParserConfig, ExpressionSession, FailureFrame, FailureFrameRole, FailureTrace,
     HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchSpan, ParsedCapture,
     ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure,
-    RankedFailures, RawNode, RawNodeId, RawNodeKind, RegisteredSyntaxIdentity, TextRange,
+    PatternFailureReason, RankedFailures, RawNode, RawNodeId, RawNodeKind,
+    RegisteredSyntaxIdentity, TextRange,
 };
 use std::collections::{BTreeMap, HashSet};
-use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
+use syntaxes::{Catalog, DynamicSyntaxSnapshot, PossibleReturnTypesState, SyntaxKind};
 use thiserror::Error;
 
 /// Input required to parse one lossless Simple node as an Effect.
@@ -40,6 +41,34 @@ pub struct EffectCandidate {
     pub handler: Option<String>,
     /// Addon-owned metadata attached to a dynamic registration.
     pub metadata: BTreeMap<String, String>,
+}
+
+/// Fully parsed Effect candidate offered to CoreLibrary and addon semantics.
+pub struct EffectSemanticRequest<'a> {
+    /// Source text covered by the candidate's containing Effect node.
+    pub input: &'a str,
+    /// Context visible before the candidate is accepted.
+    pub context: &'a ExpressionParseContext,
+    /// Candidate with all recursively parsed captures.
+    pub candidate: &'a EffectCandidate,
+}
+
+/// Semantic decision returned after an Effect candidate matched structurally.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectSemanticDecision {
+    /// Accept the parser-owned candidate without changing it.
+    UseCandidate,
+    /// Accept the candidate with addon metadata and context for following nodes.
+    Accepted {
+        context: ExpressionParseContext,
+        handler: Option<String>,
+        metadata: BTreeMap<String, String>,
+    },
+    /// Reject this candidate while allowing lower-ranked candidates to continue.
+    Reject {
+        reason: String,
+        diagnostics: Vec<crate::SemanticDiagnostic>,
+    },
 }
 
 impl EffectCandidate {
@@ -243,7 +272,10 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         .collect::<Vec<_>>();
     let mut accepted = Vec::new();
     let mut candidate_failures = Vec::new();
+    let initial_context = session.context().clone();
+    let mut selected_context = None;
     for matched in ranked.drain(..) {
+        session.replace_context(initial_context.clone());
         let resolved_order = candidates
             .iter()
             .find(|candidate| candidate.registration_id == matched.registration_id)
@@ -263,27 +295,27 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         session
             .begin_semantic_candidate()
             .map_err(|message| ExpressionParseError::Environment { message })?;
-        let candidate = effect_candidate(
-            raw_node_id,
-            matched,
-            resolved_order,
-            session,
-            range.start,
-            depth,
-        );
+        let candidate =
+            effect_candidate(raw_node_id, matched, resolved_order, session, range, depth);
         let keep = candidate.as_ref().is_ok_and(|candidate| {
             matches!(candidate, EffectCandidateResolution::Accepted(_)) && accepted.is_empty()
         });
+        if keep {
+            selected_context = Some(session.context().clone());
+        }
         session
             .finish_semantic_candidate(keep)
             .map_err(|message| ExpressionParseError::Environment { message })?;
         match candidate? {
-            EffectCandidateResolution::Accepted(candidate) => accepted.push(candidate),
+            EffectCandidateResolution::Accepted(candidate) => {
+                accepted.push(candidate);
+            }
             EffectCandidateResolution::Rejected(candidate) => {
                 candidate_failures.push(candidate);
             }
         }
     }
+    session.replace_context(selected_context.unwrap_or(initial_context));
     let selected = (!accepted.is_empty()).then(|| accepted.remove(0));
     let alternatives = accepted;
     if selected.is_none()
@@ -334,20 +366,27 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
                 .into_iter()
                 .map(|matched| effect_candidate_failure(session, matched)),
         );
-        candidate_failures.sort_by_key(|candidate| {
-            let trace = &candidate.matched.trace;
-            let root = trace.root_cause();
-            let range = root.failure.span.mapped.virtual_range;
-            (
-                std::cmp::Reverse(trace.specificity()),
-                std::cmp::Reverse(range.end),
-                std::cmp::Reverse(range.end.saturating_sub(range.start)),
-                std::cmp::Reverse(candidate.matched.literal_anchor),
-                candidate.matched.resolved_order.is_none(),
-                candidate.matched.resolved_order.unwrap_or(usize::MAX),
-                candidate.matched.priority,
-                candidate.matched.registration_order,
+        candidate_failures.sort_by(|current, candidate| {
+            crate::failure::compare_failure_trace_rank(
+                &current.matched.trace,
+                &candidate.matched.trace,
             )
+            .then_with(|| {
+                (
+                    std::cmp::Reverse(current.matched.literal_anchor),
+                    current.matched.resolved_order.is_none(),
+                    current.matched.resolved_order.unwrap_or(usize::MAX),
+                    current.matched.priority,
+                    current.matched.registration_order,
+                )
+                    .cmp(&(
+                        std::cmp::Reverse(candidate.matched.literal_anchor),
+                        candidate.matched.resolved_order.is_none(),
+                        candidate.matched.resolved_order.unwrap_or(usize::MAX),
+                        candidate.matched.priority,
+                        candidate.matched.registration_order,
+                    ))
+            })
         });
         let mut seen = HashSet::new();
         candidate_failures.retain(|candidate| {
@@ -438,6 +477,8 @@ pub(crate) fn effect_semantic_summary(
             .map(|effect| effect.common.element_class.clone()),
         pattern_index: Some(candidate.matched.pattern_index),
         return_type: None,
+        possible_return_types: Vec::new(),
+        possible_return_types_state: PossibleReturnTypesState::Complete,
         multiplicity: None,
         metadata: candidate.metadata.clone(),
     }
@@ -448,9 +489,10 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
     matched: CandidateMatch,
     resolved_order: Option<usize>,
     session: &mut ExpressionSession<'_, E>,
-    frame_start: usize,
+    frame_range: TextRange,
     depth: usize,
 ) -> Result<EffectCandidateResolution, EffectParseError> {
+    let frame_start = frame_range.start;
     let dynamic = session.dynamic_snapshot().and_then(|snapshot| {
         snapshot
             .definitions
@@ -463,6 +505,7 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         .find(|effect| effect.common.registration_id.as_str() == matched.registration_id)
         .map(|effect| effect.common.element_class.clone());
     let handler = dynamic.map(|definition| definition.handler.clone());
+    let dynamic_handler = dynamic.map(|definition| definition.handler.as_str());
     let metadata = dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone());
     let capture_bindings = session
         .environment()
@@ -471,6 +514,10 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             definition_id: &matched.definition_id,
             registration_id: &matched.registration_id,
             pattern_index: Some(matched.pattern_index),
+            pattern_source: Some(&matched.pattern),
+            tags: Some(&matched.matched.tags),
+            mark: Some(matched.matched.mark),
+            dynamic_handler,
         })
         .map_err(|message| {
             EffectParseError::Expression(ExpressionParseError::Environment { message })
@@ -502,8 +549,16 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         let range = TextRange::new(frame_start + local.start, frame_start + local.end);
         let parsed = match binding.parser_id.as_str() {
             HOST_CONDITION_PARSER_ID => {
+                let context = session.capture_context(binding).map_err(|message| {
+                    EffectParseError::Expression(ExpressionParseError::Environment { message })
+                })?;
+                let previous = context.map(|context| session.replace_context(context));
                 let parsed =
-                    crate::condition::parse_condition_with_session(session, range, depth + 1)?;
+                    crate::condition::parse_condition_with_session(session, range, depth + 1);
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed?;
                 match parsed.selected {
                     Some(selected) => {
                         let mut capture =
@@ -549,8 +604,16 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                 }
             }
             HOST_EFFECT_PARSER_ID => {
+                let context = session.capture_context(binding).map_err(|message| {
+                    EffectParseError::Expression(ExpressionParseError::Environment { message })
+                })?;
+                let previous = context.map(|context| session.replace_context(context));
                 let parsed =
-                    parse_effect_range_with_session(session, range, raw_node_id, depth + 1)?;
+                    parse_effect_range_with_session(session, range, raw_node_id, depth + 1);
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed?;
                 match parsed.selected {
                     Some(selected) => ParsedCapture {
                         capture_index,
@@ -637,13 +700,73 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             parsed_captures.push(parsed);
         }
     }
-    Ok(EffectCandidateResolution::Accepted(EffectCandidate {
+    let mut candidate = EffectCandidate {
         raw_node_id,
         matched,
         parsed_captures,
         handler,
         metadata,
-    }))
+    };
+    let input = frame_range
+        .slice(session.source().virtual_source())
+        .ok_or(EffectParseError::InvalidCodeRange { range: frame_range })?;
+    let context = session.context().clone();
+    let decision = session
+        .environment_mut()
+        .resolve_effect_candidate(EffectSemanticRequest {
+            input,
+            context: &context,
+            candidate: &candidate,
+        })
+        .map_err(|message| {
+            EffectParseError::Expression(ExpressionParseError::Environment { message })
+        })?;
+    match decision {
+        EffectSemanticDecision::UseCandidate => {}
+        EffectSemanticDecision::Accepted {
+            context,
+            handler,
+            metadata,
+        } => {
+            session.replace_context(context);
+            candidate.handler = handler;
+            candidate.metadata = metadata;
+        }
+        EffectSemanticDecision::Reject {
+            reason,
+            diagnostics,
+        } => {
+            let candidate_span = candidate.matched.matched.span.clone();
+            let span = crate::failure::semantic_failure_span(&candidate_span, &diagnostics);
+            let trace = FailureTrace::leaf(PatternFailure {
+                span: span.clone(),
+                reasons: vec![PatternFailureReason::HookRejected { reason }],
+            })
+            .with_parent(FailureFrame {
+                kind: candidate.matched.kind,
+                definition_id: candidate.matched.definition_id.clone(),
+                registration_id: candidate.matched.registration_id.clone(),
+                pattern_index: candidate.matched.pattern_index,
+                pattern: candidate.matched.pattern.clone(),
+                element_path: Vec::new(),
+                pattern_span: None,
+                input_span: candidate_span,
+                role: FailureFrameRole::SemanticCandidate,
+            })
+            .with_semantic_diagnostics(diagnostics);
+            return Ok(EffectCandidateResolution::Rejected(
+                semantic_effect_candidate_failure(
+                    &candidate.matched,
+                    resolved_order,
+                    trace,
+                    element_class,
+                    candidate.handler,
+                    candidate.metadata,
+                ),
+            ));
+        }
+    }
+    Ok(EffectCandidateResolution::Accepted(candidate))
 }
 
 fn semantic_effect_candidate_failure(
@@ -687,7 +810,7 @@ fn condition_failure_trace(unknown: crate::UnknownCondition) -> FailureTrace {
         .unwrap_or_else(|| nested_failure_trace(unknown.span))
 }
 
-fn effect_failure_trace(unknown: UnknownEffectNode) -> FailureTrace {
+pub(crate) fn effect_failure_trace(unknown: UnknownEffectNode) -> FailureTrace {
     let RankedFailures {
         fallback,
         candidates,
@@ -695,7 +818,15 @@ fn effect_failure_trace(unknown: UnknownEffectNode) -> FailureTrace {
     candidates
         .into_iter()
         .next()
-        .map(|candidate| candidate.matched.trace)
+        .map(|candidate| {
+            let mut trace = candidate.matched.trace;
+            for related in candidate.matched.related {
+                trace
+                    .semantic_diagnostics
+                    .extend(related.semantic_diagnostics().into_iter().cloned());
+            }
+            trace
+        })
         .or(fallback)
         .unwrap_or_else(|| nested_failure_trace(unknown.span))
 }

@@ -1,7 +1,7 @@
 use parser_wasm::bindings::nlaocs::skript_parser_addon::types::DocumentPayload;
 use parser_wasm::host::{
     DispatchRequest, DispatchTarget, HookDecision, HookPayload, HookPhase, HostConfig, HostError,
-    InvocationContext, ParserHost,
+    InvocationContext, ParserHost, RuntimeProfile,
 };
 
 const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
@@ -31,6 +31,16 @@ fn document_request(phase: HookPhase) -> DispatchRequest {
     }
 }
 
+fn core_config() -> HostConfig {
+    HostConfig {
+        runtime_profile: RuntimeProfile {
+            skript_version: Some("2.15.4".to_owned()),
+            ..RuntimeProfile::default()
+        },
+        ..HostConfig::default()
+    }
+}
+
 #[test]
 fn rejects_a_missing_core_library() {
     let error = ParserHost::new(&[], HostConfig::default())
@@ -41,8 +51,7 @@ fn rejects_a_missing_core_library() {
 
 #[test]
 fn loads_and_initializes_the_mandatory_core_library() {
-    let host =
-        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+    let host = ParserHost::new(CORE_LIBRARY, core_config()).expect("CoreLibrary must initialize");
     let components = host.components();
     assert_eq!(components.len(), 1);
     assert_eq!(components[0].component_id, "nlaocs.core-library");
@@ -53,9 +62,9 @@ fn loads_and_initializes_the_mandatory_core_library() {
 #[test]
 fn skips_wasm_when_no_subscription_matches_the_phase() {
     let mut host =
-        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+        ParserHost::new(CORE_LIBRARY, core_config()).expect("CoreLibrary must initialize");
     let result = host
-        .dispatch(document_request(HookPhase::Ast))
+        .dispatch("file:///workspace", document_request(HookPhase::Ast))
         .expect("unmatched dispatch must succeed");
     assert!(result.calls.is_empty());
     assert!(result.failures.is_empty());
@@ -65,9 +74,9 @@ fn skips_wasm_when_no_subscription_matches_the_phase() {
 #[test]
 fn dispatches_the_core_health_subscription() {
     let mut host =
-        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+        ParserHost::new(CORE_LIBRARY, core_config()).expect("CoreLibrary must initialize");
     let result = host
-        .dispatch(document_request(HookPhase::Document))
+        .dispatch("file:///workspace", document_request(HookPhase::Document))
         .expect("health hook must dispatch");
     assert_eq!(result.calls.len(), 1);
     assert_eq!(result.calls[0].component_id, "nlaocs.core-library");
@@ -83,7 +92,7 @@ fn dispatches_the_core_health_subscription() {
 #[test]
 fn dispatches_multiple_phases_inside_an_explicit_parse_transaction() {
     let mut host =
-        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+        ParserHost::new(CORE_LIBRARY, core_config()).expect("CoreLibrary must initialize");
     let transaction = host
         .begin_parse("file:///workspace", "file:///test.sk", 1)
         .expect("parse transaction must begin");
@@ -101,7 +110,7 @@ fn dispatches_multiple_phases_inside_an_explicit_parse_transaction() {
 #[test]
 fn rejects_a_dispatch_for_a_different_document_revision() {
     let mut host =
-        ParserHost::new(CORE_LIBRARY, HostConfig::default()).expect("CoreLibrary must initialize");
+        ParserHost::new(CORE_LIBRARY, core_config()).expect("CoreLibrary must initialize");
     let transaction = host
         .begin_parse("file:///workspace", "file:///test.sk", 2)
         .expect("parse transaction must begin");

@@ -1,5 +1,6 @@
 use super::{
     SemanticResolution, matches, metadata, optional_integer_amount_multiplicity, register_handler,
+    resolved_with_metadata,
 };
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
@@ -21,9 +22,33 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 "random number Expression has an unexpected child layout".to_owned(),
             );
         };
-        let integer = payload.tags.iter().any(|tag| tag.value == "integer");
+        // Skript 2.7 replaced the numeric parse mark (`1¦integer`) with the
+        // named `:integer` tag. The registration itself is the compatibility boundary.
+        let Some(integer) = integer_variant(
+            crate::runtime::skript_at_least(2, 7),
+            payload.mark,
+            payload.tags.iter().any(|tag| tag.value == "integer"),
+        ) else {
+            return SemanticResolution::Unresolved {
+                reason: "Skript version is unavailable, so random number syntax is unresolved"
+                    .to_owned(),
+                metadata: vec![metadata("semantic-mode", "random-number")],
+            };
+        };
         resolution(integer, multiplicity, payload.children.len() == 2)
     })
+}
+
+fn integer_variant(
+    version_at_least_27: Option<bool>,
+    mark: i32,
+    has_integer_tag: bool,
+) -> Option<bool> {
+    match version_at_least_27 {
+        Some(true) => Some(has_integer_tag),
+        Some(false) => Some(mark == 1),
+        None => None,
+    }
 }
 
 fn resolution(
@@ -31,10 +56,10 @@ fn resolution(
     multiplicity: DynamicMultiplicity,
     implicit_amount: bool,
 ) -> SemanticResolution {
-    SemanticResolution::Resolved {
-        return_type: if integer { INTEGER } else { NUMBER }.to_owned(),
+    resolved_with_metadata(
+        if integer { INTEGER } else { NUMBER }.to_owned(),
         multiplicity,
-        metadata: vec![
+        vec![
             metadata("semantic-mode", "random-number"),
             metadata("numeric-kind", if integer { "integer" } else { "number" }),
             metadata(
@@ -46,7 +71,7 @@ fn resolution(
                 },
             ),
         ],
-    }
+    )
 }
 
 #[cfg(test)]
@@ -64,6 +89,9 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: Some(return_type.to_owned()),
+            possible_return_types: vec![return_type.to_owned()],
+            possible_return_types_state:
+                crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
             metadata: Vec::new(),
         }
@@ -83,15 +111,17 @@ mod tests {
 
     #[test]
     fn explicit_literal_one_is_single() {
-        let children = [
-            child("1", "literal", INTEGER),
-            child("lower", "variable", NUMBER),
-            child("upper", "variable", NUMBER),
-        ];
-        assert_eq!(
-            optional_integer_amount_multiplicity(&children),
-            Some(DynamicMultiplicity::Single)
-        );
+        for integer_class in ["java.lang.Long", "java.lang.Integer"] {
+            let children = [
+                child("1", "literal", integer_class),
+                child("lower", "variable", NUMBER),
+                child("upper", "variable", NUMBER),
+            ];
+            assert_eq!(
+                optional_integer_amount_multiplicity(&children),
+                Some(DynamicMultiplicity::Single)
+            );
+        }
     }
 
     #[test]
@@ -123,6 +153,7 @@ mod tests {
             return_type,
             multiplicity,
             metadata,
+            ..
         } = resolution(true, DynamicMultiplicity::Multiple, false)
         else {
             panic!("random number resolution must succeed");
@@ -132,5 +163,12 @@ mod tests {
         assert_eq!(metadata[0].value, "random-number");
         assert_eq!(metadata[1].value, "integer");
         assert_eq!(metadata[2].value, "expression");
+    }
+
+    #[test]
+    fn unknown_version_does_not_choose_mark_or_tag_syntax() {
+        assert_eq!(integer_variant(None, 1, true), None);
+        assert_eq!(integer_variant(Some(false), 1, false), Some(true));
+        assert_eq!(integer_variant(Some(true), 0, true), Some(true));
     }
 }

@@ -24,6 +24,27 @@ pub struct CatalogSourceRecord {
     pub json: Arc<[u8]>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Runtime server and plugin identity retained from SSG Manifest.json.
+pub struct CatalogRuntime {
+    pub server_name: String,
+    pub server_version: String,
+    pub minecraft_version: String,
+    pub java_version: String,
+    pub language: String,
+    pub plugins: Vec<CatalogRuntimePlugin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One runtime plugin in captured server load order.
+pub struct CatalogRuntimePlugin {
+    pub load_order: usize,
+    pub name: String,
+    pub version: String,
+    pub main: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone)]
 /// Opaque, forward-compatible documents and indexes behind a normalized catalog.
 ///
@@ -38,6 +59,7 @@ pub struct CatalogSource {
     pub snapshot_id: String,
     /// Digest of every retained source filename and exact byte sequence.
     pub source_digest: String,
+    pub runtime: Option<CatalogRuntime>,
     documents: BTreeMap<String, Arc<[u8]>>,
     records: HashMap<(String, usize), CatalogSourceRecord>,
     registration_records: HashMap<String, Vec<CatalogSourceRecord>>,
@@ -99,11 +121,18 @@ impl CatalogSource {
             schema_version,
             snapshot_id: snapshot_id.into(),
             source_digest,
+            runtime: None,
             documents,
             records: indexed_records,
             registration_records,
             definition_records,
         })
+    }
+
+    /// Attaches runtime identity validated alongside the retained documents.
+    pub fn with_runtime(mut self, runtime: CatalogRuntime) -> Self {
+        self.runtime = Some(runtime);
+        self
     }
 
     /// Returns source document names in deterministic order.
@@ -146,6 +175,8 @@ pub struct CatalogParts {
     pub classes: Vec<Class>,
     pub aliases: AliasRegistry,
     pub plural_rules: PluralRules,
+    /// Effective global language entries collected from the SSG snapshot.
+    pub language: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -616,20 +647,34 @@ impl Catalog {
         &self.parts.event_values
     }
 
-    /// Resolves event values inherited by an event class, honoring exclusions and order.
-    pub fn event_values_for(&self, event_class: &str) -> Vec<&EventValue> {
+    /// Returns inherited EventValue candidates before per-registration validation.
+    ///
+    /// Semantic hosts need the excluded candidates as well because native
+    /// Skript treats an exclusion as an abort, not as an absent registration.
+    pub fn event_value_candidates_for(&self, event_class: &str) -> Vec<&EventValue> {
         let mut positions = self
-            .class_lineage(event_class)
-            .into_iter()
-            .filter_map(|class| self.index.event_values_by_event_class.get(class))
-            .flatten()
-            .copied()
+            .parts
+            .event_values
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| {
+                self.is_class_assignable(event_class, value.event_class.as_str())
+                    || self.is_class_assignable(value.event_class.as_str(), event_class)
+            })
+            .map(|(position, _)| position)
             .collect::<Vec<_>>();
         positions
             .sort_unstable_by_key(|position| self.parts.event_values[*position].resolution_order);
         positions
             .into_iter()
             .map(|position| &self.parts.event_values[position])
+            .collect()
+    }
+
+    /// Resolves event values inherited by an event class, honoring exclusions and order.
+    pub fn event_values_for(&self, event_class: &str) -> Vec<&EventValue> {
+        self.event_value_candidates_for(event_class)
+            .into_iter()
             .filter(|value| {
                 !value.excludes.as_ref().is_some_and(|excludes| {
                     excludes
@@ -729,27 +774,28 @@ impl Catalog {
         &self.parts.classes
     }
 
-    fn class_lineage<'a>(&'a self, class_name: &'a str) -> Vec<&'a str> {
-        let mut result = Vec::new();
-        let mut pending = VecDeque::from([class_name]);
-        let mut visited = HashSet::new();
-        while let Some(current) = pending.pop_front() {
-            if !visited.insert(current) {
-                continue;
-            }
-            result.push(current);
-            if let Some(class) = self.class(current) {
-                pending.extend(
-                    class
-                        .super_class
-                        .iter()
-                        .chain(class.interfaces.iter())
-                        .map(|parent| parent.as_str()),
-                );
-            }
-        }
-        result
+    /// Replays Skript's `Class.getDeclaredMethod` feature probe.
+    ///
+    /// `None` means either the class or declared-method metadata is unavailable.
+    pub fn declared_method_exists(
+        &self,
+        class_name: &str,
+        method_name: &str,
+        parameter_types: &[&str],
+        return_type: Option<&str>,
+    ) -> Option<bool> {
+        let methods = self.class(class_name)?.methods.as_ref()?;
+        Some(methods.iter().any(|method| {
+            method.name == method_name
+                && method
+                    .parameter_types
+                    .iter()
+                    .map(ClassName::as_str)
+                    .eq(parameter_types.iter().copied())
+                && return_type.is_none_or(|expected| method.return_type.as_str() == expected)
+        }))
     }
+
     /// Tests generated Java assignability from `from` to `to` without loading classes.
     ///
     /// The traversal follows the generated superclass and interface graph and
@@ -801,6 +847,33 @@ impl Catalog {
             }
         }
         false
+    }
+
+    /// Returns Skript's superclass-chain distance from `subclass` to `superclass`.
+    ///
+    /// This mirrors `ClassUtils.hierarchyDistance`: Java assignability is checked
+    /// first, then only the concrete superclass chain contributes to the distance.
+    /// Implemented interfaces therefore use the depth from the class to the end
+    /// of that chain, matching Skript's runtime comparator.
+    pub fn hierarchy_distance(&self, superclass: &str, subclass: &str) -> Option<u64> {
+        if !self.is_class_assignable(subclass, superclass) {
+            return None;
+        }
+        if superclass == subclass {
+            return Some(0);
+        }
+
+        let mut distance = 0_u64;
+        let mut current = Some(subclass);
+        while let Some(class_name) = current {
+            if class_name == superclass {
+                break;
+            }
+            let class = self.class(class_name)?;
+            current = class.super_class.as_ref().map(ClassName::as_str);
+            distance = distance.saturating_add(1);
+        }
+        Some(distance)
     }
 
     /// Finds the Skript-compatible common Java type for two captured classes.
@@ -933,9 +1006,51 @@ impl Catalog {
         &self.parts.differences
     }
 
+    /// Returns difference handlers whose registered input accepts `input_class`.
+    ///
+    /// Exact handlers come first, followed by the closest superclass handlers
+    /// and registration order. Returning every candidate lets semantic addons
+    /// preserve uncertainty instead of baking one runtime policy into the host.
+    pub fn difference_options_for_type(&self, input_class: &str) -> Vec<&Difference> {
+        let mut differences = self
+            .parts
+            .differences
+            .iter()
+            .filter(|difference| {
+                self.is_class_assignable(input_class, difference.input_type.as_str())
+            })
+            .collect::<Vec<_>>();
+        differences.sort_by_key(|difference| {
+            (
+                difference.input_type.as_str() != input_class,
+                self.hierarchy_distance(difference.input_type.as_str(), input_class)
+                    .unwrap_or(u64::MAX),
+                difference.registration_order,
+            )
+        });
+        differences
+    }
+
     /// Returns the exact server-specific plural conversion rules.
     pub fn plural_rules(&self) -> &PluralRules {
         &self.parts.plural_rules
+    }
+
+    /// Returns the exact runtime-localized value for a language key.
+    ///
+    /// Keys are case-sensitive because Skript's language registry treats them as
+    /// resource identifiers, not user-facing words. An absent key is distinct
+    /// from a present key whose value is an empty string.
+    pub fn language_value(&self, key: &str) -> Option<&str> {
+        self.parts.language.get(key).map(String::as_str)
+    }
+
+    /// Iterates effective runtime language entries in deterministic key order.
+    pub fn language_entries(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.parts
+            .language
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
     }
 }
 

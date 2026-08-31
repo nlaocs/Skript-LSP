@@ -651,6 +651,11 @@ pub struct ParseTransaction {
 }
 
 impl ParseTransaction {
+    /// Returns the canonical project URI bound to this transaction.
+    pub fn project_uri(&self) -> Result<String, StateError> {
+        Ok(self.lock()?.project_uri.clone())
+    }
+
     /// Starts a speculative hook overlay owned by `component_id`.
     pub fn begin_invocation(
         &self,

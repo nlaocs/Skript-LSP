@@ -46,7 +46,10 @@ pub struct EventCandidate {
     /// Bukkit event classes whose event values are visible in the body.
     pub reference_events: Vec<ClassName>,
     /// Whether the registration represents a cancellable event.
-    pub cancellable: bool,
+    /// Dynamic registrations leave this unresolved unless their addon publishes metadata.
+    pub cancellable: Option<bool>,
+    /// Whether this Event accepts an explicit priority modifier.
+    pub priority_supported: Option<bool>,
     /// Opaque handler selected by a dynamic registration.
     pub handler: Option<String>,
     /// Dynamic registration metadata retained for addon consumers.
@@ -220,13 +223,15 @@ fn event_candidate<E: ExpressionParseEnvironment>(
         .find(|event| event.common.registration_id.as_str() == matched.registration_id);
     let element_class = event.map(|event| event.common.element_class.clone());
     let reference_events = event.map_or_else(Vec::new, |event| event.reference_events.clone());
-    let cancellable = event.is_some_and(|event| event.cancellable);
+    let cancellable = event.map(|event| event.cancellable);
+    let priority_supported = event.and_then(|event| event.priority_supported);
     Ok(EventCandidate {
         span: session.map_range(range)?,
         matched,
         element_class,
         reference_events,
         cancellable,
+        priority_supported,
         handler: dynamic.map(|definition| definition.handler.clone()),
         metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
     })

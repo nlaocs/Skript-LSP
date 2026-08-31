@@ -92,6 +92,17 @@ pub(super) fn candidate_from_option(
         "literal-enum-constant",
         option.enum_constant.as_deref(),
     );
+    if let Some(all) = option.alias_all {
+        candidate
+            .metadata
+            .push(metadata("literal-alias-all", &all.to_string()));
+    }
+    if let Some(type_count) = option.alias_type_count {
+        candidate.metadata.push(metadata(
+            "literal-alias-type-count",
+            &type_count.to_string(),
+        ));
+    }
     candidate
 }
 

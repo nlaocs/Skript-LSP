@@ -1,6 +1,14 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
-use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
+use std::collections::BTreeMap;
+
+use super::{
+    SemanticResolution, matches, metadata, register_handler, resolved_with_possible_types,
+};
+use crate::{
+    catalog::{self, AcceptedChangeType, ChangeContract},
+    nlaocs::skript_parser_addon::types::{
+        DynamicMultiplicity, ExpressionPossibleReturnTypesState, RegisteredExpressionPayload,
+        RegisteredSyntaxHandler,
+    },
 };
 
 const CLASS_SUFFIX: &str = ".ExprCustomModelData";
@@ -12,165 +20,189 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
     matches(payload, HANDLER_ID).then(|| {
-        let (return_type, multiplicity, mode) = match payload.mark {
-            0 => {
-                let Some(multiplicity) = payload
-                    .children
-                    .first()
-                    .and_then(|child| child.multiplicity)
-                else {
-                    return SemanticResolution::Reject(
-                        "custom model data Expression requires an item source".to_owned(),
-                    );
-                };
-                ("java.lang.Integer", multiplicity, "legacy-integer")
-            }
-            1 => ("java.lang.Float", DynamicMultiplicity::Multiple, "floats"),
-            2 => ("java.lang.Boolean", DynamicMultiplicity::Multiple, "flags"),
-            3 => ("java.lang.String", DynamicMultiplicity::Multiple, "strings"),
-            4 => (
+        let source_multiplicity = payload
+            .children
+            .first()
+            .and_then(|child| child.multiplicity);
+        // Extra component patterns only exist when Bukkit exposes
+        // CustomModelDataComponent, so the SSG registration already encodes that capability.
+        // Skript 2.12 also changed the shared integer branch from Long to Integer even when
+        // running on an older Minecraft release where only that branch is registered.
+        let modern = crate::runtime::skript_at_least(2, 12).unwrap_or(payload.mark > 0);
+        let Some((return_type, possible_return_types, multiplicity, mode, accepted)) =
+            custom_model_data_semantics(modern, payload.mark, source_multiplicity)
+        else {
+            return SemanticResolution::Reject(
+                "custom model data Expression has an unknown parse mark or source multiplicity"
+                    .to_owned(),
+            );
+        };
+
+        let contract = change_contract(&accepted, modern);
+        let mut output_metadata = vec![
+            metadata("semantic-mode", "custom-model-data"),
+            metadata("custom-model-data-kind", mode),
+        ];
+        output_metadata.push(
+            catalog::change_contract_metadata(&payload.registration_id, &contract)
+                .expect("an in-memory custom model data contract must serialize"),
+        );
+        resolved_with_possible_types(
+            return_type.to_owned(),
+            possible_return_types
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            ExpressionPossibleReturnTypesState::Complete,
+            multiplicity,
+            output_metadata,
+        )
+    })
+}
+
+type CustomModelDataSemantics = (
+    &'static str,
+    Vec<&'static str>,
+    DynamicMultiplicity,
+    &'static str,
+    Vec<AcceptedChangeType>,
+);
+
+fn custom_model_data_semantics(
+    modern: bool,
+    mark: i32,
+    source_multiplicity: Option<DynamicMultiplicity>,
+) -> Option<CustomModelDataSemantics> {
+    let source_multiplicity = source_multiplicity?;
+    if !modern {
+        return (mark == 0).then(|| {
+            (
+                "java.lang.Long",
+                vec!["java.lang.Long"],
+                source_multiplicity,
+                "legacy-long",
+                vec![accepted("java.lang.Number", false)],
+            )
+        });
+    }
+    let (return_type, possible, multiplicity, mode, accepted_types) = match mark {
+        0 => (
+            "java.lang.Integer",
+            vec!["java.lang.Integer"],
+            source_multiplicity,
+            "integer",
+            vec![accepted("java.lang.Integer", true)],
+        ),
+        1 => component("java.lang.Float", "floats"),
+        2 => component("java.lang.Boolean", "flags"),
+        3 => component("java.lang.String", "strings"),
+        4 => component("ch.njol.skript.util.Color", "colors"),
+        5 => {
+            let types = vec![
+                "java.lang.Float",
+                "java.lang.Boolean",
+                "java.lang.String",
                 "ch.njol.skript.util.Color",
-                DynamicMultiplicity::Multiple,
-                "colors",
-            ),
-            5 => (
+            ];
+            (
                 "java.lang.Object",
+                types.clone(),
                 DynamicMultiplicity::Multiple,
                 "complete",
-            ),
-            _ => {
-                return SemanticResolution::Reject(
-                    "custom model data Expression has an unknown parse mark".to_owned(),
-                );
-            }
-        };
-        SemanticResolution::Resolved {
-            return_type: return_type.to_owned(),
-            multiplicity,
-            metadata: vec![
-                metadata("semantic-mode", "custom-model-data"),
-                metadata("custom-model-data-kind", mode),
-            ],
+                types
+                    .into_iter()
+                    .map(|value| accepted(value, true))
+                    .collect(),
+            )
         }
-    })
+        _ => return None,
+    };
+    Some((return_type, possible, multiplicity, mode, accepted_types))
+}
+
+fn component(class_name: &'static str, mode: &'static str) -> CustomModelDataSemantics {
+    (
+        class_name,
+        vec![class_name],
+        DynamicMultiplicity::Multiple,
+        mode,
+        vec![accepted(class_name, true)],
+    )
+}
+
+fn accepted(class_name: &str, multiple: bool) -> AcceptedChangeType {
+    AcceptedChangeType {
+        class_name: class_name.to_owned(),
+        multiple,
+    }
+}
+
+fn change_contract(accepted_types: &[AcceptedChangeType], modern: bool) -> ChangeContract {
+    // Skript <=2.11 returned Number.class for every ChangeMode. The component-based 2.12+
+    // implementation explicitly permits ADD, REMOVE, SET, DELETE and RESET, and uses array
+    // classes so plural component updates are legal.
+    let modes = if modern {
+        ["ADD", "REMOVE", "SET", "DELETE", "RESET"].as_slice()
+    } else {
+        ["ADD", "SET", "REMOVE_ALL", "REMOVE", "DELETE", "RESET"].as_slice()
+    };
+    ChangeContract::Resolved {
+        modes: modes
+            .iter()
+            .map(|mode| ((*mode).to_owned(), accepted_types.to_vec()))
+            .collect::<BTreeMap<_, _>>(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nlaocs::skript_parser_addon::types::{
-        DynamicMultiplicity, ExpressionPossibleReturnTypesState, ExpressionReturnTypeState,
-        MappedSpan, OriginKind, RegisteredExpressionChild, RegisteredExpressionPayload,
-        SourceOrigin, TextRange,
-    };
 
-    fn payload(
-        mark: i32,
-        source_multiplicity: Option<DynamicMultiplicity>,
-    ) -> RegisteredExpressionPayload {
-        let range = TextRange { start: 0, end: 1 };
-        RegisteredExpressionPayload {
-            input: "custom model data".to_owned(),
-            definition_id: "expression:test".to_owned(),
-            registration_id: "expression:test:0".to_owned(),
-            element_class: "ch.njol.skript.expressions.ExprCustomModelData".to_owned(),
-            related_property: None,
-            pattern_index: 0,
-            pattern: "custom model data".to_owned(),
-            span: MappedSpan {
-                virtual_range: range,
-                origins: vec![SourceOrigin {
-                    original_range: range,
-                    kind: OriginKind::Exact,
-                    expansion: None,
-                }],
-            },
-            expected_types: Vec::new(),
-            declared_return_type: None,
-            declared_multiplicity: None,
-            return_type_state: ExpressionReturnTypeState::Dynamic,
-            possible_return_types: Vec::new(),
-            possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
-            regex_captures: Vec::new(),
-            tags: Vec::new(),
-            mark,
-            children: source_multiplicity.map_or_else(Vec::new, |multiplicity| {
-                vec![RegisteredExpressionChild {
-                    text: "item".to_owned(),
-                    kind: "custom".to_owned(),
-                    parser_id: None,
-                    definition_id: None,
-                    registration_id: None,
-                    pattern_index: None,
-                    element_class: None,
-                    return_type: Some("org.bukkit.inventory.ItemStack".to_owned()),
-                    multiplicity: Some(multiplicity),
-                    metadata: Vec::new(),
-                }]
-            }),
-            parsed_captures: Vec::new(),
-            common_child_return_type: None,
-            type_options: Vec::new(),
-            property_options: Vec::new(),
-            selected_property_option_indices: Vec::new(),
-            effective_return_type: None,
-            effective_multiplicity: None,
-            metadata: Vec::new(),
-        }
+    #[test]
+    fn pre_212_uses_long_and_accepts_every_change_mode() {
+        let (_, possible, _, mode, accepted) =
+            custom_model_data_semantics(false, 0, Some(DynamicMultiplicity::Single))
+                .expect("legacy custom model data must resolve");
+        assert_eq!(possible, ["java.lang.Long"]);
+        assert_eq!(mode, "legacy-long");
+        let ChangeContract::Resolved { modes } = change_contract(&accepted, false) else {
+            panic!("legacy contract must resolve");
+        };
+        assert_eq!(modes.len(), 6);
+        assert!(!accepted[0].multiple);
     }
 
     #[test]
-    fn mark_zero_delegates_source_multiplicity() {
-        let result = resolve(&payload(0, Some(DynamicMultiplicity::Single)));
-
-        assert!(matches!(
-            result,
-            Some(SemanticResolution::Resolved {
-                return_type,
-                multiplicity: DynamicMultiplicity::Single,
-                ..
-            }) if return_type == "java.lang.Integer"
-        ));
+    fn post_212_integer_branch_uses_integer_array_changers() {
+        let (return_type, possible, multiplicity, mode, accepted) =
+            custom_model_data_semantics(true, 0, Some(DynamicMultiplicity::Single))
+                .expect("integer custom model data must resolve");
+        assert_eq!(return_type, "java.lang.Integer");
+        assert_eq!(possible, ["java.lang.Integer"]);
+        assert_eq!(multiplicity, DynamicMultiplicity::Single);
+        assert_eq!(mode, "integer");
+        assert_eq!(accepted[0].class_name, "java.lang.Integer");
+        assert!(accepted[0].multiple);
+        let ChangeContract::Resolved { modes } = change_contract(&accepted, true) else {
+            panic!("modern contract must resolve");
+        };
+        assert_eq!(modes.len(), 5);
+        assert!(!modes.contains_key("REMOVE_ALL"));
     }
 
     #[test]
-    fn marks_select_the_documented_component_types() {
-        for (mark, expected_type) in [
-            (1, "java.lang.Float"),
-            (2, "java.lang.Boolean"),
-            (3, "java.lang.String"),
-            (4, "ch.njol.skript.util.Color"),
-            (5, "java.lang.Object"),
-        ] {
-            let Some(SemanticResolution::Resolved { return_type, .. }) =
-                resolve(&payload(mark, None))
-            else {
-                panic!("custom model data mark {mark} must resolve");
-            };
-            assert_eq!(return_type, expected_type);
-        }
-    }
-
-    #[test]
-    fn non_legacy_marks_are_multiple() {
-        assert!(matches!(
-            resolve(&payload(3, None)),
-            Some(SemanticResolution::Resolved {
-                multiplicity: DynamicMultiplicity::Multiple,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn mark_zero_requires_a_source_and_unknown_marks_are_rejected() {
-        assert!(matches!(
-            resolve(&payload(0, None)),
-            Some(SemanticResolution::Reject(_))
-        ));
-        assert!(matches!(
-            resolve(&payload(6, None)),
-            Some(SemanticResolution::Reject(_))
-        ));
+    fn component_marks_publish_complete_possible_types_and_changers() {
+        let (return_type, possible, multiplicity, mode, accepted) =
+            custom_model_data_semantics(true, 5, Some(DynamicMultiplicity::Single))
+                .expect("complete custom model data must resolve");
+        assert_eq!(return_type, "java.lang.Object");
+        assert_eq!(possible.len(), 4);
+        assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+        assert_eq!(mode, "complete");
+        assert!(accepted.iter().all(|value| value.multiple));
+        let ChangeContract::Resolved { modes } = change_contract(&accepted, true) else {
+            panic!("modern contract must resolve");
+        };
+        assert!(!modes.contains_key("REMOVE_ALL"));
     }
 }

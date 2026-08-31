@@ -10,3 +10,7 @@ pub(crate) fn parse(
 ) -> Option<ExpressionLeafCandidate> {
     variable::parse(payload, text, end)
 }
+
+pub(crate) fn is_valid_variable_name_body(body: &str, allow_list_variable: bool) -> bool {
+    variable::is_valid_variable_name_body(body, allow_list_variable)
+}

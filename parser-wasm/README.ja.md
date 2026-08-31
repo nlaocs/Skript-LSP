@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.19.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.27.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。
 
 Guest export:
@@ -42,7 +42,7 @@ Guest export:
 
 Host import:
 
-- `catalog-data`: SSGの全read-only document、ID lookup、型関係query
+- `catalog-data`: SSGの全read-only document、ID lookup、型関係query、Skript互換の継承距離
 - `state-store`: compare-and-swapとprefix scanを備えたscope付きkey/value storage
 - `dynamic-syntax-registry`: syntax definitionの追加、override、削除
 
@@ -65,8 +65,11 @@ componentが解決する登録Expression classの宣言追加で0.8.0へ変わ�
 参照するhost tokenで0.16.0、child node kindとparser IDの明示で0.17.0、SSG ID hook target、
 PatternRef routing、宣言的selector、`NotApplicable`で0.18.0へ変わりました。Structure lifecycle、
 EntryValidator結果、Structure scoped context、body RawTree、SSGの完全なread-only source access、
-host側の型関係queryの追加で0.19.0へ変わりました。
-manifestの現在の`abi`値は4.0で、
+host側の型関係queryの追加で0.19.0、Skript互換のJava共通型query追加で0.20.0、typed dynamic Structure登録の追加で0.21.0へ変わりました。
+登録semantic handlerの複数targetとdynamic handler照合の追加で0.22.0へ変わりました。
+汎用semantic payloadとSSG由来contractの拡張で0.24.0まで進み、host側の継承距離query追加で0.25.0、
+正規化済みexperiment catalogへの直接アクセス追加で0.27.0へ変わりました。
+manifestの現在の`abi`値は9.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -97,6 +100,7 @@ hookが`parse-request`を返すと、hostは解析完了後、対応する`parse
 graph nodeは意味summary、child、mapped span、diagnostic、metadata、version付きopaque addon attachmentを保持します。
 完了したresultにはhost所有のtokenが付きます。Expression leaf候補はtokenとroot IDを参照し、再解析や
 metadata keyへの依存なしに、そのExpressionをnative child ASTとして所有できます。
+continuationにはそれ以前の全roundで得たresultを累積して渡すため、後続requestは複数の先行parseへ依存できます。
 
 nested処理にはround、request、result node、call、recursion quotaがあります。現在実行中と同じrequest keyは
 cycle failureになります。request中のwriteは外側候補が採用された場合だけcommitされ、Reject、trap、cancel、
@@ -118,10 +122,17 @@ Expressionと型付きの子Expressionが一致した後、hostはparse tag、�
 適用可能なproperty情報と対応component axisを含む2段目のpayloadを送ります。
 CoreLibraryまたはaddonは実効Java返値型と
 Multiplicityを確定するか、候補をrejectできます。componentはsemantic handlerごとに安定したhandler IDを付け、
-SSG definition/registration target、または明示的なclass suffix discovery fallbackを
-`registered-syntax-handlers`へ宣言します。hostはfallbackを読み込み時に一度だけcatalogへ照合し、解決した
-definitionIdとregistrationIdを`HostProfile`でcomponentへ渡します。実行時のsemantic選択はJava class suffixへ
-依存しません。handlerは名前付きhost contextも要求でき、
+`registered-syntax-handlers`へ1つ以上のtargetを宣言します。targetは`definition`、`registration`、`class-suffix`、
+`dynamic-handler`のいずれかで、複数targetはORとして扱われます。そのため1つのhandlerで複数のstatic登録とdynamic
+definitionを処理できます。hostはstatic targetを読み込み時に一度だけcatalogへ照合し、解決したdefinitionIdと
+registrationIdを`HostProfile`でcomponentへ渡します。`dynamic-handler`はparse時にdynamic syntax definitionが宣言した
+opaqueなhandler IDへ照合され、catalog lookupは行いません。このtargetでもcapture parserと名前付きcontext requirementを
+提供できます。実行時のsemantic選択はJava class suffixへ依存しません。handlerは名前付きhost contextも要求でき、
+handlerは`pattern-indices`、完全一致する`pattern-sources`、必須・禁止parse tag、集約ParseMarkでtargetを
+さらに絞れます。各list内はOR、空でないpredicate group同士はANDです。これにより特定構文をhostへ
+hard-codeせず、Javaの`init`内の分岐をaddonから表現できます。capture parser optionの
+`context.event-classes`（`;`区切りのJava class）と`context.value.<key>`はnested host parserのcontextだけを
+一時的に上書きし、候補の成功・失敗にかかわらず外側contextへ復元します。
 `expression.type-options.all`は`ExprParse`のような構文へSSGの全Type optionを渡します。host側はJava class名を
 知る必要がありません。各childにはnative node kindと任意のparser IDも含まれるため、componentはsource文字列を
 推測せずliteral、variable、functionなどを区別できます。native parserは有効なcomponentが宣言した
@@ -169,6 +180,29 @@ diagnostic付きpartial treeとして保持します。
 CoreLibraryはSkript標準のconditional/while Section、`ExprWhether`、`ExprTernary`、`EffChange`、`EffDoIf`の
 semantic handlerを宣言します。addonも同じmanifest宣言を使い、独自のraw、Condition、nested
 Effect captureを処理できます。
+
+### Dynamic Structure登録
+
+`dynamic-syntax-registry`では、static SSG Structureと同じparser向けmetadataを持つStructureを登録できます。
+`structure-node-type`は`simple`、`section`、`both`から選び、`structure-body-mode`は`none`、`raw`、
+`entries`、`trigger`から選びます。`entry-validator`には完全な宣言型`EntryData` treeを指定します。
+
+これらのfieldはStructure専用です。別のsyntax kindで設定するとhostが登録を拒否します。`Simple` Structureは
+`none`だけを使え、`entries` bodyにはvalidatorが必須で、validatorは`entries`との組み合わせでだけ使えます。
+optional fieldを省略した場合は既存のdynamic登録との互換性を保ち、node typeは`both`、body modeはvalidatorの
+有無に応じて`raw`または`entries`になります。
+
+Component Modelではrecursive recordを直接表現できないため、validatorはflatな`entry-data` listとして渡します。
+root entryの`parent-entry-index`は省略し、nested entryは親containerの0始まりindexを指定します。
+`nested-validator-present`により、空のnested validatorとvalidatorなしを区別します。hostはindex、cycle、到達不能な
+entry、重複key、fieldの組み合わせを登録前に検証します。
+
+`default-value`は文字列化した簡易値ではなく、元のJSON documentです。JSONの`null`、array、object、number、
+boolean、stringを失わずに渡せます。ABI層は値を解釈せず、native parserがlosslessな`serde_json::Value`へ変換します。
+これによりStructure固有のdefault値をparserへ渡しつつ、WITはformat-neutralに保てます。
+
+dynamic Structure candidateはheader照合前に宣言node typeでfilterされます。その後、宣言body modeとvalidatorが
+通常のbody parserで使われるため、dynamic登録でもstatic Structureと同じcandidate/EntryValidator経路になります。
 
 ## Structure解析
 
@@ -309,9 +343,14 @@ payloadへ複製せず、`catalog-data` importから保持されたsnapshot全�
 - `records-by-registration-id`と`records-by-definition-id`は一致する全top-level JSON objectを、
   document名とarray indexの参照としてpage単位で返します。`read-record`は各objectをrange単位で
   読みます。重複IDも意図的に保持し、どの候補を使うかはaddonが判断します。
-- `class-known`、`is-class-assignable`、`can-convert`はhostの正規化済みclass・converter indexを使い、
+- `class-known`、`is-class-assignable`、`hierarchy-distance`、`can-convert`はhostの正規化済みclass・converter indexを使い、
   非互換とsource data不足を区別できます。型関係queryは`compatible`、`incompatible`、`unknown`を返し、
-  class不足を確定的な非互換として返しません。
+  `class-known = false`はsnapshotに未収録という意味であり、runtime classpathからの不在は証明しません。
+  class不足を確定的な非互換として返しません。継承距離はassignability確認後にSkriptと同じ
+  concrete superclass chainで計算します。
+- `declared-method-exists`は収録済みclassへ`Class.getDeclaredMethod`相当の検索を行います。
+  schema 5のmethod metadataがあれば`Some(false)`まで確定でき、旧snapshotや未収録classは`None`で
+  unresolvedを維持します。
 
 未知fieldも生JSONから利用できます。索引されたrecordは正しいJSONですが、空白やobject key順序は保証しません。
 各page/chunkは既定32 MiBの`HostConfig::max_catalog_response_bytes`で制限されますが、paginationと

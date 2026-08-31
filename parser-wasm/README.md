@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.19.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.27.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 
 Guest exports:
@@ -43,7 +43,8 @@ Guest exports:
 
 Host imports:
 
-- `catalog-data`: complete read-only SSG documents, ID lookups, and type relations
+- `catalog-data`: complete read-only SSG documents, ID lookups, type relations,
+  and Skript-compatible hierarchy distances
 - `state-store`: scoped key/value storage with compare-and-swap and prefix scan
 - `dynamic-syntax-registry`: add, override, and remove syntax definitions
 
@@ -73,7 +74,14 @@ IDs changed it to 0.17.0; SSG-ID hook targets, PatternRef routing, declarative
 selectors, and `NotApplicable` changed it to 0.18.0; the Structure lifecycle,
 EntryValidator results, Structure-scoped context, and body RawTree changed it
 to 0.19.0 together with complete read-only SSG source access and host-owned
-type-relation queries. The manifest's current `abi` value is 4.0 and is a
+type-relation queries. A Skript-compatible common Java type query changed it
+to 0.20.0; typed dynamic Structure registration changed it to 0.21.0;
+multiple targets for each registered semantic handler, including dynamic
+  handler matching, changed it to 0.22.0. Generic semantic payloads and complete
+  SSG-backed contracts changed it through 0.24.0; the host-owned hierarchy
+  distance query changed it to 0.25.0; exact declared Java method probes changed
+  experiment catalog access moves it to 0.27.0. The manifest's current `abi` value is
+9.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
 
@@ -108,6 +116,8 @@ children, mapped spans, diagnostics, metadata, and opaque versioned addon
 attachments. Each completed result receives a host-owned token. Expression
 leaf candidates may reference a token and root ID to adopt that parsed
 Expression as a native child AST without reparsing or relying on metadata keys.
+Each continuation receives the results accumulated by all preceding rounds, so
+later requests may depend on more than one earlier parse without losing state.
 
 Nested work is bounded by round, request, result-node, call, and recursion
 quotas. Repeated active request keys produce a typed cycle failure. Writes made
@@ -134,12 +144,25 @@ captures, known return types, and applicable property metadata, including
 supported component axes.
 CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
-Components give each semantic handler a stable handler ID and declare an SSG
-definition/registration target, or an explicit class-suffix discovery fallback,
-in `registered-syntax-handlers`. The host resolves discovery fallbacks against
-the loaded catalog once and sends the resulting definition and registration IDs
-in `HostProfile`. Runtime semantic selection never depends on the Java class
-suffix.
+Components give each semantic handler a stable handler ID and declare one or
+more targets in `registered-syntax-handlers`. Each target is a `definition`,
+`registration`, `class-suffix`, or `dynamic-handler` target. Targets use OR
+semantics, so one handler can cover multiple static registrations and dynamic
+definitions. The host resolves static definition, registration, and class-suffix
+targets against the loaded catalog once and sends the resulting definition and
+registration IDs in `HostProfile`. A `dynamic-handler` target instead matches
+the opaque handler ID declared by a dynamic syntax definition at parse time;
+it is not a catalog lookup and can still provide capture parsers and named
+context requirements for that dynamic candidate. Runtime semantic selection
+never depends on the Java class suffix.
+A handler can narrow a target with `pattern-indices`, exact `pattern-sources`,
+required or forbidden parse tags, and aggregate ParseMark values. Predicates
+inside one list use OR semantics, while non-empty predicate groups combine
+with AND. This models Java `init` branches without hard-coding a syntax in the
+host. Capture parser options `context.event-classes` (semicolon-separated Java
+classes) and `context.value.<key>` temporarily override the nested host parser
+context; the outer context is restored before the candidate continues or
+fails.
 A handler may also request named
 host context; `expression.type-options.all` supplies every SSG Type option for
 constructs such as `ExprParse` without teaching the host that Java class name.
@@ -201,6 +224,38 @@ claimed body nodes remain in the partial tree with diagnostics.
 CoreLibrary declares semantic handlers for Skript's conditional and while
 Sections, `ExprWhether`, `ExprTernary`, `EffChange`, and `EffDoIf`. Addons can use the same
 manifest declarations for their own raw, Condition, or nested Effect captures.
+
+### Dynamic Structure registration
+
+`dynamic-syntax-registry` can register a Structure with the same parser-facing
+metadata as a static SSG Structure. `structure-node-type` selects `simple`,
+`section`, or `both`; `structure-body-mode` selects `none`, `raw`, `entries`,
+or `trigger`; and `entry-validator` describes the complete declarative
+`EntryData` tree.
+
+These fields are Structure-only. The host rejects them on every other syntax
+kind. A `Simple` Structure may only use `none`, an `Entries` body requires an
+entry validator, and a validator may only be paired with `entries`. Omitting
+the optional fields preserves the existing dynamic defaults: `both` for the
+node type, and `raw` or `entries` according to whether a validator is present.
+
+The Component Model cannot represent recursive records directly, so the
+validator is transported as a flat `entry-data` list. Root entries use a
+missing `parent-entry-index`; nested entries point to their container's
+zero-based index. `nested-validator-present` distinguishes an empty nested
+validator from no nested validator. The host validates indices, cycles,
+reachability, duplicate keys, and field combinations before registration.
+
+`default-value` is an optional JSON document, not a stringified shortcut. It
+preserves JSON `null`, arrays, objects, numbers, booleans, and strings without
+the ABI interpreting the value. The native parser converts it to its lossless
+`serde_json::Value` representation. This keeps Structure-specific defaults
+available to the parser while leaving the WIT layer format-neutral.
+
+Dynamic Structure candidates are filtered by their declared node type before
+header matching. Their declared body mode and validator are then used by the
+normal body parser, so dynamic registrations follow the same candidate and
+EntryValidator path as static Structures.
 
 ## Structure Parsing
 
@@ -374,11 +429,17 @@ through the `catalog-data` import without copying all JSON into every payload.
   matching top-level JSON object's document/index reference in pages.
   `read-record` reads each referenced object by range. Duplicate IDs are
   intentionally preserved and must be resolved by the addon.
-- `class-known`, `is-class-assignable`, and `can-convert` use the host's
+- `class-known`, `is-class-assignable`, `hierarchy-distance`, and `can-convert` use the host's
   normalized class and converter indexes, so components can distinguish an
   incompatible relation from missing source data without rebuilding Java relationships.
+  `class-known = false` only means that the snapshot did not capture the class;
+  it does not prove that the runtime classpath lacks it.
   The relation queries return `compatible`, `incompatible`, or `unknown`; they
-  never encode a missing class as a definitive incompatibility.
+  never encode a missing class as a definitive incompatibility. Hierarchy
+  distance follows Skript's concrete-superclass comparator after assignability.
+- `declared-method-exists` replays `Class.getDeclaredMethod` for a captured class.
+  `Some(false)` is definitive when schema 5 method metadata is present, while
+  `None` preserves older snapshots and uncaptured classes as unresolved.
 
 Unknown fields remain available in the raw JSON. Indexed record bytes are
 valid JSON but do not preserve whitespace or object-key order. Each chunk or

@@ -33,6 +33,7 @@ fn fixture() -> PathBuf {
 fn effect_catalog() -> Arc<Catalog> {
     let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
     let source = snapshot.catalog();
+    let source_view = source.source().cloned().expect("SSG source view");
     let syntaxes = source
         .syntaxes()
         .iter()
@@ -53,19 +54,26 @@ fn effect_catalog() -> Arc<Catalog> {
         })
         .cloned()
         .collect();
-    Arc::new(Catalog::new(CatalogParts {
-        syntaxes,
-        converters: Vec::new(),
-        comparators: Vec::new(),
-        event_values: Vec::new(),
-        properties: Vec::new(),
-        operators: Vec::new(),
-        operations: BTreeMap::new(),
-        differences: Vec::new(),
-        classes: Vec::new(),
-        aliases: source.aliases().clone(),
-        plural_rules: source.plural_rules().clone(),
-    }))
+    Arc::new(
+        Catalog::new(CatalogParts {
+            syntaxes,
+            converters: Vec::new(),
+            comparators: Vec::new(),
+            event_values: Vec::new(),
+            properties: Vec::new(),
+            operators: Vec::new(),
+            operations: BTreeMap::new(),
+            differences: Vec::new(),
+            classes: Vec::new(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+            language: source
+                .language_entries()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+        })
+        .with_unchecked_source(source_view),
+    )
 }
 
 fn full_dynamic_catalog() -> Arc<Catalog> {
@@ -114,6 +122,10 @@ fn full_dynamic_catalog() -> Arc<Catalog> {
             classes: source.classes().to_vec(),
             aliases: source.aliases().clone(),
             plural_rules: source.plural_rules().clone(),
+            language: source
+                .language_entries()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
         })
         .with_unchecked_source(source_view),
     )
@@ -139,14 +151,21 @@ fn core_library_parses_boolean_alias_and_supplied_type_literals() {
         "send zombie",
         "send all players",
     ] {
+        let result = parse_effect(&mut host, &transaction, 12, source);
         assert!(
-            parse_effect(&mut host, &transaction, 12, source)
-                .matches
-                .selected
-                .is_some(),
-            "{source:?} must parse"
+            result.matches.selected.is_some(),
+            "{source:?} must parse; unknown result: {:#?}",
+            result.matches.unknown
         );
     }
+
+    let invalid_comparison = parse_effect(&mut host, &transaction, 12, "send 1 if 1 is true");
+    assert!(invalid_comparison.matches.selected.is_none());
+    let failure = format!("{:#?}", invalid_comparison.matches.unknown);
+    assert!(
+        failure.contains("cannot compare java.lang.Long with java.lang.Boolean"),
+        "native Skript rejects the same incompatible comparison: {failure}"
+    );
     transaction.cancel().unwrap();
 }
 
@@ -535,7 +554,14 @@ fn eff_change_matches_skript_static_change_rules() {
         .diagnostics
         .iter()
         .find(|diagnostic| diagnostic.code == "core.eff-change.multiple-to-single-variable")
-        .expect("EffChange must report the multiplicity mismatch");
+        .unwrap_or_else(|| {
+            panic!(
+                "EffChange must report the multiplicity mismatch; diagnostics={:#?}, calls={:#?}, unknown={:#?}",
+                single_variable.effects.diagnostics,
+                single_variable.calls,
+                single_variable.matches.unknown
+            )
+        });
     assert_eq!(diagnostic.span.virtual_range.start, 16);
     assert_eq!(diagnostic.span.virtual_range.end, 27);
     let rejected_span = single_variable
@@ -1073,6 +1099,10 @@ fn full_dynamic_catalog_with_vector_overload() -> Arc<Catalog> {
             classes: source.classes().to_vec(),
             aliases: source.aliases().clone(),
             plural_rules: source.plural_rules().clone(),
+            language: source
+                .language_entries()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
         })
         .with_unchecked_source(source_view),
     )
@@ -1178,10 +1208,26 @@ fn property_expression_return_type_flows_into_function_arguments() {
         .begin_parse("file:///workspace", "file:///workspace/effect.sk", 12)
         .unwrap();
     let input = "teleport \"nlaocs\" parsed as player to location(\"nlaocs\" parsed as player's location's x-coord, 1, 1)";
-    let selected = parse_effect(&mut host, &transaction, 12, input)
-        .matches
-        .selected
-        .expect("Location coordinate must satisfy the Number function parameter");
+    let result = parse_effect(&mut host, &transaction, 12, input);
+    let selected = result.matches.selected.unwrap_or_else(|| {
+        let failures = result.matches.unknown.as_ref().map(|unknown| {
+            unknown
+                .failures
+                .candidates
+                .iter()
+                .map(|candidate| {
+                    let root = candidate.matched.trace.root_cause();
+                    (
+                        candidate.element_class.as_ref().map(ClassName::as_str),
+                        candidate.matched.pattern.as_deref(),
+                        root.failure.span.mapped.virtual_range,
+                        &root.failure.reasons,
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        panic!("Location coordinate must satisfy the Number function parameter: {failures:#?}")
+    });
 
     let location = selected
         .expressions()
@@ -1313,7 +1359,7 @@ fn dynamic_player_expressions_are_valid_audiences() {
         assert_eq!(
             recipient.return_type.as_ref().map(ClassName::as_str),
             Some("org.bukkit.entity.Player"),
-            "{input:?} must keep the narrowed dynamic return type"
+            "{input:?} must keep the narrowed dynamic return type: {recipient:#?}"
         );
     }
     transaction.cancel().unwrap();

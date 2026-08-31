@@ -1,4 +1,6 @@
-use super::{SemanticResolution, matches, metadata, register_handler};
+use super::{
+    SemanticResolution, matches, metadata, register_handler, resolved_with_possible_types,
+};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, RegisteredExpressionChild, RegisteredExpressionPayload,
     RegisteredSyntaxHandler,
@@ -21,13 +23,20 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         }
 
         match resolve_wrapped_expression(&payload.children[0]) {
-            Some((return_type, multiplicity)) => SemanticResolution::Resolved {
+            Some((
                 return_type,
+                possible_return_types,
+                possible_return_types_state,
+                multiplicity,
+            )) => resolved_with_possible_types(
+                return_type,
+                possible_return_types,
+                possible_return_types_state,
                 // WrapperExpression::isSingle() is unconditionally true in Skript,
                 // even when the wrapped expression itself returns a list.
                 multiplicity,
-                metadata: vec![metadata("semantic-mode", "any-of-wrapper")],
-            },
+                vec![metadata("semantic-mode", "any-of-wrapper")],
+            ),
             None => SemanticResolution::Reject(
                 "any-of Expression requires a typed wrapped Expression".to_owned(),
             ),
@@ -37,13 +46,30 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
 
 fn resolve_wrapped_expression(
     child: &RegisteredExpressionChild,
-) -> Option<(String, DynamicMultiplicity)> {
+) -> Option<(
+    String,
+    Vec<String>,
+    crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState,
+    DynamicMultiplicity,
+)> {
     child
         .return_type
         .as_deref()
         .filter(|return_type| !return_type.is_empty())
         .map(str::to_owned)
-        .map(|return_type| (return_type, DynamicMultiplicity::Single))
+        .map(|return_type| {
+            let possible = if child.possible_return_types.is_empty() {
+                vec![return_type.clone()]
+            } else {
+                child.possible_return_types.clone()
+            };
+            (
+                return_type,
+                possible,
+                child.possible_return_types_state,
+                DynamicMultiplicity::Single,
+            )
+        })
 }
 
 #[cfg(test)]
@@ -60,6 +86,12 @@ mod tests {
             pattern_index: None,
             element_class: None,
             return_type: return_type.map(str::to_owned),
+            possible_return_types: return_type.into_iter().map(str::to_owned).collect(),
+            possible_return_types_state: if return_type.is_some() {
+                crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete
+            } else {
+                crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Unresolved
+            },
             multiplicity: Some(DynamicMultiplicity::Multiple),
             metadata: Vec::new(),
         }
@@ -73,6 +105,8 @@ mod tests {
             resolve_wrapped_expression(&wrapped),
             Some((
                 "org.bukkit.entity.Player".to_owned(),
+                vec!["org.bukkit.entity.Player".to_owned()],
+                crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete,
                 DynamicMultiplicity::Single
             ))
         );

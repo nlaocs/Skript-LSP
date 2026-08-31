@@ -84,7 +84,12 @@ fn request(mode: &str) -> DispatchRequest {
     }
 }
 
-fn host_with_catalog(config: HostConfig) -> ParserHost {
+fn host_with_catalog(mut config: HostConfig) -> ParserHost {
+    // CoreLibrary remains mandatory when this fixture intentionally omits catalog-data access.
+    config
+        .runtime_profile
+        .skript_version
+        .get_or_insert_with(|| "2.15.4".to_owned());
     ParserHost::new(CORE_LIBRARY, config).expect("CoreLibrary must initialize")
 }
 
@@ -129,7 +134,7 @@ fn real_wasm_component_reads_source_pages_records_chunks_and_relations() {
     assert_eq!(info.component_id, "test.catalog-data-addon");
 
     let result = host
-        .dispatch(request("catalog-success"))
+        .dispatch("file:///workspace", request("catalog-success"))
         .expect("catalog-data dispatch must succeed");
     assert_guest_report(
         result,
@@ -147,7 +152,7 @@ fn real_wasm_component_reaches_every_document_in_a_real_snapshot() {
         .expect("catalog-data component must load with the real snapshot");
 
     let result = host
-        .dispatch(request("catalog-full-snapshot"))
+        .dispatch("file:///workspace", request("catalog-full-snapshot"))
         .expect("full snapshot dispatch must succeed");
     assert_guest_report(result, "all 19 real SSG documents are reachable");
 }
@@ -162,7 +167,7 @@ fn real_wasm_component_observes_catalog_capability_advertisement() {
         .load_addon(CATALOG_DATA_ADDON)
         .expect("component must load with source capability");
     let result = with_source
-        .dispatch(request("catalog-profile"))
+        .dispatch("file:///workspace", request("catalog-profile"))
         .expect("profile dispatch with source must succeed");
     assert_guest_report(result, "catalog capability advertised: true");
 
@@ -171,7 +176,7 @@ fn real_wasm_component_observes_catalog_capability_advertisement() {
         .load_addon(CATALOG_DATA_ADDON)
         .expect("catalog capability is optional for the fixture");
     let result = without_source
-        .dispatch(request("catalog-profile"))
+        .dispatch("file:///workspace", request("catalog-profile"))
         .expect("profile dispatch without source must succeed");
     assert_guest_report(result, "catalog capability advertised: false");
 }
@@ -234,7 +239,7 @@ fn real_wasm_component_gets_unavailable_without_an_ssg_source() {
     host.load_addon(CATALOG_DATA_ADDON)
         .expect("optional catalog-data component must load without a source");
     let result = host
-        .dispatch(request("catalog-unavailable"))
+        .dispatch("file:///workspace", request("catalog-unavailable"))
         .expect("unavailable catalog dispatch must succeed");
     assert_guest_report(result, "source-unavailable error verified");
 }
@@ -249,7 +254,7 @@ fn real_wasm_component_sees_chunk_bounds_and_page_quota() {
     host.load_addon(CATALOG_DATA_ADDON)
         .expect("catalog-data component must load with a source");
     let result = host
-        .dispatch(request("catalog-quota"))
+        .dispatch("file:///workspace", request("catalog-quota"))
         .expect("quota dispatch must succeed");
     assert_guest_report(
         result,
@@ -267,7 +272,7 @@ fn real_wasm_component_reconstructs_document_and_record_chunks_under_small_quota
     host.load_addon(CATALOG_DATA_ADDON)
         .expect("catalog-data component must load with a source");
     let result = host
-        .dispatch(request("catalog-reconstruct"))
+        .dispatch("file:///workspace", request("catalog-reconstruct"))
         .expect("chunk reconstruction dispatch must succeed");
     assert_guest_report(
         result,

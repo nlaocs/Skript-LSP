@@ -1,9 +1,10 @@
 //! Top-level Structure parsing and EntryValidator enforcement.
 use crate::{
     CandidateMatch, ExpressionExpectedType, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureTrace,
-    HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, HOST_EVENT_PARSER_ID, MappedSource, MatchSpan,
-    ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture,
+    ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureFrame,
+    FailureFrameRole, FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID,
+    HOST_EVENT_PARSER_ID, MappedSource, MatchSpan, ParsedCapture, ParsedCaptureResult,
+    ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason,
     RawNode, RawNodeId, RawNodeKind, RawTree, RegisteredSyntaxIdentity, SectionBodyNode,
     SectionDiagnostic, TextRange,
 };
@@ -65,7 +66,7 @@ pub struct StructureHookRequest<'a> {
     pub candidate: &'a StructureCandidate,
     /// Context visible to this Structure and its body.
     pub context: &'a ExpressionParseContext,
-    /// Body mode inferred from NodeType and the SSG EntryValidator.
+    /// Body mode inferred from NodeType and static or dynamic EntryValidator metadata.
     pub default_body_mode: StructureBodyMode,
 }
 
@@ -85,6 +86,8 @@ pub enum StructureHookDecision {
     Reject {
         /// Human-readable rejection reason supplied by the environment.
         reason: String,
+        /// Candidate-owned details promoted only when this rejection wins.
+        diagnostics: Vec<crate::SemanticDiagnostic>,
     },
 }
 
@@ -203,6 +206,8 @@ pub struct UnknownStructureNode {
     pub span: MatchSpan,
     /// Farthest registered-pattern failure retained for diagnostics.
     pub failure: Option<FailureTrace>,
+    /// Best header/body candidate retained for editor recovery, but not accepted.
+    pub partial: Option<Box<StructureCandidate>>,
 }
 
 /// Selected Structure, complete alternatives, and recovery information for one root.
@@ -264,10 +269,26 @@ pub enum StructureParseError {
 struct PendingStructure {
     root_index: usize,
     node_id: RawNodeId,
+    parent_context: ExpressionParseContext,
     context: ExpressionParseContext,
     body_mode: StructureBodyMode,
-    validator: Option<EntryValidator>,
 }
+
+struct ParsedStructureBody {
+    body: StructureBody,
+    diagnostics: Vec<StructureDiagnostic>,
+    entries_valid: bool,
+}
+
+type StructureBodyRejection = Option<(String, Vec<crate::SemanticDiagnostic>)>;
+type StructureBodyAttempt = Result<
+    (
+        StructureCandidate,
+        Vec<StructureDiagnostic>,
+        StructureBodyRejection,
+    ),
+    StructureParseError,
+>;
 
 /// Parses all top-level roots using static SSG Structure registrations.
 pub fn parse_structures<E: ExpressionParseEnvironment>(
@@ -313,28 +334,19 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 roots.push(StructureDocumentNode::Trivia(node.id));
             }
             RawNodeKind::Simple | RawNodeKind::Section => {
+                let parent_context = session.context().clone();
                 let (matches, selected_context, body_mode) =
                     parse_structure_header(&mut session, request.tree, node)?;
                 diagnostics.extend(matches.diagnostics.iter().cloned());
-                let validator = matches.selected.as_ref().and_then(|candidate| {
-                    session
-                        .catalog()
-                        .structures()
-                        .find(|structure| {
-                            structure.common.registration_id.as_str()
-                                == candidate.matched.registration_id
-                        })
-                        .and_then(|structure| structure.entry_validator.clone())
-                });
                 let root_index = roots.len();
                 roots.push(StructureDocumentNode::Structure(Box::new(matches)));
                 if let (Some(context), Some(body_mode)) = (selected_context, body_mode) {
                     pending.push(PendingStructure {
                         root_index,
                         node_id: node.id,
+                        parent_context,
                         context,
                         body_mode,
-                        validator,
                     });
                 }
             }
@@ -354,39 +366,195 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         let Some(StructureDocumentNode::Structure(matches)) = roots.get_mut(item.root_index) else {
             continue;
         };
-        let Some(candidate) = matches.selected.as_mut() else {
-            continue;
-        };
         let Some(node) = request.tree.get(item.node_id) else {
             continue;
         };
-        let saved_context = session.replace_context(item.context);
-        let (body, mut body_diagnostics) = parse_structure_body(
-            &mut session,
-            request.tree,
-            node,
-            item.body_mode,
-            item.validator.as_ref(),
-            1,
-        )?;
-        candidate.body = body;
-        let child_context = session.replace_context(saved_context);
-        let exit = StructureHookRequest {
-            input: session.source().virtual_source(),
-            tree: request.tree,
-            timing: StructureHookTiming::ExitBody,
-            candidate,
-            context: &child_context,
-            default_body_mode: item.body_mode,
+        let Some(selected) = matches.selected.take() else {
+            continue;
         };
-        session
-            .environment_mut()
-            .exit_structure(exit)
-            .map_err(|message| StructureParseError::Environment { message })?;
-        diagnostics.append(&mut body_diagnostics);
+        let document_context = session.context().clone();
+        let mut candidates = Vec::with_capacity(matches.alternatives.len() + 1);
+        candidates.push((selected, Some((item.context, item.body_mode))));
+        candidates.extend(
+            matches
+                .alternatives
+                .drain(..)
+                .map(|candidate| (candidate, None)),
+        );
+        let mut best_rejection = None;
+
+        while !candidates.is_empty() {
+            let (mut candidate, initialized) = candidates.remove(0);
+            session.replace_context(document_context.clone());
+            session
+                .begin_semantic_candidate()
+                .map_err(|message| StructureParseError::Environment { message })?;
+            let attempt: StructureBodyAttempt = (|| {
+                let (context, body_mode) = if let Some(initialized) = initialized {
+                    initialized
+                } else {
+                    session.replace_context(item.parent_context.clone());
+                    let default_body_mode = default_body_mode(&session, &candidate);
+                    let hook_context = session.context().clone();
+                    let enter = StructureHookRequest {
+                        input: session.source().virtual_source(),
+                        tree: request.tree,
+                        timing: StructureHookTiming::EnterBody,
+                        candidate: &candidate,
+                        context: &hook_context,
+                        default_body_mode,
+                    };
+                    match session
+                        .environment_mut()
+                        .enter_structure(enter)
+                        .map_err(|message| StructureParseError::Environment { message })?
+                    {
+                        StructureHookDecision::Accept {
+                            context,
+                            body_mode,
+                            metadata,
+                        } => {
+                            candidate.metadata = metadata;
+                            (context, body_mode)
+                        }
+                        StructureHookDecision::Reject {
+                            reason,
+                            diagnostics,
+                        } => {
+                            return Ok((candidate, Vec::new(), Some((reason, diagnostics))));
+                        }
+                    }
+                };
+                let validator =
+                    structure_entry_validator(&session, &candidate.matched.registration_id);
+                let saved_context = session.replace_context(context);
+                let parsed = parse_structure_body(
+                    &mut session,
+                    request.tree,
+                    node,
+                    body_mode,
+                    validator.as_ref(),
+                    1,
+                )?;
+                candidate.body = parsed.body;
+                let child_context = session.replace_context(saved_context);
+                if !parsed.entries_valid {
+                    return Ok((
+                        candidate,
+                        parsed.diagnostics,
+                        Some(("Structure entries failed validation".to_owned(), Vec::new())),
+                    ));
+                }
+                let exit = StructureHookRequest {
+                    input: session.source().virtual_source(),
+                    tree: request.tree,
+                    timing: StructureHookTiming::ExitBody,
+                    candidate: &candidate,
+                    context: &child_context,
+                    default_body_mode: body_mode,
+                };
+                let rejection = match session
+                    .environment_mut()
+                    .exit_structure(exit)
+                    .map_err(|message| StructureParseError::Environment { message })?
+                {
+                    StructureExitDecision::Accept => None,
+                    StructureExitDecision::Reject {
+                        reason,
+                        diagnostics,
+                    } => Some((reason, diagnostics)),
+                };
+                Ok((candidate, parsed.diagnostics, rejection))
+            })();
+            let accepted = attempt
+                .as_ref()
+                .is_ok_and(|(_, _, rejection)| rejection.is_none());
+            session
+                .finish_semantic_candidate(accepted)
+                .map_err(|message| StructureParseError::Environment { message })?;
+            session.replace_context(document_context.clone());
+            let (candidate, body_diagnostics, rejection) = attempt?;
+            if let Some((reason, semantic_diagnostics)) = rejection {
+                session
+                    .environment_mut()
+                    .discard_structure_candidate(&candidate)
+                    .map_err(|message| StructureParseError::Environment { message })?;
+                best_rejection.get_or_insert((
+                    candidate,
+                    body_diagnostics,
+                    reason,
+                    semantic_diagnostics,
+                ));
+                continue;
+            }
+            diagnostics.extend(body_diagnostics);
+            matches.selected = Some(candidate);
+            matches.alternatives = candidates
+                .into_iter()
+                .map(|(candidate, _)| candidate)
+                .collect();
+            break;
+        }
+
+        if matches.selected.is_none()
+            && let Some((candidate, mut body_diagnostics, reason, semantic_diagnostics)) =
+                best_rejection
+        {
+            let range = structure_header_range(session.source(), node)?;
+            let source = range
+                .slice(session.source().virtual_source())
+                .ok_or(StructureParseError::InvalidRange { range })?
+                .to_owned();
+            let matched = candidate.matched.clone();
+            matches.unknown = Some(UnknownStructureNode {
+                raw_node_id: node.id,
+                source,
+                span: session.map_range(range)?,
+                failure: Some(structure_semantic_rejection(
+                    &matched,
+                    reason,
+                    semantic_diagnostics,
+                )),
+                partial: Some(Box::new(candidate)),
+            });
+            let diagnostic = node_diagnostic(
+                &session,
+                node,
+                StructureDiagnosticKind::Unclaimed,
+                "Structure body was not accepted",
+            )?;
+            matches.diagnostics.push(diagnostic.clone());
+            diagnostics.push(diagnostic);
+            diagnostics.append(&mut body_diagnostics);
+        }
     }
 
     Ok(StructureDocument { roots, diagnostics })
+}
+
+fn structure_semantic_rejection(
+    matched: &CandidateMatch,
+    reason: String,
+    diagnostics: Vec<crate::SemanticDiagnostic>,
+) -> FailureTrace {
+    let candidate_span = matched.matched.span.clone();
+    let span = crate::failure::semantic_failure_span(&candidate_span, &diagnostics);
+    FailureTrace::leaf(PatternFailure {
+        span: span.clone(),
+        reasons: vec![PatternFailureReason::HookRejected { reason }],
+    })
+    .with_parent(FailureFrame {
+        kind: matched.kind,
+        definition_id: matched.definition_id.clone(),
+        registration_id: matched.registration_id.clone(),
+        pattern_index: matched.pattern_index,
+        pattern: matched.pattern.clone(),
+        element_path: Vec::new(),
+        pattern_span: None,
+        input_span: candidate_span,
+        role: FailureFrameRole::SemanticCandidate,
+    })
+    .with_semantic_diagnostics(diagnostics)
 }
 
 fn parse_structure_header<E: ExpressionParseEnvironment>(
@@ -414,17 +582,19 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
     });
     session.retain_viable_patterns(range, &mut candidates)?;
     let matched = session.match_candidates_at_depth(range, &candidates, 0)?;
-    let failure = matched.primary_failure().cloned();
+    let mut failure = matched.primary_failure().cloned();
     let mut ranked = matched
         .selected
         .into_iter()
         .chain(matched.alternatives)
         .collect::<Vec<_>>();
     let mut accepted = Vec::new();
+    let initial_context = session.context().clone();
     let mut selected_context = None;
     let mut selected_body_mode = None;
 
     for matched in ranked.drain(..) {
+        session.replace_context(initial_context.clone());
         session
             .begin_semantic_candidate()
             .map_err(|message| StructureParseError::Environment { message })?;
@@ -443,21 +613,42 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
                 context: &context,
                 default_body_mode,
             };
-            if let StructureHookDecision::Accept {
-                context,
-                body_mode,
-                metadata,
-            } = session
+            match session
                 .environment_mut()
                 .enter_structure(request)
                 .map_err(|message| StructureParseError::Environment { message })?
             {
-                accepted_semantically = true;
-                if selected_candidate {
-                    selected_context = Some(context);
-                    selected_body_mode = Some(body_mode);
+                StructureHookDecision::Accept {
+                    context,
+                    body_mode,
+                    metadata,
+                } => {
+                    accepted_semantically = true;
+                    if selected_candidate {
+                        // A bodyless Structure is a document directive. Its context
+                        // changes apply to following roots; body-bearing Structures
+                        // keep their context scoped to their own body.
+                        if body_mode == StructureBodyMode::None {
+                            session.replace_context(context.clone());
+                        }
+                        selected_context = Some(context);
+                        selected_body_mode = Some(body_mode);
+                    }
+                    candidate.metadata = metadata;
                 }
-                candidate.metadata = metadata;
+                StructureHookDecision::Reject {
+                    reason,
+                    diagnostics,
+                } => {
+                    failure = crate::choose_failure_trace(
+                        failure,
+                        Some(structure_semantic_rejection(
+                            &candidate.matched,
+                            reason,
+                            diagnostics,
+                        )),
+                    );
+                }
             }
         }
         session
@@ -468,6 +659,12 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
         {
             accepted.push(candidate);
         }
+    }
+
+    if selected_body_mode == Some(StructureBodyMode::None) {
+        session.replace_context(selected_context.clone().unwrap_or(initial_context));
+    } else {
+        session.replace_context(initial_context);
     }
 
     let mut diagnostics = Vec::new();
@@ -497,6 +694,7 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
             source,
             span: session.map_range(range)?,
             failure,
+            partial: None,
         })
     } else {
         None
@@ -537,7 +735,9 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
     let element_class = structure.map(|value| value.common.element_class.clone());
     let declared_node_type = structure
         .and_then(|value| value.node_type)
+        .or_else(|| dynamic.and_then(|value| value.structure_node_type))
         .unwrap_or(NodeType::Both);
+    let dynamic_handler = dynamic.map(|definition| definition.handler.as_str());
     let capture_bindings = session
         .environment()
         .registered_capture_bindings(RegisteredSyntaxIdentity {
@@ -545,6 +745,10 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
             definition_id: &matched.definition_id,
             registration_id: &matched.registration_id,
             pattern_index: Some(matched.pattern_index),
+            pattern_source: Some(&matched.pattern),
+            tags: Some(&matched.matched.tags),
+            mark: Some(matched.matched.mark),
+            dynamic_handler,
         })
         .map_err(|message| StructureParseError::Environment { message })?;
     let mut parsed_captures = Vec::new();
@@ -593,11 +797,18 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
                 }
             }
             HOST_CONDITION_PARSER_ID => {
+                let context = session
+                    .capture_context(binding)
+                    .map_err(|message| StructureParseError::Environment { message })?;
+                let previous = context.map(|context| session.replace_context(context));
                 let parsed =
-                    crate::condition::parse_condition_with_session(session, range, depth + 1)
-                        .map_err(|error| StructureParseError::Body {
-                            message: error.to_string(),
-                        })?;
+                    crate::condition::parse_condition_with_session(session, range, depth + 1);
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed.map_err(|error| StructureParseError::Body {
+                    message: error.to_string(),
+                })?;
                 match parsed.selected {
                     Some(selected) => {
                         let mut capture =
@@ -618,13 +829,20 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
                 }
             }
             HOST_EFFECT_PARSER_ID => {
+                let context = session
+                    .capture_context(binding)
+                    .map_err(|message| StructureParseError::Environment { message })?;
+                let previous = context.map(|context| session.replace_context(context));
                 let parsed = crate::effect::parse_effect_range_with_session(
                     session,
                     range,
                     raw_node_id,
                     depth + 1,
-                )
-                .map_err(|error| StructureParseError::Body {
+                );
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed.map_err(|error| StructureParseError::Body {
                     message: error.to_string(),
                 })?;
                 match parsed.selected {
@@ -688,6 +906,20 @@ fn default_body_mode<E: ExpressionParseEnvironment>(
     if candidate.actual_node_type == NodeType::Simple {
         return StructureBodyMode::None;
     }
+    if let Some(dynamic) = session.dynamic_snapshot().and_then(|snapshot| {
+        snapshot
+            .definitions
+            .values()
+            .find(|definition| definition.id.qualified() == candidate.matched.registration_id)
+    }) {
+        if let Some(mode) = dynamic.structure_body_mode {
+            return dynamic_body_mode(mode);
+        }
+        return dynamic
+            .entry_validator
+            .as_ref()
+            .map_or(StructureBodyMode::Raw, |_| StructureBodyMode::Entries);
+    }
     session
         .catalog()
         .structures()
@@ -705,32 +937,53 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
     mode: StructureBodyMode,
     validator: Option<&EntryValidator>,
     depth: usize,
-) -> Result<(StructureBody, Vec<StructureDiagnostic>), StructureParseError> {
+) -> Result<ParsedStructureBody, StructureParseError> {
     match mode {
-        StructureBodyMode::None => Ok((StructureBody::None, Vec::new())),
-        StructureBodyMode::Raw => Ok((StructureBody::Raw(node.children.clone()), Vec::new())),
+        StructureBodyMode::None => Ok(ParsedStructureBody {
+            body: StructureBody::None,
+            diagnostics: Vec::new(),
+            entries_valid: true,
+        }),
+        StructureBodyMode::Raw => Ok(ParsedStructureBody {
+            body: StructureBody::Raw(node.children.clone()),
+            diagnostics: Vec::new(),
+            entries_valid: true,
+        }),
         StructureBodyMode::Trigger => {
             let (body, diagnostics) = crate::section::parse_section_body(
-                session, tree, node, depth,
+                session,
+                tree,
+                node,
+                crate::SectionBodyMode::Trigger,
+                depth,
             )
             .map_err(|error| StructureParseError::Body {
                 message: error.to_string(),
             })?;
-            Ok((
-                StructureBody::Trigger(body),
-                diagnostics
+            Ok(ParsedStructureBody {
+                body: StructureBody::Trigger(body),
+                diagnostics: diagnostics
                     .into_iter()
                     .map(section_diagnostic_to_structure)
                     .collect(),
-            ))
+                entries_valid: true,
+            })
         }
         StructureBodyMode::Entries => {
             let Some(validator) = validator else {
-                return Ok((StructureBody::Raw(node.children.clone()), Vec::new()));
+                return Ok(ParsedStructureBody {
+                    body: StructureBody::Raw(node.children.clone()),
+                    diagnostics: Vec::new(),
+                    entries_valid: true,
+                });
             };
-            let (entries, diagnostics) =
+            let (entries, diagnostics, valid) =
                 parse_validator_entries(session, tree, node, validator, depth)?;
-            Ok((StructureBody::Entries(entries), diagnostics))
+            Ok(ParsedStructureBody {
+                body: StructureBody::Entries(entries),
+                diagnostics,
+                entries_valid: valid,
+            })
         }
     }
 }
@@ -741,10 +994,11 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
     parent: &RawNode,
     validator: &EntryValidator,
     depth: usize,
-) -> Result<(Vec<StructureEntry>, Vec<StructureDiagnostic>), StructureParseError> {
+) -> Result<(Vec<StructureEntry>, Vec<StructureDiagnostic>, bool), StructureParseError> {
     let mut entries = Vec::new();
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
+    let mut valid = true;
     for child_id in &parent.children {
         let Some(child) = tree.get(*child_id) else {
             continue;
@@ -759,6 +1013,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             .filter(|(index, data)| data.multiple || !seen.contains(index))
             .find(|(_, data)| entry_matches(data, child));
         let Some((index, data)) = matched else {
+            valid = false;
             let duplicate = validator
                 .entry_data
                 .iter()
@@ -784,9 +1039,10 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             continue;
         };
         seen.insert(index);
-        let (entry, diagnostic) = parse_entry(session, tree, child, data, depth)?;
+        let (entry, diagnostic, entry_valid) = parse_entry(session, tree, child, data, depth)?;
         entries.push(entry);
         diagnostics.extend(diagnostic);
+        valid &= entry_valid;
     }
     for (index, data) in validator.entry_data.iter().enumerate() {
         if seen.contains(&index) {
@@ -808,6 +1064,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             });
         }
         if !data.optional {
+            valid = false;
             let missing_at = parent
                 .body_span
                 .as_ref()
@@ -820,7 +1077,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             });
         }
     }
-    Ok((entries, diagnostics))
+    Ok((entries, diagnostics, valid))
 }
 
 fn parse_entry<E: ExpressionParseEnvironment>(
@@ -829,7 +1086,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     node: &RawNode,
     data: &EntryData,
     depth: usize,
-) -> Result<(StructureEntry, Vec<StructureDiagnostic>), StructureParseError> {
+) -> Result<(StructureEntry, Vec<StructureDiagnostic>, bool), StructureParseError> {
     let source = node.text.clone();
     let span = session.map_range(
         node.code_span
@@ -842,6 +1099,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
         .unwrap_or_default()
         .to_owned();
     let mut diagnostics = Vec::new();
+    let mut valid = true;
     let value = match data.kind {
         EntryKind::Literal | EntryKind::Expression => {
             let expected = if data.kind == EntryKind::Literal {
@@ -872,6 +1130,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
             match parsed.and_then(|matches| matches.selected) {
                 Some(selected) => StructureEntryValue::Expression(Box::new(selected.node)),
                 None => {
+                    valid = false;
                     diagnostics.push(node_diagnostic(
                         session,
                         node,
@@ -884,7 +1143,11 @@ fn parse_entry<E: ExpressionParseEnvironment>(
         }
         EntryKind::Trigger => {
             let (body, section_diagnostics) = crate::section::parse_section_body(
-                session, tree, node, depth,
+                session,
+                tree,
+                node,
+                crate::SectionBodyMode::Trigger,
+                depth,
             )
             .map_err(|error| StructureParseError::Body {
                 message: error.to_string(),
@@ -904,6 +1167,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
                     StructureDiagnosticKind::InvalidEntryValue,
                     format!("container entry {:?} has no nested validator", data.key),
                 )?);
+                valid = false;
                 return Ok((
                     structure_entry(
                         node,
@@ -913,11 +1177,13 @@ fn parse_entry<E: ExpressionParseEnvironment>(
                         StructureEntryValue::Raw(raw_value),
                     ),
                     diagnostics,
+                    valid,
                 ));
             };
-            let (children, nested_diagnostics) =
+            let (children, nested_diagnostics, nested_valid) =
                 parse_validator_entries(session, tree, node, nested, depth + 1)?;
             diagnostics.extend(nested_diagnostics);
+            valid &= nested_valid;
             StructureEntryValue::Container(children)
         }
         EntryKind::Section => StructureEntryValue::Section(node.children.clone()),
@@ -938,6 +1204,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     Ok((
         structure_entry(node, data, source, span, value),
         diagnostics,
+        valid,
     ))
 }
 
@@ -1017,6 +1284,58 @@ fn declared_node_type<E: ExpressionParseEnvironment>(
         .structures()
         .find(|structure| structure.common.registration_id.as_str() == registration_id)
         .map(|structure| structure.node_type.unwrap_or(NodeType::Both))
+        .or_else(|| {
+            session
+                .dynamic_snapshot()
+                .and_then(|snapshot| {
+                    snapshot
+                        .definitions
+                        .values()
+                        .find(|definition| definition.id.qualified() == registration_id)
+                })
+                .map(|definition| definition.structure_node_type.unwrap_or(NodeType::Both))
+        })
+}
+
+/// Addon decision after the selected Structure body has been parsed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StructureExitDecision {
+    Accept,
+    Reject {
+        reason: String,
+        diagnostics: Vec<crate::SemanticDiagnostic>,
+    },
+}
+
+fn structure_entry_validator<E: ExpressionParseEnvironment>(
+    session: &ExpressionSession<'_, E>,
+    registration_id: &str,
+) -> Option<EntryValidator> {
+    session
+        .catalog()
+        .structures()
+        .find(|structure| structure.common.registration_id.as_str() == registration_id)
+        .and_then(|structure| structure.entry_validator.clone())
+        .or_else(|| {
+            session
+                .dynamic_snapshot()
+                .and_then(|snapshot| {
+                    snapshot
+                        .definitions
+                        .values()
+                        .find(|definition| definition.id.qualified() == registration_id)
+                })
+                .and_then(|definition| definition.entry_validator.clone())
+        })
+}
+
+fn dynamic_body_mode(value: syntaxes::DynamicStructureBodyMode) -> StructureBodyMode {
+    match value {
+        syntaxes::DynamicStructureBodyMode::None => StructureBodyMode::None,
+        syntaxes::DynamicStructureBodyMode::Raw => StructureBodyMode::Raw,
+        syntaxes::DynamicStructureBodyMode::Entries => StructureBodyMode::Entries,
+        syntaxes::DynamicStructureBodyMode::Trigger => StructureBodyMode::Trigger,
+    }
 }
 
 fn accepts_node_type(declared: NodeType, actual: NodeType) -> bool {

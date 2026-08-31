@@ -138,7 +138,7 @@ impl hooks::Guest for CatalogDataAddon {
             )),
             other => Err(format!("unknown catalog fixture mode: {other}")),
         }
-        .map_err(|message| addon_error(message))?;
+        .map_err(addon_error)?;
 
         Ok(report("catalog-data.fixture.passed", message))
     }

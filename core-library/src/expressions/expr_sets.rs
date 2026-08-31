@@ -1,4 +1,6 @@
-use super::{SemanticResolution, matches, metadata, metadata_value, register_handler};
+use super::{
+    SemanticResolution, matches, metadata, metadata_value, register_handler, resolved_with_metadata,
+};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
 };
@@ -29,7 +31,7 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             .zip(end)
             .and_then(|(start, end)| payload.input.get(start..end));
         let plural = metadata_value(&class_info.metadata, "type-plural") == Some("true");
-        if !plural && !source.is_some_and(|source| source.starts_with("every")) {
+        if !plural && !source.is_some_and(starts_with_every) {
             return SemanticResolution::Reject(
                 "sets Expression requires a plural ClassInfo unless the source starts with every"
                     .to_owned(),
@@ -51,10 +53,27 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             );
         }
 
-        SemanticResolution::Resolved {
-            return_type: target.to_owned(),
-            multiplicity: DynamicMultiplicity::Multiple,
-            metadata: vec![metadata("semantic-mode", "sets-type")],
-        }
+        resolved_with_metadata(
+            target.to_owned(),
+            DynamicMultiplicity::Multiple,
+            vec![metadata("semantic-mode", "sets-type")],
+        )
     })
+}
+
+fn starts_with_every(source: &str) -> bool {
+    source.starts_with("every")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::starts_with_every;
+
+    #[test]
+    fn every_prefix_matches_skripts_literal_starts_with_check() {
+        assert!(starts_with_every("every player"));
+        assert!(starts_with_every("everyone"));
+        assert!(!starts_with_every("  every player"));
+        assert!(!starts_with_every("EVERY player"));
+    }
 }

@@ -1,8 +1,8 @@
-use super::{SemanticResolution, metadata, metadata_value};
+use super::{SemanticResolution, metadata, metadata_value, resolved_with_possible_types};
 use crate::catalog;
 use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, RegisteredExpressionChild, RegisteredExpressionPayload,
-    RegisteredExpressionPropertyOption,
+    DynamicMultiplicity, ExpressionPossibleReturnTypesState, RegisteredExpressionChild,
+    RegisteredExpressionPayload, RegisteredExpressionPropertyOption,
 };
 
 pub(super) fn resolve(payload: &RegisteredExpressionPayload, mode: &str) -> SemanticResolution {
@@ -11,13 +11,33 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload, mode: &str) -> Sema
         Err(reason) => return SemanticResolution::Reject(reason),
     };
     let source = source_child_for_options(payload, &options);
+    if !options.is_empty() && source.is_none() {
+        return SemanticResolution::Unresolved {
+            reason: "matching property registration refers to an unavailable source Expression"
+                .to_owned(),
+            metadata: vec![metadata("semantic-mode", mode)],
+        };
+    }
+    let Some(multiplicity) = source.and_then(|child| child.multiplicity) else {
+        if options.is_empty() {
+            return resolve_options(
+                &payload.registration_id,
+                &options,
+                source,
+                DynamicMultiplicity::Single,
+                mode,
+            );
+        }
+        return SemanticResolution::Unresolved {
+            reason: "property source multiplicity is unresolved".to_owned(),
+            metadata: vec![metadata("semantic-mode", mode)],
+        };
+    };
     resolve_options(
         &payload.registration_id,
         &options,
         source,
-        source
-            .and_then(|child| child.multiplicity)
-            .unwrap_or(DynamicMultiplicity::Both),
+        multiplicity,
         mode,
     )
 }
@@ -31,31 +51,111 @@ pub(super) fn resolve_count_or_property(
             "property Expression requires a source Expression".to_owned(),
         );
     };
-    let uses_property = payload
+    let explicit_property = payload
         .tags
         .iter()
-        .any(|tag| tag.value == "s" && !tag.implicit)
-        || matches!(source.multiplicity, Some(DynamicMultiplicity::Single));
-    if !uses_property {
-        return super::resolved(
-            "java.lang.Long",
-            DynamicMultiplicity::Single,
-            &format!("{mode}-count"),
-        );
+        .any(|tag| tag.value == "s" && !tag.implicit);
+    match (explicit_property, source.multiplicity) {
+        (false, Some(DynamicMultiplicity::Multiple)) => {
+            return super::resolved(
+                "java.lang.Long",
+                DynamicMultiplicity::Single,
+                &format!("{mode}-count"),
+            );
+        }
+        (true, _) | (false, Some(DynamicMultiplicity::Single)) => {}
+        (false, Some(DynamicMultiplicity::Both)) => {
+            return resolve_ambiguous_count_or_property(payload, source, mode);
+        }
+        (false, None) => {
+            return SemanticResolution::Unresolved {
+                reason: "cannot decide between property access and list counting because source multiplicity is unresolved".to_owned(),
+                metadata: vec![metadata("semantic-mode", &format!("{mode}-count-or-property"))],
+            };
+        }
     }
     let options = match selected_options(payload) {
         Ok(options) => options,
         Err(reason) => return SemanticResolution::Reject(reason),
     };
     let source = source_child_for_options(payload, &options).or(Some(source));
+    let Some(multiplicity) = source.and_then(|child| child.multiplicity) else {
+        return SemanticResolution::Unresolved {
+            reason: "property source multiplicity is unresolved".to_owned(),
+            metadata: vec![metadata("semantic-mode", &format!("{mode}-property"))],
+        };
+    };
     resolve_options(
         &payload.registration_id,
         &options,
         source,
-        source
-            .and_then(|child| child.multiplicity)
-            .unwrap_or(DynamicMultiplicity::Both),
+        multiplicity,
         &format!("{mode}-property"),
+    )
+}
+
+fn resolve_ambiguous_count_or_property(
+    payload: &RegisteredExpressionPayload,
+    source: &RegisteredExpressionChild,
+    mode: &str,
+) -> SemanticResolution {
+    let options = match selected_options(payload) {
+        Ok(options) => options,
+        Err(reason) => return SemanticResolution::Reject(reason),
+    };
+    let property_source = source_child_for_options(payload, &options).or(Some(source));
+    let property = resolve_options(
+        &payload.registration_id,
+        &options,
+        property_source,
+        DynamicMultiplicity::Both,
+        &format!("{mode}-property"),
+    );
+    let SemanticResolution::Resolved {
+        possible_return_types,
+        possible_return_types_state,
+        metadata,
+        ..
+    } = property
+    else {
+        return SemanticResolution::Unresolved {
+            reason: "property access could not be resolved, so count-versus-property semantics are unresolved".to_owned(),
+            metadata: vec![metadata(
+                "semantic-mode",
+                &format!("{mode}-count-or-property"),
+            )],
+        };
+    };
+    let mut possible = possible_return_types;
+    possible.push("java.lang.Long".to_owned());
+    possible.sort();
+    possible.dedup();
+    let return_type = match catalog::common_assignable_class(&possible) {
+        Ok(Some(return_type)) if return_type != "java.lang.Object" => return_type,
+        Ok(Some(_)) | Ok(None) => {
+            return SemanticResolution::Unresolved {
+                reason: "count-versus-property results have no known concrete common type"
+                    .to_owned(),
+                metadata,
+            };
+        }
+        Err(reason) => {
+            return SemanticResolution::Unresolved {
+                reason: format!("count-versus-property common return type is unresolved: {reason}"),
+                metadata,
+            };
+        }
+    };
+    resolved_with_possible_types(
+        return_type,
+        possible,
+        if possible_return_types_state == ExpressionPossibleReturnTypesState::Complete {
+            ExpressionPossibleReturnTypesState::Partial
+        } else {
+            possible_return_types_state
+        },
+        DynamicMultiplicity::Both,
+        metadata,
     )
 }
 
@@ -134,15 +234,9 @@ pub(super) fn resolve_options(
         .collect::<Vec<_>>();
     return_types.sort();
     return_types.dedup();
-    let return_type = match return_types.as_slice() {
-        [] => {
-            return SemanticResolution::Reject(
-                "matching property handlers have no return type".to_owned(),
-            );
-        }
-        [only] => only.clone(),
-        _ => "java.lang.Object".to_owned(),
-    };
+    // PropertyBaseExpression.getPropertyReturnTypes() deliberately excludes Object.class. A
+    // handler may use Object only as a registration placeholder; it is not a possible value type.
+    return_types.retain(|return_type| return_type != "java.lang.Object");
     let mut metadata = vec![metadata("semantic-mode", mode)];
     metadata.push(
         catalog::change_contract_metadata(
@@ -151,11 +245,38 @@ pub(super) fn resolve_options(
         )
         .expect("an in-memory change contract must serialize"),
     );
-    SemanticResolution::Resolved {
+    if return_types.is_empty() {
+        return SemanticResolution::Unresolved {
+            reason: "the matching property registration does not expose a concrete return type"
+                .to_owned(),
+            metadata,
+        };
+    }
+    let return_type = match return_types.as_slice() {
+        [only] => only.clone(),
+        // PropertyBaseExpression.init() calls Utils.getSuperType(returnTypes). Ask the native
+        // Catalog to perform the same hierarchy walk instead of collapsing every union to Object.
+        _ => match catalog::common_assignable_class(&return_types) {
+            Ok(Some(return_type)) => return_type,
+            Ok(None) => {
+                return SemanticResolution::Reject(
+                    "matching property return types have no known common Java type".to_owned(),
+                );
+            }
+            Err(reason) => {
+                return SemanticResolution::Reject(format!(
+                    "could not resolve the common property return type: {reason}"
+                ));
+            }
+        },
+    };
+    resolved_with_possible_types(
         return_type,
+        return_types,
+        ExpressionPossibleReturnTypesState::Complete,
         multiplicity,
         metadata,
-    }
+    )
 }
 
 pub(super) fn source_child(
@@ -165,10 +286,4 @@ pub(super) fn source_child(
         metadata_value(&child.metadata, "semantic-role") != Some("target-type")
             && metadata_value(&child.metadata, "target-class").is_none()
     })
-}
-
-pub(super) fn source_multiplicity(payload: &RegisteredExpressionPayload) -> DynamicMultiplicity {
-    source_child(payload)
-        .and_then(|child| child.multiplicity)
-        .unwrap_or(DynamicMultiplicity::Both)
 }

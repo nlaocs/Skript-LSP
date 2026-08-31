@@ -1,6 +1,7 @@
 use super::{SemanticResolution, matches, metadata, property, register_handler};
 use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, RegisteredExpressionPayload, RegisteredSyntaxHandler,
+    DynamicMultiplicity, RegisteredExpressionChild, RegisteredExpressionPayload,
+    RegisteredSyntaxHandler,
 };
 
 const CLASS_SUFFIX: &str = ".PropExprWXYZ";
@@ -33,31 +34,90 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             })
             .cloned()
             .collect::<Vec<_>>();
-        let source = property::source_child_for_options(payload, &options);
+        if options.is_empty() {
+            return SemanticResolution::Reject(format!(
+                "source type has no registered {axis} axis component"
+            ));
+        }
+        let Some(source) = property::source_child_for_options(payload, &options) else {
+            return SemanticResolution::Unresolved {
+                reason: "WXYZ property source is unresolved".to_owned(),
+                metadata: vec![metadata("semantic-mode", "wxyz-property")],
+            };
+        };
+        let Some(multiplicity) = wxyz_source_multiplicity(Some(source)) else {
+            return SemanticResolution::Unresolved {
+                reason: "WXYZ property source multiplicity is unresolved".to_owned(),
+                metadata: vec![metadata("semantic-mode", "wxyz-property")],
+            };
+        };
         match property::resolve_options(
             &payload.registration_id,
             &options,
-            source,
-            source
-                .and_then(|child| child.multiplicity)
-                .unwrap_or(DynamicMultiplicity::Both),
+            Some(source),
+            multiplicity,
             "wxyz-property",
         ) {
             SemanticResolution::Resolved {
                 return_type,
+                possible_return_types,
+                possible_return_types_state,
                 multiplicity,
                 metadata: mut entries,
             } => {
                 entries.push(metadata("wxyz-axis", axis));
                 SemanticResolution::Resolved {
                     return_type,
+                    possible_return_types,
+                    possible_return_types_state,
                     multiplicity,
                     metadata: entries,
                 }
             }
-            SemanticResolution::Reject(_) => SemanticResolution::Reject(format!(
-                "source type has no registered {axis} axis component"
-            )),
+            unresolved @ SemanticResolution::Unresolved { .. } => unresolved,
+            rejection @ SemanticResolution::Reject(_) => rejection,
         }
     })
+}
+
+fn wxyz_source_multiplicity(
+    source: Option<&RegisteredExpressionChild>,
+) -> Option<DynamicMultiplicity> {
+    // PropExprWXYZ inherits the property expression's source cardinality.
+    // An explicit Both is meaningful; missing child data is unresolved.
+    source.and_then(|child| child.multiplicity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wxyz_source_multiplicity;
+    use crate::nlaocs::skript_parser_addon::types::{
+        DynamicMultiplicity, ExpressionPossibleReturnTypesState, RegisteredExpressionChild,
+    };
+
+    fn child(multiplicity: Option<DynamicMultiplicity>) -> RegisteredExpressionChild {
+        RegisteredExpressionChild {
+            text: "value".to_owned(),
+            kind: "expression".to_owned(),
+            parser_id: None,
+            definition_id: None,
+            registration_id: None,
+            pattern_index: None,
+            element_class: None,
+            return_type: None,
+            possible_return_types: Vec::new(),
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
+            multiplicity,
+            metadata: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn wxyz_property_requires_source_multiplicity() {
+        assert_eq!(wxyz_source_multiplicity(None), None);
+        assert_eq!(
+            wxyz_source_multiplicity(Some(&child(Some(DynamicMultiplicity::Both)))),
+            Some(DynamicMultiplicity::Both)
+        );
+    }
 }

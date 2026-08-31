@@ -4,8 +4,8 @@ use skript_parser::{catalog_pattern_candidates, snapshot_pattern_candidates};
 use syntax_pattern_parser::syntax::{self, PluralRules};
 use syntaxes::{
     Addon, AliasRegistry, Catalog, CatalogParts, ClassName, CommonSyntax, DefinitionId,
-    Documentation, DynamicSyntaxInput, DynamicSyntaxRegistry, Effect, Pattern, RegistrationId,
-    Syntax, SyntaxCandidateSource, SyntaxKind, SyntaxReference,
+    Documentation, DynamicStructureBodyMode, DynamicSyntaxInput, DynamicSyntaxRegistry, Effect,
+    NodeType, Pattern, RegistrationId, Syntax, SyntaxCandidateSource, SyntaxKind, SyntaxReference,
 };
 
 fn plural_rules() -> PluralRules {
@@ -90,6 +90,7 @@ fn catalog() -> Arc<Catalog> {
             targets: Vec::new(),
         },
         plural_rules: plural_rules(),
+        language: BTreeMap::new(),
     }))
 }
 
@@ -126,6 +127,9 @@ fn snapshot_adapter_preserves_resolved_static_and_dynamic_order() {
             after: Vec::new(),
             return_type: None,
             return_multiplicity: None,
+            structure_node_type: None,
+            structure_body_mode: None,
+            entry_validator: None,
             handler: "handle-before".to_owned(),
             metadata: BTreeMap::new(),
         })
@@ -162,5 +166,45 @@ fn snapshot_adapter_preserves_resolved_static_and_dynamic_order() {
     assert_eq!(
         candidates[dynamic_position].patterns[0].source,
         "dynamic before"
+    );
+}
+
+#[test]
+fn snapshot_adapter_exposes_dynamic_structure_candidates() {
+    let catalog = catalog();
+    let registry = DynamicSyntaxRegistry::new(Arc::clone(&catalog));
+    let mut update = registry.begin_initial_update("test.addon", 0).unwrap();
+    update
+        .register(DynamicSyntaxInput {
+            local_id: "structure".to_owned(),
+            kind: SyntaxKind::Structure,
+            patterns: vec!["fixture structure".to_owned()],
+            priority: 0,
+            before: Vec::new(),
+            after: Vec::new(),
+            return_type: None,
+            return_multiplicity: None,
+            structure_node_type: Some(NodeType::Section),
+            structure_body_mode: Some(DynamicStructureBodyMode::Raw),
+            entry_validator: None,
+            handler: "handle-structure".to_owned(),
+            metadata: BTreeMap::new(),
+        })
+        .unwrap();
+    update.commit().unwrap();
+    registry.begin_document("file:///test.sk", 1).unwrap();
+    let snapshot = registry.freeze("file:///test.sk", 1).unwrap();
+
+    let candidates = snapshot_pattern_candidates(&catalog, &snapshot, SyntaxKind::Structure);
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].definition_id, "dynamic:test.addon/structure");
+    assert_eq!(candidates[0].patterns[0].source, "fixture structure");
+    assert_eq!(
+        snapshot.definitions[&syntaxes::DynamicSyntaxId {
+            component_id: "test.addon".to_owned(),
+            local_id: "structure".to_owned(),
+        }]
+            .structure_node_type,
+        Some(NodeType::Section)
     );
 }

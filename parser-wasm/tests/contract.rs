@@ -17,7 +17,7 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
-    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(4, 0));
+    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(9, 0));
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
@@ -33,7 +33,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.19.0")
+        Some("0.27.0")
     );
 
     let world = package
@@ -107,7 +107,9 @@ fn catalog_data_import_exposes_the_complete_source_query_surface() {
         "records-by-definition-id",
         "read-record",
         "class-known",
+        "declared-method-exists",
         "is-class-assignable",
+        "common-assignable-class",
         "can-convert",
     ] {
         assert!(
@@ -165,6 +167,8 @@ fn host_bindings_expose_typed_hook_contract() {
 
     let type_option = ExpressionTypeOption {
         source_record: None,
+        definition_id: "type:weather".to_owned(),
+        registration_id: "type:weather:0".to_owned(),
         code_name: "weather type".to_owned(),
         class_name: "ch.njol.skript.util.weather.WeatherType".to_owned(),
         type_parse_order: 0,
@@ -172,6 +176,7 @@ fn host_bindings_expose_typed_hook_contract() {
         plural: "weather types".to_owned(),
         user_input_patterns: vec!["weather types?".to_owned()],
         has_parser: true,
+        parse_contexts: vec!["DEFAULT".to_owned()],
         has_supplier: true,
     };
     assert!(type_option.has_supplier);
@@ -181,7 +186,8 @@ fn host_bindings_expose_typed_hook_contract() {
 fn bindings_expose_typed_dynamic_syntax_registration() {
     use host::nlaocs::skript_parser_addon::types::{
         DynamicMultiplicity, DynamicSyntaxDefinition, DynamicSyntaxId, DynamicSyntaxReference,
-        MetadataEntry, SyntaxKind,
+        MetadataEntry, StructureBodyMode, StructureEntryData, StructureEntryKind,
+        StructureEntryValidator, StructureNodeType, SyntaxKind,
     };
 
     let definition = DynamicSyntaxDefinition {
@@ -198,6 +204,9 @@ fn bindings_expose_typed_dynamic_syntax_registration() {
         })],
         return_type: Some("java.lang.String".to_owned()),
         return_multiplicity: Some(DynamicMultiplicity::Single),
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
         handler: "fixture.handle".to_owned(),
         metadata: vec![MetadataEntry {
             key: "origin".to_owned(),
@@ -212,6 +221,57 @@ fn bindings_expose_typed_dynamic_syntax_registration() {
         definition.return_multiplicity,
         Some(DynamicMultiplicity::Single)
     ));
+
+    let structure_definition = DynamicSyntaxDefinition {
+        local_id: "fixture-structure".to_owned(),
+        kind: SyntaxKind::Structure,
+        patterns: vec!["fixture structure".to_owned()],
+        priority: 0,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: None,
+        return_multiplicity: None,
+        structure_node_type: Some(StructureNodeType::Section),
+        structure_body_mode: Some(StructureBodyMode::Entries),
+        entry_validator: Some(StructureEntryValidator {
+            entry_data: vec![StructureEntryData {
+                parent_entry_index: None,
+                key: "name".to_owned(),
+                default_value: Some(r#"{"nested":[1,null]}"#.to_owned()),
+                optional: false,
+                multiple: false,
+                entry_data_class: "fixture.EntryData".to_owned(),
+                kind: StructureEntryKind::KeyValue,
+                separator: Some(": ".to_owned()),
+                value_type: None,
+                string_mode: None,
+                return_types: Vec::new(),
+                flags: None,
+                nested_validator_present: false,
+            }],
+        }),
+        handler: "fixture.structure".to_owned(),
+        metadata: Vec::new(),
+    };
+
+    assert_eq!(structure_definition.kind, SyntaxKind::Structure);
+    assert_eq!(
+        structure_definition.structure_node_type,
+        Some(StructureNodeType::Section)
+    );
+    assert_eq!(
+        structure_definition.structure_body_mode,
+        Some(StructureBodyMode::Entries)
+    );
+    let entry = &structure_definition
+        .entry_validator
+        .expect("Structure contract exposes its validator")
+        .entry_data[0];
+    assert_eq!(entry.key, "name");
+    assert_eq!(
+        entry.default_value.as_deref(),
+        Some(r#"{"nested":[1,null]}"#)
+    );
 }
 
 #[test]

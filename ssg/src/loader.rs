@@ -11,14 +11,14 @@ use std::path::{Path, PathBuf};
 use syntaxes::{Catalog, CatalogSource};
 
 /// Highest SSG snapshot schema accepted by this reader.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 /// Oldest SSG snapshot schema accepted by this reader.
 pub const MIN_SCHEMA_VERSION: u32 = 3;
 /// Canonical manifest filename.
 pub const MANIFEST_FILE: &str = "Manifest.json";
 
-/// Data files covered by the content digest, in canonical digest order.
-pub const DATA_FILES: [&str; 18] = [
+/// Data files covered by schema 3 and 4 content digests, in canonical order.
+pub const LEGACY_DATA_FILES: [&str; 18] = [
     "Aliases.json",
     "ClassHierarchy.json",
     "Comparators.json",
@@ -39,8 +39,8 @@ pub const DATA_FILES: [&str; 18] = [
     "Types.json",
 ];
 
-/// Complete required snapshot inventory, including `Manifest.json`.
-pub const ALL_FILES: [&str; 19] = [
+/// Complete schema 3 and 4 snapshot inventory, including `Manifest.json`.
+pub const LEGACY_ALL_FILES: [&str; 19] = [
     "Aliases.json",
     "ClassHierarchy.json",
     "Comparators.json",
@@ -61,6 +61,71 @@ pub const ALL_FILES: [&str; 19] = [
     "Structures.json",
     "Types.json",
 ];
+
+/// Data files covered by the current schema 5 content digest, in canonical order.
+pub const DATA_FILES: [&str; 19] = [
+    "Aliases.json",
+    "ClassHierarchy.json",
+    "Comparators.json",
+    "Conditions.json",
+    "Converters.json",
+    "Differences.json",
+    "Effects.json",
+    "EventValues.json",
+    "Events.json",
+    "Expressions.json",
+    "Functions.json",
+    "Language.json",
+    "Operations.json",
+    "Operators.json",
+    "PluralRules.json",
+    "Properties.json",
+    "Sections.json",
+    "Structures.json",
+    "Types.json",
+];
+
+/// Complete current schema 5 snapshot inventory, including `Manifest.json`.
+pub const ALL_FILES: [&str; 20] = [
+    "Aliases.json",
+    "ClassHierarchy.json",
+    "Comparators.json",
+    "Conditions.json",
+    "Converters.json",
+    "Differences.json",
+    "Effects.json",
+    "EventValues.json",
+    "Events.json",
+    "Expressions.json",
+    "Functions.json",
+    "Language.json",
+    "Manifest.json",
+    "Operations.json",
+    "Operators.json",
+    "PluralRules.json",
+    "Properties.json",
+    "Sections.json",
+    "Structures.json",
+    "Types.json",
+];
+
+/// Returns the data-file inventory required by a supported schema version.
+pub fn data_files_for_schema(schema_version: u32) -> Option<&'static [&'static str]> {
+    match schema_version {
+        3 | 4 => Some(&LEGACY_DATA_FILES),
+        5 => Some(&DATA_FILES),
+        _ => None,
+    }
+}
+
+/// Returns the complete file inventory required by a supported schema version.
+pub fn all_files_for_schema(schema_version: u32) -> Option<&'static [&'static str]> {
+    match schema_version {
+        3 | 4 => Some(&LEGACY_ALL_FILES),
+        5 => Some(&ALL_FILES),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone)]
 /// Fully verified snapshot containing its source manifest and runtime catalog.
@@ -153,10 +218,14 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
             actual: manifest.schema_version,
         });
     }
-    validate::manifest(&manifest, &ALL_FILES)?;
+    let data_files = data_files_for_schema(manifest.schema_version)
+        .expect("schema range was checked immediately above");
+    let all_files = all_files_for_schema(manifest.schema_version)
+        .expect("schema range was checked immediately above");
+    validate::manifest(&manifest, all_files)?;
 
     let mut serialized = BTreeMap::new();
-    for file in DATA_FILES {
+    for file in data_files.iter().copied() {
         serialized.insert(file, read_file(directory, file)?);
     }
 
@@ -188,6 +257,11 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
         events: parse(&serialized, "Events.json")?,
         expressions: parse(&serialized, "Expressions.json")?,
         functions: parse(&serialized, "Functions.json")?,
+        language: if manifest.schema_version >= 5 {
+            parse_language(&serialized, "Language.json")?
+        } else {
+            BTreeMap::new()
+        },
         operations: parse(&serialized, "Operations.json")?,
         operators: parse(&serialized, "Operators.json")?,
         plural_rules: parse(&serialized, "PluralRules.json")?,
@@ -214,11 +288,55 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
         manifest.snapshot_id.clone(),
         source_documents,
     )
-    .map_err(|error| SnapshotError::validation("snapshot source", error.to_string()))?;
+    .map_err(|error| SnapshotError::validation("snapshot source", error.to_string()))?
+    .with_runtime(syntaxes::CatalogRuntime {
+        server_name: manifest.server.name.clone(),
+        server_version: manifest.server.version.clone(),
+        minecraft_version: manifest.server.minecraft_version.clone(),
+        java_version: manifest.server.java_version.clone(),
+        language: manifest.language.clone(),
+        plugins: manifest
+            .plugins
+            .iter()
+            .map(|plugin| syntaxes::CatalogRuntimePlugin {
+                load_order: plugin.load_order,
+                name: plugin.name.clone(),
+                version: plugin.version.clone(),
+                main: plugin.main.clone(),
+                enabled: plugin.enabled,
+            })
+            .collect(),
+    });
     // Both views were built from the same validated `serialized` document set above.
     let catalog = convert::catalog(raw_snapshot, plural_rules)?.with_unchecked_source(source);
 
     Ok(Snapshot { manifest, catalog })
+}
+
+fn parse_language(
+    serialized: &BTreeMap<&'static str, String>,
+    file: &'static str,
+) -> Result<BTreeMap<String, String>, SnapshotError> {
+    let value: serde_json::Value = parse_json(file, &serialized[file])?;
+    let Some(object) = value.as_object() else {
+        return Err(SnapshotError::validation(
+            file,
+            "language root must be an object",
+        ));
+    };
+
+    object
+        .iter()
+        .map(|(key, value)| {
+            let Some(value) = value.as_str() else {
+                return Err(SnapshotError::validation(
+                    format!("{file}.{key}"),
+                    "language values must be strings",
+                ));
+            };
+            Ok((key.clone(), value.to_owned()))
+        })
+        .collect()
 }
 
 fn parse<T: DeserializeOwned>(

@@ -11,6 +11,7 @@ mod expression;
 mod expression_list;
 mod failure;
 mod function;
+mod function_registry;
 mod pattern_match;
 mod raw_tree;
 mod section;
@@ -37,6 +38,8 @@ pub use expression_list::*;
 pub use failure::*;
 /// Registered and future document-defined Function call parsing.
 pub use function::*;
+/// Transactional registry for document-defined Function declarations.
+pub use function_registry::*;
 /// Registered-pattern matching and typed extension points.
 pub use pattern_match::*;
 /// Lossless indentation tree and recoverable lexical diagnostics.

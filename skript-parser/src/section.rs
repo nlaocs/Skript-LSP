@@ -4,10 +4,12 @@
 use crate::{
     CandidateMatch, ConditionParseError, EffectMatches, EffectParseError, ExpressionParseContext,
     ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
-    FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchPattern,
-    MatchSpan, MatchSyntaxKind, ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus,
-    ParsedCaptureValue, PatternCandidate, PatternCapture, RawNode, RawNodeId, RawNodeKind, RawTree,
-    RegisteredSyntaxIdentity, SectionChildrenDecision, SectionChildrenRequest, TextRange,
+    FailureFrame, FailureFrameRole, FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID,
+    MappedSource, MatchPattern, MatchSpan, MatchSyntaxKind, ParsedCapture, ParsedCaptureResult,
+    ParsedCaptureStatus, ParsedCaptureValue, PatternCandidate, PatternCapture, PatternFailure,
+    PatternFailureReason, RawNode, RawNodeId, RawNodeKind, RawTree, RegisteredSyntaxIdentity,
+    SectionBodyMode, SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision,
+    SectionRawNodeSummary, SectionSiblingSummary, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{
@@ -37,6 +39,7 @@ pub struct SectionCandidate {
     pub loop_section: bool,
     pub effect_section: bool,
     pub section_expression: bool,
+    pub body_mode: SectionBodyMode,
     pub body: Vec<SectionBodyNode>,
     pub handler: Option<String>,
     pub metadata: BTreeMap<String, String>,
@@ -61,6 +64,10 @@ impl SectionCandidate {
 pub enum SectionBodyNode {
     Section(Box<SectionMatches>),
     Effect(Box<EffectMatches>),
+    Condition {
+        raw_node_id: RawNodeId,
+        matches: Box<crate::ConditionMatches>,
+    },
     Trivia(RawNodeId),
     Unclaimed(RawNodeId),
 }
@@ -94,6 +101,9 @@ pub struct SectionMatches {
     pub unknown: Option<UnknownSectionNode>,
     pub diagnostics: Vec<SectionDiagnostic>,
 }
+
+type ParsedSectionCandidate = Result<(SectionCandidate, Vec<SectionDiagnostic>), FailureTrace>;
+type SectionCandidateAttempt = Result<Option<ParsedSectionCandidate>, SectionParseError>;
 
 #[derive(Debug, Error)]
 pub enum SectionParseError {
@@ -145,7 +155,7 @@ pub fn parse_section_with_snapshot<E: ExpressionParseEnvironment>(
         request.context,
         config.expression,
     );
-    parse_section_with_session(&mut session, request.tree, request.node, 0)
+    parse_section_with_session(&mut session, request.tree, request.node, 0, &[], None)
 }
 
 fn validate_section_node(
@@ -170,6 +180,8 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     tree: &RawTree,
     node: &RawNode,
     depth: usize,
+    preceding_siblings: &[SectionSiblingSummary],
+    next_sibling: Option<&SectionRawNodeSummary>,
 ) -> Result<SectionMatches, SectionParseError> {
     session.ensure_depth(depth)?;
     let range = section_header_range(session.source(), node)?;
@@ -177,13 +189,16 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     session.retain_viable_patterns(range, &mut candidates)?;
     let matched = session.match_candidates_at_depth(range, &candidates, depth)?;
     let mut failure = matched.primary_failure().cloned();
-    let mut ranked = matched
+    let ranked = matched
         .selected
         .into_iter()
         .chain(matched.alternatives)
         .collect::<Vec<_>>();
-    let mut accepted = Vec::new();
-    for matched in ranked.drain(..) {
+    let initial_context = session.context().clone();
+    let raw_children = raw_child_summaries(session, tree, node)?;
+    let mut diagnostics = Vec::new();
+    for matched in ranked {
+        session.replace_context(initial_context.clone());
         let local = matched.matched.span.local_range;
         let span = session.map_range(TextRange::new(
             range.start + local.start,
@@ -197,86 +212,103 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         session
             .begin_semantic_candidate()
             .map_err(|message| SectionParseError::Environment { message })?;
-        let candidate = section_candidate(session, node.id, matched, range.start, depth);
-        let keep = candidate
+        let attempt: SectionCandidateAttempt = (|| {
+            let Some(mut candidate) =
+                section_candidate(session, node.id, matched, range.start, depth)?
+            else {
+                return Ok(None);
+            };
+            let parent_context = session.context().clone();
+            let request = section_children_request(
+                session.source().virtual_source(),
+                &candidate,
+                &parent_context,
+                preceding_siblings,
+                next_sibling,
+                &raw_children,
+            );
+            let decision = session
+                .environment_mut()
+                .enter_section_children(request)
+                .map_err(|message| SectionParseError::Environment { message })?;
+            let (child_context, body_mode, metadata) = match decision {
+                SectionChildrenDecision::Accept {
+                    context,
+                    body_mode,
+                    metadata,
+                } => (context, body_mode, metadata),
+                SectionChildrenDecision::Reject {
+                    reason,
+                    diagnostics,
+                } => {
+                    return Ok(Some(Err(section_semantic_rejection(
+                        &candidate,
+                        reason,
+                        diagnostics,
+                    ))));
+                }
+            };
+            candidate.body_mode = body_mode;
+            candidate.metadata = metadata;
+            let saved_context = session.replace_context(child_context);
+            let body = parse_section_body(session, tree, node, body_mode, depth + 1);
+            let child_context = session.replace_context(saved_context);
+            let (body, child_diagnostics) = body?;
+            let request = section_children_request(
+                session.source().virtual_source(),
+                &candidate,
+                &child_context,
+                preceding_siblings,
+                next_sibling,
+                &raw_children,
+            );
+            match session
+                .environment_mut()
+                .exit_section_children(request)
+                .map_err(|message| SectionParseError::Environment { message })?
+            {
+                SectionExitDecision::Accept { context, metadata } => {
+                    session.replace_context(context);
+                    candidate.metadata = metadata;
+                    candidate.body = body;
+                    Ok(Some(Ok((candidate, child_diagnostics))))
+                }
+                SectionExitDecision::Reject {
+                    reason,
+                    diagnostics,
+                } => Ok(Some(Err(section_semantic_rejection(
+                    &candidate,
+                    reason,
+                    diagnostics,
+                )))),
+            }
+        })();
+        let accepted = attempt
             .as_ref()
-            .is_ok_and(|candidate| candidate.is_some() && accepted.is_empty());
+            .is_ok_and(|attempt| matches!(attempt, Some(Ok((_candidate, _diagnostics)))));
         session
-            .finish_semantic_candidate(keep)
+            .finish_semantic_candidate(accepted)
             .map_err(|message| SectionParseError::Environment { message })?;
-        if let Some(candidate) = candidate? {
-            accepted.push(candidate);
+        match attempt? {
+            Some(Ok((candidate, child_diagnostics))) => {
+                diagnostics.extend(child_diagnostics);
+                return Ok(SectionMatches {
+                    selected: Some(candidate),
+                    alternatives: Vec::new(),
+                    unknown: None,
+                    diagnostics,
+                });
+            }
+            Some(Err(rejected)) => {
+                failure = crate::choose_failure_trace(failure, Some(rejected));
+            }
+            None => {}
         }
     }
-    let mut diagnostics = Vec::new();
-    let mut selected = (!accepted.is_empty()).then(|| accepted.remove(0));
-    let alternatives = accepted;
-    if selected.is_some() && !alternatives.is_empty() {
-        diagnostics.push(section_diagnostic(
-            session,
-            node,
-            SectionDiagnosticKind::MultipleClaims,
-        )?);
-    }
 
-    if let Some(candidate) = selected.as_mut() {
-        let parent_context = session.context().clone();
-        let request = section_children_request(
-            session.source().virtual_source(),
-            candidate,
-            &parent_context,
-        );
-        let decision = session
-            .environment_mut()
-            .enter_section_children(request)
-            .map_err(|message| SectionParseError::Environment { message })?;
-        let SectionChildrenDecision::Accept(child_context) = decision else {
-            let (body, child_diagnostics) = parse_section_body(session, tree, node, depth + 1)?;
-            diagnostics.extend(child_diagnostics);
-            diagnostics.push(section_diagnostic(
-                session,
-                node,
-                SectionDiagnosticKind::Unclaimed,
-            )?);
-            let source = range
-                .slice(session.source().virtual_source())
-                .ok_or(SectionParseError::InvalidRange { range })?
-                .to_owned();
-            return Ok(SectionMatches {
-                selected: None,
-                alternatives,
-                unknown: Some(UnknownSectionNode {
-                    raw_node_id: node.id,
-                    source,
-                    span: session.map_range(range)?,
-                    failure: failure.clone(),
-                    body,
-                }),
-                diagnostics,
-            });
-        };
-        let saved_context = session.replace_context(child_context);
-        let body = parse_section_body(session, tree, node, depth + 1);
-        let child_context = session.replace_context(saved_context);
-        let request =
-            section_children_request(session.source().virtual_source(), candidate, &child_context);
-        let exit = session
-            .environment_mut()
-            .exit_section_children(request)
-            .map_err(|message| SectionParseError::Environment { message });
-        let (body, child_diagnostics) = body?;
-        exit?;
-        candidate.body = body;
-        diagnostics.extend(child_diagnostics);
-        return Ok(SectionMatches {
-            selected,
-            alternatives,
-            unknown: None,
-            diagnostics,
-        });
-    }
-
-    let (body, child_diagnostics) = parse_section_body(session, tree, node, depth + 1)?;
+    session.replace_context(initial_context);
+    let (body, child_diagnostics) =
+        parse_section_body(session, tree, node, SectionBodyMode::Trigger, depth + 1)?;
     diagnostics.push(section_diagnostic(
         session,
         node,
@@ -289,7 +321,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         .to_owned();
     Ok(SectionMatches {
         selected: None,
-        alternatives,
+        alternatives: Vec::new(),
         unknown: Some(UnknownSectionNode {
             raw_node_id: node.id,
             source,
@@ -299,6 +331,31 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         }),
         diagnostics,
     })
+}
+
+fn section_semantic_rejection(
+    candidate: &SectionCandidate,
+    reason: String,
+    diagnostics: Vec<crate::SemanticDiagnostic>,
+) -> FailureTrace {
+    let candidate_span = candidate.matched.matched.span.clone();
+    let span = crate::failure::semantic_failure_span(&candidate_span, &diagnostics);
+    FailureTrace::leaf(PatternFailure {
+        span: span.clone(),
+        reasons: vec![PatternFailureReason::HookRejected { reason }],
+    })
+    .with_parent(FailureFrame {
+        kind: candidate.matched.kind,
+        definition_id: candidate.matched.definition_id.clone(),
+        registration_id: candidate.matched.registration_id.clone(),
+        pattern_index: candidate.matched.pattern_index,
+        pattern: candidate.matched.pattern.clone(),
+        element_path: Vec::new(),
+        pattern_span: None,
+        input_span: candidate_span,
+        role: FailureFrameRole::SemanticCandidate,
+    })
+    .with_semantic_diagnostics(diagnostics)
 }
 
 fn section_candidate<E: ExpressionParseEnvironment>(
@@ -319,6 +376,7 @@ fn section_candidate<E: ExpressionParseEnvironment>(
     let element_class = section
         .map(|section| section.common.element_class.clone())
         .or_else(|| section_expression.map(|expression| expression.common.element_class.clone()));
+    let dynamic_handler = session.dynamic_handler_for_registration(&matched.registration_id);
     let capture_bindings = session
         .environment()
         .registered_capture_bindings(RegisteredSyntaxIdentity {
@@ -326,6 +384,10 @@ fn section_candidate<E: ExpressionParseEnvironment>(
             definition_id: &matched.definition_id,
             registration_id: &matched.registration_id,
             pattern_index: Some(matched.pattern_index),
+            pattern_source: Some(&matched.pattern),
+            tags: Some(&matched.matched.tags),
+            mark: Some(matched.matched.mark),
+            dynamic_handler,
         })
         .map_err(|message| SectionParseError::Environment { message })?;
     let mut parsed_captures = Vec::new();
@@ -352,8 +414,16 @@ fn section_candidate<E: ExpressionParseEnvironment>(
         let range = TextRange::new(frame_start + local.start, frame_start + local.end);
         let parsed = match binding.parser_id.as_str() {
             HOST_CONDITION_PARSER_ID => {
+                let context = session
+                    .capture_context(binding)
+                    .map_err(|message| SectionParseError::Environment { message })?;
+                let previous = context.map(|context| session.replace_context(context));
                 let parsed =
-                    crate::condition::parse_condition_with_session(session, range, depth + 1)?;
+                    crate::condition::parse_condition_with_session(session, range, depth + 1);
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed?;
                 match parsed.selected {
                     Some(selected) => {
                         let mut capture =
@@ -374,12 +444,20 @@ fn section_candidate<E: ExpressionParseEnvironment>(
                 }
             }
             HOST_EFFECT_PARSER_ID => {
+                let context = session
+                    .capture_context(binding)
+                    .map_err(|message| SectionParseError::Environment { message })?;
+                let previous = context.map(|context| session.replace_context(context));
                 let parsed = crate::effect::parse_effect_range_with_session(
                     session,
                     range,
                     raw_node_id,
                     depth + 1,
-                )?;
+                );
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed?;
                 match parsed.selected {
                     Some(selected) => ParsedCapture {
                         capture_index,
@@ -438,6 +516,7 @@ fn section_candidate<E: ExpressionParseEnvironment>(
         loop_section,
         effect_section,
         section_expression,
+        body_mode: SectionBodyMode::Trigger,
         body: Vec::new(),
         handler: dynamic.map(|definition| definition.handler.clone()),
         metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
@@ -529,11 +608,13 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
     session: &mut ExpressionSession<'_, E>,
     tree: &RawTree,
     node: &RawNode,
+    body_mode: SectionBodyMode,
     depth: usize,
 ) -> Result<(Vec<SectionBodyNode>, Vec<SectionDiagnostic>), SectionParseError> {
     let mut body = Vec::new();
     let mut diagnostics = Vec::new();
-    for id in &node.children {
+    let mut preceding_sections = Vec::new();
+    for (child_index, id) in node.children.iter().enumerate() {
         let Some(child) = tree.get(*id) else {
             continue;
         };
@@ -542,6 +623,7 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                 body.push(SectionBodyNode::Trivia(child.id));
             }
             RawNodeKind::Simple => {
+                preceding_sections.clear();
                 let Some(code_span) = child.code_span.as_ref() else {
                     body.push(SectionBodyNode::Unclaimed(child.id));
                     diagnostics.push(section_diagnostic(
@@ -551,33 +633,78 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                     )?);
                     continue;
                 };
-                let matches = crate::effect::parse_effect_range_with_session(
-                    session,
-                    code_span.virtual_range,
-                    child.id,
-                    depth,
-                )?;
-                if matches.selected.is_none() {
+                match body_mode {
+                    SectionBodyMode::Trigger => {
+                        let matches = crate::effect::parse_effect_range_with_session(
+                            session,
+                            code_span.virtual_range,
+                            child.id,
+                            depth,
+                        )?;
+                        extend_match_diagnostics(
+                            session,
+                            child,
+                            matches.selected.is_some(),
+                            !matches.alternatives.is_empty(),
+                            &mut diagnostics,
+                        )?;
+                        body.push(SectionBodyNode::Effect(Box::new(matches)));
+                    }
+                    SectionBodyMode::Conditions => {
+                        let matches = crate::condition::parse_condition_with_session(
+                            session,
+                            code_span.virtual_range,
+                            depth,
+                        )?;
+                        extend_match_diagnostics(
+                            session,
+                            child,
+                            matches.selected.is_some(),
+                            !matches.alternatives.is_empty(),
+                            &mut diagnostics,
+                        )?;
+                        body.push(SectionBodyNode::Condition {
+                            raw_node_id: child.id,
+                            matches: Box::new(matches),
+                        });
+                    }
+                }
+            }
+            RawNodeKind::Section => {
+                if body_mode == SectionBodyMode::Conditions {
+                    preceding_sections.clear();
+                    body.push(SectionBodyNode::Unclaimed(child.id));
                     diagnostics.push(section_diagnostic(
                         session,
                         child,
                         SectionDiagnosticKind::Unclaimed,
                     )?);
-                } else if !matches.alternatives.is_empty() {
-                    diagnostics.push(section_diagnostic(
-                        session,
-                        child,
-                        SectionDiagnosticKind::MultipleClaims,
-                    )?);
+                    continue;
                 }
-                body.push(SectionBodyNode::Effect(Box::new(matches)));
-            }
-            RawNodeKind::Section => {
-                let matches = parse_section_with_session(session, tree, child, depth)?;
+                let next_sibling = node.children[child_index + 1..]
+                    .iter()
+                    .filter_map(|id| tree.get(*id))
+                    .find(|node| !matches!(node.kind, RawNodeKind::Blank | RawNodeKind::Comment))
+                    .map(|node| raw_node_summary(session, node))
+                    .transpose()?;
+                let matches = parse_section_with_session(
+                    session,
+                    tree,
+                    child,
+                    depth,
+                    &preceding_sections,
+                    next_sibling.as_ref(),
+                )?;
                 diagnostics.extend(matches.diagnostics.iter().cloned());
+                if let Some(selected) = matches.selected.as_ref() {
+                    preceding_sections.push(section_sibling_summary(session, selected)?);
+                } else {
+                    preceding_sections.clear();
+                }
                 body.push(SectionBodyNode::Section(Box::new(matches)));
             }
             RawNodeKind::Invalid => {
+                preceding_sections.clear();
                 body.push(SectionBodyNode::Unclaimed(child.id));
                 diagnostics.push(section_diagnostic(
                     session,
@@ -590,10 +717,86 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
     Ok((body, diagnostics))
 }
 
+fn extend_match_diagnostics<E: ExpressionParseEnvironment>(
+    session: &ExpressionSession<'_, E>,
+    node: &RawNode,
+    selected: bool,
+    has_alternatives: bool,
+    diagnostics: &mut Vec<SectionDiagnostic>,
+) -> Result<(), SectionParseError> {
+    let kind = if !selected {
+        Some(SectionDiagnosticKind::Unclaimed)
+    } else if has_alternatives {
+        Some(SectionDiagnosticKind::MultipleClaims)
+    } else {
+        None
+    };
+    if let Some(kind) = kind {
+        diagnostics.push(section_diagnostic(session, node, kind)?);
+    }
+    Ok(())
+}
+
+fn raw_child_summaries<E: ExpressionParseEnvironment>(
+    session: &ExpressionSession<'_, E>,
+    tree: &RawTree,
+    parent: &RawNode,
+) -> Result<Vec<SectionRawNodeSummary>, SectionParseError> {
+    parent
+        .children
+        .iter()
+        .filter_map(|id| tree.get(*id))
+        .map(|node| raw_node_summary(session, node))
+        .collect()
+}
+
+fn raw_node_summary<E: ExpressionParseEnvironment>(
+    session: &ExpressionSession<'_, E>,
+    node: &RawNode,
+) -> Result<SectionRawNodeSummary, SectionParseError> {
+    let range = node
+        .code_span
+        .as_ref()
+        .map_or(node.span.virtual_range, |span| span.virtual_range);
+    Ok(SectionRawNodeSummary {
+        raw_node_id: node.id,
+        kind: node.kind,
+        source: range
+            .slice(session.source().virtual_source())
+            .ok_or(SectionParseError::InvalidRange { range })?
+            .to_owned(),
+        span: session.map_range(range)?,
+    })
+}
+
+fn section_sibling_summary<E: ExpressionParseEnvironment>(
+    session: &ExpressionSession<'_, E>,
+    candidate: &SectionCandidate,
+) -> Result<SectionSiblingSummary, SectionParseError> {
+    let range = candidate.matched.matched.span.mapped.virtual_range;
+    Ok(SectionSiblingSummary {
+        raw_node_id: candidate.raw_node_id,
+        definition_id: candidate.matched.definition_id.clone(),
+        registration_id: candidate.matched.registration_id.clone(),
+        element_class: candidate.element_class.clone(),
+        pattern_index: candidate.matched.pattern_index,
+        source: range
+            .slice(session.source().virtual_source())
+            .ok_or(SectionParseError::InvalidRange { range })?
+            .to_owned(),
+        span: candidate.matched.matched.span.clone(),
+        handler: candidate.handler.clone(),
+        metadata: candidate.metadata.clone(),
+    })
+}
+
 fn section_children_request<'a>(
     input: &'a str,
     candidate: &'a SectionCandidate,
     context: &'a ExpressionParseContext,
+    preceding_siblings: &'a [SectionSiblingSummary],
+    next_sibling: Option<&'a SectionRawNodeSummary>,
+    raw_children: &'a [SectionRawNodeSummary],
 ) -> SectionChildrenRequest<'a> {
     SectionChildrenRequest {
         input,
@@ -607,7 +810,15 @@ fn section_children_request<'a>(
         effect_section: candidate.effect_section,
         section_expression: candidate.section_expression,
         captures: &candidate.matched.matched.captures,
+        tags: &candidate.matched.matched.tags,
+        mark: candidate.matched.matched.mark,
+        marks: &candidate.matched.matched.marks,
         parsed_captures: &candidate.parsed_captures,
+        body_mode: candidate.body_mode,
+        preceding_siblings,
+        next_sibling,
+        raw_children,
+        metadata: &candidate.metadata,
         context,
     }
 }

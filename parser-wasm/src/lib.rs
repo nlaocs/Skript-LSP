@@ -28,7 +28,7 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(4, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(9, 0);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -50,6 +50,8 @@ pub const CAPABILITY_CONTEXT_UPDATES: &str = "parser.context-updates";
 pub const CAPABILITY_ADDITIONAL_PARSE: &str = "parser.additional-parse";
 /// Capability ID for CoreLibrary and addon Expression leaf parsers.
 pub const CAPABILITY_EXPRESSION_PARSER: &str = "parser.expression";
+/// Capability ID for Condition semantic hooks.
+pub const CAPABILITY_CONDITION_PARSER: &str = "parser.condition";
 /// Capability ID for Effect lifecycle hooks and candidate replacement.
 pub const CAPABILITY_EFFECT_PARSER: &str = "parser.effect";
 /// Capability ID for Section lifecycle hooks and scoped child context.

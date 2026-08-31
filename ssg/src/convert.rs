@@ -31,6 +31,7 @@ pub(crate) fn catalog(
         classes,
         aliases,
         plural_rules: _,
+        language,
     } = raw;
 
     let mut syntaxes = Vec::with_capacity(
@@ -50,6 +51,7 @@ pub(crate) fn catalog(
             reference_events: class_names(value.reference_events),
             event_values: value.event_values.into_iter().map(event_value).collect(),
             cancellable: value.cancellable,
+            priority_supported: value.priority_supported,
             has_on_prefix: value.has_on_prefix,
         }));
     }
@@ -124,6 +126,7 @@ pub(crate) fn catalog(
         classes: classes.into_iter().map(class).collect(),
         aliases: alias_registry(aliases),
         plural_rules,
+        language,
     }))
 }
 
@@ -361,6 +364,8 @@ fn event_value(value: raw::EventValue) -> model::EventValue {
         patterns: value.patterns,
         accepted_changers: value.accepted_changers.map(change_modes),
         context_dependent: value.context_dependent,
+        has_custom_input_validator: value.has_custom_input_validator,
+        has_custom_event_validator: value.has_custom_event_validator,
         addon: addon(value.addon),
         registration_id: value.registration_id.into(),
     }
@@ -468,6 +473,18 @@ fn class(value: raw::Class) -> model::Class {
         super_class: value.super_class.map(Into::into),
         interfaces: class_names(value.interfaces),
         component_type: value.component_type.map(Into::into),
+        container_element_type: value.container_element_type.map(Into::into),
+        methods: value.methods.map(|methods| {
+            methods
+                .into_iter()
+                .map(|method| model::ClassMethod {
+                    name: method.name,
+                    parameter_types: class_names(method.parameter_types),
+                    return_type: method.return_type.into(),
+                    is_static: method.is_static,
+                })
+                .collect()
+        }),
         provider: value.provider.map(addon),
     }
 }

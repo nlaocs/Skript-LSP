@@ -18,7 +18,11 @@ fn context(revision: u64) -> InvocationContext {
     }
 }
 
-fn host(config: HostConfig) -> ParserHost {
+fn host(mut config: HostConfig) -> ParserHost {
+    config
+        .runtime_profile
+        .skript_version
+        .get_or_insert_with(|| "2.15.4".to_owned());
     let mut host = ParserHost::new(CORE_LIBRARY, config).expect("CoreLibrary must initialize");
     host.load_addon(TEXT_MACRO_ADDON)
         .expect("text macro addon must initialize");
