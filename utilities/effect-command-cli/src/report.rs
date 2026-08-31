@@ -675,7 +675,9 @@ struct FailureContextReport {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum FailureContextRoleReport {
+    SemanticCandidate,
     PatternElement,
+    ExpressionCapture { index: usize },
     ConditionCapture { index: usize },
     EffectCapture { index: usize },
 }
@@ -683,7 +685,9 @@ enum FailureContextRoleReport {
 impl FailureContextRoleReport {
     fn human(self, syntax_kind: &str) -> String {
         match self {
+            Self::SemanticCandidate => format!("semantic check in {syntax_kind}"),
             Self::PatternElement => format!("typed capture in {syntax_kind}"),
+            Self::ExpressionCapture { .. } => format!("expression capture in {syntax_kind}"),
             Self::ConditionCapture { .. } => format!("condition capture in {syntax_kind}"),
             Self::EffectCapture { .. } => format!("effect capture in {syntax_kind}"),
         }
@@ -1578,8 +1582,14 @@ fn failure_contexts(trace: &FailureTrace) -> Vec<FailureContextReport> {
                 pattern_index: frame.pattern_index,
                 pattern: frame.pattern.clone(),
                 role: match frame.role {
+                    FailureFrameRole::SemanticCandidate => {
+                        FailureContextRoleReport::SemanticCandidate
+                    }
                     FailureFrameRole::TypeExpressionCapture => {
                         FailureContextRoleReport::PatternElement
+                    }
+                    FailureFrameRole::ExpressionCapture { index } => {
+                        FailureContextRoleReport::ExpressionCapture { index }
                     }
                     FailureFrameRole::ConditionCapture { index } => {
                         FailureContextRoleReport::ConditionCapture { index }

@@ -234,16 +234,22 @@ fn reports_arithmetic_operations_and_operands() {
 #[test]
 fn parses_boolean_conditions_and_item_alias_literals() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
-    for source in [
-        "send 2 if true is true",
-        "send 1 if 1 is true",
-        "send stone",
-    ] {
+    for source in ["send 2 if true is true", "send stone"] {
         let report = session
             .analyze(source)
             .expect("Effect analysis must complete");
         assert!(report.matched(), "{source:?} must parse");
     }
+
+    let invalid_comparison = session
+        .analyze("send 1 if 1 is true")
+        .expect("invalid comparison analysis must complete");
+    assert!(!invalid_comparison.matched());
+    let json = invalid_comparison.to_json().unwrap();
+    assert!(
+        json.contains("cannot compare java.lang.Long with java.lang.Boolean"),
+        "native Skript rejects the same incompatible comparison: {json}"
+    );
 }
 
 #[test]
