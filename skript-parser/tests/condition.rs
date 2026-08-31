@@ -1,9 +1,9 @@
 use skript_parser::{
     ConditionNodeKind, ConditionParseRequest, ConditionParserConfig, ExpressionLeafCandidate,
-    ExpressionLeafKind, ExpressionLeafRequest, ExpressionParseContext, ExpressionParseEnvironment,
-    FailureTrace, MappedSource, PatternFailureReason, PatternHookControl, PatternHookEvent,
-    PatternMatchEnvironment, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
-    parse_condition,
+    ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest, ExpressionParseContext,
+    ExpressionParseEnvironment, FailureTrace, MappedSource, PatternFailureReason,
+    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, TextRange,
+    TypeExpressionOutcome, TypeExpressionRequest, parse_condition,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -193,7 +193,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+    ) -> Result<ExpressionLeafParse, String> {
         let candidate = request.candidate_ends.iter().rev().find_map(|end| {
             let range = TextRange::new(request.remaining.start, *end);
             let text = range.slice(request.input)?;
@@ -210,7 +210,8 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
                 metadata: BTreeMap::new(),
             })
             .into_iter()
-            .collect())
+            .collect::<Vec<_>>()
+            .into())
     }
 
     fn state_revision(&self) -> Result<u64, String> {

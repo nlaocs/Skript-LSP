@@ -4,8 +4,9 @@
 use crate::pattern_match::{find_parenthesis_end, java_trim_range};
 use crate::{
     CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureTrace, MappedSource,
-    MatchSpan, ParseMarkCapture, ParseTagCapture, PatternCapture, TextRange,
+    ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureFrame,
+    FailureFrameRole, FailureTrace, MappedSource, MatchSpan, MatchSyntaxKind, ParseMarkCapture,
+    ParseTagCapture, PatternCapture, PatternFailure, PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -34,6 +35,9 @@ pub enum ConditionNodeKind {
         definition_id: String,
         registration_id: String,
         pattern_index: usize,
+        pattern: String,
+        priority: i32,
+        registration_order: usize,
     },
 }
 
@@ -56,6 +60,28 @@ pub struct ConditionNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConditionCandidate {
     pub node: ConditionNode,
+}
+
+/// Fully parsed Condition candidate offered to CoreLibrary and addon semantics.
+pub struct ConditionSemanticRequest<'a> {
+    pub input: &'a str,
+    pub context: &'a ExpressionParseContext,
+    pub candidate: &'a ConditionCandidate,
+}
+
+/// Semantic decision returned after a Condition matched structurally.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConditionSemanticDecision {
+    UseCandidate,
+    Accepted {
+        context: ExpressionParseContext,
+        handler: Option<String>,
+        metadata: BTreeMap<String, String>,
+    },
+    Reject {
+        reason: String,
+        diagnostics: Vec<crate::SemanticDiagnostic>,
+    },
 }
 
 /// Source-preserving information for a Condition that did not match.
@@ -170,15 +196,94 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
     let matched = session.match_candidates_at_depth(trimmed, &candidates, depth)?;
     let mut failure = matched.primary_failure().cloned();
     let mut accepted = Vec::new();
-    for candidate in matched.selected.into_iter().chain(matched.alternatives) {
-        if let Some(restricted) = session
-            .event_restriction_failure(&candidate.registration_id, session.map_range(trimmed)?)
+    let initial_context = session.context().clone();
+    let mut selected_context = None;
+    for matched in matched.selected.into_iter().chain(matched.alternatives) {
+        session.replace_context(initial_context.clone());
+        if let Some(restricted) =
+            session.event_restriction_failure(&matched.registration_id, session.map_range(trimmed)?)
         {
             failure = crate::choose_failure_trace(failure, Some(restricted));
             continue;
         }
-        accepted.push(condition_candidate(session, candidate, trimmed)?);
+        session
+            .begin_semantic_candidate()
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        let mut candidate = condition_candidate(session, matched, trimmed)?;
+        let mut accepted_semantically = true;
+        let input = trimmed
+            .slice(session.source().virtual_source())
+            .ok_or(ConditionParseError::InvalidInputRange { range: trimmed })?;
+        let context = session.context().clone();
+        match session
+            .environment_mut()
+            .resolve_condition_candidate(ConditionSemanticRequest {
+                input,
+                context: &context,
+                candidate: &candidate,
+            })
+            .map_err(|message| ExpressionParseError::Environment { message })?
+        {
+            ConditionSemanticDecision::UseCandidate => {}
+            ConditionSemanticDecision::Accepted {
+                context,
+                handler,
+                metadata,
+            } => {
+                session.replace_context(context);
+                candidate.node.handler = handler;
+                candidate.node.metadata = metadata;
+            }
+            ConditionSemanticDecision::Reject {
+                reason,
+                diagnostics,
+            } => {
+                accepted_semantically = false;
+                let candidate_span = candidate.node.span.clone();
+                let span = crate::failure::semantic_failure_span(&candidate_span, &diagnostics);
+                let mut trace = FailureTrace::leaf(PatternFailure {
+                    span: span.clone(),
+                    reasons: vec![PatternFailureReason::HookRejected { reason }],
+                });
+                if let ConditionNodeKind::Registered {
+                    definition_id,
+                    registration_id,
+                    pattern_index,
+                    pattern,
+                    ..
+                } = &candidate.node.kind
+                {
+                    trace = trace.with_parent(FailureFrame {
+                        kind: MatchSyntaxKind::Condition,
+                        definition_id: definition_id.clone(),
+                        registration_id: registration_id.clone(),
+                        pattern_index: *pattern_index,
+                        pattern: pattern.clone(),
+                        element_path: Vec::new(),
+                        pattern_span: None,
+                        input_span: candidate_span,
+                        role: FailureFrameRole::SemanticCandidate,
+                    });
+                }
+                failure = crate::choose_failure_trace(
+                    failure,
+                    Some(trace.with_semantic_diagnostics(diagnostics)),
+                );
+            }
+        }
+        let keep = accepted_semantically && accepted.is_empty();
+        if keep {
+            selected_context = Some(session.context().clone());
+        }
+        session
+            .finish_semantic_candidate(keep)
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        if accepted_semantically {
+            accepted.push(candidate);
+            break;
+        }
     }
+    session.replace_context(selected_context.unwrap_or(initial_context));
     let selected = (!accepted.is_empty()).then(|| accepted.remove(0));
     let alternatives = accepted;
     if selected.is_none() {
@@ -242,6 +347,9 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
                 definition_id: matched.definition_id,
                 registration_id: matched.registration_id,
                 pattern_index: matched.pattern_index,
+                pattern: matched.pattern,
+                priority: matched.priority,
+                registration_order: matched.registration_order,
             },
             span: session.map_range(range)?,
             captures: matched.matched.captures,

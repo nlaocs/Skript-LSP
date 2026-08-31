@@ -1,10 +1,11 @@
 use skript_parser::{
     ExpressionExpectedType, ExpressionFailureKind, ExpressionLeafCandidate, ExpressionLeafKind,
-    ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseRequest, ExpressionParserConfig, MappedSource, NoopExpressionEnvironment,
-    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
-    RegisteredExpressionDecision, RegisteredExpressionRequest, TextRange, TypeExpressionOutcome,
-    TypeExpressionRequest, parse_expression, parse_expression_with_snapshot,
+    ExpressionLeafParse, ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext,
+    ExpressionParseEnvironment, ExpressionParseRequest, ExpressionParserConfig, ExpressionRootMode,
+    MappedSource, NoopExpressionEnvironment, PatternHookControl, PatternHookEvent,
+    PatternMatchEnvironment, PatternMatchError, RegisteredExpressionDecision,
+    RegisteredExpressionRequest, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
+    parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -67,6 +68,10 @@ fn expression_fixture() -> Catalog {
         classes: Vec::new(),
         aliases: source.aliases().clone(),
         plural_rules: source.plural_rules().clone(),
+        language: source
+            .language_entries()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
     })
 }
 
@@ -125,6 +130,10 @@ fn catalog_with_syntaxes(source: &Catalog, syntaxes: Vec<Syntax>) -> Catalog {
         classes: source.classes().to_vec(),
         aliases: source.aliases().clone(),
         plural_rules: source.plural_rules().clone(),
+        language: source
+            .language_entries()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
     })
 }
 
@@ -149,6 +158,9 @@ fn filtered_expression_patterns_keep_their_registration_index() {
         after: Vec::new(),
         return_type: Some("java.lang.String".to_owned()),
         return_multiplicity: Some(DynamicMultiplicity::Single),
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
         handler: "test.dynamic.filtered-patterns".to_owned(),
         metadata: BTreeMap::new(),
         component_load_order: 1,
@@ -288,6 +300,47 @@ fn nested_parentheses_are_transparent_nodes_with_exact_spans() {
 }
 
 #[test]
+fn root_parse_mode_distinguishes_literals_from_registered_expressions() {
+    let catalog = expression_fixture();
+
+    let literal = MappedSource::identity("\"hello\"");
+    let literal_result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &literal,
+            range: TextRange::new(0, literal.virtual_source().len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig {
+            root_mode: ExpressionRootMode::ExpressionsOnly,
+            ..ExpressionParserConfig::default()
+        },
+    )
+    .expect("mode filtering is a normal parse result");
+    assert!(literal_result.selected.is_none());
+
+    let registered = MappedSource::identity("dummy direct registry expression");
+    let registered_result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &registered,
+            range: TextRange::new(0, registered.virtual_source().len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut LiteralEnvironment,
+        ExpressionParserConfig {
+            root_mode: ExpressionRootMode::LiteralsOnly,
+            ..ExpressionParserConfig::default()
+        },
+    )
+    .expect("mode filtering is a normal parse result");
+    assert!(registered_result.selected.is_none());
+}
+
+#[test]
 fn parenthesized_expression_trims_inner_ascii_whitespace_like_skript() {
     let catalog = expression_fixture();
     let text = "( \t\"hello\"\r\n )";
@@ -369,6 +422,9 @@ fn parentheses_owned_by_a_registered_pattern_are_not_unwrapped() {
         after: Vec::new(),
         return_type: Some("java.lang.String".to_owned()),
         return_multiplicity: Some(DynamicMultiplicity::Single),
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
         handler: "test.dynamic.parenthesized-pattern".to_owned(),
         metadata: BTreeMap::new(),
         component_load_order: 1,
@@ -515,6 +571,9 @@ fn parses_dynamic_expression_from_frozen_registry_order() {
         after: Vec::new(),
         return_type: Some("java.lang.String".to_owned()),
         return_multiplicity: Some(DynamicMultiplicity::Single),
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
         handler: "test.dynamic.expression".to_owned(),
         metadata: BTreeMap::from([("source".to_owned(), "test".to_owned())]),
         component_load_order: 1,
@@ -623,6 +682,10 @@ fn dynamic_return_type_is_finalized_after_the_pattern_matches() {
         classes: Vec::new(),
         aliases: source_catalog.aliases().clone(),
         plural_rules: source_catalog.plural_rules().clone(),
+        language: source_catalog
+            .language_entries()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
     });
     let text = "dummy direct registry expression";
     let source = MappedSource::identity(text);
@@ -971,8 +1034,8 @@ impl ExpressionParseEnvironment for DynamicReturnEnvironment {
     fn parse_expression_leaf(
         &mut self,
         _request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
-        Ok(Vec::new())
+    ) -> Result<ExpressionLeafParse, String> {
+        Ok(ExpressionLeafParse::default())
     }
 
     fn resolve_registered_expression(
@@ -982,6 +1045,8 @@ impl ExpressionParseEnvironment for DynamicReturnEnvironment {
         self.resolutions += 1;
         Ok(RegisteredExpressionDecision::Resolved {
             return_type: Some(ClassName("java.lang.Long".to_owned())),
+            possible_return_types: vec![ClassName("java.lang.Long".to_owned())],
+            possible_return_types_state: PossibleReturnTypesState::Complete,
             multiplicity: Some(Multiplicity::Single),
             metadata: BTreeMap::new(),
         })
@@ -1017,7 +1082,7 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+    ) -> Result<ExpressionLeafParse, String> {
         Ok(vec![ExpressionLeafCandidate {
             parser_id: "test.multiple".to_owned(),
             kind: ExpressionLeafKind::Custom,
@@ -1026,7 +1091,8 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
             multiplicity: Some(Multiplicity::Multiple),
             children: Vec::new(),
             metadata: BTreeMap::new(),
-        }])
+        }]
+        .into())
     }
 
     fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
@@ -1061,7 +1127,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
-    ) -> Result<Vec<ExpressionLeafCandidate>, String> {
+    ) -> Result<ExpressionLeafParse, String> {
         let candidate = request.candidate_ends.iter().rev().find_map(|end| {
             let range = TextRange::new(request.remaining.start, *end);
             let text = range.slice(request.input)?;
@@ -1078,7 +1144,8 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
                 metadata: BTreeMap::new(),
             })
             .into_iter()
-            .collect())
+            .collect::<Vec<_>>()
+            .into())
     }
 
     fn state_revision(&self) -> Result<u64, String> {
