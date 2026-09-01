@@ -14,6 +14,7 @@ ARGS:
 
 OPTIONS:
     -s, --snapshot <PATH>    SSG schema 3 or 4 directory, or its Manifest.json
+        --event <HEADER>     Parse Effects inside this Event context
         --json               Emit structured JSON
         --repl               Start the REPL explicitly
     -h, --help               Print help
@@ -26,6 +27,10 @@ ENVIRONMENT:
 REPL COMMANDS:
     :help                    Show REPL commands
     :reload                  Reload the SSG snapshot
+    :event <HEADER>          Select an Event context (`:` is optional)
+    :event off               Clear the Event context
+    :events                  List available Event registrations
+    :context                 Show the active Event context
     :json on | :json off     Toggle JSON output
     :quit | :exit            Exit the REPL"#;
 
@@ -54,6 +59,8 @@ pub struct CliOptions {
     pub snapshot: PathBuf,
     /// Initial output representation.
     pub output: OutputFormat,
+    /// Event header applied before one-shot or REPL parsing.
+    pub event: Option<String>,
     /// One-shot or interactive execution.
     pub mode: RunMode,
 }
@@ -78,6 +85,7 @@ impl CliOptions {
     {
         let mut snapshot = default_snapshot;
         let mut output = OutputFormat::Human;
+        let mut event = None;
         let mut force_repl = false;
         let mut positional = Vec::new();
         let mut values = args.into_iter().map(Into::into).peekable();
@@ -106,6 +114,13 @@ impl CliOptions {
                 force_repl = true;
                 continue;
             }
+            if value == OsStr::new("--event") {
+                event =
+                    Some(os_to_string(values.next().ok_or_else(|| {
+                        "--event requires an Event header".to_owned()
+                    })?)?);
+                continue;
+            }
             if value == OsStr::new("-s") || value == OsStr::new("--snapshot") {
                 snapshot = PathBuf::from(
                     values
@@ -122,6 +137,16 @@ impl CliOptions {
                     return Err("--snapshot requires a path".to_owned());
                 }
                 snapshot = PathBuf::from(encoded);
+                continue;
+            }
+            if let Some(encoded) = value
+                .to_str()
+                .and_then(|text| text.strip_prefix("--event="))
+            {
+                if encoded.is_empty() {
+                    return Err("--event requires an Event header".to_owned());
+                }
+                event = Some(encoded.to_owned());
                 continue;
             }
             if value.to_string_lossy().starts_with('-') {
@@ -141,6 +166,7 @@ impl CliOptions {
         Ok(CliAction::Run(Self {
             snapshot: snapshot_directory(snapshot),
             output,
+            event,
             mode,
         }))
     }
@@ -176,6 +202,7 @@ mod tests {
             panic!("command must run");
         };
         assert_eq!(options.mode, RunMode::Once("send 1 to player".to_owned()));
+        assert_eq!(options.event, None);
     }
 
     #[test]
@@ -197,5 +224,27 @@ mod tests {
     fn explicit_repl_rejects_effect_text() {
         let error = CliOptions::parse(["--repl", "send 1"], PathBuf::from("snapshot")).unwrap_err();
         assert!(error.contains("cannot be combined"));
+    }
+
+    #[test]
+    fn accepts_event_context_for_one_shot_and_repl_modes() {
+        let action = CliOptions::parse(
+            ["--event", "on join:", "send player"],
+            PathBuf::from("snapshot"),
+        )
+        .unwrap();
+        let CliAction::Run(options) = action else {
+            panic!("command must run");
+        };
+        assert_eq!(options.event.as_deref(), Some("on join:"));
+        assert_eq!(options.mode, RunMode::Once("send player".to_owned()));
+
+        let action =
+            CliOptions::parse(["--repl", "--event=join"], PathBuf::from("snapshot")).unwrap();
+        let CliAction::Run(options) = action else {
+            panic!("command must run");
+        };
+        assert_eq!(options.event.as_deref(), Some("join"));
+        assert_eq!(options.mode, RunMode::Repl);
     }
 }

@@ -4,6 +4,10 @@ use std::io::{self, BufRead, Write};
 const REPL_HELP: &str = r#"REPL commands:
   :help                 Show this command list
   :reload               Reload the configured SSG snapshot
+  :event <header>       Select an Event context (`:` is optional)
+  :event off            Clear the Event context
+  :events               List registered Events
+  :context              Show the active Event context
   :json on              Use JSON reports
   :json off             Use human-readable reports
   :quit, :exit          Exit the REPL
@@ -83,7 +87,12 @@ fn repl_command(
     format: &mut OutputFormat,
     output: &mut dyn Write,
 ) -> ReplControl {
-    match command.trim() {
+    let command = command.trim();
+    if let Some(selector) = event_selector(command) {
+        select_event(selector.trim(), session, output);
+        return ReplControl::Continue;
+    }
+    match command {
         ":quit" | ":exit" => ReplControl::Exit,
         ":help" => {
             let _ = writeln!(output, "{REPL_HELP}");
@@ -97,6 +106,34 @@ fn repl_command(
                 Err(error) => {
                     let _ = writeln!(output, "error: {error}");
                 }
+            }
+            ReplControl::Continue
+        }
+        ":event" | ":context" => {
+            write_context(session, output);
+            ReplControl::Continue
+        }
+        ":events" => {
+            let events = match session.events() {
+                Ok(events) => events,
+                Err(error) => {
+                    let _ = writeln!(output, "error: {error}");
+                    return ReplControl::Continue;
+                }
+            };
+            let _ = writeln!(output, "Events ({}):", events.len());
+            for event in events {
+                let owner = event.addon.as_ref().map_or_else(
+                    || event.handler.as_deref().unwrap_or("dynamic"),
+                    |addon| addon.name.as_str(),
+                );
+                let _ = writeln!(
+                    output,
+                    "  - {} {} [{}]",
+                    owner,
+                    event.patterns.join(" | "),
+                    event.registration_id,
+                );
             }
             ReplControl::Continue
         }
@@ -129,14 +166,84 @@ fn repl_command(
     }
 }
 
+fn event_selector(command: &str) -> Option<&str> {
+    let selector = command.strip_prefix(":event")?;
+    selector
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+        .then(|| selector.trim())
+}
+
+fn select_event(selector: &str, session: &mut EffectCommandSession, output: &mut dyn Write) {
+    if selector.eq_ignore_ascii_case("off") {
+        match session.clear_event_context() {
+            Ok(()) => {
+                let _ = writeln!(output, "Event context cleared");
+            }
+            Err(error) => {
+                let _ = writeln!(output, "error: {error}");
+            }
+        }
+        return;
+    }
+    let result = session.select_event_header(selector);
+    match result {
+        Ok(event) => {
+            let _ = writeln!(
+                output,
+                "Event context: {} [{}]",
+                event.input, event.registration_id
+            );
+        }
+        Err(error) => {
+            let _ = writeln!(output, "error: {error}");
+        }
+    }
+}
+
+fn write_context(session: &EffectCommandSession, output: &mut dyn Write) {
+    let Some(event) = session.event_context() else {
+        let _ = writeln!(output, "Event context: none");
+        return;
+    };
+    let _ = writeln!(output, "Event context:");
+    let _ = writeln!(output, "  input: {}", event.input);
+    let _ = writeln!(output, "  registrationId: {}", event.registration_id);
+    if let Some(class) = &event.element_class {
+        let _ = writeln!(output, "  class: {class}");
+    }
+    let _ = writeln!(output, "  referenceEvents: {:?}", event.reference_events);
+    let _ = writeln!(output, "  eventValues: {}", event.event_values.len());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn help_documents_every_required_command() {
-        for command in [":help", ":reload", ":json on", ":json off", ":quit"] {
+        for command in [
+            ":help",
+            ":reload",
+            ":event <header>",
+            ":event off",
+            ":events",
+            ":context",
+            ":json on",
+            ":json off",
+            ":quit",
+        ] {
             assert!(REPL_HELP.contains(command));
         }
+    }
+
+    #[test]
+    fn event_selector_accepts_any_whitespace_without_matching_events_command() {
+        assert_eq!(event_selector(":event join"), Some("join"));
+        assert_eq!(event_selector(":event\tjoin"), Some("join"));
+        assert_eq!(event_selector(":event   on join:"), Some("on join:"));
+        assert_eq!(event_selector(":event"), None);
+        assert_eq!(event_selector(":events"), None);
     }
 }

@@ -1907,6 +1907,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
         let mut candidates = Vec::new();
+        let mut deferred_literals = Vec::new();
         let mut failure = None;
         let mut ordinary_candidate_ends = candidate_ends.to_vec();
         if self
@@ -2003,6 +2004,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 ) {
                     continue;
                 }
+                let defer_literal = allow_expressions
+                    && matches!(leaf.kind, ExpressionLeafKind::Literal)
+                    && !matches!(
+                        leaf.parser_id.as_str(),
+                        "core.literal.string" | "core.literal.variable-string"
+                    );
                 let kind = match leaf.kind {
                     ExpressionLeafKind::Variable => ExpressionNodeKind::Variable {
                         parser_id: leaf.parser_id,
@@ -2023,7 +2030,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 } else {
                     PossibleReturnTypesState::Unresolved
                 };
-                accepted_leaves.push(ExpressionCandidate {
+                let candidate = ExpressionCandidate {
                     node: ExpressionNode {
                         kind,
                         function: None,
@@ -2040,10 +2047,19 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         metadata: leaf.metadata,
                     },
                     expected_alternative: None,
-                });
+                };
+                // Skript tries registered Expressions before ordinary literals. Quoted strings
+                // are VariableStrings and are parsed before the registry, so keep them early.
+                if defer_literal {
+                    deferred_literals.push(candidate);
+                } else {
+                    accepted_leaves.push(candidate);
+                }
             }
             self.environment
-                .finish_expression_leaf(!accepted_leaves.is_empty())
+                .finish_expression_leaf(
+                    !accepted_leaves.is_empty() || !deferred_literals.is_empty(),
+                )
                 .map_err(|message| ExpressionParseError::Environment { message })?;
             candidates.extend(accepted_leaves);
 
@@ -2115,6 +2131,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     }
                 }
             }
+
+            candidates.append(&mut deferred_literals);
 
             if include_leaves && allow_lists {
                 let lists = self.parse_expression_lists(

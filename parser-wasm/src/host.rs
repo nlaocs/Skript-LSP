@@ -2787,6 +2787,7 @@ fn hook_outcome_accepted(outcome: &PatternHookOutcome, control: &PatternHookCont
 struct WasmPatternHooks<'a> {
     host: &'a mut ParserHost,
     transaction: &'a ParseTransaction,
+    dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
     matching_hooks_registered: bool,
     context: InvocationContext,
     input: String,
@@ -3155,12 +3156,34 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         registration_id: &str,
         pattern_index: usize,
     ) -> Result<bool, String> {
-        let identity = self
+        let static_identity = self
             .host
             .config
             .syntax_catalog
             .as_deref()
             .and_then(|catalog| registered_syntax_identity(catalog, kind, registration_id));
+        let identity = static_identity.or_else(|| {
+            self.dynamic_snapshot.and_then(|snapshot| {
+                let expected_kind = catalog_match_syntax_kind(kind);
+                snapshot.definitions.values().find_map(|definition| {
+                    (definition.kind == expected_kind
+                        && definition.id.qualified() == registration_id)
+                        .then_some(RegisteredSyntaxIdentity {
+                            kind: definition.kind,
+                            definition_id: registration_id,
+                            registration_id,
+                            pattern_index: Some(pattern_index),
+                            pattern_source: definition
+                                .patterns
+                                .get(pattern_index)
+                                .map(|pattern| pattern.source.as_str()),
+                            tags: None,
+                            mark: None,
+                            dynamic_handler: Some(definition.handler.as_str()),
+                        })
+                })
+            })
+        });
         let exact_handler = self.matching_hooks_registered
             && self
                 .host
@@ -4347,6 +4370,26 @@ fn apply_context_updates(
     updates: Vec<ContextUpdate>,
     owner: &str,
 ) -> Result<ExpressionParseContext, String> {
+    apply_context_update_slice(original, &updates, owner)
+}
+
+/// Applies addon-produced parser context updates to a reusable parse context.
+///
+/// Consumers that select a Structure without parsing its body can use this to
+/// carry the accepted Structure's event classes and addon-owned context values
+/// into later Effect, Condition, and Expression parses.
+pub fn apply_parser_context_updates(
+    original: &ExpressionParseContext,
+    updates: &[ContextUpdate],
+) -> Result<ExpressionParseContext, String> {
+    apply_context_update_slice(original, updates, "Parser")
+}
+
+fn apply_context_update_slice(
+    original: &ExpressionParseContext,
+    updates: &[ContextUpdate],
+    owner: &str,
+) -> Result<ExpressionParseContext, String> {
     let mut context = original.clone();
     for update in updates {
         if update.syntax_context != context.syntax_context {
@@ -4371,10 +4414,10 @@ fn apply_context_updates(
                 .unwrap_or_default();
             continue;
         }
-        if let Some(value) = update.value {
+        if let Some(value) = &update.value {
             context.values.insert(
-                update.key,
-                String::from_utf8(value)
+                update.key.clone(),
+                String::from_utf8(value.clone())
                     .map_err(|_| format!("{owner} context update is not UTF-8"))?,
             );
         } else {
@@ -6383,6 +6426,26 @@ fn registered_property_options(
                     *source_child_index,
                     match_kind,
                 ));
+            } else {
+                selected.extend(
+                    property
+                        .related_types
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, option)| {
+                            catalog.can_convert(source_type.as_str(), option.type_class.as_str())
+                        })
+                        .map(|(related_type_index, option)| {
+                            (
+                                property_source_index,
+                                property,
+                                related_type_index,
+                                option,
+                                *source_child_index,
+                                "convertible",
+                            )
+                        }),
+                );
             }
         }
     }
@@ -7223,16 +7286,7 @@ fn registered_syntax_identity<'a>(
     kind: MatchSyntaxKind,
     registration_id: &str,
 ) -> Option<RegisteredSyntaxIdentity<'a>> {
-    let kind = match kind {
-        MatchSyntaxKind::Event => CatalogSyntaxKind::Event,
-        MatchSyntaxKind::Condition => CatalogSyntaxKind::Condition,
-        MatchSyntaxKind::Effect => CatalogSyntaxKind::Effect,
-        MatchSyntaxKind::Expression => CatalogSyntaxKind::Expression,
-        MatchSyntaxKind::Type => CatalogSyntaxKind::Type,
-        MatchSyntaxKind::Function => CatalogSyntaxKind::Function,
-        MatchSyntaxKind::Section => CatalogSyntaxKind::Section,
-        MatchSyntaxKind::Structure => CatalogSyntaxKind::Structure,
-    };
+    let kind = catalog_match_syntax_kind(kind);
     let syntaxes = catalog.syntax_by_registration_id(registration_id);
     let mut matches = syntaxes.iter().filter(|syntax| syntax.kind() == kind);
     let syntax = *matches.next()?;
@@ -7249,6 +7303,19 @@ fn registered_syntax_identity<'a>(
         mark: None,
         dynamic_handler: None,
     })
+}
+
+fn catalog_match_syntax_kind(kind: MatchSyntaxKind) -> CatalogSyntaxKind {
+    match kind {
+        MatchSyntaxKind::Event => CatalogSyntaxKind::Event,
+        MatchSyntaxKind::Condition => CatalogSyntaxKind::Condition,
+        MatchSyntaxKind::Effect => CatalogSyntaxKind::Effect,
+        MatchSyntaxKind::Expression => CatalogSyntaxKind::Expression,
+        MatchSyntaxKind::Type => CatalogSyntaxKind::Type,
+        MatchSyntaxKind::Function => CatalogSyntaxKind::Function,
+        MatchSyntaxKind::Section => CatalogSyntaxKind::Section,
+        MatchSyntaxKind::Structure => CatalogSyntaxKind::Structure,
+    }
 }
 struct EpochTicker {
     stop: Arc<AtomicBool>,
@@ -7488,9 +7555,15 @@ impl ParserHost {
         let base = transaction.savepoint()?;
         let input_text = input.text().to_owned();
         let matching_hooks_registered = self.registry.has_matching_hooks();
+        let dynamic_snapshot = self
+            .dynamic_syntax_registry
+            .as_ref()
+            .map(|_| self.dynamic_syntax_snapshot(transaction))
+            .transpose()?;
         let mut hooks = WasmPatternHooks {
             host: self,
             transaction,
+            dynamic_snapshot: dynamic_snapshot.as_ref(),
             matching_hooks_registered,
             context,
             input: input_text,
@@ -7563,6 +7636,7 @@ impl ParserHost {
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            dynamic_snapshot: Some(&dynamic_snapshot),
             matching_hooks_registered,
             context,
             input: input_text,
@@ -7662,6 +7736,7 @@ impl ParserHost {
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            dynamic_snapshot: Some(&dynamic_snapshot),
             matching_hooks_registered,
             context,
             input: input_text,
@@ -7759,6 +7834,7 @@ impl ParserHost {
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            dynamic_snapshot: Some(&dynamic_snapshot),
             matching_hooks_registered,
             context,
             input: request.source.virtual_source().to_owned(),
@@ -7858,6 +7934,7 @@ impl ParserHost {
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            dynamic_snapshot: Some(&dynamic_snapshot),
             matching_hooks_registered,
             context,
             input: request.source.virtual_source().to_owned(),
@@ -8050,6 +8127,7 @@ impl ParserHost {
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
+            dynamic_snapshot: Some(&dynamic_snapshot),
             matching_hooks_registered,
             context: context.clone(),
             input: source.virtual_source().to_owned(),
@@ -13456,6 +13534,7 @@ mod tests {
             ..HostConfig::default()
         }
     }
+
     use crate::bindings::nlaocs::skript_parser_addon::types::DocumentPayload;
     use std::path::Path;
     use wasm_encoder::{

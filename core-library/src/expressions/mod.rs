@@ -387,6 +387,14 @@ fn metadata(key: &str, value: &str) -> MetadataEntry {
     }
 }
 
+fn set_metadata(metadata: &mut Vec<MetadataEntry>, key: &str, value: &str) {
+    if let Some(entry) = metadata.iter_mut().find(|entry| entry.key == key) {
+        entry.value = value.to_owned();
+    } else {
+        metadata.push(self::metadata(key, value));
+    }
+}
+
 fn metadata_value<'a>(metadata: &'a [MetadataEntry], key: &str) -> Option<&'a str> {
     metadata
         .iter()

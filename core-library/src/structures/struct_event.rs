@@ -40,18 +40,22 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
             "core.structure.event",
         );
     }
-    match version_support(INTRODUCED_IN) {
-        VersionSupport::TooOld => {
-            return super::reject_structure("StructEvent is not available before Skript 2.8");
+    let legacy_registration =
+        super::legacy::is_event_registration(&payload.candidate.registration_id);
+    if !legacy_registration {
+        match version_support(INTRODUCED_IN) {
+            VersionSupport::TooOld => {
+                return super::reject_structure("StructEvent is not available before Skript 2.8");
+            }
+            VersionSupport::Unresolved => {
+                return unresolved_structure(
+                    payload,
+                    "core.struct-event.unresolved-version",
+                    "Skript version is missing or newer than the supported 2.16 range; StructEvent semantics are unresolved",
+                );
+            }
+            VersionSupport::Supported => {}
         }
-        VersionSupport::Unresolved => {
-            return unresolved_structure(
-                payload,
-                "core.struct-event.unresolved-version",
-                "Skript version is missing or newer than the supported 2.16 range; StructEvent semantics are unresolved",
-            );
-        }
-        VersionSupport::Supported => {}
     }
     let Some(event) = payload.candidate.parsed_captures.iter().find(|capture| {
         capture.capture_index == 0
@@ -148,7 +152,14 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
     push_metadata(&mut payload, "event-priority", priority);
     let cancellable_state =
         cancellable.map_or("unresolved", |value| if value { "true" } else { "false" });
+    let priority_supported_state =
+        priority_supported.map_or("unresolved", |value| if value { "true" } else { "false" });
     push_metadata(&mut payload, "event-cancellable", cancellable_state);
+    push_metadata(
+        &mut payload,
+        "event-priority-supported",
+        priority_supported_state,
+    );
     let mut context_updates = vec![
         ContextUpdate {
             syntax_context: context.syntax_context,
@@ -169,6 +180,11 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
             syntax_context: context.syntax_context,
             key: "core.structure.event.cancellable".to_owned(),
             value: Some(cancellable_state.as_bytes().to_vec()),
+        },
+        ContextUpdate {
+            syntax_context: context.syntax_context,
+            key: "core.structure.event.priority-supported".to_owned(),
+            value: Some(priority_supported_state.as_bytes().to_vec()),
         },
         ContextUpdate {
             syntax_context: context.syntax_context,

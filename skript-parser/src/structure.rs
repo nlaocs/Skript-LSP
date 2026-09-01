@@ -30,6 +30,8 @@ pub struct StructureParseRequest<'a> {
 pub struct StructureParserConfig {
     /// Shared recursive Expression parser configuration.
     pub expression: ExpressionParserConfig,
+    /// Stop after accepted Structure header hooks, before parsing or exiting bodies.
+    pub headers_only: bool,
 }
 
 /// Native body parser selected after a Structure header is accepted.
@@ -312,13 +314,17 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
     environment: &mut E,
     config: StructureParserConfig,
 ) -> Result<StructureDocument, StructureParseError> {
+    let StructureParserConfig {
+        expression,
+        headers_only,
+    } = config;
     let mut session = ExpressionSession::new(
         catalog,
         dynamic_snapshot,
         request.source,
         environment,
         request.context,
-        config.expression,
+        expression,
     );
     let mut roots = Vec::with_capacity(request.tree.roots.len());
     let mut diagnostics = Vec::new();
@@ -360,6 +366,10 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 roots.push(StructureDocumentNode::Unclaimed(node.id));
             }
         }
+    }
+
+    if headers_only {
+        return Ok(StructureDocument { roots, diagnostics });
     }
 
     for item in pending {

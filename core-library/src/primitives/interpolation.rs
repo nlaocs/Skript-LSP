@@ -54,11 +54,18 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                         plural: true,
                     }],
                     span: subspan(payload, absolute_start, absolute_end),
-                    options: vec![MetadataEntry {
-                        key: "container".to_owned(),
-                        value: container.kind.to_owned(),
-                        owner_component_id: None,
-                    }],
+                    options: vec![
+                        MetadataEntry {
+                            key: "container".to_owned(),
+                            value: container.kind.to_owned(),
+                            owner_component_id: None,
+                        },
+                        MetadataEntry {
+                            key: "parse.mode".to_owned(),
+                            value: "expressions-only".to_owned(),
+                            owner_component_id: None,
+                        },
+                    ],
                 }
             })
             .collect::<Vec<_>>();
