@@ -278,6 +278,11 @@ inspect the parsed body. Skript-specific Structure semantics such as
 `StructEvent`, `StructFunction`, and `StructCommand` belong in WASM components,
 not this native module.
 
+`StructureParserConfig::headers_only` stops after accepted header and
+`enter_structure` hooks. It deliberately skips body parsing and
+`exit_structure`, allowing callers such as an Event-context selector to retain
+the entered Structure transaction while they parse statements in that context.
+
 ## Invariants
 
 Constructors reject:
