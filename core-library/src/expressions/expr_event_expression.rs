@@ -55,7 +55,7 @@ fn add_input_metadata(
             multiplicity,
             metadata: mut entries,
         } => {
-            entries.push(super::metadata("semantic-mode", "event-expression"));
+            super::set_metadata(&mut entries, "semantic-mode", "event-expression");
             entries.push(super::metadata("event-expression-type", code_name));
             entries.push(super::metadata("event-expression-input", input));
             SemanticResolution::Resolved {
@@ -70,6 +70,7 @@ fn add_input_metadata(
             reason,
             metadata: mut entries,
         } => {
+            super::set_metadata(&mut entries, "semantic-mode", "event-expression");
             entries.push(super::metadata("event-expression-type", code_name));
             entries.push(super::metadata("event-expression-input", input));
             SemanticResolution::Unresolved {

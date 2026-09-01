@@ -222,6 +222,38 @@ fn structure_exit_rejection_is_recoverable_and_keeps_identity() {
     );
 }
 
+#[test]
+fn headers_only_stops_after_the_enter_hook() {
+    let catalog = catalog(vec![structure(0, "root", NodeType::Section, None)]);
+    let source = MappedSource::identity("root:\n    unknown child\n");
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+    let document = parse_structures(
+        &catalog,
+        StructureParseRequest {
+            source: &source,
+            tree: &tree,
+            context: ExpressionParseContext::default(),
+        },
+        &mut RejectStructureExit {
+            reject_registration: None,
+        },
+        StructureParserConfig {
+            headers_only: true,
+            ..StructureParserConfig::default()
+        },
+    )
+    .expect("header-only parsing must not invoke the rejecting exit hook");
+
+    let StructureDocumentNode::Structure(matches) = &document.roots[0] else {
+        panic!("Structure result expected");
+    };
+    let selected = matches
+        .selected
+        .as_ref()
+        .expect("the accepted header must remain selected");
+    assert!(matches!(selected.body, skript_parser::StructureBody::None));
+}
+
 fn alternative_structure_catalog() -> Catalog {
     let mut first_syntax = structure(0, "lifecycle structure", NodeType::Section, None);
     let Syntax::Structure(first) = &mut first_syntax else {

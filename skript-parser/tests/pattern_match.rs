@@ -106,6 +106,14 @@ fn matches_structural_variants_and_skript_literal_rules() {
 }
 
 #[test]
+fn matches_legacy_event_structure_pattern() {
+    let source = "[on] <.+>";
+    let pattern = parse(source);
+    let selected = match_one("on join", source, &pattern).unwrap().selected;
+    assert!(selected.is_some());
+}
+
+#[test]
 fn captures_regex_groups_with_utf8_byte_spans() {
     let source = "name <(.)(.+)>";
     let pattern = parse(source);

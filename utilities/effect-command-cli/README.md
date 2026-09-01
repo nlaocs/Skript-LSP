@@ -41,13 +41,22 @@ An Effect argument parses one line and exits:
 effectcommandcli.exe "send 1"
 effectcommandcli.exe --json "broadcast \"hello\""
 effectcommandcli.exe "send sin(abs(-1))"
+effectcommandcli.exe --event "on join:" "send join message"
 ```
+
+`--event <HEADER>` parses the Effect inside a selected Skript Event. The
+header is matched through StructEvent and the snapshot's Event catalog; the
+trailing `:` is optional, and `on join`, `on join:`, and `join` select the same
+Event. The resulting Event classes and Event values are included in both
+human and JSON reports. Human output shows the EventValue count; JSON retains
+each EventValue's SSG registration, ordering, changer, validator, exclusion,
+pattern, and addon metadata.
 
 Human output identifies the selected Effect, addon, implementation class,
 registration pattern, pattern AST, captures, expected Skript types, resolved
 Java return types, multiplicity, nested Expressions, parse tags, parse marks,
 alternatives, and the farthest useful failure. JSON reports carry
-`schemaVersion: 3` so consumers can version their reader independently from the
+`schemaVersion: 4` so consumers can version their reader independently from the
 SSG schema. Human reports include `parseTime` in milliseconds for durations of
 at least one millisecond and in nanoseconds for shorter parses. JSON reports
 expose the duration as integer nanoseconds in `parseDurationNs`. The duration
@@ -55,7 +64,7 @@ covers parsing only; loading and indexing the SSG snapshot is excluded.
 
 Human parse failures use `miette` to label the farthest failure span directly
 in the source. Human formatting may evolve for readability; JSON output is the
-stable machine-readable contract and keeps its existing report shape.
+stable machine-readable contract and changes only with `schemaVersion`.
 
 `patternElements` is the complete AST of the selected registration pattern,
 including branches that were not selected. `elements` contains the regex and typed
@@ -89,13 +98,21 @@ effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
 
 effect> send 1
 effect> broadcast "hello"
+effect> :event on join:
+effect> send join message
+effect> :context
+effect> :event off
 effect> :json on
 effect> :reload
 effect> :quit
 ```
 
-Available commands are `:help`, `:reload`, `:json on`, `:json off`, `:quit`,
-and `:exit`. A no-match or malformed line is reported without ending the REPL.
+Available commands are `:help`, `:reload`, `:event <HEADER>`, `:event off`,
+`:events`, `:context`, `:json on`, `:json off`, `:quit`, and `:exit`. `:events`
+lists both SSG catalog Events and Events registered dynamically by WASM addons.
+Event selection always uses a real Skript Event header so StructEvent and addon
+WASM hooks observe the same input. A no-match or malformed line is reported
+without ending the REPL.
 EOF exits cleanly; an interrupted read returns to the prompt.
 
 ## Current Boundary
@@ -124,4 +141,4 @@ cargo test -p effect-command-cli --locked
 Integration tests use both the checked-in multi-addon Skript 2.15.4 and legacy
 Skript 2.6.4/Minecraft 1.12.2 schema 3 snapshots. They cover one-shot JSON,
 unknown Effects, nested Function/Expression data, REPL continuation, output
-switching, and snapshot reload.
+switching, Event-context selection and clearing, and snapshot reload.

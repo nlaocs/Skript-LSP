@@ -1,4 +1,4 @@
-use super::{SemanticResolution, matches, metadata, metadata_value, register_handler_with_context};
+use super::{SemanticResolution, matches, metadata_value, register_handler_with_context};
 use crate::nlaocs::skript_parser_addon::types::{
     CaptureParserBinding, DynamicMultiplicity, MetadataEntry, ParseResultStatus,
     RegisteredExpressionPayload, RegisteredSyntaxHandler,
@@ -63,11 +63,7 @@ fn resolve_entity(payload: &RegisteredExpressionPayload) -> SemanticResolution {
     )
 }
 
-fn with_entity_metadata(resolution: SemanticResolution, return_type: &str) -> SemanticResolution {
-    let values = [
-        metadata("semantic-mode", "event-entity"),
-        metadata("entity-class", return_type),
-    ];
+fn with_entity_metadata(resolution: SemanticResolution, entity_class: &str) -> SemanticResolution {
     match resolution {
         SemanticResolution::Resolved {
             return_type,
@@ -76,7 +72,8 @@ fn with_entity_metadata(resolution: SemanticResolution, return_type: &str) -> Se
             multiplicity,
             mut metadata,
         } => {
-            metadata.extend(values);
+            super::set_metadata(&mut metadata, "semantic-mode", "event-entity");
+            metadata.push(super::metadata("entity-class", entity_class));
             SemanticResolution::Resolved {
                 return_type,
                 possible_return_types,
@@ -89,7 +86,8 @@ fn with_entity_metadata(resolution: SemanticResolution, return_type: &str) -> Se
             reason,
             mut metadata,
         } => {
-            metadata.extend(values);
+            super::set_metadata(&mut metadata, "semantic-mode", "event-entity");
+            metadata.push(super::metadata("entity-class", entity_class));
             SemanticResolution::Unresolved { reason, metadata }
         }
         rejected @ SemanticResolution::Reject(_) => rejected,

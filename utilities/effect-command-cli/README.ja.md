@@ -38,19 +38,26 @@ Effect引数を渡すと1行だけ解析して終了します。
 effectcommandcli.exe "send 1"
 effectcommandcli.exe --json "broadcast \"hello\""
 effectcommandcli.exe "send sin(abs(-1))"
+effectcommandcli.exe --event "on join:" "send join message"
 ```
+
+`--event <HEADER>`を指定すると、選択したSkript Eventの内部としてEffectを解析します。
+Event headerはStructEventとsnapshotのEvent catalogを通して照合します。末尾の`:`は任意で、
+`on join`、`on join:`、`join`は同じEventを選択します。人間向け出力には解決したEvent classと
+EventValue件数を表示します。JSON reportは各EventValueのSSG登録、順序、changer、validator、
+除外条件、pattern、addon metadataを保持します。
 
 人間向け出力では、採用Effect、addon、実装class、登録pattern、pattern AST、capture、
 期待されるSkript type、解決されたJava return type、multiplicity、再帰Expression、
 parse tag、parse mark、代替候補、最遠failureを表示します。JSON reportには
-`schemaVersion: 3`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
+`schemaVersion: 4`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
 人間向け出力の`parseTime`は、1 millisecond以上なら`ms`、それ未満なら`ns`で表示します。
 JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
 parse処理だけを含み、SSG snapshotの読み込みとindex構築は含みません。
 
 人間向けのparse失敗は`miette`で表示し、最も遠くまで解析できたfailure spanを
 source上へ直接示します。人間向けの書式は可読性のため変更される可能性があります。
-安定した機械向け契約はJSON出力であり、既存のreport構造は変更しません。
+安定した機械向け契約はJSON出力であり、構造変更時は`schemaVersion`を更新します。
 
 `patternElements`は、選択されなかったbranchも含む登録pattern全体のASTです。
 `elements`には、実際の照合へ参加したregexと型付きExpression captureだけを格納します。
@@ -81,13 +88,20 @@ effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
 
 effect> send 1
 effect> broadcast "hello"
+effect> :event on join:
+effect> send join message
+effect> :context
+effect> :event off
 effect> :json on
 effect> :reload
 effect> :quit
 ```
 
-利用可能なcommandは`:help`、`:reload`、`:json on`、`:json off`、`:quit`、
-`:exit`です。構文不一致や不正な1行があってもREPLは終了しません。EOFでは正常終了し、
+利用可能なcommandは`:help`、`:reload`、`:event <HEADER>`、`:event off`、`:events`、
+`:context`、`:json on`、`:json off`、`:quit`、`:exit`です。`:events`はSSG catalog Eventと
+WASM addonが動的登録したEventの両方を表示します。Event選択は常に実際のSkript Event headerを
+使うため、StructEventとaddon WASM hookへ同じ入力が渡ります。
+構文不一致や不正な1行があってもREPLは終了しません。EOFでは正常終了し、
 入力のinterrupt後はpromptへ戻ります。
 
 ## 現在の境界
@@ -113,4 +127,5 @@ cargo test -p effect-command-cli --locked
 
 integration testでは、repositoryに含まれるSkript 2.15.4のmulti-addon snapshotと、
 Skript 2.6.4/Minecraft 1.12.2のlegacy schema 3 snapshotを使用します。単発JSON、
-不明Effect、再帰Function/Expression、REPL継続、表示切替、snapshot reloadを検証します。
+不明Effect、再帰Function/Expression、REPL継続、Event文脈の選択と解除、表示切替、
+snapshot reloadを検証します。

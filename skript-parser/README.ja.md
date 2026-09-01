@@ -235,6 +235,10 @@ reject、body contextの派生、`None`/`Raw`/`Entries`/`Trigger`の選択、met
 参照を行えます。`StructEvent`、`StructFunction`、`StructCommand`のようなSkript固有の意味処理は
 native moduleではなくWASM componentへ実装します。
 
+`StructureParserConfig::headers_only`は、採用されたheaderと`enter_structure` hookの実行後に停止し、
+body解析と`exit_structure`を意図的に省略します。Event context selectorなどのcallerは、Structureへ
+入ったtransactionを保持したまま、そのcontext内のstatementを解析できます。
+
 ## Invariant
 
 constructorは次の入力を拒否します。

@@ -1,4 +1,4 @@
-use crate::OutputFormat;
+use crate::{EventContext, OutputFormat};
 use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, NamedSource};
 use parser_wasm::host::WasmEffectParseResult;
 use serde::Serialize;
@@ -16,7 +16,7 @@ use syntax_pattern_parser::syntax::{
 };
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, Syntax};
 
-const REPORT_SCHEMA_VERSION: u32 = 3;
+const REPORT_SCHEMA_VERSION: u32 = 4;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
 const MAX_REPORT_PATTERN_DEPTH: usize = 16;
 
@@ -45,6 +45,7 @@ impl AnalysisReport {
         result: WasmEffectParseResult,
         catalog: &Catalog,
         parse_duration: Duration,
+        event_context: Option<&EventContext>,
     ) -> Self {
         let diagnostics = result
             .effects
@@ -145,6 +146,9 @@ impl AnalysisReport {
                     skript_version: snapshot.skript_version.clone(),
                     plugin_count: snapshot.plugin_count,
                 },
+                context: AnalysisContextReport {
+                    event: event_context.map(EventContextReport::from),
+                },
                 parse_duration_ns: u64::try_from(parse_duration.as_nanos()).unwrap_or(u64::MAX),
                 result: parse_result,
                 diagnostics,
@@ -216,6 +220,51 @@ impl AnalysisReport {
             "parseTime: {}",
             format_parse_duration(self.data.parse_duration_ns)
         )?;
+        if let Some(event) = &self.data.context.event {
+            writeln!(writer, "context:")?;
+            writeln!(writer, "  event: {}", event.input)?;
+            writeln!(
+                writer,
+                "  class: {}",
+                event.element_class.as_deref().unwrap_or("dynamic")
+            )?;
+            if let Some(addon) = &event.addon {
+                writeln!(writer, "  addon: {} {}", addon.name, addon.version)?;
+            }
+            writeln!(writer, "  definitionId: {}", event.definition_id)?;
+            writeln!(writer, "  registrationId: {}", event.registration_id)?;
+            writeln!(writer, "  patternIndex: {}", event.pattern_index)?;
+            writeln!(writer, "  pattern: {}", event.pattern)?;
+            writeln!(writer, "  referenceEvents: {:?}", event.reference_events)?;
+            if event.registered_reference_events != event.reference_events {
+                writeln!(
+                    writer,
+                    "  registeredReferenceEvents: {:?}",
+                    event.registered_reference_events
+                )?;
+            }
+            if let Some(listening_behavior) = &event.listening_behavior {
+                writeln!(writer, "  listeningBehavior: {listening_behavior}")?;
+            }
+            if let Some(priority) = &event.event_priority {
+                writeln!(writer, "  eventPriority: {priority}")?;
+            }
+            writeln!(writer, "  eventValues: {}", event.event_values.len())?;
+            for diagnostic in &event.diagnostics {
+                writeln!(
+                    writer,
+                    "  diagnostic: [{}] {}: {}",
+                    diagnostic.severity, diagnostic.code, diagnostic.message
+                )?;
+            }
+            for failure in &event.component_failures {
+                writeln!(
+                    writer,
+                    "  componentFailure: {}/{}: {}",
+                    failure.component_id, failure.subscription_id, failure.message
+                )?;
+            }
+        }
         match &self.data.result {
             ParseResultReport::Matched {
                 effect,
@@ -352,10 +401,167 @@ struct ReportData {
     schema_version: u32,
     input: String,
     snapshot: SnapshotReport,
+    context: AnalysisContextReport,
     parse_duration_ns: u64,
     result: ParseResultReport,
     diagnostics: Vec<DiagnosticReport>,
     component_failures: Vec<ComponentFailureReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalysisContextReport {
+    event: Option<EventContextReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventContextReport {
+    input: String,
+    definition_id: String,
+    registration_id: String,
+    pattern_index: usize,
+    pattern: String,
+    element_class: Option<String>,
+    reference_events: Vec<String>,
+    registered_reference_events: Vec<String>,
+    cancellable: Option<bool>,
+    priority_supported: Option<bool>,
+    listening_behavior: Option<String>,
+    event_priority: Option<String>,
+    addon: Option<EventAddonReport>,
+    handler: Option<String>,
+    event_metadata: BTreeMap<String, String>,
+    structure_metadata: BTreeMap<String, String>,
+    event_values: Vec<EventValueReport>,
+    diagnostics: Vec<EventContextDiagnosticReport>,
+    component_failures: Vec<EventContextComponentFailureReport>,
+    capture_count: usize,
+}
+
+impl From<&EventContext> for EventContextReport {
+    fn from(event: &EventContext) -> Self {
+        Self {
+            input: event.input.clone(),
+            definition_id: event.definition_id.clone(),
+            registration_id: event.registration_id.clone(),
+            pattern_index: event.pattern_index,
+            pattern: event.pattern.clone(),
+            element_class: event.element_class.clone(),
+            reference_events: event.reference_events.clone(),
+            registered_reference_events: event.registered_reference_events.clone(),
+            cancellable: event.cancellable,
+            priority_supported: event.priority_supported,
+            listening_behavior: event.listening_behavior.clone(),
+            event_priority: event.event_priority.clone(),
+            addon: event.addon.as_ref().map(|addon| EventAddonReport {
+                name: addon.name.clone(),
+                version: addon.version.clone(),
+            }),
+            handler: event.handler.clone(),
+            event_metadata: event.event_metadata.clone(),
+            structure_metadata: event.structure_metadata.clone(),
+            event_values: event
+                .event_values
+                .iter()
+                .map(|value| EventValueReport {
+                    event_class: value.event_class.clone(),
+                    value_class: value.value_class.clone(),
+                    time: value.time,
+                    exclude_error_message: value.exclude_error_message.clone(),
+                    excludes: value.excludes.clone(),
+                    resolution_order: value.resolution_order,
+                    registration_order: value.registration_order,
+                    registration_id: value.registration_id.clone(),
+                    patterns: value.patterns.clone(),
+                    accepted_changers: value.accepted_changers.as_ref().map(|changers| {
+                        changers
+                            .iter()
+                            .map(|changer| EventValueChangerReport {
+                                mode: changer.mode.clone(),
+                                accepted_classes: changer.accepted_classes.clone(),
+                            })
+                            .collect()
+                    }),
+                    context_dependent: value.context_dependent,
+                    has_custom_input_validator: value.has_custom_input_validator,
+                    has_custom_event_validator: value.has_custom_event_validator,
+                    addon: EventAddonReport {
+                        name: value.addon.name.clone(),
+                        version: value.addon.version.clone(),
+                    },
+                })
+                .collect(),
+            diagnostics: event
+                .diagnostics
+                .iter()
+                .map(|diagnostic| EventContextDiagnosticReport {
+                    code: diagnostic.code.clone(),
+                    message: diagnostic.message.clone(),
+                    severity: diagnostic.severity.clone(),
+                })
+                .collect(),
+            component_failures: event
+                .component_failures
+                .iter()
+                .map(|failure| EventContextComponentFailureReport {
+                    component_id: failure.component_id.clone(),
+                    subscription_id: failure.subscription_id.clone(),
+                    message: failure.message.clone(),
+                })
+                .collect(),
+            capture_count: event.captures().len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventAddonReport {
+    name: String,
+    version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventValueReport {
+    event_class: String,
+    value_class: String,
+    time: i32,
+    exclude_error_message: Option<String>,
+    excludes: Option<Vec<String>>,
+    resolution_order: usize,
+    registration_order: Option<usize>,
+    registration_id: String,
+    patterns: Option<Vec<String>>,
+    accepted_changers: Option<Vec<EventValueChangerReport>>,
+    context_dependent: Option<bool>,
+    has_custom_input_validator: Option<bool>,
+    has_custom_event_validator: Option<bool>,
+    addon: EventAddonReport,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventValueChangerReport {
+    mode: String,
+    accepted_classes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventContextDiagnosticReport {
+    code: String,
+    message: String,
+    severity: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventContextComponentFailureReport {
+    component_id: String,
+    subscription_id: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

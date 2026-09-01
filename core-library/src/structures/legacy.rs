@@ -55,6 +55,16 @@ fn event_definition() -> DynamicSyntaxDefinition {
     }
 }
 
+pub(super) fn is_event_registration(registration_id: &str) -> bool {
+    let Some(dynamic_id) = registration_id.strip_prefix("dynamic:") else {
+        return false;
+    };
+    let Some((component_id, local_id)) = dynamic_id.split_once('/') else {
+        return false;
+    };
+    component_id == crate::COMPONENT_ID && local_id == EVENT_ID
+}
+
 fn command_definition() -> DynamicSyntaxDefinition {
     DynamicSyntaxDefinition {
         local_id: COMMAND_ID.to_owned(),
@@ -225,7 +235,7 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{COMMAND_ID, EVENT_ID, FUNCTION_ID, definitions};
+    use super::{COMMAND_ID, EVENT_ID, FUNCTION_ID, definitions, is_event_registration};
     use crate::nlaocs::skript_parser_addon::types::StructureEntryKind;
 
     #[test]
@@ -247,6 +257,19 @@ mod tests {
             "2.7 has StructCommand and StructFunction but not StructEvent"
         );
         assert!(definitions((2, 8, 0)).is_empty());
+    }
+
+    #[test]
+    fn legacy_event_identity_requires_the_core_component_and_local_id() {
+        assert!(is_event_registration(
+            "dynamic:nlaocs.core-library/legacy-struct-event"
+        ));
+        assert!(!is_event_registration(
+            "dynamic:addon.example/legacy-struct-event"
+        ));
+        assert!(!is_event_registration(
+            "dynamic:nlaocs.core-library/other-event"
+        ));
     }
 
     #[test]

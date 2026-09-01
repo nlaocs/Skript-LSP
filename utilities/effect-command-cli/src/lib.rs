@@ -2,11 +2,16 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 
 mod args;
+mod event_context;
 mod repl;
 mod report;
 mod session;
 
 pub use args::{CliAction, CliOptions, OutputFormat, RunMode};
+pub use event_context::{
+    EventAddon, EventContext, EventContextComponentFailure, EventContextDiagnostic, EventSummary,
+    EventValueContext,
+};
 pub use report::AnalysisReport;
 pub use session::{EffectCommandSession, EffectCommandSessionError};
 
@@ -111,6 +116,12 @@ where
             return EXIT_FAILURE;
         }
     };
+    if let Some(event) = options.event.as_deref()
+        && let Err(event_error) = session.select_event_header(event)
+    {
+        let _ = writeln!(error, "error: {event_error}");
+        return EXIT_FAILURE;
+    }
 
     match options.mode {
         RunMode::Once(effect) => match session.analyze(&effect) {

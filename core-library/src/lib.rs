@@ -762,6 +762,7 @@ mod tests {
             "core.effect.eff-sort",
             "core.effect.eff-suppress-type-hints",
             "core.effect.eff-transform",
+            "core.expression.expr-event-expression",
             "core.expression.expr-filter",
             "core.expression.expr-input",
             "core.structure.struct-example",
@@ -983,6 +984,12 @@ mod tests {
         assert!(first.replacement.is_none());
 
         let request = first.effects.parse_requests[0].clone();
+        assert!(
+            request
+                .options
+                .iter()
+                .any(|option| { option.key == "parse.mode" && option.value == "expressions-only" })
+        );
         invocation.parse_results.push(ParseResult {
             host_token: 7,
             request_id: request.request_id,
