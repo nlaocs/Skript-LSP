@@ -1383,6 +1383,50 @@ mod tests {
     }
 
     #[test]
+    fn entity_data_literal_accepts_skript_indefinite_articles() {
+        let mut invocation = expression_invocation("a player");
+        let HookPayload::Expression(payload) = &mut invocation.payload else {
+            unreachable!();
+        };
+        payload.expected_types[0].class_name = "ch.njol.skript.entity.EntityData".to_owned();
+        payload.literal_options.push(ExpressionLiteralOption {
+            source_record: None,
+            literal_index: Some(0),
+            code_name: "entitydata".to_owned(),
+            class_name: "ch.njol.skript.entity.EntityData".to_owned(),
+            type_parse_order: 107,
+            range: TextRange { start: 2, end: 8 },
+            canonical_value: "player".to_owned(),
+            source: ExpressionLiteralSource::Supplier,
+            plural: false,
+            addon_name: "Skript".to_owned(),
+            addon_version: "2.16.0".to_owned(),
+            parser_class: Some("ch.njol.skript.entity.EntityData$1".to_owned()),
+            parse_contexts: Vec::new(),
+            value_class: Some("ch.njol.skript.entity.EntityData".to_owned()),
+            represented_class: Some("org.bukkit.entity.Player".to_owned()),
+            variable_name: None,
+            debug_text: Some("player".to_owned()),
+            enum_constant: None,
+            alias_all: None,
+            alias_type_count: None,
+        });
+
+        let output = invoke_expression_pipeline(invocation).unwrap();
+        let Some(HookPayload::Expression(payload)) = output.replacement else {
+            panic!("article-prefixed entity data literal must be returned");
+        };
+        let candidate = &payload.candidates[0];
+        assert_eq!(candidate.parser_id, "core.literal.entity-data");
+        assert_eq!(candidate.range.start, 0);
+        assert_eq!(candidate.range.end, 8);
+        assert_eq!(
+            metadata_value(&candidate.metadata, "entity-class"),
+            Some("org.bukkit.entity.Player")
+        );
+    }
+
+    #[test]
     fn size_count_expression_resolves_dynamic_metadata() {
         let mut size = registered_expression(
             "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize",

@@ -545,6 +545,34 @@ fn selected_event_context_enables_event_restricted_expressions() {
 }
 
 #[test]
+fn event_headers_accept_articles_for_entity_and_item_literals() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+
+    let death = session
+        .select_event_header("death of a player")
+        .expect("EntityData must accept Skript's indefinite article");
+    assert_eq!(death.pattern, "death [of %-entitydatas%]");
+    assert_eq!(
+        death.reference_events,
+        ["org.bukkit.event.entity.EntityDeathEvent"]
+    );
+
+    let click = session
+        .select_event_header("rightclick on a sheep holding a diamond sword")
+        .expect("EntityData and ItemType aliases must accept indefinite articles");
+    assert_eq!(
+        click.pattern,
+        "[(1:right|2:left)(| |-)][mouse(| |-)]click[ing] [on %-entitydata/itemtype/blockdata%] [(with|using|holding) %-itemtype%]"
+    );
+    assert!(
+        click
+            .reference_events
+            .iter()
+            .any(|event| event == "org.bukkit.event.player.PlayerInteractEvent")
+    );
+}
+
+#[test]
 fn event_header_modifiers_follow_struct_event_semantics() {
     let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
 
