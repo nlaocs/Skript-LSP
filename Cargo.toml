@@ -13,6 +13,12 @@ syntax-pattern-parser = { path = "syntax-pattern-parser" }
 [dev-dependencies]
 wit-component = "=0.253.0"
 
+# Parser integration tests are CPU-bound and spend most of their time in
+# recursive matching. Keep test assertions and overflow checks enabled while
+# applying basic optimizations to the code under test.
+[profile.test]
+opt-level = 1
+
 [profile.core-library]
 inherits = "release"
 codegen-units = 1
