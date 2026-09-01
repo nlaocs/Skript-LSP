@@ -78,50 +78,55 @@ fn main() -> Result<()> {
 }
 
 fn build_core_library() -> Result<()> {
-    build_component(&CORE_LIBRARY)
+    build_components(&[&CORE_LIBRARY])
 }
 
 fn build_test_components() -> Result<()> {
-    for component in [
+    build_components(&[
         &CATALOG_DATA_ADDON,
         &DYNAMIC_SYNTAX_ADDON,
         &EFFECT_ADDON,
         &MATCHING_ADDON,
         &TEXT_MACRO_ADDON,
         &TREE_MACRO_ADDON,
-    ] {
-        build_component(component)?;
-    }
-    Ok(())
+    ])
 }
 
-fn build_component(spec: &ComponentSpec) -> Result<()> {
+fn build_components(specs: &[&ComponentSpec]) -> Result<()> {
+    let first = specs
+        .first()
+        .context("at least one parser addon component must be requested")?;
     let root = workspace_root()?;
     let target_root = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("target"));
-    let target_dir = target_root.join(format!("{}-component", spec.package));
+    let target_dir = if specs.len() == 1 {
+        target_root.join(format!("{}-component", first.package))
+    } else {
+        target_root.join("test-components")
+    };
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
-    let status = Command::new(cargo)
-        .current_dir(&root)
-        .args([
-            "build",
-            "--locked",
-            "--package",
-            spec.package,
-            "--target",
-            TARGET,
-            "--profile",
-            PROFILE,
-            "--target-dir",
-        ])
+    let mut command = Command::new(cargo);
+    command.current_dir(&root).args(["build", "--locked"]);
+    for spec in specs {
+        command.args(["--package", spec.package]);
+    }
+    let status = command
+        .args(["--target", TARGET, "--profile", PROFILE, "--target-dir"])
         .arg(&target_dir)
         .status()
-        .with_context(|| format!("failed to start Cargo for {}", spec.display_name))?;
+        .context("failed to start Cargo for parser addon components")?;
     if !status.success() {
-        bail!("{} core Wasm build failed with {status}", spec.display_name);
+        bail!("parser addon component build failed with {status}");
     }
 
+    for spec in specs {
+        publish_component(&root, &target_dir, spec)?;
+    }
+    Ok(())
+}
+
+fn publish_component(root: &Path, target_dir: &Path, spec: &ComponentSpec) -> Result<()> {
     let module_path = target_dir.join(TARGET).join(PROFILE).join(spec.module_name);
     let module = fs::read(&module_path).with_context(|| {
         format!(
