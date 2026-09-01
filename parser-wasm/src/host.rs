@@ -17,6 +17,7 @@ use std::{
 };
 
 use fancy_regex::Regex;
+use sha2::{Digest, Sha256};
 use skript_parser::{
     CandidateFailure, CandidateMatches, ConditionMatches, ConditionNode, ConditionNodeKind,
     ConditionParseError, ConditionParseRequest, ConditionParserConfig, ConditionSemanticDecision,
@@ -7353,6 +7354,69 @@ impl Drop for EpochTicker {
     }
 }
 
+// Shares immutable Wasmtime infrastructure while each ParserHost keeps its own
+// Store, component instances, registries, and transactional state.
+struct SharedHostRuntime {
+    engine: Engine,
+    linker: Linker<StoreData>,
+    components: Mutex<HashMap<[u8; 32], Component>>,
+    _epoch_ticker: EpochTicker,
+}
+
+impl SharedHostRuntime {
+    fn new(epoch_tick: Duration) -> Result<Self, HostError> {
+        let mut wasmtime_config = Config::new();
+        wasmtime_config.wasm_component_model(true);
+        wasmtime_config.consume_fuel(true);
+        wasmtime_config.epoch_interruption(true);
+        let engine = Engine::new(&wasmtime_config).map_err(|error| HostError::Engine {
+            message: error.to_string(),
+        })?;
+        let ticker = EpochTicker::start(engine.clone(), epoch_tick)?;
+        let mut linker = Linker::new(&engine);
+        ParserAddon::add_to_linker::<_, HasSelf<_>>(&mut linker, |data: &mut StoreData| data)
+            .map_err(|error| HostError::Engine {
+                message: format!("failed to register parser addon host imports: {error}"),
+            })?;
+        Ok(Self {
+            engine,
+            linker,
+            components: Mutex::new(HashMap::new()),
+            _epoch_ticker: ticker,
+        })
+    }
+
+    fn component(&self, bytes: &[u8], component_id: &str) -> Result<Component, HostError> {
+        let digest: [u8; 32] = Sha256::digest(bytes).into();
+        let mut components = self
+            .components
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(component) = components.get(&digest) {
+            return Ok(component.clone());
+        }
+        let component = Component::new(&self.engine, bytes)
+            .map_err(|error| classify_component_error(component_id.to_owned(), "compile", error))?;
+        components.insert(digest, component.clone());
+        Ok(component)
+    }
+}
+
+static SHARED_HOST_RUNTIMES: LazyLock<Mutex<HashMap<Duration, Arc<SharedHostRuntime>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn shared_host_runtime(epoch_tick: Duration) -> Result<Arc<SharedHostRuntime>, HostError> {
+    let mut runtimes = SHARED_HOST_RUNTIMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(runtime) = runtimes.get(&epoch_tick) {
+        return Ok(Arc::clone(runtime));
+    }
+    let runtime = Arc::new(SharedHostRuntime::new(epoch_tick)?);
+    runtimes.insert(epoch_tick, Arc::clone(&runtime));
+    Ok(runtime)
+}
+
 /// Wasmtime component registry and orchestrator for all parser extension stages.
 ///
 /// Construction loads and negotiates the mandatory CoreLibrary first. Optional
@@ -7380,8 +7444,7 @@ impl Drop for EpochTicker {
 /// # let _ = create_host;
 /// ~~~
 pub struct ParserHost {
-    engine: Engine,
-    linker: Linker<StoreData>,
+    runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     state_store: StateStore,
     dynamic_syntax_registry: Option<DynamicSyntaxRegistry>,
@@ -7391,7 +7454,6 @@ pub struct ParserHost {
     type_user_input_matchers: Arc<[TypeUserInputMatcher]>,
     active_parse_requests: Vec<ParseRequestKey>,
     next_parse_result_token: u64,
-    _epoch_ticker: EpochTicker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7443,26 +7505,13 @@ impl ParserHost {
         let type_user_input_matchers =
             build_type_user_input_matchers(config.syntax_catalog.as_deref());
 
-        let mut wasmtime_config = Config::new();
-        wasmtime_config.wasm_component_model(true);
-        wasmtime_config.consume_fuel(true);
-        wasmtime_config.epoch_interruption(true);
-        let engine = Engine::new(&wasmtime_config).map_err(|error| HostError::Engine {
-            message: error.to_string(),
-        })?;
-        let ticker = EpochTicker::start(engine.clone(), config.epoch_tick)?;
-        let mut linker = Linker::new(&engine);
-        ParserAddon::add_to_linker::<_, HasSelf<_>>(&mut linker, |data: &mut StoreData| data)
-            .map_err(|error| HostError::Engine {
-                message: format!("failed to register parser addon host imports: {error}"),
-            })?;
+        let runtime = shared_host_runtime(config.epoch_tick)?;
         let capabilities = configured_host_capabilities(
             dynamic_syntax_registry.is_some(),
             catalog_source_available,
         );
         let mut host = Self {
-            engine,
-            linker,
+            runtime,
             config,
             state_store,
             dynamic_syntax_registry,
@@ -7472,7 +7521,6 @@ impl ParserHost {
             type_user_input_matchers,
             active_parse_requests: Vec::new(),
             next_parse_result_token: 1,
-            _epoch_ticker: ticker,
         };
         host.load_component(core_library, true)?;
         Ok(host)
@@ -10056,10 +10104,9 @@ impl ParserHost {
         } else {
             "<loading>"
         };
-        let component = Component::new(&self.engine, bytes)
-            .map_err(|error| classify_component_error(loading_id.to_owned(), "compile", error))?;
+        let component = self.runtime.component(bytes, loading_id)?;
         let mut store = create_store(
-            &self.engine,
+            &self.runtime.engine,
             &self.config,
             self.type_user_input_matchers.clone(),
         );
@@ -10070,8 +10117,8 @@ impl ParserHost {
             loading_id,
             "instantiate",
         )?;
-        let bindings =
-            ParserAddon::instantiate(&mut store, &component, &self.linker).map_err(|error| {
+        let bindings = ParserAddon::instantiate(&mut store, &component, &self.runtime.linker)
+            .map_err(|error| {
                 classify_component_error(loading_id.to_owned(), "instantiate", error)
             })?;
 
@@ -13551,6 +13598,15 @@ mod tests {
             CORE_LIBRARY_DEADLINE_TICKS
         );
         assert_eq!(config.deadline_ticks("addon.example"), 10);
+    }
+
+    #[test]
+    fn hosts_with_the_same_epoch_tick_share_the_wasmtime_runtime() {
+        let epoch_tick = HostConfig::default().epoch_tick;
+        let first = shared_host_runtime(epoch_tick).expect("shared runtime must initialize");
+        let second = shared_host_runtime(epoch_tick).expect("shared runtime must be reusable");
+
+        assert!(Arc::ptr_eq(&first, &second));
     }
 
     #[test]
