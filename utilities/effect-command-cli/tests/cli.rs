@@ -28,7 +28,8 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let json_text = report.to_json().unwrap();
     assert!(!json_text.contains('\x1b'));
     let json: Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(json["schemaVersion"], 3);
+    assert_eq!(json["schemaVersion"], 4);
+    assert!(json["context"]["event"].is_null());
     assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
     assert_eq!(
@@ -449,6 +450,192 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
 }
 
 #[test]
+fn selected_event_context_enables_event_restricted_expressions() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let selected = session
+        .select_event_header("\"on join:\"")
+        .expect("quoted Event header with a trailing colon must parse")
+        .clone();
+    assert_eq!(selected.input, "on join");
+    assert_eq!(
+        selected.reference_events,
+        ["org.bukkit.event.player.PlayerJoinEvent"]
+    );
+    assert!(!selected.event_values.is_empty());
+
+    let report = session
+        .analyze("send join message")
+        .expect("join-only Expression must parse in an On Join context");
+    assert!(report.matched());
+    assert!(
+        session
+            .analyze("send event-player's health")
+            .expect("event-player properties must use the selected Event values")
+            .matched()
+    );
+    assert!(
+        session
+            .analyze("send player's health")
+            .expect("ExprEntity must allow Skript's optional event- prefix")
+            .matched()
+    );
+    let interpolated = session
+        .analyze("set the player's tab list name to \"<green>%player's name%\"")
+        .expect("Event Expressions inside VariableStrings must inherit the selected Event");
+    assert!(interpolated.matched());
+    let interpolated: Value = serde_json::from_str(&interpolated.to_json().unwrap()).unwrap();
+    assert_eq!(interpolated["diagnostics"], serde_json::json!([]));
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    assert_eq!(json["context"]["event"]["input"], "on join");
+    assert_eq!(
+        json["context"]["event"]["registrationId"],
+        selected.registration_id
+    );
+    assert_eq!(
+        json["context"]["event"]["referenceEvents"][0],
+        "org.bukkit.event.player.PlayerJoinEvent"
+    );
+    assert_eq!(json["context"]["event"]["cancellable"], false);
+    assert!(
+        json["context"]["event"].get("prioritySupported").is_some(),
+        "unresolved priority support must remain an explicit null"
+    );
+    let event_values = json["context"]["event"]["eventValues"]
+        .as_array()
+        .expect("selected Event values must be reported");
+    let first_event_value = event_values.first().expect("On Join exposes Event values");
+    assert!(first_event_value["resolutionOrder"].is_u64());
+    assert!(first_event_value["registrationOrder"].is_u64());
+    assert!(first_event_value["acceptedChangers"].is_array());
+    assert!(first_event_value["patterns"].is_array());
+    assert_eq!(first_event_value["addon"]["name"], "Skript");
+
+    let short_header = session
+        .select_event_header("join")
+        .expect("StructEvent owns the optional on prefix");
+    assert_eq!(short_header.registration_id, selected.registration_id);
+
+    let error = session
+        .select_event_header("definitely not an event")
+        .expect_err("unknown Event must be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("does not match a registered Event")
+    );
+    assert_eq!(
+        session.event_context().unwrap().registration_id,
+        selected.registration_id,
+        "a rejected selector must not erase the previous Event context"
+    );
+    assert!(
+        session
+            .analyze("send join message")
+            .expect("a rejected selector must not invalidate the previous Event transaction")
+            .matched()
+    );
+
+    session
+        .clear_event_context()
+        .expect("the selected Event transaction must close");
+    let without_context = session
+        .analyze("send join message")
+        .expect("missing Event context is a recoverable no-match");
+    assert!(!without_context.matched());
+}
+
+#[test]
+fn event_header_modifiers_follow_struct_event_semantics() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+
+    let error = session
+        .select_event_header("cancelled join")
+        .expect_err("On Join is not cancellable");
+    assert!(error.to_string().contains("cancellation"));
+    assert!(session.event_context().is_none());
+
+    let error = session
+        .select_event_header("on join with priority monitor:")
+        .expect_err("the older fixture does not expose Event priority support");
+    let message = error.to_string();
+    assert!(message.contains("priorit"), "{message}");
+
+    let selected = session
+        .select_event_header("on join:")
+        .expect("On Join without optional modifiers must still parse");
+    assert!(selected.event_priority.is_none());
+    assert_eq!(
+        selected.reference_events,
+        ["org.bukkit.event.player.PlayerJoinEvent"]
+    );
+}
+
+#[test]
+fn legacy_snapshot_uses_the_synthetic_struct_event_path() {
+    let mut session = EffectCommandSession::load(legacy_fixture()).expect("fixture must load");
+    let selected = session
+        .select_event_header("on join:")
+        .expect("Skript 2.6.4 must expose the legacy Event root through CoreLibrary");
+    assert_eq!(
+        selected.reference_events,
+        ["org.bukkit.event.player.PlayerJoinEvent"]
+    );
+    let report = session
+        .analyze("send join message")
+        .expect("event-restricted Expressions must use the legacy Event context");
+    assert!(report.matched());
+}
+
+#[test]
+fn one_shot_and_repl_event_commands_apply_and_clear_context() {
+    let snapshot = modern_fixture();
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            snapshot.to_str().unwrap(),
+            "--json",
+            "--event",
+            "on join:",
+            "send join message",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["result"]["status"], "matched");
+    assert_eq!(json["context"]["event"]["input"], "on join");
+
+    let input = Cursor::new(
+        b":events\n:event on join:\n:context\nsend join message\n:event off\n:context\n:quit\n"
+            .to_vec(),
+    );
+    output.clear();
+    error.clear();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "--repl"]),
+        PathBuf::from("unused"),
+        input,
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Events ("));
+    assert!(output.contains("Event context: on join"));
+    assert!(output.contains("org.bukkit.event.player.PlayerJoinEvent"));
+    assert!(output.contains("ExprJoinMessage"));
+    assert!(output.contains("Event context cleared"));
+    assert!(output.contains("Event context: none"));
+}
+
+#[test]
 fn one_shot_json_uses_stable_no_match_exit_code() {
     let snapshot = legacy_fixture();
     let mut output = Vec::new();
@@ -493,7 +680,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 3"));
+    assert!(output.contains("\"schemaVersion\": 4"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));

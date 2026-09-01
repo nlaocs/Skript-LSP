@@ -259,6 +259,106 @@ fn event_value_expression_uses_the_current_event_registration() {
 }
 
 #[test]
+fn event_expression_resolves_player_from_join_event() {
+    let node = parse_fixture_expression_as_in_events(
+        "event-player",
+        "org.bukkit.entity.Player",
+        false,
+        &["org.bukkit.event.player.PlayerJoinEvent"],
+        136,
+    );
+    assert_registered(&node);
+    assert_return(
+        &node,
+        "org.bukkit.entity.Player",
+        syntaxes::Multiplicity::Single,
+    );
+}
+
+#[test]
+fn entity_expression_resolves_player_without_event_prefix() {
+    let node = parse_fixture_expression_as_in_events(
+        "player",
+        "org.bukkit.entity.Player",
+        false,
+        &["org.bukkit.event.player.PlayerJoinEvent"],
+        137,
+    );
+    assert_registered(&node);
+    assert_return(
+        &node,
+        "org.bukkit.entity.Player",
+        syntaxes::Multiplicity::Single,
+    );
+}
+
+#[test]
+fn name_property_resolves_player_from_join_event() {
+    let node = parse_fixture_expression_as_in_events(
+        "player's name",
+        "java.lang.Object",
+        true,
+        &["org.bukkit.event.player.PlayerJoinEvent"],
+        138,
+    );
+    assert_registered(&node);
+}
+
+#[test]
+fn interpolated_name_property_inherits_join_event_context() {
+    let node = parse_fixture_expression_as_in_events(
+        "\"<green>%player's name%\"",
+        "java.lang.String",
+        false,
+        &["org.bukkit.event.player.PlayerJoinEvent"],
+        139,
+    );
+    assert!(matches!(
+        node.kind,
+        ExpressionNodeKind::Literal { ref parser_id }
+            if parser_id == "core.literal.variable-string"
+    ));
+    assert_eq!(node.children.len(), 1);
+    assert_registered(&node.children[0]);
+    assert_return(
+        &node.children[0],
+        "net.kyori.adventure.text.Component",
+        syntaxes::Multiplicity::Single,
+    );
+    assert_eq!(node.children[0].children.len(), 1);
+    assert_return(
+        &node.children[0].children[0],
+        "org.bukkit.entity.Player",
+        syntaxes::Multiplicity::Single,
+    );
+}
+
+#[test]
+fn property_source_uses_registered_itemstack_conversion() {
+    let node = parse_fixture_expression_as_in_events(
+        "name of event-item",
+        "java.lang.Object",
+        true,
+        &["org.bukkit.event.player.PlayerEditBookEvent"],
+        140,
+    );
+    assert_registered(&node);
+    assert_eq!(node.multiplicity, Some(syntaxes::Multiplicity::Single));
+    assert!(
+        node.possible_return_types
+            .iter()
+            .any(|class_name| class_name.as_str() == "net.kyori.adventure.text.Component"),
+        "node={node:#?}"
+    );
+    assert_eq!(node.children.len(), 1);
+    assert_return(
+        &node.children[0],
+        "org.bukkit.inventory.ItemStack",
+        syntaxes::Multiplicity::Single,
+    );
+}
+
+#[test]
 fn regex_mapping_capture_reenters_the_expression_parser() {
     let node = parse_fixture_expression_as(
         "(1, 2) transformed using [input * 2]",
@@ -299,9 +399,10 @@ fn assert_registered(node: &ExpressionNode) {
 fn assert_return(node: &ExpressionNode, class_name: &str, multiplicity: syntaxes::Multiplicity) {
     assert_eq!(
         node.return_type.as_ref().map(ClassName::as_str),
-        Some(class_name)
+        Some(class_name),
+        "node={node:#?}"
     );
-    assert_eq!(node.multiplicity, Some(multiplicity));
+    assert_eq!(node.multiplicity, Some(multiplicity), "node={node:#?}");
 }
 
 #[test]
@@ -556,11 +657,16 @@ fn variable_strings_and_variable_names_parse_embedded_expressions() {
     for (revision, text, expected, parser_id) in [
         (
             20,
-            "\"value: %42%\"",
+            "\"value: %dummy direct registry expression%\"",
             "java.lang.String",
             "core.literal.variable-string",
         ),
-        (21, "{data::%42%}", "java.lang.Object", "core.variable"),
+        (
+            21,
+            "{data::%dummy direct registry expression%}",
+            "java.lang.Object",
+            "core.variable",
+        ),
     ] {
         let transaction = host
             .begin_parse(
@@ -605,13 +711,15 @@ fn variable_strings_and_variable_names_parse_embedded_expressions() {
         let embedded = &selected.node.children[0];
         assert!(matches!(
             embedded.kind,
-            ExpressionNodeKind::Literal { ref parser_id }
-                if parser_id == "core.literal.number"
+            ExpressionNodeKind::Registered { .. }
         ));
-        let embedded_start = text.find("42").unwrap();
+        let embedded_start = text.find("dummy direct registry expression").unwrap();
         assert_eq!(
             embedded.span.mapped.virtual_range,
-            TextRange::new(embedded_start, embedded_start + 2)
+            TextRange::new(
+                embedded_start,
+                embedded_start + "dummy direct registry expression".len(),
+            )
         );
         assert_eq!(result.effects.parse_results.len(), 1);
         assert!(
