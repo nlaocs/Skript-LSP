@@ -17,22 +17,26 @@ use nlaocs::skript_parser_addon::{
     dynamic_syntax_registry,
     types::{
         AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput,
-        CapabilityRequirement, CompatibilityError, CompatibilityErrorKind, ComponentManifest,
-        DynamicSyntaxDefinition, DynamicSyntaxId, DynamicSyntaxOverride,
+        CapabilityRequirement, CaptureParserBinding, CompatibilityError, CompatibilityErrorKind,
+        ComponentManifest, DynamicSyntaxDefinition, DynamicSyntaxId, DynamicSyntaxOverride,
         DynamicSyntaxOverrideTarget, DynamicSyntaxReference, HookDecision, HookEffects,
         HookInvocation, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
-        HookSubscription, HookTarget, HostProfile, Rejection, SyntaxKind, TextMacroInput,
-        TextMacroOutput, TreeMacroInput, TreeMacroOutput,
+        HookSubscription, HookTarget, HostProfile, MetadataEntry, RegisteredSyntaxHandler,
+        RegisteredSyntaxHandlerTarget, Rejection, SyntaxKind, TextMacroInput, TextMacroOutput,
+        TreeMacroInput, TreeMacroOutput,
     },
 };
 use parser_wasm::{
-    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_HOOKS,
-    Capability as ParserCapability, CapabilityRequirement as ParserCapabilityRequirement,
+    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_DYNAMIC_SYNTAX,
+    CAPABILITY_EFFECT_PARSER, CAPABILITY_HOOKS, Capability as ParserCapability,
+    CapabilityRequirement as ParserCapabilityRequirement,
     CompatibilityError as ParserCompatibilityError, validate_compatibility,
 };
 
 const COMPONENT_ID: &str = "nlaocs.test.dynamic-syntax";
 const PREPASS_SUBSCRIPTION_ID: &str = "dynamic.prepass";
+const EFFECT_SUBSCRIPTION_ID: &str = "dynamic.effect";
+const SCOPED_EFFECT_HANDLER_ID: &str = "dynamic.scoped-effect";
 const DELAY_DEFINITION_ID: &str =
     "effect:skript:751b28432979bd1f00e370ffe6f6c3279e4936b90071eda5ed732d7cda2c0504";
 
@@ -71,17 +75,68 @@ impl addon::Guest for DynamicSyntaxAddon {
                     minimum_version: 1,
                     required: true,
                 },
+                CapabilityRequirement {
+                    id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
             ],
-            subscriptions: vec![HookSubscription {
-                id: PREPASS_SUBSCRIPTION_ID.to_owned(),
-                target: HookTarget::ParseStage,
-                phase: HookPhase::Document,
-                priority: 0,
-                mode: HookMode::Override,
-                capability_id: CAPABILITY_HOOKS.to_owned(),
-                selector: empty_selector(),
+            subscriptions: vec![
+                HookSubscription {
+                    id: PREPASS_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::ParseStage,
+                    phase: HookPhase::Document,
+                    priority: 0,
+                    mode: HookMode::Override,
+                    capability_id: CAPABILITY_HOOKS.to_owned(),
+                    selector: empty_selector(),
+                },
+                HookSubscription {
+                    id: EFFECT_SUBSCRIPTION_ID.to_owned(),
+                    target: HookTarget::SyntaxKind(SyntaxKind::Effect),
+                    phase: HookPhase::Effect,
+                    priority: 0,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_EFFECT_PARSER.to_owned(),
+                    selector: empty_selector(),
+                },
+            ],
+            registered_syntax_handlers: vec![RegisteredSyntaxHandler {
+                handler_id: SCOPED_EFFECT_HANDLER_ID.to_owned(),
+                kind: SyntaxKind::Effect,
+                targets: vec![RegisteredSyntaxHandlerTarget::DynamicHandler(
+                    SCOPED_EFFECT_HANDLER_ID.to_owned(),
+                )],
+                pattern_indices: Vec::new(),
+                pattern_sources: Vec::new(),
+                required_tags: Vec::new(),
+                forbidden_tags: Vec::new(),
+                marks: Vec::new(),
+                capture_parsers: vec![CaptureParserBinding {
+                    // `%string%` is capture 0; the `<.+>` mapping is capture 1.
+                    capture_index: 1,
+                    parser_id: "host.expression".to_owned(),
+                    required: true,
+                    options: vec![
+                        MetadataEntry {
+                            key: "context.value.core.input-source.available".to_owned(),
+                            value: "true".to_owned(),
+                            owner_component_id: None,
+                        },
+                        MetadataEntry {
+                            key: "context.value.core.input-source.has-indices".to_owned(),
+                            value: "true".to_owned(),
+                            owner_component_id: None,
+                        },
+                        MetadataEntry {
+                            key: "context.value.core.input-source.value-types".to_owned(),
+                            value: "java.lang.Object".to_owned(),
+                            owner_component_id: None,
+                        },
+                    ],
+                }],
+                context_requirements: Vec::new(),
             }],
-            registered_syntax_handlers: Vec::new(),
             catalog_annotations: Vec::new(),
             state_namespaces: Vec::new(),
         }
@@ -105,6 +160,22 @@ impl addon::Guest for DynamicSyntaxAddon {
             metadata: Vec::new(),
         })
         .map_err(dynamic_error)?;
+        dynamic_syntax_registry::register(&DynamicSyntaxDefinition {
+            local_id: "scoped-effect".to_owned(),
+            kind: SyntaxKind::Effect,
+            patterns: vec!["dummy scoped [%string% ]using <.+>".to_owned()],
+            priority: -15,
+            before: Vec::new(),
+            after: Vec::new(),
+            return_type: None,
+            return_multiplicity: None,
+            structure_node_type: None,
+            structure_body_mode: None,
+            entry_validator: None,
+            handler: SCOPED_EFFECT_HANDLER_ID.to_owned(),
+            metadata: Vec::new(),
+        })
+        .map_err(dynamic_error)?;
         dynamic_syntax_registry::register_override(&DynamicSyntaxOverride {
             local_id: "delay-override".to_owned(),
             target: DynamicSyntaxOverrideTarget::DefinitionId(DELAY_DEFINITION_ID.to_owned()),
@@ -118,6 +189,21 @@ impl addon::Guest for DynamicSyntaxAddon {
 
 impl hooks::Guest for DynamicSyntaxAddon {
     fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        if input.context.subscription_id == EFFECT_SUBSCRIPTION_ID {
+            if !matches!(input.phase, HookPhase::Effect)
+                || !matches!(input.payload, HookPayload::Effect(_))
+            {
+                return Err(addon_error(
+                    AddonErrorKind::UnsupportedHook,
+                    "dynamic effect fixture only handles Effect payloads",
+                ));
+            }
+            return Ok(HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: None,
+                effects: empty_effects(),
+            });
+        }
         if input.context.subscription_id != PREPASS_SUBSCRIPTION_ID
             || !matches!(input.phase, HookPhase::Document)
         {
@@ -194,6 +280,7 @@ fn validate_profile(profile: HostProfile) -> Result<(), CompatibilityError> {
     let requirements = [
         ParserCapabilityRequirement::required(CAPABILITY_HOOKS, 1),
         ParserCapabilityRequirement::required(CAPABILITY_DYNAMIC_SYNTAX, 1),
+        ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
     ];
     let capabilities = profile
         .capabilities

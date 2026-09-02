@@ -4,14 +4,18 @@
 //! the recursive Expression session used by standalone Expression parsing.
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
+use crate::expression::{
+    capture_context, capture_expression_expected_types, capture_expression_flags,
+    capture_expression_time_state,
+};
 use crate::{
     CandidateFailure, CandidateMatch, CandidateMatches, ConditionParseError,
     ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
     ExpressionParserConfig, ExpressionSession, FailureFrame, FailureFrameRole, FailureTrace,
-    HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, MappedSource, MatchSpan, ParsedCapture,
-    ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure,
-    PatternFailureReason, RankedFailures, RawNode, RawNodeId, RawNodeKind,
-    RegisteredSyntaxIdentity, TextRange,
+    HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, HOST_EXPRESSION_PARSER_ID, MappedSource,
+    MatchSpan, ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue,
+    PatternCapture, PatternFailure, PatternFailureReason, RankedFailures, RawNode, RawNodeId,
+    RawNodeKind, RegisteredSyntaxIdentity, TextRange,
 };
 use std::collections::{BTreeMap, HashSet};
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, PossibleReturnTypesState, SyntaxKind};
@@ -522,8 +526,25 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         .map_err(|message| {
             EffectParseError::Expression(ExpressionParseError::Environment { message })
         })?;
+    let children = matched
+        .matched
+        .captures
+        .iter()
+        .filter_map(|capture| match capture {
+            PatternCapture::TypeExpression {
+                resolution_id: Some(id),
+                ..
+            } => session.resolved_node(id).cloned(),
+            PatternCapture::Regex { .. }
+            | PatternCapture::TypeExpression {
+                resolution_id: None,
+                ..
+            } => None,
+        })
+        .collect::<Vec<_>>();
     let mut parsed_captures = Vec::new();
-    for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+    for capture in &matched.matched.captures {
+        let capture_index = capture.capture_index();
         if let PatternCapture::TypeExpression {
             resolution_id: Some(id),
             ..
@@ -548,6 +569,83 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
         let local = span.local_range;
         let range = TextRange::new(frame_start + local.start, frame_start + local.end);
         let parsed = match binding.parser_id.as_str() {
+            HOST_EXPRESSION_PARSER_ID => {
+                let context =
+                    capture_context(session.context(), binding, &children).map_err(|message| {
+                        EffectParseError::Expression(ExpressionParseError::Environment { message })
+                    })?;
+                let expected = capture_expression_expected_types(binding).map_err(|message| {
+                    EffectParseError::Expression(ExpressionParseError::Environment { message })
+                })?;
+                let capture_time =
+                    capture_expression_time_state(binding, 0).map_err(|message| {
+                        EffectParseError::Expression(ExpressionParseError::Environment { message })
+                    })?;
+                let (allow_literals, allow_expressions) = capture_expression_flags(binding)
+                    .map_err(|message| {
+                        EffectParseError::Expression(ExpressionParseError::Environment { message })
+                    })?;
+                let previous = context.map(|context| session.replace_context(context));
+                let parsed = session.parse_prefixes_detailed(
+                    range,
+                    &[range.end],
+                    &expected,
+                    allow_literals,
+                    allow_expressions,
+                    capture_time,
+                    depth + 1,
+                );
+                if let Some(previous) = previous {
+                    session.replace_context(previous);
+                }
+                let parsed = parsed?;
+                let cause = parsed.failure;
+                let mut candidates = parsed
+                    .candidates
+                    .into_iter()
+                    .filter(|candidate| candidate.node.span.local_range.end == range.end);
+                match candidates.next() {
+                    Some(candidate) => {
+                        let mut capture =
+                            crate::expression_parsed_capture(capture_index, candidate.node);
+                        capture.binding = binding.clone();
+                        capture
+                    }
+                    None => {
+                        let trace = cause
+                            .unwrap_or_else(|| nested_failure_trace(span.clone()))
+                            .with_parent(semantic_failure_frame(
+                                &matched,
+                                *pattern_span,
+                                span.clone(),
+                                FailureFrameRole::ExpressionCapture {
+                                    index: capture_index,
+                                },
+                            ));
+                        if binding.required {
+                            return Ok(EffectCandidateResolution::Rejected(
+                                semantic_effect_candidate_failure(
+                                    &matched,
+                                    resolved_order,
+                                    trace,
+                                    element_class.clone(),
+                                    handler.clone(),
+                                    metadata.clone(),
+                                ),
+                            ));
+                        }
+                        ParsedCapture {
+                            capture_index,
+                            binding: binding.clone(),
+                            result: ParsedCaptureResult::failure(
+                                binding.parser_id.clone(),
+                                span.clone(),
+                                "expression capture did not match",
+                            ),
+                        }
+                    }
+                }
+            }
             HOST_CONDITION_PARSER_ID => {
                 let context = session.capture_context(binding).map_err(|message| {
                     EffectParseError::Expression(ExpressionParseError::Environment { message })

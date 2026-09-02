@@ -5157,6 +5157,7 @@ fn condition_hook_payload(
                         span,
                         alternative_index,
                         resolution_id,
+                        ..
                     } => WitConditionCapture::Expression(WitConditionExpressionCapture {
                         pattern_span: WitTextRange {
                             start: pattern_span.start as u64,
@@ -5414,6 +5415,7 @@ fn effect_candidate_to_wit(
                     span,
                     alternative_index,
                     resolution_id,
+                    ..
                 } => WitEffectCapture::Expression(WitEffectExpressionCapture {
                     pattern_span: WitTextRange {
                         start: pattern_span.start as u64,

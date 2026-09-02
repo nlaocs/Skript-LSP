@@ -141,6 +141,33 @@ fn captures_regex_groups_with_utf8_byte_spans() {
     assert_eq!(groups[1].value.as_deref(), Some("本語"));
 }
 
+#[test]
+fn capture_indexes_follow_pattern_slots_when_an_optional_capture_is_omitted() {
+    let source = "[<foo>]<bar>";
+    let pattern = parse(source);
+    let selected = match_one("bar", source, &pattern)
+        .unwrap()
+        .selected
+        .expect("the second regex must match after omitting the first");
+
+    assert_eq!(selected.matched.captures.len(), 1);
+    assert_eq!(selected.matched.captures[0].capture_index(), 1);
+}
+
+#[test]
+fn capture_indexes_include_unselected_choice_branches() {
+    let source = "(<a>|<b>)<c>";
+    let pattern = parse(source);
+    let selected = match_one("bc", source, &pattern)
+        .unwrap()
+        .selected
+        .expect("the second branch and trailing regex must match");
+
+    assert_eq!(selected.matched.captures.len(), 2);
+    assert_eq!(selected.matched.captures[0].capture_index(), 1);
+    assert_eq!(selected.matched.captures[1].capture_index(), 2);
+}
+
 // These boundary-focused tests use stub resolvers that accept the requested range without
 // validating it as a real Skript expression. They isolate which candidate ends the matcher
 // offers to the expression parser; expression syntax is covered by the expression tests.

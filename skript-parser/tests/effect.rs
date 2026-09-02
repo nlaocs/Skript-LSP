@@ -4,8 +4,9 @@ use skript_parser::{
     ExpressionParseContext, ExpressionParseEnvironment, FailureTrace, MappedSource,
     MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue, PatternFailureReason,
     PatternHookControl, PatternHookEvent, PatternHookScope, PatternHookTiming,
-    PatternMatchEnvironment, RawTreeOptions, TextRange, TypeExpressionOutcome,
-    TypeExpressionRequest, parse_effect, parse_effect_with_snapshot, parse_raw_tree,
+    PatternMatchEnvironment, RawTreeOptions, RegisteredCaptureBinding, RegisteredSyntaxIdentity,
+    TextRange, TypeExpressionOutcome, TypeExpressionRequest, parse_effect,
+    parse_effect_with_snapshot, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -345,6 +346,211 @@ fn parses_dynamic_effect_and_retains_its_handler_metadata() {
         selected.metadata.get("owner").map(String::as_str),
         Some("fixture")
     );
+}
+
+#[derive(Default)]
+struct ScopedExpressionCaptureEnvironment {
+    nested_context_seen: bool,
+    nested_parent_context_seen: bool,
+    effect_context_leaked: bool,
+    effect_parent_context_seen: bool,
+}
+
+impl PatternMatchEnvironment for ScopedExpressionCaptureEnvironment {
+    fn allows_regex_pattern(
+        &mut self,
+        _kind: MatchSyntaxKind,
+        _registration_id: &str,
+        _pattern_index: usize,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let local_context = request
+            .context
+            .values
+            .get("fixture.input-source")
+            .is_some_and(|value| value == "true");
+        let candidates = request
+            .candidate_ends
+            .iter()
+            .filter_map(|end| {
+                let range = TextRange::new(request.remaining.start, *end);
+                let text = range.slice(request.input)?;
+                let (parser_id, kind, return_type) = if request.allow_literals
+                    && text.len() >= 2
+                    && text.starts_with('"')
+                    && text.ends_with('"')
+                {
+                    (
+                        "test.string-literal",
+                        ExpressionLeafKind::Literal,
+                        "java.lang.String",
+                    )
+                } else if request.allow_expressions && text == "input" && local_context {
+                    self.nested_context_seen = true;
+                    self.nested_parent_context_seen = request
+                        .context
+                        .event_classes
+                        .iter()
+                        .any(|event| event.as_str() == "fixture.Event");
+                    ("test.input", ExpressionLeafKind::Custom, "java.lang.Object")
+                } else {
+                    return None;
+                };
+                Some(ExpressionLeafCandidate {
+                    parser_id: parser_id.to_owned(),
+                    kind,
+                    range,
+                    return_type: Some(ClassName(return_type.to_owned())),
+                    multiplicity: Some(Multiplicity::Single),
+                    children: Vec::new(),
+                    metadata: BTreeMap::new(),
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(candidates.into())
+    }
+
+    fn registered_capture_bindings(
+        &self,
+        syntax: RegisteredSyntaxIdentity<'_>,
+    ) -> Result<Vec<RegisteredCaptureBinding>, String> {
+        if syntax.dynamic_handler != Some("effect.scoped-expression") {
+            return Ok(Vec::new());
+        }
+        Ok(vec![RegisteredCaptureBinding {
+            capture_index: 1,
+            parser_id: "host.expression".to_owned(),
+            required: true,
+            options: BTreeMap::from([
+                ("parse.mode".to_owned(), "expressions-only".to_owned()),
+                (
+                    "context.value.fixture.input-source".to_owned(),
+                    "true".to_owned(),
+                ),
+            ]),
+        }])
+    }
+
+    fn resolve_effect_candidate(
+        &mut self,
+        request: EffectSemanticRequest<'_>,
+    ) -> Result<EffectSemanticDecision, String> {
+        self.effect_context_leaked |= request.context.values.contains_key("fixture.input-source");
+        self.effect_parent_context_seen |= request
+            .context
+            .event_classes
+            .iter()
+            .any(|event| event.as_str() == "fixture.Event");
+        Ok(EffectSemanticDecision::UseCandidate)
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+#[test]
+fn effect_expression_capture_uses_local_context_without_leaking_it() {
+    let catalog = effect_fixture();
+    let id = DynamicSyntaxId::new("test.dynamic", "scoped-expression-effect");
+    // The omitted optional `%string%` still owns capture slot 0, so the
+    // matched regex must retain its registration-defined slot 1.
+    let pattern = "scoped [%string% ]using <.+>";
+    let definition = DynamicSyntaxDefinition {
+        id: id.clone(),
+        kind: SyntaxKind::Effect,
+        patterns: vec![DynamicPattern {
+            source: pattern.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules()).unwrap(),
+        }],
+        priority: 0,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: None,
+        return_multiplicity: None,
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
+        handler: "effect.scoped-expression".to_owned(),
+        metadata: BTreeMap::new(),
+        component_load_order: 1,
+        declaration_order: 0,
+    };
+    let dynamic = DynamicSyntaxSnapshot {
+        document_id: "file:///workspace/test.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([(id.clone(), definition)]),
+        overrides: BTreeMap::new(),
+        candidates: vec![RankedSyntaxCandidate {
+            source: SyntaxCandidateSource::Dynamic(id),
+            kind: SyntaxKind::Effect,
+            overrides: Vec::new(),
+        }],
+    };
+    let source = MappedSource::identity("scoped using input");
+    let node = simple_node(&source);
+    let mut environment = ScopedExpressionCaptureEnvironment::default();
+    let result = parse_effect_with_snapshot(
+        &catalog,
+        Some(&dynamic),
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: event_context(&["fixture.Event"]),
+        },
+        &mut environment,
+        EffectParserConfig::default(),
+    )
+    .expect("the scoped Effect must parse");
+
+    let selected = result.selected.expect("the scoped Effect must be selected");
+    let mapping = selected
+        .parsed_captures
+        .iter()
+        .find(|capture| capture.capture_index == 1)
+        .expect("the regex mapping must retain its parsed Expression");
+    let Some(ParsedCaptureValue::Expression(expression)) = mapping.result.value.as_ref() else {
+        panic!("the regex mapping must be routed through host.expression");
+    };
+    assert_eq!(
+        expression.return_type.as_ref().unwrap().as_str(),
+        "java.lang.Object"
+    );
+    assert_eq!(
+        mapping
+            .binding
+            .options
+            .get("parse.mode")
+            .map(String::as_str),
+        Some("expressions-only")
+    );
+    assert!(environment.nested_context_seen);
+    assert!(environment.nested_parent_context_seen);
+    assert!(!environment.effect_context_leaked);
+    assert!(environment.effect_parent_context_seen);
 }
 
 #[test]

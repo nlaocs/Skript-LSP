@@ -179,8 +179,9 @@ const CAPTURE_CONTEXT_VALUE_PREFIX: &str = "context.value.";
 const CAPTURE_CONTEXT_CHILD_VALUE_PREFIX: &str = "context.value-from-child.";
 const CAPTURE_EXPRESSION_EXPECTED_TYPES: &str = "expression.expected-types";
 const CAPTURE_EXPRESSION_TIME_STATE: &str = "expression.time-state";
+const CAPTURE_EXPRESSION_PARSE_MODE: &str = "parse.mode";
 
-fn capture_context(
+pub(crate) fn capture_context(
     current: &ExpressionParseContext,
     binding: &RegisteredCaptureBinding,
     children: &[ExpressionNode],
@@ -225,7 +226,7 @@ fn capture_context(
     Ok(changed.then_some(next))
 }
 
-fn capture_expression_expected_types(
+pub(crate) fn capture_expression_expected_types(
     binding: &RegisteredCaptureBinding,
 ) -> Result<Vec<ExpressionExpectedType>, String> {
     let Some(value) = binding.options.get(CAPTURE_EXPRESSION_EXPECTED_TYPES) else {
@@ -254,7 +255,7 @@ fn capture_expression_expected_types(
     Ok(expected)
 }
 
-fn capture_expression_time_state(
+pub(crate) fn capture_expression_time_state(
     binding: &RegisteredCaptureBinding,
     default: i32,
 ) -> Result<i32, String> {
@@ -268,6 +269,22 @@ fn capture_expression_time_state(
         _ => Err(format!(
             "capture Expression time state must be -1, 0, or 1, found `{value}`"
         )),
+    }
+}
+
+pub(crate) fn capture_expression_flags(
+    binding: &RegisteredCaptureBinding,
+) -> Result<(bool, bool), String> {
+    match binding
+        .options
+        .get(CAPTURE_EXPRESSION_PARSE_MODE)
+        .map(String::as_str)
+        .unwrap_or("all")
+    {
+        "all" => Ok((true, true)),
+        "expressions-only" => Ok((false, true)),
+        "literals-only" => Ok((true, false)),
+        mode => Err(format!("unknown Expression capture parse mode `{mode}`")),
     }
 }
 
@@ -506,7 +523,8 @@ impl ExpressionNode {
                 .map(|(capture_index, node)| expression_parsed_capture(capture_index, node))
                 .collect();
         }
-        for (capture_index, capture) in self.captures.iter().enumerate() {
+        for capture in &self.captures {
+            let capture_index = capture.capture_index();
             match capture {
                 PatternCapture::TypeExpression {
                     resolution_id: Some(_),
@@ -2515,7 +2533,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             })
             .collect();
         let mut parsed_captures = Vec::new();
-        for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+        for capture in &matched.matched.captures {
+            let capture_index = capture.capture_index();
             if let PatternCapture::TypeExpression {
                 resolution_id: Some(id),
                 ..
@@ -2559,7 +2578,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         } else {
             Vec::new()
         };
-        for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+        for capture in &matched.matched.captures {
+            let capture_index = capture.capture_index();
             let Some(binding) = capture_bindings
                 .iter()
                 .find(|binding| binding.capture_index == capture_index)
@@ -2582,13 +2602,15 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         .map_err(|message| ExpressionParseError::Environment { message })?;
                     let capture_time = capture_expression_time_state(binding, time)
                         .map_err(|message| ExpressionParseError::Environment { message })?;
+                    let (allow_literals, allow_expressions) = capture_expression_flags(binding)
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
                     let previous = context.map(|context| self.replace_context(context));
                     let parsed = self.parse_prefixes_detailed(
                         range,
                         &[range.end],
                         &expected,
-                        true,
-                        true,
+                        allow_literals,
+                        allow_expressions,
                         capture_time,
                         depth + 1,
                     );
@@ -2604,7 +2626,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         .into_iter()
                         .filter(|candidate| candidate.node.span.local_range.end == range.end);
                     match candidates.next() {
-                        Some(candidate) => expression_parsed_capture(capture_index, candidate.node),
+                        Some(candidate) => {
+                            let mut parsed =
+                                expression_parsed_capture(capture_index, candidate.node);
+                            parsed.binding = binding.clone();
+                            parsed
+                        }
                         None if binding.required => {
                             let frame = FailureFrame {
                                 kind: matched.kind,
@@ -3828,6 +3855,32 @@ mod tests {
             options: BTreeMap::from([(CAPTURE_EXPRESSION_TIME_STATE.to_owned(), "-1".to_owned())]),
         };
         assert_eq!(capture_expression_time_state(&binding, 1).unwrap(), -1);
+    }
+
+    #[test]
+    fn expression_capture_parse_mode_controls_leaf_kinds() {
+        let binding = |mode: Option<&str>| RegisteredCaptureBinding {
+            capture_index: 0,
+            parser_id: HOST_EXPRESSION_PARSER_ID.to_owned(),
+            required: true,
+            options: mode.map_or_else(BTreeMap::new, |mode| {
+                BTreeMap::from([(CAPTURE_EXPRESSION_PARSE_MODE.to_owned(), mode.to_owned())])
+            }),
+        };
+
+        assert_eq!(
+            capture_expression_flags(&binding(None)).unwrap(),
+            (true, true)
+        );
+        assert_eq!(
+            capture_expression_flags(&binding(Some("expressions-only"))).unwrap(),
+            (false, true)
+        );
+        assert_eq!(
+            capture_expression_flags(&binding(Some("literals-only"))).unwrap(),
+            (true, false)
+        );
+        assert!(capture_expression_flags(&binding(Some("unknown"))).is_err());
     }
 
     #[test]

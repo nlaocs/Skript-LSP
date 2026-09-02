@@ -409,10 +409,10 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
             .as_array()
             .into_iter()
             .flatten()
-            .any(|reason| reason["kind"] == "typeExpression"
-                && reason["expected"]
-                    .as_array()
-                    .is_some_and(|expected| expected.iter().any(|value| value == "livingentity")))
+            .any(|reason| reason["kind"] == "hookRejected"
+                && reason["reason"].as_str().is_some_and(|message| {
+                    message == "there is no org.bukkit.entity.Player event value outside an event"
+                }))
     );
     assert!(
         contextual["result"]["failure"]["contexts"]

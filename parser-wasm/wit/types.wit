@@ -248,9 +248,16 @@ interface types {
     }
 
     record capture-parser-binding {
+        /// Zero-based index among every capture in pattern source order.
+        /// Typed `%type%` captures and regex `<.+>` captures share this index.
         capture-index: u64,
+        /// Open parser route such as `host.expression`.
         parser-id: string,
+        /// Rejects the containing syntax candidate when this capture cannot parse.
         required: bool,
+        /// Route-specific options. `host.expression` accepts `parse.mode`,
+        /// `expression.expected-types`, `expression.time-state`, and temporary
+        /// `context.*` overrides.
         options: list<metadata-entry>,
     }
 
