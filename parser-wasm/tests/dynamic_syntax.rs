@@ -118,6 +118,11 @@ fn registers_prepass_syntaxes_overrides_and_unloads_component_state() {
             .definitions
             .contains_key(&DynamicSyntaxId::new(COMPONENT_ID, "initial-effect"))
     );
+    assert!(
+        initial
+            .definitions
+            .contains_key(&DynamicSyntaxId::new(COMPONENT_ID, "scoped-effect"))
+    );
     let delay = initial
         .candidates
         .iter()
@@ -146,7 +151,7 @@ fn registers_prepass_syntaxes_overrides_and_unloads_component_state() {
             .keys()
             .filter(|id| id.component_id == COMPONENT_ID)
             .count(),
-        2
+        3
     );
     let dynamic_order = frozen
         .candidates
@@ -158,7 +163,10 @@ fn registers_prepass_syntaxes_overrides_and_unloads_component_state() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(dynamic_order, ["initial-effect", "prepass-effect"]);
+    assert_eq!(
+        dynamic_order,
+        ["initial-effect", "scoped-effect", "prepass-effect"]
+    );
 
     let error = host
         .dispatch_in_parse(&transaction, document_request(document_id, 1))
@@ -206,7 +214,7 @@ fn registers_prepass_syntaxes_overrides_and_unloads_component_state() {
             .keys()
             .filter(|id| id.component_id == COMPONENT_ID)
             .count(),
-        2
+        3
     );
     future_transaction.commit().unwrap();
 }
@@ -236,6 +244,11 @@ fn rolls_back_dynamic_registrations_when_a_prepass_rejects() {
         snapshot
             .definitions
             .contains_key(&DynamicSyntaxId::new(COMPONENT_ID, "initial-effect"))
+    );
+    assert!(
+        snapshot
+            .definitions
+            .contains_key(&DynamicSyntaxId::new(COMPONENT_ID, "scoped-effect"))
     );
     assert!(
         !snapshot
