@@ -19,11 +19,16 @@ pub(super) fn parse(
     // New snapshots expose these values as structured supplier literals.
     // Preserve their exact SSG metadata rather
     // than reducing an entity to a bare word and a guessed Bukkit class.
+    let literal = crate::language::strip_indefinite_article(text);
+    let literal_start = payload
+        .remaining
+        .start
+        .checked_add(u64::try_from(text.len() - literal.len()).ok()?)?;
     if let Some(option) = payload
         .literal_options
         .iter()
         .filter(|option| {
-            option.range.start == payload.remaining.start
+            option.range.start == literal_start
                 && option.range.end == end
                 && option.class_name == ENTITY_DATA
         })
@@ -555,7 +560,7 @@ fn legacy_entity_literal(
     text: &str,
     minecraft_version: Option<&str>,
 ) -> Option<LegacyEntityLiteral> {
-    let text = strip_indefinite_article(text.trim());
+    let text = crate::language::strip_indefinite_article(text.trim());
     let minecraft_version = parse_version(minecraft_version?)?;
     LEGACY_ENTITY_LITERALS
         .iter()
@@ -569,17 +574,6 @@ fn legacy_entity_literal(
             is_plural: text.eq_ignore_ascii_case(literal.plural_name),
             ..literal
         })
-}
-
-fn strip_indefinite_article(text: &str) -> &str {
-    ["a ", "an "]
-        .iter()
-        .find_map(|article| {
-            text.get(article.len()..)
-                .filter(|_| text.len() > article.len())
-                .filter(|_| text[..article.len()].eq_ignore_ascii_case(article))
-        })
-        .unwrap_or(text)
 }
 
 fn parse_version(version: &str) -> Option<(u16, u16, u16)> {
