@@ -553,12 +553,14 @@ pub struct RegexGroupCapture {
 /// Typed value captured by a regex or `%type%` element.
 pub enum PatternCapture {
     Regex {
+        capture_index: usize,
         pattern_span: PatternSpan,
         value: String,
         span: MatchSpan,
         groups: Vec<RegexGroupCapture>,
     },
     TypeExpression {
+        capture_index: usize,
         pattern_span: PatternSpan,
         expression: PatternTypeExpr,
         value: String,
@@ -566,6 +568,17 @@ pub enum PatternCapture {
         alternative_index: Option<usize>,
         resolution_id: Option<String>,
     },
+}
+
+impl PatternCapture {
+    /// Stable zero-based slot among every capture in the registration pattern.
+    pub const fn capture_index(&self) -> usize {
+        match self {
+            Self::Regex { capture_index, .. } | Self::TypeExpression { capture_index, .. } => {
+                *capture_index
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -912,6 +925,20 @@ struct CandidateContext<'a> {
     candidate: &'a PatternCandidate<'a>,
     pattern_index: Option<usize>,
     pattern: Option<&'a MatchPattern<'a>>,
+    capture_indices: HashMap<PatternSpan, usize>,
+}
+
+impl<'a> CandidateContext<'a> {
+    fn new(candidate: &'a PatternCandidate<'a>, pattern: Option<&'a MatchPattern<'a>>) -> Self {
+        Self {
+            candidate,
+            pattern_index: pattern.map(|pattern| pattern.pattern_index),
+            pattern,
+            capture_indices: pattern
+                .map(|pattern| pattern_capture_indices(&pattern.parsed.elements))
+                .unwrap_or_default(),
+        }
+    }
 }
 
 struct MatchEngine<'input, 'candidate, 'ext, E> {
@@ -1218,11 +1245,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         &mut self,
         candidate: &'candidate PatternCandidate<'candidate>,
     ) -> Result<Option<CandidateMatch>, PatternMatchError> {
-        self.current = Some(CandidateContext {
-            candidate,
-            pattern_index: None,
-            pattern: None,
-        });
+        self.current = Some(CandidateContext::new(candidate, None));
 
         match self.scope_before(PatternHookScope::Definition)? {
             ScopeDecision::Failed => {
@@ -1339,11 +1362,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             {
                 continue;
             }
-            self.current = Some(CandidateContext {
-                candidate,
-                pattern_index: Some(pattern.pattern_index),
-                pattern: Some(pattern),
-            });
+            self.current = Some(CandidateContext::new(candidate, Some(pattern)));
 
             match self.scope_before(PatternHookScope::Pattern)? {
                 ScopeDecision::Failed => {
@@ -1432,16 +1451,13 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             }
         }
 
-        self.current = Some(CandidateContext {
-            candidate,
-            pattern_index: matched.as_ref().map(|value| value.pattern_index),
-            pattern: matched.as_ref().and_then(|value| {
-                candidate
-                    .patterns
-                    .iter()
-                    .find(|pattern| pattern.pattern_index == value.pattern_index)
-            }),
+        let matched_pattern = matched.as_ref().and_then(|value| {
+            candidate
+                .patterns
+                .iter()
+                .find(|pattern| pattern.pattern_index == value.pattern_index)
         });
+        self.current = Some(CandidateContext::new(candidate, matched_pattern));
 
         if let Some(matched) = matched {
             let registration_accepted =
@@ -1505,11 +1521,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         let Some(pattern) = candidate.patterns.first() else {
             return Ok(None);
         };
-        self.current = Some(CandidateContext {
-            candidate,
-            pattern_index: Some(pattern.pattern_index),
-            pattern: Some(pattern),
-        });
+        self.current = Some(CandidateContext::new(candidate, Some(pattern)));
         self.synthetic_candidate_match(candidate, pattern).map(Some)
     }
 
@@ -1933,6 +1945,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         Ok(vec![state])
     }
 
+    fn current_capture_index(&self, pattern_span: PatternSpan) -> usize {
+        *self
+            .current
+            .as_ref()
+            .and_then(|current| current.capture_indices.get(&pattern_span))
+            .expect("matched capture must belong to the current pattern")
+    }
+
     fn match_regex(
         &mut self,
         pattern_span: PatternSpan,
@@ -1940,6 +1960,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         state: MatchState,
         path: &[PatternPathSegment],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
+        let capture_index = self.current_capture_index(pattern_span);
         let key = self.transition_key(path, state.cursor);
         let transitions = if let Some(value) = self.transitions.get(&key) {
             value.clone()
@@ -2020,6 +2041,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 let mut next = state.clone();
                 next.cursor = range.end;
                 next.captures.push(PatternCapture::Regex {
+                    capture_index,
                     pattern_span,
                     value: range
                         .slice(self.input.text())
@@ -2056,6 +2078,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         path: &[PatternPathSegment],
         tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
+        let capture_index = self.current_capture_index(pattern_span);
         let mut boundaries =
             skript_boundaries(self.input.text(), state.cursor, self.trim_range.end)
                 .into_iter()
@@ -2128,6 +2151,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             }
             next.cursor = range.end;
             next.captures.push(PatternCapture::TypeExpression {
+                capture_index,
                 pattern_span,
                 expression: expression.clone(),
                 value: range
@@ -2147,12 +2171,20 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 .unwrap_or(potential_range);
             let cause_virtual_range = self.input.map_range(cause_range)?.mapped.virtual_range;
             let cause = cause.filter(|cause| {
-                let root = cause.root_cause().failure.span.mapped.virtual_range;
-                let semantic_same_range =
-                    cause.root_cause().failure.reasons.iter().any(|reason| {
-                        matches!(reason, PatternFailureReason::EventRestricted { .. })
-                    });
-                (root != cause_virtual_range || semantic_same_range)
+                let has_semantic_diagnostics = cause.has_semantic_diagnostics();
+                let root_cause = cause.root_cause();
+                let root = root_cause.failure.span.mapped.virtual_range;
+                let actionable_same_range =
+                    root_cause
+                        .failure
+                        .reasons
+                        .iter()
+                        .any(|reason| match reason {
+                            PatternFailureReason::EventRestricted { .. } => true,
+                            PatternFailureReason::HookRejected { .. } => has_semantic_diagnostics,
+                            _ => false,
+                        });
+                (root != cause_virtual_range || actionable_same_range)
                     && root.start >= cause_virtual_range.start
                     && root.end <= cause_virtual_range.end
             });
@@ -2202,6 +2234,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     let mut next = state.clone();
                     next.cursor = end;
                     next.captures.push(PatternCapture::TypeExpression {
+                        capture_index,
                         pattern_span,
                         expression: expression.clone(),
                         value: range
@@ -2394,6 +2427,40 @@ fn pattern_contains_regex(elements: &[SpannedPatternElement]) -> bool {
         | PatternElement::ParseMark(_)
         | PatternElement::Empty => false,
     })
+}
+
+fn pattern_capture_indices(elements: &[SpannedPatternElement]) -> HashMap<PatternSpan, usize> {
+    fn collect(
+        elements: &[SpannedPatternElement],
+        next_index: &mut usize,
+        indices: &mut HashMap<PatternSpan, usize>,
+    ) {
+        for element in elements {
+            match &element.value {
+                PatternElement::Regex(_) | PatternElement::TypeExpr(_) => {
+                    indices.insert(element.span, *next_index);
+                    *next_index += 1;
+                }
+                PatternElement::Group(children) | PatternElement::Option(children) => {
+                    collect(children, next_index, indices);
+                }
+                PatternElement::Choice(branches) => {
+                    for branch in branches {
+                        collect(branch, next_index, indices);
+                    }
+                }
+                PatternElement::Literal(_)
+                | PatternElement::ParseTag(_)
+                | PatternElement::ParseMark(_)
+                | PatternElement::Empty => {}
+            }
+        }
+    }
+
+    let mut indices = HashMap::new();
+    let mut next_index = 0;
+    collect(elements, &mut next_index, &mut indices);
+    indices
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

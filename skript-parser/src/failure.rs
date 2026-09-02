@@ -138,6 +138,15 @@ impl FailureTrace {
         diagnostics
     }
 
+    /// Returns whether this trace or any nested cause carries semantic diagnostics.
+    pub fn has_semantic_diagnostics(&self) -> bool {
+        !self.semantic_diagnostics.is_empty()
+            || self
+                .cause
+                .as_deref()
+                .is_some_and(FailureTrace::has_semantic_diagnostics)
+    }
+
     /// Returns the deepest available cause, which is normally the best primary label.
     pub fn root_cause(&self) -> &Self {
         self.cause.as_deref().map_or(self, FailureTrace::root_cause)

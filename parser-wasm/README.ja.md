@@ -133,6 +133,11 @@ handlerは`pattern-indices`、完全一致する`pattern-sources`、必須・禁
 hard-codeせず、Javaの`init`内の分岐をaddonから表現できます。capture parser optionの
 `context.event-classes`（`;`区切りのJava class）と`context.value.<key>`はnested host parserのcontextだけを
 一時的に上書きし、候補の成功・失敗にかかわらず外側contextへ復元します。
+`host.expression`では、`context.value-from-child.<key>`によってそれ以前の型付きExpression captureから
+`0.return-type`、`0.possible-return-types`、`0.multiplicity`、`0.metadata.<key>`のようなselectorで
+context値を導出できます。`host.expression`は`parse.mode`（`all`、`expressions-only`、`literals-only`）、
+`expression.expected-types`、`expression.time-state`にも対応します。capture indexはpattern内の
+すべてのcaptureを出現順に数えるため、`<.+>`より前の`%type%` captureもindexへ含まれます。
 `expression.type-options.all`は`ExprParse`のような構文へSSGの全Type optionを渡します。host側はJava class名を
 知る必要がありません。各childにはnative node kindと任意のparser IDも含まれるため、componentはsource文字列を
 推測せずliteral、variable、functionなどを区別できます。native parserは有効なcomponentが宣言した

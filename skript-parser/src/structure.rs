@@ -762,7 +762,8 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
         })
         .map_err(|message| StructureParseError::Environment { message })?;
     let mut parsed_captures = Vec::new();
-    for (capture_index, capture) in matched.matched.captures.iter().enumerate() {
+    for capture in &matched.matched.captures {
+        let capture_index = capture.capture_index();
         if let PatternCapture::TypeExpression {
             resolution_id: Some(id),
             ..

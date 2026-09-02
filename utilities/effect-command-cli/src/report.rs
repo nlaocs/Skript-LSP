@@ -1422,6 +1422,7 @@ fn resolved_elements(
                 value,
                 span,
                 groups,
+                ..
             } => ResolvedElementReport::Regex {
                 pattern_span: pattern_span(*capture_pattern_span),
                 span: match_span(span),
@@ -1442,6 +1443,7 @@ fn resolved_elements(
                 span,
                 alternative_index,
                 resolution_id,
+                ..
             } => {
                 let expression_node = resolution_id.as_ref().and_then(|_| resolved.next());
                 ResolvedElementReport::Expression {

@@ -28,7 +28,7 @@ entity-data literals, and generated
 `ClassInfo` literals at legal split points. It also resolves the built-in
 dynamic semantics of `ExprAllBannedEntries`, `ExprAnyOf`, `ExprDefaultValue`,
 `ExprCustomModelData`, `ExprElement`, `ExprEntities`, `ExprFromUUID`,
-`ExprInventoryInfo`, `ExprInventorySlot`,
+`ExprInput`, `ExprInventoryInfo`, `ExprInventorySlot`,
 `ExprJoinSplit`, `ExprParse`, `ExprRandom`, `ExprRandomCharacter`,
 `ExprRandomNumber`, `ExprReversedList`, `ExprSets`, `ExprShuffledList`,
 `ExprSortedList`, `ExprTernary`, `ExprWhether`,
@@ -49,7 +49,10 @@ host-issued result tokens from its leaf candidate, so the selected roots become
 native child AST nodes with rebased spans instead of opaque metadata.
 
 The Effect and Section hooks provide the class-specific semantics for
-`EffChange`, `EffDoIf`, `SecConditional`, and `SecWhile`. Property Expressions
+`EffChange`, `EffDoIf`, `EffSort`, `EffTransform`, `SecConditional`, and
+`SecWhile`. Sort and transform mapping captures are parsed as nested
+Expressions with an InputSource context that is visible only inside the
+mapping. Property Expressions
 publish an owned `change-contract` assembled from `Properties.json` and, when
 Skript requires change-in-place propagation, the already parsed source
 Expression's contract. `EffChange` consumes that metadata first and falls back

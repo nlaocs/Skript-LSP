@@ -2,7 +2,8 @@ use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionListConjunction,
     ExpressionNodeKind, ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig,
-    MappedSource, RawTreeOptions, TextRange, parse_raw_tree,
+    FailureTrace, MappedSource, ParsedCaptureStatus, ParsedCaptureValue, PatternFailureReason,
+    RawTreeOptions, TextRange, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -942,6 +943,80 @@ fn dynamic_effect_uses_the_same_end_to_end_pipeline() {
     transaction.cancel().unwrap();
 }
 
+fn has_hook_rejection(trace: &FailureTrace, expected: &str) -> bool {
+    trace.failure.reasons.iter().any(|reason| {
+        matches!(reason, PatternFailureReason::HookRejected { reason } if reason.contains(expected))
+    }) || trace
+        .cause
+        .as_deref()
+        .is_some_and(|cause| has_hook_rejection(cause, expected))
+}
+
+#[test]
+fn third_party_dynamic_effect_reuses_core_input_source_parser() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    host.load_addon(DYNAMIC_SYNTAX_ADDON)
+        .expect("third-party dynamic syntax addon must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 20)
+        .unwrap();
+
+    // This Effect is registered by the third-party component. Its optional
+    // `%string%` owns capture 0 even when omitted, while `<.+>` remains capture
+    // 1 and is parsed with the InputSource context supplied by that component.
+    let result = parse_effect(&mut host, &transaction, 20, "dummy scoped using input");
+    let selected = result.matches.selected.expect("dynamic Effect must parse");
+    assert_eq!(
+        selected.matched.registration_id,
+        "dynamic:nlaocs.test.dynamic-syntax/scoped-effect"
+    );
+    assert_eq!(selected.handler.as_deref(), Some("dynamic.scoped-effect"));
+    let mapping = selected
+        .parsed_captures
+        .iter()
+        .find(|capture| capture.capture_index == 1)
+        .expect("the third-party mapping capture must be routed");
+    assert_eq!(mapping.binding.parser_id, "host.expression");
+    assert_eq!(mapping.result.status, ParsedCaptureStatus::Success);
+    assert!(matches!(
+        mapping.result.value,
+        Some(ParsedCaptureValue::Expression(_))
+    ));
+    assert!(result.calls.iter().any(|call| {
+        call.component_id == "nlaocs.test.dynamic-syntax"
+            && call.subscription_id == "dynamic.effect"
+    }));
+
+    // Without an Effect-local InputSource context, the same `input` token is
+    // not a valid standalone expression and must not become a selected Effect.
+    let contextless = parse_effect(&mut host, &transaction, 20, "send input");
+    assert!(
+        contextless.matches.selected.is_none(),
+        "contextless input must be rejected"
+    );
+    let unknown = contextless
+        .matches
+        .unknown
+        .expect("contextless input must retain a diagnostic failure");
+    assert!(
+        unknown
+            .failures
+            .candidates
+            .iter()
+            .any(|candidate| has_hook_rejection(&candidate.matched.trace, "InputSource")),
+        "contextless input must explain that its InputSource is missing: {:#?}",
+        unknown.failures
+    );
+    transaction.cancel().unwrap();
+}
+
 #[test]
 fn dynamic_size_and_parse_expressions_work_inside_effects() {
     let catalog = full_dynamic_catalog();
@@ -1023,6 +1098,89 @@ fn dynamic_size_and_parse_expressions_work_inside_effects() {
         "pattern ExprParse must parse: {:#?}",
         parsed.matches.unknown
     );
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn input_source_effects_parse_mappings_in_their_local_context() {
+    let catalog = full_dynamic_catalog();
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 7)
+        .unwrap();
+
+    for input in [
+        "transform {_a::*} using input * 2",
+        "transform {_clan-sizes::*} using {clans::%input%::size}",
+        "transform {_list::*} with 0",
+        "sort {_words::*}",
+        "sort {_words::*} by length of input",
+        "sort {_words::*} in descending order by length of input",
+        "sort {_words::*} based on {tastiness::%input%}",
+    ] {
+        let result = parse_effect(&mut host, &transaction, 7, input);
+        assert!(
+            result.matches.selected.is_some(),
+            "InputSource Effect must parse `{input}`: {:#?}",
+            result.matches.unknown
+        );
+        if input.contains("length of input") {
+            assert!(
+                result.effects.diagnostics.iter().all(|diagnostic| {
+                    diagnostic.code != "core.eff-sort.unresolved-mapping-multiplicity"
+                }),
+                "length of input must resolve to one value: {:#?}",
+                result.effects.diagnostics
+            );
+        }
+    }
+
+    for (input, expected_type) in [
+        ("sort {_words::*} by input", "java.lang.Object"),
+        ("sort {_words::*} by number input", "java.lang.Number"),
+        ("sort {_words::*} by input index", "java.lang.String"),
+    ] {
+        let result = parse_effect(&mut host, &transaction, 7, input);
+        let selected = result.matches.selected.unwrap_or_else(|| {
+            panic!(
+                "typed InputSource mapping must parse `{input}`: {:#?}",
+                result.matches.unknown
+            )
+        });
+        let mapping = selected
+            .parsed_captures
+            .iter()
+            .find(|capture| capture.capture_index == 1)
+            .expect("the sort mapping must retain its parsed Expression");
+        let Some(ParsedCaptureValue::Expression(expression)) = mapping.result.value.as_ref() else {
+            panic!("the sort mapping must be an Expression");
+        };
+        assert_eq!(
+            expression.return_type.as_ref().map(|value| value.as_str()),
+            Some(expected_type),
+            "unexpected return type for `{input}`"
+        );
+        assert_eq!(expression.multiplicity, Some(Multiplicity::Single));
+    }
+
+    for input in [
+        "transform {_value} using input",
+        "sort {_words::*} by {_values::*}",
+        "send input",
+    ] {
+        let result = parse_effect(&mut host, &transaction, 7, input);
+        assert!(
+            result.matches.selected.is_none(),
+            "invalid InputSource usage must be rejected: `{input}`"
+        );
+    }
     transaction.cancel().unwrap();
 }
 

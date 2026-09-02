@@ -25,7 +25,7 @@ integer/decimal literal、boolean、SSG由来の有限type literal、entity-data
 `ClassInfo` literalを認識します。
 また、`ExprAllBannedEntries`、`ExprAnyOf`、`ExprCustomModelData`、`ExprDefaultValue`、
 `ExprElement`、`ExprEntities`、`ExprFromUUID`、`ExprInventoryInfo`、
-`ExprInventorySlot`、`ExprJoinSplit`、`ExprParse`、`ExprRandom`、
+`ExprInput`、`ExprInventorySlot`、`ExprJoinSplit`、`ExprParse`、`ExprRandom`、
 `ExprRandomCharacter`、`ExprRandomNumber`、`ExprReversedList`、`ExprSets`、
 `ExprShuffledList`、`ExprSortedList`、`ExprTernary`、`ExprWhether`と、標準の
 `PropExprAmount`、`PropExprCustomName`、`PropExprName`、`PropExprNumber`、
@@ -41,7 +41,9 @@ hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibra
 hostが発行したresult tokenをleaf候補から参照するため、選択されたrootはopaque metadataではなく、
 外側へspanを再配置したnative child ASTになります。
 
-EffectとSection hookは`EffChange`、`EffDoIf`、`SecConditional`、`SecWhile`固有の意味処理を提供します。
+EffectとSection hookは`EffChange`、`EffDoIf`、`EffSort`、`EffTransform`、`SecConditional`、`SecWhile`固有の
+意味処理を提供します。sortとtransformのmapping captureは、そのmapping内だけで見えるInputSource contextを
+使ってnested Expressionとして解析します。
 Property Expressionは`Properties.json`と、Skriptがchange-in-placeの書き戻しを要求する場合は解析済みsource
 Expressionのcontractからowned `change-contract`を公開します。`EffChange`はこのmetadataを優先し、なければ
 `Expressions.json`または`EventValues.json`の生recordへfallbackします。子を再解析せず

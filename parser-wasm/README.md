@@ -162,7 +162,14 @@ with AND. This models Java `init` branches without hard-coding a syntax in the
 host. Capture parser options `context.event-classes` (semicolon-separated Java
 classes) and `context.value.<key>` temporarily override the nested host parser
 context; the outer context is restored before the candidate continues or
-fails.
+fails. For `host.expression`, `context.value-from-child.<key>` can derive a
+value from an earlier typed Expression capture using selectors such as
+`0.return-type`, `0.possible-return-types`, `0.multiplicity`, or
+`0.metadata.<key>`. `host.expression` also accepts `parse.mode` (`all`,
+`expressions-only`, or `literals-only`), `expression.expected-types`, and
+`expression.time-state`.
+Capture indexes count every pattern capture in source order, including typed
+`%type%` captures before a regex `<.+>` capture.
 A handler may also request named
 host context; `expression.type-options.all` supplies every SSG Type option for
 constructs such as `ExprParse` without teaching the host that Java class name.
