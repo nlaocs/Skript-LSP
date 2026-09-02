@@ -25,6 +25,7 @@ mod expr_items;
 mod expr_join_split;
 mod expr_keyed;
 mod expr_last_spawned_entity;
+mod expr_length;
 mod expr_loop_value;
 mod expr_midpoint;
 mod expr_named;
@@ -113,6 +114,7 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     expr_join_split::register(&mut handlers);
     expr_keyed::register(&mut handlers);
     expr_last_spawned_entity::register(&mut handlers);
+    expr_length::register(&mut handlers);
     expr_loop_value::register(&mut handlers);
     expr_midpoint::register(&mut handlers);
     expr_named::register(&mut handlers);
@@ -179,6 +181,7 @@ pub(crate) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         .or_else(|| expr_join_split::resolve(payload))
         .or_else(|| expr_keyed::resolve(payload))
         .or_else(|| expr_last_spawned_entity::resolve(payload))
+        .or_else(|| expr_length::resolve(payload))
         .or_else(|| expr_loop_value::resolve(payload))
         .or_else(|| expr_midpoint::resolve(payload))
         .or_else(|| expr_named::resolve(payload))

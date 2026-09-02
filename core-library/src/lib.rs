@@ -753,7 +753,7 @@ mod tests {
         assert_eq!(manifest.state_namespaces.len(), 2);
         assert_eq!(manifest.state_namespaces[0].name, "commands");
         assert_eq!(manifest.state_namespaces[1].name, "aliases");
-        assert_eq!(manifest.registered_syntax_handlers.len(), 118);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 119);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",
@@ -765,6 +765,7 @@ mod tests {
             "core.expression.expr-event-expression",
             "core.expression.expr-filter",
             "core.expression.expr-input",
+            "core.expression.expr-length",
             "core.structure.struct-example",
         ] {
             assert!(

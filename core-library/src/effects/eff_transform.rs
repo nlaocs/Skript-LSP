@@ -54,7 +54,8 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
 
 pub(super) fn input_expression_binding(required: bool, mode: &str) -> CaptureParserBinding {
     CaptureParserBinding {
-        capture_index: 0,
+        // Capture 0 is the target `%~objects%`; the mapping `<.+>` is capture 1.
+        capture_index: 1,
         parser_id: "host.expression".to_owned(),
         required,
         options: vec![
@@ -64,6 +65,10 @@ pub(super) fn input_expression_binding(required: bool, mode: &str) -> CapturePar
             metadata(
                 "context.value.core.input-source.value-types",
                 "java.lang.Object",
+            ),
+            metadata(
+                "context.value-from-child.core.input-source.value-types",
+                "0.possible-return-types",
             ),
         ],
     }
@@ -143,7 +148,13 @@ pub(super) fn accept(payload: EffectPayload) -> HookOutput {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn transform_requires_a_mapping_expression() {
-        assert!(super::input_expression_binding(true, "all").required);
+    fn transform_routes_its_regex_mapping_as_an_expression() {
+        let binding = super::input_expression_binding(true, "all");
+        assert!(binding.required);
+        assert_eq!(binding.capture_index, 1);
+        assert!(binding.options.iter().any(|entry| {
+            entry.key == "context.value-from-child.core.input-source.value-types"
+                && entry.value == "0.possible-return-types"
+        }));
     }
 }
