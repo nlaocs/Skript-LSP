@@ -11,11 +11,52 @@ mod timespan;
 
 use crate::nlaocs::skript_parser_addon::types::{
     ExpressionLeafCandidate, ExpressionPayload, RegisteredSyntaxHandler,
+    RegisteredSyntaxHandlerTarget, SyntaxKind,
 };
-use crate::{catalog, catalog::TypeRelation};
+
+pub(super) struct TypeParser {
+    id: &'static str,
+    classes: &'static [&'static str],
+    parse: fn(&ExpressionPayload, &str, u64) -> Option<ExpressionLeafCandidate>,
+    all_type_options: bool,
+}
+
+const PARSERS: &[TypeParser] = &[
+    string_literal::PARSER,
+    number::PARSER,
+    boolean::PARSER,
+    item_type::PARSER,
+    entity_data::PARSER,
+    entity_type::PARSER,
+    enchantment_type::PARSER,
+    timespan::PARSER,
+    class_info::PARSER,
+];
 
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
-    vec![entity_type::handler()]
+    PARSERS
+        .iter()
+        .map(|parser| RegisteredSyntaxHandler {
+            handler_id: parser.id.to_owned(),
+            kind: SyntaxKind::Type,
+            targets: parser
+                .classes
+                .iter()
+                .map(|class| RegisteredSyntaxHandlerTarget::ClassSuffix((*class).to_owned()))
+                .collect(),
+            pattern_indices: Vec::new(),
+            pattern_sources: Vec::new(),
+            required_tags: Vec::new(),
+            forbidden_tags: Vec::new(),
+            marks: Vec::new(),
+            capture_parsers: Vec::new(),
+            context_requirements: if parser.all_type_options {
+                vec![parser_wasm::REGISTERED_CONTEXT_ALL_TYPE_OPTIONS.to_owned()]
+            } else {
+                Vec::new()
+            },
+        })
+        .collect()
 }
 
 pub(crate) fn match_type_option<'a>(
@@ -54,105 +95,46 @@ pub(crate) fn parse(
     text: &str,
     end: u64,
 ) -> Option<ExpressionLeafCandidate> {
-    if let Some(active_type) = &payload.active_type {
-        return crate::runtime::handler_matches(
-            entity_type::HANDLER_ID,
-            &active_type.registration_id,
-        )
-        .then(|| entity_type::parse(payload, text, end))
-        .flatten();
-    }
-    let candidates = [
-        ("string", string_literal::parse(payload, text, end)),
-        ("number", number::parse(payload, text, end)),
-        ("boolean", boolean::parse(payload, text, end)),
-        ("itemtype", item_type::parse(payload, text, end)),
-        ("entitydata", entity_data::parse(payload, text, end)),
-        (
-            "enchantmenttype",
-            enchantment_type::parse(payload, text, end),
+    payload.active_type.as_ref()?;
+    let mut candidate = if let Some(parser) = standard_parser(payload) {
+        (parser.parse)(payload, text, end)
+    } else {
+        registered_literal::parse(payload, end)
+    }?;
+    annotate(payload, &mut candidate);
+    Some(candidate)
+}
+
+fn standard_parser(payload: &ExpressionPayload) -> Option<&'static TypeParser> {
+    let active = payload.active_type.as_ref()?;
+    PARSERS.iter().find(|parser| {
+        if !parser.classes.contains(&active.class_name.as_str()) {
+            return false;
+        }
+        // Direct unit fixtures bypass component initialization, never production IDs.
+        #[cfg(test)]
+        if active.registration_id.starts_with("type:test:") {
+            return true;
+        }
+        crate::runtime::handler_matches(parser.id, &active.registration_id)
+    })
+}
+
+pub(crate) fn parses_string(payload: &ExpressionPayload) -> bool {
+    standard_parser(payload).is_some_and(|parser| parser.id == string_literal::PARSER.id)
+}
+
+pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLeafCandidate) {
+    let Some(active) = &payload.active_type else {
+        return;
+    };
+    // These identify the parser's Type, not a ClassInfo value's target Type.
+    candidate.metadata.extend([
+        crate::expression_candidates::metadata("type-parser-definition-id", &active.definition_id),
+        crate::expression_candidates::metadata(
+            "type-parser-registration-id",
+            &active.registration_id,
         ),
-        ("timespan", timespan::parse(payload, text, end)),
-        // ClassInfo parses a type name into a ClassInfo value. Its ordering is
-        // therefore the `classinfo` ClassInfo registration, not the order of
-        // the type named by the input.
-        ("classinfo", class_info::parse(payload, text, end)),
-        ("", registered_literal::parse(payload, end)),
-    ];
-    candidates
-        .into_iter()
-        .enumerate()
-        .filter_map(|(fallback_order, (code_name, candidate))| {
-            let candidate = candidate?;
-            let code_name = if code_name.is_empty() {
-                candidate
-                    .metadata
-                    .iter()
-                    .find(|entry| entry.key == "type-code-name")
-                    .map(|entry| entry.value.as_str())
-                    .unwrap_or("")
-            } else {
-                code_name
-            };
-            let compatibility = candidate_compatibility(payload, &candidate)?;
-            Some((
-                compatibility,
-                type_parse_order(payload, code_name, &candidate),
-                fallback_order,
-                candidate,
-            ))
-        })
-        .min_by_key(|(compatibility, type_parse_order, fallback_order, _)| {
-            (*compatibility, *type_parse_order, *fallback_order)
-        })
-        .map(|(_, _, _, candidate)| candidate)
-}
-
-fn candidate_compatibility(
-    payload: &ExpressionPayload,
-    candidate: &ExpressionLeafCandidate,
-) -> Option<u8> {
-    let return_type = candidate.return_type.as_deref()?;
-    if payload.expected_types.is_empty() {
-        return Some(0);
-    }
-    let mut unknown = false;
-    for expected in &payload.expected_types {
-        if return_type == expected.class_name {
-            return Some(0);
-        }
-        match catalog::is_class_assignable(return_type, &expected.class_name)
-            .unwrap_or(TypeRelation::Unknown)
-        {
-            TypeRelation::Compatible => return Some(0),
-            TypeRelation::Unknown => unknown = true,
-            TypeRelation::Incompatible => {}
-        }
-    }
-    unknown.then_some(1)
-}
-
-fn type_parse_order(
-    payload: &ExpressionPayload,
-    code_name: &str,
-    candidate: &ExpressionLeafCandidate,
-) -> u64 {
-    payload
-        .type_options
-        .iter()
-        .filter(|option| option.code_name == code_name)
-        .map(|option| option.type_parse_order)
-        .chain(
-            payload
-                .literal_options
-                .iter()
-                .filter(|option| {
-                    option.code_name == code_name
-                        && option.range.start >= candidate.range.start
-                        && option.range.end <= candidate.range.end
-                })
-                .map(|option| option.type_parse_order),
-        )
-        .min()
-        .unwrap_or(u64::MAX)
+        crate::expression_candidates::metadata("type-parser-code-name", &active.code_name),
+    ]);
 }

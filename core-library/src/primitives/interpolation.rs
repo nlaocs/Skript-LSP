@@ -105,6 +105,8 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
             container.return_type(payload),
             container.multiplicity(text),
         );
+        leaf.timing =
+            crate::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::BeforeRegistered;
         let expression_count = requests.len().to_string();
         leaf.metadata
             .push(metadata("embedded-expression-count", &expression_count));
@@ -140,7 +142,13 @@ struct Container<'a> {
 
 impl<'a> Container<'a> {
     fn from_text(payload: &ExpressionPayload, text: &'a str) -> Option<Self> {
-        if payload.allow_literals && is_quoted_correctly(text) {
+        if payload
+            .active_type
+            .as_ref()
+            .is_some_and(|active| active.class_name == "java.lang.String")
+            && payload.allow_literals
+            && is_quoted_correctly(text)
+        {
             return Some(Self {
                 kind: "string",
                 parser_id: "core.literal.variable-string",
@@ -149,7 +157,8 @@ impl<'a> Container<'a> {
                 body_offset: 1,
             });
         }
-        if payload.allow_expressions
+        if payload.active_type.is_none()
+            && payload.allow_expressions
             && text.len() >= 3
             && text.starts_with('{')
             && text.ends_with('}')

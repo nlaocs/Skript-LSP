@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.28.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.29.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -84,8 +84,10 @@ multiple targets for each registered semantic handler, including dynamic
   SSG-backed contracts changed it through 0.24.0; the host-owned hierarchy
   distance query changed it to 0.25.0; exact declared Java method probes changed
   experiment catalog access changed it to 0.27.0; public schema-versioned
-  Expression data and editable semantic envelopes changed it to 0.28.0. The
-  manifest's current `abi` value is 10.0 and is a
+  Expression data and editable semantic envelopes changed it to 0.28.0;
+  provider-controlled Expression leaf timing, complete active-Type metadata,
+  and parser-class targets changed it to 0.29.0. The manifest's current `abi`
+  value is 11.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
 
@@ -161,7 +163,9 @@ CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
 Components give each semantic handler a stable handler ID and declare one or
 more targets in `registered-syntax-handlers`. Each target is a `definition`,
-`registration`, `class-suffix`, or `dynamic-handler` target. Targets use OR
+`registration`, `parser-class`, `class-suffix`, `super-class`, or
+`dynamic-handler` target. `parser-class` is valid only for `kind: Type` and
+matches the exact parser class exported by SSG. Targets use OR
 semantics, so one handler can cover multiple static registrations and dynamic
 definitions. The host resolves static definition, registration, and class-suffix
 targets against the loaded catalog once and sends the resulting definition and
@@ -171,19 +175,28 @@ it is not a catalog lookup and can still provide capture parsers and named
 context requirements for that dynamic candidate. Runtime semantic selection
 never depends on the Java class suffix.
 
-Handlers may also declare `kind: Type`. In addition to explicit Type Definition
-and Registration subscriptions, these resolved bindings opt their types into
-type-specific `Expression`-phase dispatch. The host filters them by compatibility
-with the expected return type and orders these invocations by `typeParseOrder`.
-The payload's `active-type` identifies the exact SSG Type and its source record;
-an unbound category-level invocation has no active type. Components subscribe to
-the Type target and handle only the active registrations they own. Returning a
-Literal is still correct: the Type parser interprets the text, while the Literal
-represents its parsed value. Candidate validation and rollback remain unchanged.
+Handlers may also declare `kind: Type`. Resolved Definition, Registration,
+parser-class, class-suffix, and super-class bindings opt their Types into
+type-specific `Expression`-phase dispatch. Finite snapshot literals also opt in
+their owning Type without requiring a component handler. The host first filters
+by expected return-type compatibility, then preserves direct assignability ahead
+of converter-only candidates and orders each group by `typeParseOrder`.
+The payload's `active-type` identifies the exact SSG Type and includes its source
+record, addon, parser class, parse order, and `before`/`after` relations. Components
+subscribe to the Type target and handle only the active registrations they own.
+Returning a Literal is still correct: the Type parser interprets the text, while
+the Literal represents its parsed value. Each Type invocation receives an isolated
+candidate list; rejection or no candidate rolls its state and effects back without
+discarding candidates produced by another Type.
 Type handlers can request the existing `expression.type-options.all` context requirement
 when a composite Type needs metadata from other Types, such as an EntityData
 supplier. The host provides that wider view only for the matching invocation.
 This routing does not execute the Java parser or derive a grammar from `usage`.
+
+Each leaf candidate declares `before-registered` or `after-registered` timing.
+The native parser uses that field instead of recognizing CoreLibrary parser IDs.
+This lets a third-party parser reproduce an early parser such as VariableString,
+while ordinary Type literals remain behind registered Expressions.
 
 A handler can narrow a target with `pattern-indices`, exact `pattern-sources`,
 required or forbidden parse tags, and aggregate ParseMark values. Predicates

@@ -1,11 +1,12 @@
 use skript_parser::{
     ExpressionExpectedType, ExpressionFailureKind, ExpressionLeafCandidate, ExpressionLeafKind,
-    ExpressionLeafParse, ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext,
-    ExpressionParseEnvironment, ExpressionParseRequest, ExpressionParserConfig,
-    ExpressionPublicData, ExpressionRootMode, MappedSource, NoopExpressionEnvironment,
-    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
-    RegisteredExpressionDecision, RegisteredExpressionRequest, RegisteredSyntaxIdentity, TextRange,
-    TypeExpressionOutcome, TypeExpressionRequest, parse_expression, parse_expression_with_snapshot,
+    ExpressionLeafParse, ExpressionLeafRequest, ExpressionLeafTiming, ExpressionNodeKind,
+    ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseRequest,
+    ExpressionParserConfig, ExpressionPublicData, ExpressionRootMode, MappedSource,
+    NoopExpressionEnvironment, PatternHookControl, PatternHookEvent, PatternMatchEnvironment,
+    PatternMatchError, RegisteredExpressionDecision, RegisteredExpressionRequest,
+    RegisteredSyntaxIdentity, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
+    parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -917,6 +918,54 @@ fn parses_leaf_candidates_from_the_extension_environment() {
 }
 
 #[test]
+fn leaf_timing_controls_registered_expression_precedence_without_parser_id_conventions() {
+    let catalog = expression_fixture();
+    let text = "dummy direct registry expression";
+
+    for (parser_id, timing, registered_wins) in [
+        (
+            "addon.literal.early",
+            ExpressionLeafTiming::BeforeRegistered,
+            false,
+        ),
+        (
+            "core.literal.string",
+            ExpressionLeafTiming::AfterRegistered,
+            true,
+        ),
+    ] {
+        let source = MappedSource::identity(text);
+        let mut environment = TimedLeafEnvironment { parser_id, timing };
+        let result = parse_expression(
+            &catalog,
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![expected("java.lang.String")],
+                context: ExpressionParseContext::default(),
+            },
+            &mut environment,
+            ExpressionParserConfig::default(),
+        )
+        .expect("leaf timing parse must succeed");
+        let selected = result.selected.expect("candidate must be selected");
+
+        if registered_wins {
+            assert!(matches!(
+                selected.node.kind,
+                ExpressionNodeKind::Registered { .. }
+            ));
+        } else {
+            assert!(matches!(
+                selected.node.kind,
+                ExpressionNodeKind::Literal { ref parser_id }
+                    if parser_id == "addon.literal.early"
+            ));
+        }
+    }
+}
+
+#[test]
 fn top_level_plural_expectation_controls_multiple_leaf_acceptance() {
     let catalog = expression_fixture();
     let source = MappedSource::identity("values");
@@ -1279,6 +1328,7 @@ impl ExpressionParseEnvironment for PublicDataEnvironment {
         Ok(vec![ExpressionLeafCandidate {
             parser_id: "test.public-data.leaf".to_owned(),
             kind: ExpressionLeafKind::Literal,
+            timing: ExpressionLeafTiming::AfterRegistered,
             range,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Single),
@@ -1349,6 +1399,7 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
         Ok(vec![ExpressionLeafCandidate {
             parser_id: "test.multiple".to_owned(),
             kind: ExpressionLeafKind::Custom,
+            timing: ExpressionLeafTiming::BeforeRegistered,
             range: request.remaining,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Multiple),
@@ -1370,6 +1421,59 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
 }
 
 struct LiteralEnvironment;
+
+struct TimedLeafEnvironment {
+    parser_id: &'static str,
+    timing: ExpressionLeafTiming,
+}
+
+impl PatternMatchEnvironment for TimedLeafEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for TimedLeafEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let candidate = request.candidate_ends.iter().rev().find_map(|end| {
+            let range = TextRange::new(request.remaining.start, *end);
+            let text = range.slice(request.input)?;
+            (text == "dummy direct registry expression").then_some(range)
+        });
+        Ok(candidate
+            .map(|range| ExpressionLeafCandidate {
+                parser_id: self.parser_id.to_owned(),
+                kind: ExpressionLeafKind::Literal,
+                timing: self.timing,
+                range,
+                return_type: Some(ClassName("java.lang.String".to_owned())),
+                multiplicity: Some(Multiplicity::Single),
+                children: Vec::new(),
+                public_data: Vec::new(),
+                metadata: BTreeMap::new(),
+            })
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
 
 impl PatternMatchEnvironment for LiteralEnvironment {
     fn resolve_type(
@@ -1401,6 +1505,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
             .map(|range| ExpressionLeafCandidate {
                 parser_id: "test.string".to_owned(),
                 kind: ExpressionLeafKind::Literal,
+                timing: ExpressionLeafTiming::AfterRegistered,
                 range,
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),

@@ -1,10 +1,10 @@
 use skript_parser::{
     ExpressionExpectedType, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse,
-    ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment,
-    ExpressionParseRequest, ExpressionParserConfig, FunctionDefinition, FunctionLookupRequest,
-    FunctionParameterDefinition, FunctionVersionPolicy, MappedSource, PatternHookControl,
-    PatternHookEvent, PatternMatchEnvironment, TextRange, TypeExpressionOutcome,
-    TypeExpressionRequest, parse_expression,
+    ExpressionLeafRequest, ExpressionLeafTiming, ExpressionNodeKind, ExpressionParseContext,
+    ExpressionParseEnvironment, ExpressionParseRequest, ExpressionParserConfig, FunctionDefinition,
+    FunctionLookupRequest, FunctionParameterDefinition, FunctionVersionPolicy, MappedSource,
+    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, TextRange,
+    TypeExpressionOutcome, TypeExpressionRequest, parse_expression,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,7 @@ impl ExpressionParseEnvironment for DocumentFunctionEnvironment {
             text.parse::<i64>().ok().map(|_| ExpressionLeafCandidate {
                 parser_id: "test.number".to_owned(),
                 kind: ExpressionLeafKind::Literal,
+                timing: ExpressionLeafTiming::AfterRegistered,
                 range,
                 return_type: Some(ClassName("java.lang.Long".to_owned())),
                 multiplicity: Some(Multiplicity::Single),

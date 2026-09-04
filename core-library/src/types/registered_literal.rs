@@ -8,9 +8,15 @@ pub(super) fn parse(payload: &ExpressionPayload, end: u64) -> Option<ExpressionL
     if !payload.allow_literals {
         return None;
     }
+    let active = payload.active_type.as_ref()?;
     let option = payload
         .literal_options
         .iter()
+        .filter(|option| {
+            option.code_name == active.code_name
+                && option.class_name == active.class_name
+                && option.type_parse_order == active.type_parse_order
+        })
         .filter(|option| option.range.start == payload.remaining.start && option.range.end == end)
         .min_by_key(|option| option.type_parse_order)?;
     Some(candidate_from_option(

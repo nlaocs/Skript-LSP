@@ -5,6 +5,13 @@ use crate::nlaocs::skript_parser_addon::types::{
 
 const ENCHANTMENT_TYPE: &str = "ch.njol.skript.util.EnchantmentType";
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.enchantment-type",
+    classes: &["ch.njol.skript.util.EnchantmentType"],
+    parse,
+    all_type_options: false,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,

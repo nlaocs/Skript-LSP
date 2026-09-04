@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.28.0;
+package nlaocs:skript-parser-addon@0.29.0;
 
 interface hooks {
     use types.{

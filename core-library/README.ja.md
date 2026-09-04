@@ -11,7 +11,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.28.0`とABI `10.0`
+- WIT package `nlaocs:skript-parser-addon@0.29.0`とABI `11.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -39,15 +39,19 @@ expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
 責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
-Type hookは`kind: Type`で宣言された登録も処理します。最初の標準parserである
-`types/entity_type.rs`はhandler登録と数量付き`EntityType`の解析を所有します。
+Type hookは、標準Type parserをすべて`kind: Type`の登録として処理し、third-party addonと
+同じregistration単位のdispatchを使います。現在のmoduleはstring、number、boolean、ItemType、
+EntityData、EntityType、EnchantmentType、Timespan、ClassInfo、Snapshot由来の有限literalを扱います。
+各handlerは登録を所有し、active Typeのsource record、addon identity、parser class、parse order、
+`before`/`after`関係を受け取ります。`types/entity_type.rs`は数量付き`EntityType`の解析を所有します。
 `3 creepers`は`ch.njol.skript.entity.EntityType`を返す1個のLiteralで、多重度は`Single`です。
 metadataには実効数量`entity-type-amount`、元の数量`entity-type-raw-amount`（省略時は`-1`）、
 Typeのdefinition/registration ID、および内包するEntityDataのsupplier metadataを保持した
 `entity-data` JSONを記録します。種類名と複数形はSnapshotから解決し、古いSnapshotでは既存の
 version-gatedな互換経路を使用します。hostはmetadataキーに`nlaocs.core-library/`を付けますが、
-内部の`entity-data` JSONのキー名は変更しません。
-省略引数の補完や全標準Type parserの対応完了を意味しません。
+内部の`entity-data` JSONのキー名は変更しません。Type由来literalは既定で登録Expressionの後に
+評価されます。quoted/interpolated stringだけは、SkriptのVariableString parserと同じ早い段階を
+明示的に要求します。省略引数の補完やlive Minecraft registryへ依存するparserまで実装したことは意味しません。
 
 `%expression%`を含むquoted stringとvariableは、汎用`host.expression` parse requestを返します。
 hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibraryを再度呼び出します。CoreLibraryは
@@ -79,7 +83,7 @@ list shapeを変更する場合は標準のmultiplicity fieldも更新してく�
 これはparse時のsemantic dataであり、runtime variable valueでもshared `StateStore`の
 entryでもありません。variable type trackingとserver側のvariable value mutationは実装
 されていません。変更はsource/spanや他nodeを遡及して書き換えず、whole ASTの編集にも
-なりません。Type consolidationは後続課題であり、issue #102は完了していません。
+なりません。variableは登録Type parserを装うのではなく、意図的にParseStage Expression providerとして残します。
 
 EffectとSection hookは、`EffChange`、`EffDoIf`、`EffSort`、`EffTransform`、`EffSecShoot`、`EffSecSpawn`、
 `SecConditional`、`SecFilter`、`SecLoop`、`SecWhile`、`SecCatchErrors`などのclass固有の意味処理を提供し、

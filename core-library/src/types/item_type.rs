@@ -20,6 +20,13 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.item-type",
+    classes: &["ch.njol.skript.aliases.ItemType"],
+    parse,
+    all_type_options: false,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,

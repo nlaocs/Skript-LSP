@@ -3622,8 +3622,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             request.candidate_ends,
             request.expected_types,
         );
-        let specifically_hooked_types =
-            specifically_hooked_expression_types(self.hooks.host, request.expected_types);
+        let parser_types = if request.allow_literals {
+            expression_parser_types(self.hooks.host, request.expected_types, &literal_options)
+        } else {
+            Vec::new()
+        };
         let mut payload = WitExpressionPayload {
             input: request.input.to_owned(),
             context: parse_context_to_wit(request.context),
@@ -3685,50 +3688,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         }
         payload = output;
 
-        let expected_payload = payload.clone();
-        let mut result = self
-            .hooks
-            .host
-            .dispatch_in_parse(
-                self.hooks.transaction,
-                DispatchRequest {
-                    context: self.hooks.context.clone(),
-                    target: DispatchTarget::SyntaxKind(SyntaxKind::Type),
-                    phase: HookPhase::Expression,
-                    payload: HookPayload::Expression(payload),
-                },
-            )
-            .map_err(|error| error.to_string())?;
-        available_parse_results.append(&mut result.available_parse_results);
-        let rejection_diagnostics =
-            semantic_rejection_diagnostics(&result.decision, &result.effects)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
-        self.hooks.failures.extend(result.failures);
-        if let HookDecision::Reject(rejection) = result.decision {
-            self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
-            return Ok(ExpressionLeafParse {
-                candidates: Vec::new(),
-                failure: Some(
-                    FailureTrace::leaf(PatternFailure {
-                        span: request.span.clone(),
-                        reasons: vec![PatternFailureReason::HookRejected {
-                            reason: rejection.reason,
-                        }],
-                    })
-                    .with_semantic_diagnostics(rejection_diagnostics),
-                ),
-            });
-        }
-        let HookPayload::Expression(output) = result.payload else {
-            return Err("Type hook returned a different payload kind".to_owned());
-        };
-        if !same_expression_request(&output, &expected_payload) {
-            return Err("Type hook changed immutable Expression request fields".to_owned());
-        }
-        payload = output;
-
-        for active_type in &specifically_hooked_types {
+        // Each Type has its own candidate set. A provider cannot accidentally
+        // edit or reject a successful candidate belonging to another Type.
+        let mut candidates = std::mem::take(&mut payload.candidates);
+        for active_type in &parser_types {
             payload.active_type = Some(active_type.clone());
             payload.type_options = if registered_handler_requires_context(
                 &self.hooks.host.components,
@@ -3807,7 +3770,6 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 payload.active_type = None;
                 continue;
             }
-            available_parse_results.append(&mut result.available_parse_results);
             let HookPayload::Expression(output) = result.payload else {
                 return Err("Type hook returned a different payload kind".to_owned());
             };
@@ -3815,11 +3777,24 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 return Err("Type hook changed immutable Expression request fields".to_owned());
             }
             payload = output;
+            if payload.candidates.is_empty() {
+                self.hooks
+                    .transaction
+                    .rollback_to(&type_savepoint)
+                    .map_err(|error| error.to_string())?;
+                type_effects_checkpoint.restore(
+                    &mut self.hooks.effects,
+                    &mut self.hooks.calls,
+                    &mut self.hooks.failures,
+                );
+            } else {
+                candidates.append(&mut payload.candidates);
+                available_parse_results.append(&mut result.available_parse_results);
+            }
             payload.active_type = None;
         }
 
-        let candidates = payload
-            .candidates
+        let candidates = candidates
             .into_iter()
             .map(|candidate| wit_expression_candidate(candidate, &available_parse_results))
             .collect::<Result<Vec<_>, _>>()?;
@@ -6144,6 +6119,12 @@ fn wit_expression_candidate(
             WitExpressionLeafKind::Function => ExpressionLeafKind::Function,
             WitExpressionLeafKind::Custom => ExpressionLeafKind::Custom,
         },
+        timing: match candidate.timing {
+            crate::bindings::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::BeforeRegistered =>
+                skript_parser::ExpressionLeafTiming::BeforeRegistered,
+            crate::bindings::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::AfterRegistered =>
+                skript_parser::ExpressionLeafTiming::AfterRegistered,
+        },
         range: ParserTextRange::new(start, end),
         return_type: candidate.return_type.map(ClassName),
         multiplicity: candidate.multiplicity.map(|value| match value {
@@ -6248,9 +6229,25 @@ fn expression_type_option(
         }),
         definition_id: value.definition_id.as_str().to_owned(),
         registration_id: value.registration_id.as_str().to_owned(),
+        addon_name: value.addon.name.clone(),
+        addon_version: value.addon.version.clone(),
         code_name: value.code_name.as_str().to_owned(),
         class_name: value.original_class.as_str().to_owned(),
+        parser_class: value
+            .parser_class
+            .as_ref()
+            .map(|class| class.as_str().to_owned()),
         type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
+        before: value
+            .before
+            .iter()
+            .map(|code_name| code_name.as_str().to_owned())
+            .collect(),
+        after: value
+            .after
+            .iter()
+            .map(|code_name| code_name.as_str().to_owned())
+            .collect(),
         singular: value.noun.singular.clone(),
         plural: value.noun.plural.clone(),
         user_input_patterns: value.user_input_patterns.clone(),
@@ -6260,15 +6257,16 @@ fn expression_type_option(
     }
 }
 
-fn specifically_hooked_expression_types(
+fn expression_parser_types(
     host: &ParserHost,
     expected_types: &[skript_parser::ExpressionExpectedType],
+    literal_options: &[WitExpressionLiteralOption],
 ) -> Vec<WitExpressionTypeOption> {
     let Some(catalog) = host.config.syntax_catalog.as_deref() else {
         return Vec::new();
     };
-    // Registered Type handlers use the same resolved SSG identities as syntax
-    // handlers. Only their types need an additional, type-specific invocation.
+    // Standard and third-party parsers use the same per-registration route.
+    // Broad Type subscriptions also see finite values from any Addon snapshot.
     let type_handlers = host
         .components
         .iter()
@@ -6284,6 +6282,7 @@ fn specifically_hooked_expression_types(
         .collect::<Vec<_>>();
     let mut options = catalog
         .types()
+        .filter(|value| value.has_parser)
         .filter(|value| {
             expected_types.is_empty()
                 || expected_types.iter().any(|expected| {
@@ -6299,7 +6298,11 @@ fn specifically_hooked_expression_types(
                     registration_id: value.registration_id.as_str().to_owned(),
                 },
                 HookPhase::Expression,
-            ) || type_handlers.iter().any(|(component, handler)| {
+            ) || literal_options.iter().any(|literal| {
+                literal.code_name == value.code_name.as_str()
+                    && literal.class_name == value.original_class.as_str()
+                    && literal.type_parse_order == value.type_parse_order as u64
+            }) || type_handlers.iter().any(|(component, handler)| {
                 registered_handler_matches(
                     component,
                     handler,
@@ -6318,7 +6321,16 @@ fn specifically_hooked_expression_types(
         })
         .map(|value| expression_type_option(Some(catalog), value))
         .collect::<Vec<_>>();
-    options.sort_by_key(|option| option.type_parse_order);
+    // Classes.parse tries parseSimple before conversion. Never allow a Type
+    // needing conversion to displace an otherwise directly assignable parser.
+    // https://github.com/SkriptLang/Skript/blob/2.16.0/src/main/java/ch/njol/skript/registrations/Classes.java
+    options.sort_by_key(|option| {
+        let needs_conversion = !expected_types.is_empty()
+            && !expected_types.iter().any(|expected| {
+                catalog.is_class_assignable(&option.class_name, expected.class_name.as_str())
+            });
+        (needs_conversion, option.type_parse_order)
+    });
     options
 }
 
@@ -7353,6 +7365,7 @@ fn registered_handler_matches(
                 .any(|id| id == syntax.definition_id)
         }),
         RegisteredSyntaxHandlerTarget::Registration(_)
+        | RegisteredSyntaxHandlerTarget::ParserClass(_)
         | RegisteredSyntaxHandlerTarget::ClassSuffix(_)
         | RegisteredSyntaxHandlerTarget::SuperClass(_) => binding.is_some_and(|binding| {
             binding
@@ -10536,6 +10549,19 @@ fn resolve_registered_handler_target(
                     );
                 }
             }
+            RegisteredSyntaxHandlerTarget::ParserClass(parser_class) => {
+                if let Some(catalog) = catalog {
+                    for syntax in catalog.syntaxes().iter().filter(|syntax| {
+                        (!skript_owned_only || syntax_is_owned_by_skript(syntax))
+                            && syntax.kind() == catalog_syntax_kind(handler.kind)
+                            && syntax_parser_class(syntax)
+                                .is_some_and(|class| class.as_str() == parser_class)
+                    }) {
+                        definition_ids.insert(syntax.definition_id().as_str().to_owned());
+                        registration_ids.insert(syntax.registration_id().as_str().to_owned());
+                    }
+                }
+            }
             RegisteredSyntaxHandlerTarget::ClassSuffix(suffix) => {
                 if let Some(catalog) = catalog {
                     for syntax in catalog.syntaxes().iter().filter(|syntax| {
@@ -10892,6 +10918,19 @@ fn validate_manifest(
                 RegisteredSyntaxHandlerTarget::Registration(value) => {
                     ("registration", value.as_str())
                 }
+                RegisteredSyntaxHandlerTarget::ParserClass(_)
+                    if handler.kind != SyntaxKind::Type =>
+                {
+                    return Err(HostError::InvalidManifest {
+                        message: format!(
+                            "{} handler {} uses a parser-class target for a non-Type syntax",
+                            manifest.component_id, handler.handler_id
+                        ),
+                    });
+                }
+                RegisteredSyntaxHandlerTarget::ParserClass(value) => {
+                    ("parser class", value.as_str())
+                }
                 RegisteredSyntaxHandlerTarget::ClassSuffix(value) => {
                     ("class suffix", value.as_str())
                 }
@@ -11235,6 +11274,7 @@ fn validate_manifest_catalog_bindings(
                 }
                 RegisteredSyntaxHandlerTarget::Definition(_)
                 | RegisteredSyntaxHandlerTarget::DynamicHandler(_)
+                | RegisteredSyntaxHandlerTarget::ParserClass(_)
                 | RegisteredSyntaxHandlerTarget::Registration(_)
                 | RegisteredSyntaxHandlerTarget::SuperClass(_) => {}
             }
@@ -11253,6 +11293,13 @@ fn syntax_element_class(syntax: &syntaxes::Syntax) -> Option<&ClassName> {
         syntaxes::Syntax::Function(_) => None,
         syntaxes::Syntax::Section(value) => Some(&value.common.element_class),
         syntaxes::Syntax::Structure(value) => Some(&value.common.element_class),
+    }
+}
+
+fn syntax_parser_class(syntax: &syntaxes::Syntax) -> Option<&ClassName> {
+    match syntax {
+        syntaxes::Syntax::Type(value) => value.parser_class.as_ref(),
+        _ => None,
     }
 }
 
@@ -15408,6 +15455,69 @@ mod tests {
                 .1
                 .is_empty(),
             "CoreLibrary suffix bindings must not claim addon-owned registrations"
+        );
+    }
+
+    #[test]
+    fn parser_class_handlers_resolve_type_registrations() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler;
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let snapshot = ssg::load(path).expect("multi-addon fixture must load");
+        let catalog = snapshot.catalog();
+        let type_info = catalog
+            .types()
+            .find(|value| value.parser_class.is_some())
+            .expect("fixture must contain a Type parser class");
+        let parser_class = type_info.parser_class.as_ref().unwrap().as_str().to_owned();
+        let handler = RegisteredSyntaxHandler {
+            handler_id: "fixture.parser-class".to_owned(),
+            kind: SyntaxKind::Type,
+            targets: vec![RegisteredSyntaxHandlerTarget::ParserClass(
+                parser_class.clone(),
+            )],
+            pattern_indices: Vec::new(),
+            pattern_sources: Vec::new(),
+            required_tags: Vec::new(),
+            forbidden_tags: Vec::new(),
+            marks: Vec::new(),
+            capture_parsers: Vec::new(),
+            context_requirements: Vec::new(),
+        };
+
+        let (definition_ids, registration_ids) =
+            resolve_registered_handler_target(&handler, Some(catalog), false);
+        assert!(
+            definition_ids
+                .iter()
+                .any(|id| id == type_info.definition_id.as_str())
+        );
+        assert!(
+            registration_ids
+                .iter()
+                .any(|id| id == type_info.registration_id.as_str())
+        );
+
+        let option = expression_type_option(Some(catalog), type_info);
+        assert_eq!(option.addon_name, type_info.addon.name);
+        assert_eq!(option.addon_version, type_info.addon.version);
+        assert_eq!(option.parser_class.as_deref(), Some(parser_class.as_str()));
+        assert_eq!(
+            option.before,
+            type_info
+                .before
+                .iter()
+                .map(|value| value.as_str().to_owned())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            option.after,
+            type_info
+                .after
+                .iter()
+                .map(|value| value.as_str().to_owned())
+                .collect::<Vec<_>>()
         );
     }
 

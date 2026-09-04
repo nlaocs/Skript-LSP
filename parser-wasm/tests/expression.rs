@@ -25,7 +25,9 @@ fn expression_catalog() -> Arc<Catalog> {
         .syntaxes()
         .iter()
         .filter(|syntax| match syntax {
-            Syntax::Type(value) => matches!(value.code_name.as_str(), "string" | "object"),
+            Syntax::Type(value) => {
+                matches!(value.code_name.as_str(), "string" | "number" | "object")
+            }
             Syntax::Expression(value) => value.common.patterns.iter().any(|pattern| {
                 matches!(
                     pattern.source.as_str(),
@@ -591,8 +593,8 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
             .expect("CoreLibrary leaf must parse");
         let selected = result.matches.selected.unwrap_or_else(|| {
             panic!(
-                "{text:?} must select a leaf; failures: {:#?}",
-                result.matches.failure
+                "{text:?} must select a leaf; failures: {:#?}; calls: {:#?}; component failures: {:#?}",
+                result.matches.failure, result.calls, result.failures
             )
         });
         assert!(matches!(
@@ -722,16 +724,21 @@ fn variable_strings_and_variable_names_parse_embedded_expressions() {
             )
         );
         assert_eq!(result.effects.parse_results.len(), 1);
+        let (subscription_id, minimum_calls) = if parser_id == "core.literal.variable-string" {
+            ("core.type-candidates", 1)
+        } else {
+            ("core.expression-candidates", 2)
+        };
         assert!(
             result
                 .calls
                 .iter()
                 .filter(|call| {
                     call.component_id == "nlaocs.core-library"
-                        && call.subscription_id == "core.expression-candidates"
+                        && call.subscription_id == subscription_id
                 })
                 .count()
-                >= 2
+                >= minimum_calls
         );
         transaction.cancel().unwrap();
     }

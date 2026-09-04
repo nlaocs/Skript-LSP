@@ -14,6 +14,13 @@ thread_local! {
     static PATTERNS: RefCell<HashMap<String, Option<Regex>>> = RefCell::new(HashMap::new());
 }
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.boolean",
+    classes: &["java.lang.Boolean"],
+    parse,
+    all_type_options: false,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,

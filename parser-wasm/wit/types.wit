@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.28.0;
+package nlaocs:skript-parser-addon@0.29.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -240,6 +240,8 @@ interface types {
     variant registered-syntax-handler-target {
         definition(string),
         registration(string),
+        /// Matches every Type registration using this exact parser class.
+        parser-class(string),
         class-suffix(string),
         /// Matches every static registration with this direct Java superclass.
         super-class(string),
@@ -459,6 +461,11 @@ interface types {
         custom,
     }
 
+    enum expression-leaf-timing {
+        before-registered,
+        after-registered,
+    }
+
     record parse-result-reference {
         host-token: u64,
         root-id: u64,
@@ -478,6 +485,7 @@ interface types {
     record expression-leaf-candidate {
         parser-id: string,
         kind: expression-leaf-kind,
+        timing: expression-leaf-timing,
         range: text-range,
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
@@ -490,9 +498,14 @@ interface types {
         source-record: option<catalog-record-ref>,
         definition-id: string,
         registration-id: string,
+        addon-name: string,
+        addon-version: string,
         code-name: string,
         class-name: string,
+        parser-class: option<string>,
         type-parse-order: u64,
+        before: list<string>,
+        after: list<string>,
         singular: string,
         plural: string,
         user-input-patterns: list<string>,

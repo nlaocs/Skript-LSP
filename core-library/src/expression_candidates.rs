@@ -1,6 +1,6 @@
 use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
-    MetadataEntry, TextRange,
+    DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafTiming,
+    ExpressionPayload, MetadataEntry, TextRange,
 };
 
 pub(crate) fn parse(payload: &ExpressionPayload) -> Option<ExpressionLeafCandidate> {
@@ -47,6 +47,11 @@ pub(crate) fn candidate(
     ExpressionLeafCandidate {
         parser_id: parser_id.to_owned(),
         kind,
+        timing: if kind == ExpressionLeafKind::Literal {
+            ExpressionLeafTiming::AfterRegistered
+        } else {
+            ExpressionLeafTiming::BeforeRegistered
+        },
         range: TextRange { start, end },
         return_type: Some(return_type.to_owned()),
         multiplicity: Some(multiplicity),

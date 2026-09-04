@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.28.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.29.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -71,8 +71,9 @@ host側の型関係queryの追加で0.19.0、Skript互換のJava共通型query�
 登録semantic handlerの複数targetとdynamic handler照合の追加で0.22.0へ変わりました。
 汎用semantic payloadとSSG由来contractの拡張で0.24.0まで進み、host側の継承距離query追加で0.25.0、
 正規化済みexperiment catalogへの直接アクセス追加で0.27.0へ、schema version付きpublic
-Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ変わりました。
-manifestの現在の`abi`値は10.0で、
+Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、providerが指定するExpression leaf timing、
+完全なactive Type metadata、parser-class targetの追加で0.29.0へ変わりました。
+manifestの現在の`abi`値は11.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -129,23 +130,30 @@ Expressionと型付きの子Expressionが一致した後、hostはparse tag、�
 適用可能なproperty情報と対応component axisを含む2段目のpayloadを送ります。
 CoreLibraryまたはaddonは実効Java返値型と
 Multiplicityを確定するか、候補をrejectできます。componentはsemantic handlerごとに安定したhandler IDを付け、
-`registered-syntax-handlers`へ1つ以上のtargetを宣言します。targetは`definition`、`registration`、`class-suffix`、
-`dynamic-handler`のいずれかで、複数targetはORとして扱われます。そのため1つのhandlerで複数のstatic登録とdynamic
+`registered-syntax-handlers`へ1つ以上のtargetを宣言します。targetは`definition`、`registration`、`parser-class`、
+`class-suffix`、`super-class`、`dynamic-handler`のいずれかです。`parser-class`は`kind: Type`だけで使用でき、
+SSGが出力した完全一致のparser classへ照合します。複数targetはORとして扱われるため、1つのhandlerで複数のstatic登録とdynamic
 definitionを処理できます。hostはstatic targetを読み込み時に一度だけcatalogへ照合し、解決したdefinitionIdと
 registrationIdを`HostProfile`でcomponentへ渡します。`dynamic-handler`はparse時にdynamic syntax definitionが宣言した
 opaqueなhandler IDへ照合され、catalog lookupは行いません。このtargetでもcapture parserと名前付きcontext requirementを
 提供できます。実行時のsemantic選択はJava class suffixへ依存しません。
 
-handlerには`kind: Type`も指定できます。明示的なType Definition/Registration subscriptionに加え、
-この解決済みbindingも型単位の`Expression` phase呼び出しの対象になります。hostは要求返値型との
-互換性で候補を絞り、この型単位の呼び出しを`typeParseOrder`順に並べます。payloadの`active-type`は
-対象SSG Typeとsource recordを示し、型未指定のcategory-level呼び出しでは空です。componentはType targetへ
-subscribeし、自身が担当するactive registrationだけを処理します。Type parserが文字列を解釈し、
-その値をLiteralとして返す構造です。候補の検証とrollbackは既存の規則を維持します。
+handlerには`kind: Type`も指定できます。解決済みのDefinition、Registration、parser-class、class-suffix、
+super-class bindingは、型単位の`Expression` phase呼び出しの対象になります。Snapshotの有限literalも、component
+handlerを要求せず所有Typeを候補へ加えます。hostは要求返値型との互換性で候補を絞り、直接assign可能なTypeを
+converter経由のTypeより先に置いた上で、各groupを`typeParseOrder`順に並べます。payloadの`active-type`は
+対象SSG Typeのsource record、addon、parser class、parse order、`before`/`after`関係を示します。componentはType
+targetへsubscribeし、自身が担当するactive registrationだけを処理します。Type parserが文字列を解釈し、その値を
+Literalとして返す構造です。Typeごとに候補listは分離され、rejectまたは候補なしの呼び出しだけstateとeffectsを
+rollbackするため、別Typeが生成済みの候補は失われません。
 複合Typeが内部で使用するEntityDataのsupplier情報などを必要とする場合は、既存の
 `expression.type-options.all` context requirementを指定できます。hostは該当する呼び出しにだけ
 全Type optionを渡します。
 Javaのparser自体を実行したり、`usage`から文法を推測したりする機能ではありません。
+
+各leaf候補は`before-registered`または`after-registered`のtimingを宣言します。native parserはCoreLibrary固有の
+parser IDを識別せず、このfieldだけで登録Expressionとの前後関係を決めます。third-party parserもVariableStringの
+ような早期parserを再現でき、通常のType literalは登録Expressionの後に維持できます。
 
 handlerは名前付きhost contextも要求できます。また、`pattern-indices`、完全一致する`pattern-sources`、
 必須・禁止parse tag、集約ParseMarkでtargetを

@@ -16,6 +16,13 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.class-info",
+    classes: &["ch.njol.skript.classes.ClassInfo"],
+    parse,
+    all_type_options: true,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,
@@ -166,9 +173,14 @@ mod tests {
             source_record: None,
             definition_id: "type:fixture".to_owned(),
             registration_id: "type:fixture:0".to_owned(),
+            addon_name: "fixture".to_owned(),
+            addon_version: "1.0.0".to_owned(),
             code_name: "fixture".to_owned(),
             class_name: "fixture.Type".to_owned(),
+            parser_class: None,
             type_parse_order: 0,
+            before: Vec::new(),
+            after: Vec::new(),
             singular: singular.to_owned(),
             plural: plural.to_owned(),
             user_input_patterns: patterns

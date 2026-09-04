@@ -7,6 +7,13 @@ use crate::nlaocs::skript_parser_addon::types::{
 
 const ENTITY_DATA: &str = "ch.njol.skript.entity.EntityData";
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.entity-data",
+    classes: &["ch.njol.skript.entity.EntityData"],
+    parse,
+    all_type_options: true,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,

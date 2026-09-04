@@ -6,30 +6,16 @@
 use crate::expression_candidates::{candidate, metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
-    RegisteredSyntaxHandler, RegisteredSyntaxHandlerTarget, SyntaxKind,
 };
-use parser_wasm::REGISTERED_CONTEXT_ALL_TYPE_OPTIONS;
 
-pub(super) const HANDLER_ID: &str = "core.type.entity-type";
 const ENTITY_TYPE: &str = "ch.njol.skript.entity.EntityType";
 
-pub(super) fn handler() -> RegisteredSyntaxHandler {
-    RegisteredSyntaxHandler {
-        handler_id: HANDLER_ID.to_owned(),
-        kind: SyntaxKind::Type,
-        // Resolved once to Skript-owned SSG registration IDs by the host.
-        targets: vec![RegisteredSyntaxHandlerTarget::ClassSuffix(
-            ENTITY_TYPE.to_owned(),
-        )],
-        pattern_indices: Vec::new(),
-        pattern_sources: Vec::new(),
-        required_tags: Vec::new(),
-        forbidden_tags: Vec::new(),
-        marks: Vec::new(),
-        capture_parsers: Vec::new(),
-        context_requirements: vec![REGISTERED_CONTEXT_ALL_TYPE_OPTIONS.to_owned()],
-    }
-}
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.entity-type",
+    classes: &[ENTITY_TYPE],
+    parse,
+    all_type_options: true,
+};
 
 pub(super) fn parse(
     payload: &ExpressionPayload,

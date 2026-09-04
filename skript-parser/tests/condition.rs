@@ -1,8 +1,8 @@
 use skript_parser::{
     ConditionNodeKind, ConditionParseRequest, ConditionParserConfig, ExpressionLeafCandidate,
-    ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest, ExpressionParseContext,
-    ExpressionParseEnvironment, FailureTrace, MappedSource, PatternFailureReason,
-    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, TextRange,
+    ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest, ExpressionLeafTiming,
+    ExpressionParseContext, ExpressionParseEnvironment, FailureTrace, MappedSource,
+    PatternFailureReason, PatternHookControl, PatternHookEvent, PatternMatchEnvironment, TextRange,
     TypeExpressionOutcome, TypeExpressionRequest, parse_condition,
 };
 use std::collections::BTreeMap;
@@ -203,6 +203,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
             .map(|range| ExpressionLeafCandidate {
                 parser_id: "test.string".to_owned(),
                 kind: ExpressionLeafKind::Literal,
+                timing: ExpressionLeafTiming::AfterRegistered,
                 range,
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),

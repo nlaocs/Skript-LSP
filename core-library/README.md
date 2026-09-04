@@ -11,7 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.28.0) and ABI `10.0`
+- WIT package `nlaocs:skript-parser-addon@0.29.0` and ABI `11.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -49,9 +49,14 @@ the recursive native parser. Registered Expression matching, recursion, and
 ranking remain Rust host responsibilities; CoreLibrary owns only the built-in
 semantics that cannot be recovered from SSG registration data alone.
 
-The Type hook also handles registrations declared with `kind: Type`. The first
-such built-in parser is `types/entity_type.rs`, which owns its handler registration
-and implements Skript's amount-bearing `EntityType` literal. `3 creepers` is one
+The Type hook handles every built-in Type parser through registrations declared
+with `kind: Type`, using the same per-registration dispatch available to third-party
+addons. The current modules cover string, number, boolean, ItemType, EntityData,
+EntityType, EnchantmentType, Timespan, ClassInfo, and snapshot-backed finite
+literals. Each handler owns its registration and receives the active Type's source
+record, addon identity, parser class, parse order, and `before`/`after` relations.
+`types/entity_type.rs` implements Skript's amount-bearing `EntityType` literal.
+`3 creepers` is one
 Literal with return class `ch.njol.skript.entity.EntityType` and `Single`
 multiplicity, not three Expression nodes. Its metadata records the effective
 `entity-type-amount`, the original `entity-type-raw-amount` (`-1` when omitted),
@@ -59,8 +64,11 @@ the Type definition/registration IDs, and an `entity-data` JSON object retaining
 the nested EntityData supplier metadata. Entity names and plural forms come from
 the snapshot; old snapshots retain the existing version-gated compatibility path.
 The host namespaces these metadata keys with `nlaocs.core-library/`; keys inside
-the nested `entity-data` JSON retain their original names.
-This does not implement default argument resolution or every standard Type parser.
+the nested `entity-data` JSON retain their original names. Type-produced literals
+are considered after registered Expressions by default. Quoted and interpolated
+strings explicitly request the earlier phase used by Skript's VariableString parser.
+This does not implement default argument resolution or environment-backed parsers
+such as live Minecraft registries.
 
 Quoted strings and variables containing `%expression%` issue generic
 `host.expression` parse requests. The host parses those ranges transactionally
@@ -91,8 +99,8 @@ and multiplicity consistent; changing a list shape requires updating the
 standard multiplicity field. This is parse-time semantic data, not a runtime
 variable value or a shared `StateStore` entry. Variable type tracking and
 server-side variable value mutation are not implemented, and public-data
-changes do not retroactively edit a whole AST.
-Type consolidation remains a follow-up; issue #102 is not complete.
+changes do not retroactively edit a whole AST. Variables intentionally remain a
+ParseStage Expression provider rather than pretending to be a registered Type parser.
 
 The Effect and Section hooks provide class-specific semantics including
 `EffChange`, `EffDoIf`, `EffSort`, `EffTransform`, `EffSecShoot`, `EffSecSpawn`,

@@ -409,6 +409,11 @@ fn parse_type(input: HookInvocation) -> Result<HookOutput, AddonError> {
             "CoreLibrary Type parser requires an Expression payload",
         ));
     };
+    if types::parses_string(&payload)
+        && let Some(outcome) = primitives::interpolation::parse(&payload, &input.parse_results)
+    {
+        return Ok(interpolation_output(payload, outcome));
+    }
     if let Some(candidate) = expression_candidates::parse_types(&payload) {
         payload.candidates.push(candidate);
         Ok(HookOutput {
@@ -446,35 +451,7 @@ fn parse_expression_candidates(
     parse_results: &[ParseResult],
 ) -> Result<HookOutput, AddonError> {
     if let Some(outcome) = primitives::interpolation::parse(&payload, parse_results) {
-        return Ok(match outcome {
-            primitives::interpolation::Outcome::Requests(parse_requests) => HookOutput {
-                decision: HookDecision::ContinueProcessing,
-                replacement: None,
-                effects: HookEffects {
-                    parse_requests,
-                    ..empty_effects()
-                },
-            },
-            primitives::interpolation::Outcome::Candidate(candidate, parse_results) => {
-                payload.candidates.push(candidate);
-                HookOutput {
-                    decision: HookDecision::ContinueProcessing,
-                    replacement: Some(HookPayload::Expression(payload)),
-                    effects: HookEffects {
-                        parse_results,
-                        ..empty_effects()
-                    },
-                }
-            }
-            primitives::interpolation::Outcome::Invalid(diagnostic) => HookOutput {
-                decision: HookDecision::ContinueProcessing,
-                replacement: None,
-                effects: HookEffects {
-                    diagnostics: vec![diagnostic],
-                    ..empty_effects()
-                },
-            },
-        });
+        return Ok(interpolation_output(payload, outcome));
     }
     if let Some(candidate) = expression_candidates::parse(&payload) {
         payload.candidates.push(candidate);
@@ -489,6 +466,45 @@ fn parse_expression_candidates(
             replacement: None,
             effects: empty_effects(),
         })
+    }
+}
+
+fn interpolation_output(
+    mut payload: ExpressionPayload,
+    outcome: primitives::interpolation::Outcome,
+) -> HookOutput {
+    match outcome {
+        primitives::interpolation::Outcome::Requests(parse_requests) => HookOutput {
+            decision: HookDecision::ContinueProcessing,
+            replacement: None,
+            effects: HookEffects {
+                parse_requests,
+                ..empty_effects()
+            },
+        },
+        primitives::interpolation::Outcome::Candidate(mut candidate, parse_results) => {
+            types::annotate(&payload, &mut candidate);
+            payload.candidates.push(candidate);
+            HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: Some(HookPayload::Expression(payload)),
+                effects: HookEffects {
+                    parse_results,
+                    ..empty_effects()
+                },
+            }
+        }
+        primitives::interpolation::Outcome::Invalid(diagnostic) => HookOutput {
+            decision: HookDecision::Reject(crate::nlaocs::skript_parser_addon::types::Rejection {
+                reason: diagnostic.message.clone(),
+                diagnostics: Vec::new(),
+            }),
+            replacement: None,
+            effects: HookEffects {
+                diagnostics: vec![diagnostic],
+                ..empty_effects()
+            },
+        },
     }
 }
 
@@ -748,7 +764,7 @@ mod tests {
         assert_eq!(manifest.state_namespaces.len(), 2);
         assert_eq!(manifest.state_namespaces[0].name, "commands");
         assert_eq!(manifest.state_namespaces[1].name, "aliases");
-        assert_eq!(manifest.registered_syntax_handlers.len(), 120);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 128);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",
@@ -975,6 +991,14 @@ mod tests {
     #[test]
     fn interpolated_string_requests_and_accepts_its_embedded_expression() {
         let mut invocation = expression_invocation("\"value: %42%\"");
+        invocation.context.subscription_id = TYPE_SUBSCRIPTION_ID.to_owned();
+        invocation.target = HookTarget::Registration("type:test:string".to_owned());
+        let HookPayload::Expression(payload) = &mut invocation.payload else {
+            unreachable!();
+        };
+        payload.active_type = test_type_options()
+            .into_iter()
+            .find(|option| option.code_name == "string");
         let first = <CoreLibrary as hooks::Guest>::invoke(invocation.clone()).unwrap();
         assert_eq!(first.effects.parse_requests.len(), 1);
         assert!(first.replacement.is_none());
@@ -1040,9 +1064,14 @@ mod tests {
                 source_record: None,
                 definition_id: "type:boolean".to_owned(),
                 registration_id: "type:boolean:0".to_owned(),
+                addon_name: "fixture".to_owned(),
+                addon_version: "1.0.0".to_owned(),
                 code_name: "boolean".to_owned(),
                 class_name: "java.lang.Boolean".to_owned(),
+                parser_class: None,
                 type_parse_order: boolean_order,
+                before: Vec::new(),
+                after: Vec::new(),
                 singular: "boolean".to_owned(),
                 plural: "booleans".to_owned(),
                 user_input_patterns: vec!["booleans?".to_owned()],
@@ -1237,9 +1266,14 @@ mod tests {
             source_record: None,
             definition_id: "type:number".to_owned(),
             registration_id: "type:number:0".to_owned(),
+            addon_name: "fixture".to_owned(),
+            addon_version: "1.0.0".to_owned(),
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
+            parser_class: None,
             type_parse_order: 10,
+            before: Vec::new(),
+            after: Vec::new(),
             singular: "number".to_owned(),
             plural: "numbers".to_owned(),
             user_input_patterns: vec!["number".to_owned(), "numbers".to_owned()],
@@ -1273,9 +1307,14 @@ mod tests {
             source_record: None,
             definition_id: "type:player".to_owned(),
             registration_id: "type:player:0".to_owned(),
+            addon_name: "fixture".to_owned(),
+            addon_version: "1.0.0".to_owned(),
             code_name: "player".to_owned(),
             class_name: "org.bukkit.entity.Player".to_owned(),
+            parser_class: None,
             type_parse_order: 20,
+            before: Vec::new(),
+            after: Vec::new(),
             singular: "player".to_owned(),
             plural: "players".to_owned(),
             user_input_patterns: vec!["player".to_owned(), "players".to_owned()],
@@ -1287,9 +1326,14 @@ mod tests {
             source_record: None,
             definition_id: "type:classinfo".to_owned(),
             registration_id: "type:classinfo:0".to_owned(),
+            addon_name: "fixture".to_owned(),
+            addon_version: "1.0.0".to_owned(),
             code_name: "classinfo".to_owned(),
             class_name: "ch.njol.skript.classes.ClassInfo".to_owned(),
+            parser_class: None,
             type_parse_order: 117,
+            before: Vec::new(),
+            after: Vec::new(),
             singular: "type".to_owned(),
             plural: "types".to_owned(),
             user_input_patterns: vec!["types?".to_owned()],
@@ -1984,16 +2028,120 @@ mod tests {
         if let Some(payload) = expression_replacement.clone() {
             invocation.payload = payload;
         }
-        invocation.context.subscription_id = TYPE_SUBSCRIPTION_ID.to_owned();
-        invocation.target = HookTarget::SyntaxKind(SyntaxKind::Type);
-        let typed = <CoreLibrary as hooks::Guest>::invoke(invocation)?;
-        if typed.replacement.is_some() {
-            Ok(typed)
+        let HookPayload::Expression(base) = &mut invocation.payload else {
+            unreachable!();
+        };
+        for option in test_type_options()
+            .into_iter()
+            .chain(
+                base.literal_options
+                    .iter()
+                    .map(|literal| ExpressionTypeOption {
+                        source_record: None,
+                        definition_id: format!("type:test:{}", literal.code_name),
+                        registration_id: format!("type:test:{}", literal.code_name),
+                        addon_name: "fixture".to_owned(),
+                        addon_version: "1.0.0".to_owned(),
+                        code_name: literal.code_name.clone(),
+                        class_name: literal.class_name.clone(),
+                        parser_class: literal.parser_class.clone(),
+                        type_parse_order: literal.type_parse_order,
+                        before: Vec::new(),
+                        after: Vec::new(),
+                        singular: literal.code_name.clone(),
+                        plural: format!("{}s", literal.code_name),
+                        user_input_patterns: Vec::new(),
+                        has_parser: true,
+                        parse_contexts: literal.parse_contexts.clone(),
+                        has_supplier: true,
+                    }),
+            )
+        {
+            if !base.type_options.iter().any(|existing| {
+                existing.code_name == option.code_name && existing.class_name == option.class_name
+            }) {
+                base.type_options.push(option);
+            }
+        }
+        let mut candidates = Vec::new();
+        let mut effects = empty_effects();
+        let mut options = base.type_options.clone();
+        options.sort_by_key(|option| option.type_parse_order);
+        for mut active in options {
+            active.registration_id = format!("type:test:{}", active.code_name);
+            let mut typed_invocation = invocation.clone();
+            typed_invocation.context.subscription_id = TYPE_SUBSCRIPTION_ID.to_owned();
+            typed_invocation.target = HookTarget::Registration(active.registration_id.clone());
+            let HookPayload::Expression(payload) = &mut typed_invocation.payload else {
+                unreachable!();
+            };
+            payload.active_type = Some(active);
+            let typed = <CoreLibrary as hooks::Guest>::invoke(typed_invocation)?;
+            effects.diagnostics.extend(typed.effects.diagnostics);
+            effects.parse_requests.extend(typed.effects.parse_requests);
+            effects.parse_results.extend(typed.effects.parse_results);
+            if let Some(HookPayload::Expression(payload)) = typed.replacement {
+                candidates.extend(payload.candidates);
+            }
+        }
+        if !candidates.is_empty() {
+            candidates.truncate(1);
+            let HookPayload::Expression(mut payload) = invocation.payload else {
+                unreachable!()
+            };
+            payload.candidates = candidates;
+            Ok(HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: Some(HookPayload::Expression(payload)),
+                effects,
+            })
         } else if expression_replacement.is_some() {
             Ok(expression)
         } else {
-            Ok(typed)
+            Ok(HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: None,
+                effects,
+            })
         }
+    }
+
+    fn test_type_options() -> Vec<ExpressionTypeOption> {
+        [
+            ("long", "java.lang.Long", 0),
+            ("double", "java.lang.Double", 1),
+            ("float", "java.lang.Float", 2),
+            ("boolean", "java.lang.Boolean", 3),
+            ("short", "java.lang.Short", 4),
+            ("byte", "java.lang.Byte", 5),
+            ("integer", "java.lang.Integer", 103),
+            ("number", "java.lang.Number", 108),
+            ("string", "java.lang.String", 113),
+            ("classinfo", "ch.njol.skript.classes.ClassInfo", 114),
+        ]
+        .into_iter()
+        .map(
+            |(code_name, class_name, type_parse_order)| ExpressionTypeOption {
+                source_record: None,
+                definition_id: format!("type:test:{code_name}"),
+                registration_id: format!("type:test:{code_name}"),
+                addon_name: "fixture".to_owned(),
+                addon_version: "1.0.0".to_owned(),
+                code_name: code_name.to_owned(),
+                class_name: class_name.to_owned(),
+                parser_class: None,
+                type_parse_order,
+                before: Vec::new(),
+                after: Vec::new(),
+                singular: code_name.to_owned(),
+                plural: format!("{code_name}s"),
+                user_input_patterns: Vec::new(),
+                has_parser: true,
+                parse_contexts: Vec::new(),
+                has_supplier: false,
+            },
+        )
+        .collect()
     }
 
     fn expression_invocation(text: &str) -> HookInvocation {
