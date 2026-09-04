@@ -28,7 +28,7 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let json_text = report.to_json().unwrap();
     assert!(!json_text.contains('\x1b'));
     let json: Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(json["schemaVersion"], 4);
+    assert_eq!(json["schemaVersion"], 5);
     assert!(json["context"]["event"].is_null());
     assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
@@ -106,6 +106,112 @@ fn reports_parenthesized_expression_and_its_inner_span() {
     let human = String::from_utf8(output).unwrap();
     assert!(human.contains("resolved: groupedExpression"));
     assert!(human.contains("inner:"));
+}
+
+#[test]
+fn reports_node_local_public_data_as_structured_json() {
+    let snapshot = modern_fixture();
+    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let report = session
+        .analyze("send ({_money})")
+        .expect("grouped variable Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let grouped = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(grouped["source"], "({_money})");
+    assert_eq!(grouped["publicData"], serde_json::json!([]));
+
+    let variable = &grouped["inner"];
+    assert_eq!(variable["source"], "{_money}");
+    let public_data = &variable["publicData"][0];
+    assert_eq!(public_data["schemaId"], "nlaocs.skript.variable");
+    assert_eq!(public_data["schemaVersion"], 1);
+    assert_eq!(
+        public_data["json"],
+        serde_json::json!({
+            "scope": "local",
+            "name": [{"kind": "text", "text": "money"}],
+        })
+    );
+
+    let escaped = session
+        .analyze("send {_literal%%percent}")
+        .expect("escaped percent variable Expression must parse");
+    let escaped_json: Value = serde_json::from_str(&escaped.to_json().unwrap()).unwrap();
+    let escaped_variable = &escaped_json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(escaped_variable["source"], "{_literal%%percent}");
+    assert_eq!(
+        escaped_variable["publicData"][0]["json"]["name"][0]["text"],
+        "literal%%percent"
+    );
+
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            snapshot.to_str().unwrap(),
+            "--json",
+            "send {_money}",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let cli_json: Value = serde_json::from_slice(&output).unwrap();
+    let cli_public_data = &cli_json["result"]["effect"]["elements"][0]["resolved"]["publicData"][0];
+    assert!(cli_public_data["json"].is_object());
+    assert_eq!(cli_public_data["schemaId"], "nlaocs.skript.variable");
+
+    output.clear();
+    error.clear();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "send {_money}"]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let human = String::from_utf8(output).unwrap();
+    assert!(human.contains("source: send {_money}"));
+    assert!(human.contains("publicData:"));
+    assert!(human.contains("schemaId: nlaocs.skript.variable"));
+    assert!(human.contains("schemaVersion: 1"));
+    assert!(human.contains("json: {"));
+    assert!(human.contains("\"money\""));
+}
+
+#[test]
+fn reports_interpolated_variable_public_data_and_embedded_children() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze("send {_price::%{_key}%}")
+        .expect("interpolated variable Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let variable = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(variable["source"], "{_price::%{_key}%}");
+    assert_eq!(
+        variable["publicData"][0]["json"]["name"],
+        serde_json::json!([
+            {"kind": "text", "text": "price::"},
+            {"kind": "expression", "childIndex": 0},
+        ])
+    );
+    assert_eq!(variable["embeddedExpressions"].as_array().unwrap().len(), 1);
+    let embedded = &variable["embeddedExpressions"][0];
+    assert_eq!(embedded["source"], "{_key}");
+    assert_eq!(
+        embedded["publicData"][0]["schemaId"],
+        "nlaocs.skript.variable"
+    );
 }
 
 #[test]
@@ -708,7 +814,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 4"));
+    assert!(output.contains("\"schemaVersion\": 5"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));

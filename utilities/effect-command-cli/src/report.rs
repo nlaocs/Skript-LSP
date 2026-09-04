@@ -4,9 +4,10 @@ use parser_wasm::host::WasmEffectParseResult;
 use serde::Serialize;
 use skript_parser::{
     CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
-    ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, FailureFrameRole, FailureTrace,
-    MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture, ParsedCapture,
-    ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason, TextRange,
+    ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, ExpressionPublicData,
+    FailureFrameRole, FailureTrace, MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture,
+    ParsedCapture, ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason,
+    TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -16,7 +17,7 @@ use syntax_pattern_parser::syntax::{
 };
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, Syntax};
 
-const REPORT_SCHEMA_VERSION: u32 = 4;
+const REPORT_SCHEMA_VERSION: u32 = 5;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
 const MAX_REPORT_PATTERN_DEPTH: usize = 16;
 
@@ -770,8 +771,22 @@ struct ExpressionReport {
     items: Vec<ExpressionReport>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     embedded_expressions: Vec<ExpressionReport>,
+    public_data: Vec<ExpressionPublicDataReport>,
     metadata: BTreeMap<String, String>,
     truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpressionPublicDataReport {
+    schema_id: String,
+    schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    json: Option<Box<serde_json::value::RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1662,9 +1677,34 @@ fn expression_report(
         operands,
         items,
         embedded_expressions,
+        public_data: expression_public_data(&node.public_data),
         metadata: node.metadata.clone(),
         truncated,
     }
+}
+
+fn expression_public_data(entries: &[ExpressionPublicData]) -> Vec<ExpressionPublicDataReport> {
+    entries
+        .iter()
+        .map(
+            |entry| match serde_json::value::RawValue::from_string(entry.json.clone()) {
+                Ok(json) => ExpressionPublicDataReport {
+                    schema_id: entry.schema_id.clone(),
+                    schema_version: entry.schema_version,
+                    json: Some(json),
+                    raw_json: None,
+                    error: None,
+                },
+                Err(error) => ExpressionPublicDataReport {
+                    schema_id: entry.schema_id.clone(),
+                    schema_version: entry.schema_version,
+                    json: None,
+                    raw_json: Some(entry.json.clone()),
+                    error: Some(format!("invalid public data JSON: {error}")),
+                },
+            },
+        )
+        .collect()
 }
 
 fn function_identity(
@@ -2177,6 +2217,22 @@ fn write_expression(
     if let Some(multiplicity) = expression.multiplicity {
         writeln!(writer, "{prefix}multiplicity: {multiplicity:?}")?;
     }
+    if !expression.public_data.is_empty() {
+        writeln!(writer, "{prefix}publicData:")?;
+        for data in &expression.public_data {
+            writeln!(writer, "{prefix}  - schemaId: {}", data.schema_id)?;
+            writeln!(writer, "{prefix}    schemaVersion: {}", data.schema_version)?;
+            if let Some(json) = &data.json {
+                writeln!(writer, "{prefix}    json: {}", json.get())?;
+            }
+            if let Some(raw_json) = &data.raw_json {
+                writeln!(writer, "{prefix}    rawJson: {raw_json:?}")?;
+            }
+            if let Some(error) = &data.error {
+                writeln!(writer, "{prefix}    error: {error}")?;
+            }
+        }
+    }
     if !expression.metadata.is_empty() {
         writeln!(writer, "{prefix}metadata:")?;
         for (key, value) in &expression.metadata {
@@ -2279,6 +2335,35 @@ fn format_parse_duration(nanoseconds: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_data_json_keeps_large_numbers_raw() {
+        let digits = "18446744073709551617.123456789012345678901234567890";
+        let entries = [ExpressionPublicData {
+            schema_id: "test.large-number".to_owned(),
+            schema_version: 1,
+            json: format!(r#"{{"value":{digits}}}"#),
+        }];
+
+        let output = serde_json::to_string(&expression_public_data(&entries)).unwrap();
+
+        assert!(output.contains(digits));
+    }
+
+    #[test]
+    fn invalid_public_data_json_is_explicit_in_report() {
+        let entries = [ExpressionPublicData {
+            schema_id: "test.invalid".to_owned(),
+            schema_version: 1,
+            json: "{invalid".to_owned(),
+        }];
+
+        let output = serde_json::to_string(&expression_public_data(&entries)).unwrap();
+
+        assert!(output.contains(r#""rawJson":"{invalid"#));
+        assert!(output.contains("invalid public data JSON"));
+        assert!(!output.contains(r#""json":"{invalid"#));
+    }
 
     #[test]
     fn failure_reason_human_text_is_actionable() {
