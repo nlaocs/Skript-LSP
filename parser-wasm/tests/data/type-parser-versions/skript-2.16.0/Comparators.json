@@ -1,0 +1,540 @@
+[ {
+  "registrationOrder" : 0,
+  "firstType" : "java.lang.Number",
+  "secondType" : "java.lang.Number",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:a4cb679ef991d6e977a68089a0521eb7b9eec03d0635ba430eb0a56af9607a18"
+}, {
+  "registrationOrder" : 1,
+  "firstType" : "ch.njol.skript.util.slot.Slot",
+  "secondType" : "ch.njol.skript.util.slot.Slot",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:6b9ee2724a718eca4188736691de0d4859bc829c8fb90a507f16bf6a053d9339"
+}, {
+  "registrationOrder" : 2,
+  "firstType" : "ch.njol.skript.util.slot.Slot",
+  "secondType" : "java.lang.Number",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:fbfcfee849b1c0ed58a28f4529eb22c497cf2f91d17dda2d7d690ea5f46edbf6"
+}, {
+  "registrationOrder" : 3,
+  "firstType" : "ch.njol.skript.util.slot.Slot",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:b5bb250dfd6b69b82a9940e975bbd844df464af004963b442d23411a3f33cfef"
+}, {
+  "registrationOrder" : 4,
+  "firstType" : "ch.njol.skript.aliases.ItemType",
+  "secondType" : "ch.njol.skript.util.slot.Slot",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:0405709215d4a8ca961796ff0f8182b647e62dd614b5b62cd42bccc76f847b0b"
+}, {
+  "registrationOrder" : 5,
+  "firstType" : "org.bukkit.inventory.ItemStack",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:91789868ee2f749d9bb9f396c8880c488ef8bcebc9d1c7ff17613e58510f2526"
+}, {
+  "registrationOrder" : 6,
+  "firstType" : "ch.njol.skript.aliases.ItemType",
+  "secondType" : "org.bukkit.inventory.ItemStack",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:704343b06bd100e98b5439302d10640b36e8620cb03989756aab7bbecfad3f27"
+}, {
+  "registrationOrder" : 7,
+  "firstType" : "org.bukkit.block.Block",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:c549c2a1572ab89ea28372bd7c361811d13ef52760d6ccdb877217bd461e16e9"
+}, {
+  "registrationOrder" : 8,
+  "firstType" : "org.bukkit.block.Block",
+  "secondType" : "org.bukkit.block.data.BlockData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:b38746162fa6de3e967b69459cd186f775e09220b1b029b808a90e5236224434"
+}, {
+  "registrationOrder" : 9,
+  "firstType" : "org.bukkit.block.data.BlockData",
+  "secondType" : "org.bukkit.block.data.BlockData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:c29376ffccce5da7116cf8aaef618563d738b230b4e055046c0b8c0ac0136867"
+}, {
+  "registrationOrder" : 10,
+  "firstType" : "ch.njol.skript.aliases.ItemType",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:e0d11a4426a194669f2641603c6e2338cc5f953660d9537b12687773afc0ed2d"
+}, {
+  "registrationOrder" : 11,
+  "firstType" : "org.bukkit.block.Block",
+  "secondType" : "org.bukkit.block.Block",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:fb0d6c1b077dbb339fc32f8b162c7c15135cbfd1e290657a53bf07197deb65f5"
+}, {
+  "registrationOrder" : 12,
+  "firstType" : "org.bukkit.entity.Entity",
+  "secondType" : "ch.njol.skript.entity.EntityData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:f04581826993ca6f848e27e93f5bdf0158688b256c0d72f7601152d34d3097d1"
+}, {
+  "registrationOrder" : 13,
+  "firstType" : "ch.njol.skript.entity.EntityData",
+  "secondType" : "ch.njol.skript.entity.EntityData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:43deca9d68b5d2a3f6ea46bab2f68f950f4be17472ce548d82600ac22d60e8fc"
+}, {
+  "registrationOrder" : 14,
+  "firstType" : "ch.njol.skript.entity.EntityData",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:734032e7ac4465b1d9cbc55be5810bcc8dd5dd2e6015ef025175b3d92aef1099"
+}, {
+  "registrationOrder" : 15,
+  "firstType" : "org.bukkit.entity.Entity",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:e16fda15607088f35911c2c5fa56ca79635df043372301930a8d2b2a6e60f096"
+}, {
+  "registrationOrder" : 16,
+  "firstType" : "org.bukkit.command.CommandSender",
+  "secondType" : "org.bukkit.command.CommandSender",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:3befbe0a5f252529dbf1b0b1252d8c48f98580e8052d4fed2a6bf0bfd1199f4a"
+}, {
+  "registrationOrder" : 17,
+  "firstType" : "org.bukkit.OfflinePlayer",
+  "secondType" : "org.bukkit.OfflinePlayer",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:c6576bec7f9417cdd52af643b853b325dce20a21a2d82ac0ae0d9845ff293337"
+}, {
+  "registrationOrder" : 18,
+  "firstType" : "org.bukkit.OfflinePlayer",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:862a235e03bcbe5d9ef2e6cb9c77fe6e85107e505dcdad29cd7948ee518ac1bb"
+}, {
+  "registrationOrder" : 19,
+  "firstType" : "org.bukkit.OfflinePlayer",
+  "secondType" : "java.util.UUID",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:ba664b777c459921f27de6e39b5cece6a4f593634efdc4192e35f8d576876de6"
+}, {
+  "registrationOrder" : 20,
+  "firstType" : "org.bukkit.World",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:b5c7a04f479b2f637d38fef3f16c0e56c912f2763940b3671ea1eee3b5043515"
+}, {
+  "registrationOrder" : 21,
+  "firstType" : "java.lang.String",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:71212a46801a095b6f82ab24df60551c506dc5fa97c48714be53bc48d1ec49cd"
+}, {
+  "registrationOrder" : 22,
+  "firstType" : "ch.njol.skript.util.Date",
+  "secondType" : "ch.njol.skript.util.Date",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:6e8e47813ec56885f5bc476fa841316177f990097a63c4d3cfdf7e324d7e131c"
+}, {
+  "registrationOrder" : 23,
+  "firstType" : "ch.njol.skript.util.Time",
+  "secondType" : "ch.njol.skript.util.Time",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:88d4a98c519983e90caa89c558d3d9fef2cdb0aef8e620b7515a4d162ba9df04"
+}, {
+  "registrationOrder" : 24,
+  "firstType" : "ch.njol.skript.util.Timespan",
+  "secondType" : "ch.njol.skript.util.Timespan",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:04f558dcf3e45511bfc405e36d6357f594e418a9da142ad20aa03d08a965861f"
+}, {
+  "registrationOrder" : 25,
+  "firstType" : "ch.njol.skript.util.Time",
+  "secondType" : "ch.njol.skript.util.Timeperiod",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:0d1b6dc477fccf0aec6a9f4f8b2a16a5c9877b5b5e7f173af837a2528ca6aae9"
+}, {
+  "registrationOrder" : 26,
+  "firstType" : "java.lang.Object",
+  "secondType" : "ch.njol.skript.classes.ClassInfo",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:f6a1ae8c4196ab6b7c36ac6edfb0595a6546b766a01e4f77260d86f0c90d5817"
+}, {
+  "registrationOrder" : 27,
+  "firstType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:5983b0b953f48d7d55a2c10e9fe531eb9ded79809971e7dd6e554560abab2331"
+}, {
+  "registrationOrder" : 28,
+  "firstType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "secondType" : "ch.njol.skript.entity.EntityData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:174093e3dabc890b6287788b1fc0d53daad9063f6e4260984e409acd141494e5"
+}, {
+  "registrationOrder" : 29,
+  "firstType" : "ch.njol.skript.util.GameruleValue",
+  "secondType" : "ch.njol.skript.util.GameruleValue",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:394d7a69a3d15a6c676428d5d360be2c8ba09b23e6f279d82a44263adfee3719"
+}, {
+  "registrationOrder" : 30,
+  "firstType" : "ch.njol.skript.util.GameruleValue",
+  "secondType" : "java.lang.Number",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:ab698683e7292f14a03d14cdc8f7c299f3ef352104e57fdd8603b9b0123138e3"
+}, {
+  "registrationOrder" : 31,
+  "firstType" : "ch.njol.skript.util.GameruleValue",
+  "secondType" : "java.lang.Boolean",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:619ca03bc5d3f713e990ff8abdd3e27c1450fd63e350615066beaf62c7339d84"
+}, {
+  "registrationOrder" : 32,
+  "firstType" : "org.bukkit.inventory.Inventory",
+  "secondType" : "org.bukkit.event.inventory.InventoryType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:abb063de5798a9cf72e856141279905519d0acb3daa106f299f220c4b040716d"
+}, {
+  "registrationOrder" : 33,
+  "firstType" : "org.bukkit.World",
+  "secondType" : "ch.njol.skript.util.WeatherType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:a08a02b630881775ccf7945ae80239407845e3282d107120969166687d2360e8"
+}, {
+  "registrationOrder" : 34,
+  "firstType" : "org.bukkit.Location",
+  "secondType" : "org.bukkit.Location",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:9865a095be2f08ef053c4b4cfa7105e9d46b632958646e737d9f32531a1fbc6f"
+}, {
+  "registrationOrder" : 35,
+  "firstType" : "ch.njol.skript.util.Color",
+  "secondType" : "ch.njol.skript.util.Color",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:ce3700d0186b27ba30f43efc312b59f86f4c669184f155da12084c19ba695443"
+}, {
+  "registrationOrder" : 36,
+  "firstType" : "ch.njol.skript.util.Color",
+  "secondType" : "org.bukkit.Color",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:e96aed207fa001c86e39df0decd3efd86cd09c41a692e4db3fda2dd656771176"
+}, {
+  "registrationOrder" : 37,
+  "firstType" : "org.bukkit.Color",
+  "secondType" : "org.bukkit.Color",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:ca6848e0271ca711aaf3d547b4edef44e06e965ba165e767e92852104b0b288d"
+}, {
+  "registrationOrder" : 38,
+  "firstType" : "org.bukkit.entity.EntitySnapshot",
+  "secondType" : "org.bukkit.entity.EntitySnapshot",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:e9d237085cfaff6acc00eb774950a112749ba716f0f97c6821297a1a96906447"
+}, {
+  "registrationOrder" : 39,
+  "firstType" : "java.util.UUID",
+  "secondType" : "java.util.UUID",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:2d3d45dfbe6c616649763a9393e03a92b62336c4945283e9eddf54f60cb4806a"
+}, {
+  "registrationOrder" : 40,
+  "firstType" : "java.util.UUID",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:5fe5086fdeaf8d9deaa89dcd852f4af36bb7b84e73fe354492113d29cb2c51e1"
+}, {
+  "registrationOrder" : 41,
+  "firstType" : "org.bukkit.enchantments.EnchantmentOffer",
+  "secondType" : "ch.njol.skript.util.EnchantmentType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:dd5dfe62887c2a69edcc209ef8baae5f7b9b50fd77e41b8701261ae2864cbcee"
+}, {
+  "registrationOrder" : 42,
+  "firstType" : "org.bukkit.enchantments.EnchantmentOffer",
+  "secondType" : "ch.njol.skript.util.Experience",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:adfc3ac80c58f9e357b0c359dca889ce3522b4a756e1f004801abd8636eacc05"
+}, {
+  "registrationOrder" : 43,
+  "firstType" : "ch.njol.skript.util.EnchantmentType",
+  "secondType" : "org.bukkit.enchantments.Enchantment",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:6bf62481f1ca84d3bda06c663f2a18d55415f85cb6e5be1d502bf69e15590e4d"
+}, {
+  "registrationOrder" : 44,
+  "firstType" : "org.bukkit.potion.PotionEffectType",
+  "secondType" : "org.bukkit.potion.PotionEffectTypeCategory",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:f72d75a4d4f7ed312c5c30d0be2e99a445761e5e3a3e56aa4906efe9c7041ac6"
+}, {
+  "registrationOrder" : 45,
+  "firstType" : "org.bukkit.Tag",
+  "secondType" : "org.bukkit.Tag",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:1e8538d128cfb69a3dd36e57343daae9de48f4b0c514005872c38aee34a38d1e"
+}, {
+  "registrationOrder" : 46,
+  "firstType" : "net.kyori.adventure.text.Component",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:8871b303021b5e3ec4c02e6e1bdd8e27157eb24570dc8f94fc5319482d5016e8"
+}, {
+  "registrationOrder" : 47,
+  "firstType" : "net.kyori.adventure.text.Component",
+  "secondType" : "net.kyori.adventure.text.Component",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "registrationId" : "comparator:skript:fa307c258c1ffffbab43a72d084ca27c54c306416f1c668dce6c0e4450078bf3"
+}, {
+  "registrationOrder" : 48,
+  "firstType" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "secondType" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "registrationId" : "comparator:skriptdummyaddon:b29818ea783eb40890e1e4ca4cd31b13b1a8dda20ba9c5d7ebcc78bd7398e573"
+} ]

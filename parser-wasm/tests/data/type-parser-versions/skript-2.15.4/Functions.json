@@ -1,0 +1,1171 @@
+[ {
+  "registrationOrder" : 0,
+  "name" : "abs",
+  "description" : [ "Returns the absolute value of the argument, i.e. makes the argument positive." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "abs(3) = 3", "abs(-2) = 2" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8",
+  "registrationId" : "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d"
+}, {
+  "registrationOrder" : 1,
+  "name" : "acos",
+  "description" : [ "The inverse of the <a href='#cos'>cosine</a>, also called arccos. Returns result in degrees, not radians. Only returns values from 0 to 180." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "acos(0) = 90", "acos(1) = 0", "acos(0.5) = 30" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:3ecc0ab6e6a5fad89237f648f453f0f2e1604fec7c8a3aa2e3e1dd4a5b1871c4",
+  "registrationId" : "function:skript:b66785a347affc34cac5865d6955223e82e123cad56dc4538fdd37c0d8b30b6f"
+}, {
+  "registrationOrder" : 2,
+  "name" : "asin",
+  "description" : [ "The inverse of the <a href='#sin'>sine</a>, also called arcsin. Returns result in degrees, not radians. Only returns values from -90 to 90." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "asin(0) = 0", "asin(1) = 90", "asin(0.5) = 30" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:7af21aafd960efcf54a0fb9aa183d5d5cb8b99c877856e2d82f6d944262dd072",
+  "registrationId" : "function:skript:cf82e5025c770ffc1077e4b36053b0577bc27dfc2a3412f5cf19b3f85c731548"
+}, {
+  "registrationOrder" : 3,
+  "name" : "atan",
+  "description" : [ "The inverse of the <a href='#tan'>tangent</a>, also called arctan. Returns result in degrees, not radians. Only returns values from -90 to 90." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "atan(0) = 0", "atan(1) = 45", "atan(10000) = 89.9943" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:4219370f632fb39e2fcac23febc229e9fe38a41501b03fc8974f7928c56afe79",
+  "registrationId" : "function:skript:a4f93ecde6171b7a321cf043c9a44b3316f703d09fde436188249a6614a2af88"
+}, {
+  "registrationOrder" : 4,
+  "name" : "atan2",
+  "description" : [ "Similar to <a href='#atan'>atan</a>, but requires two coordinates and returns values from -180 to 180.", "The returned angle is measured counterclockwise in a standard mathematical coordinate system (x to the right, y to the top)." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "atan2(0, 1) = 0", "atan2(10, 0) = 90", "atan2(-10, 5) = -63.4349" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "x",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "y",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:924b0d018d221af98420e7d41f6357dc32921801f2238b718b401fb3f80d3e6b",
+  "registrationId" : "function:skript:51650d4eddb217874d72a79f697a3cd0eca36922ed1038b9da5f7e68e81c57d5"
+}, {
+  "registrationOrder" : 5,
+  "name" : "axisAngle",
+  "description" : [ "Returns a quaternion from the given angle (in degrees) and axis (as a vector). This represents a rotation around the given axis by the given angle." ],
+  "since" : [ "2.10" ],
+  "examples" : [ "axisangle(90, (vector from player's facing))" ],
+  "returnType" : "org.joml.Quaternionf",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "angle",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "axis",
+    "type" : "org.bukkit.util.Vector",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:ba98255ec9be7ca4c3d40859de96dae0868a19dfea9b7f81b1516eb1880747b1",
+  "registrationId" : "function:skript:58a8589b30d5aa0c7ca11a5c5d7e08b9994be2e0ef9c51db965f8b0dcc61978a"
+}, {
+  "registrationOrder" : 6,
+  "name" : "calcExperience",
+  "description" : [ "Calculates the total amount of experience needed to achieve given level from scratch in Minecraft." ],
+  "since" : [ "2.2-dev32" ],
+  "returnType" : "java.lang.Long",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "level",
+    "type" : "java.lang.Long",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:158107bb26d1aa91386c79aaac8daf37d74509db18dfe3dbcc3062f07a4f93bc",
+  "registrationId" : "function:skript:517c544295d153d75b958d50fd30fee46d9d462f6e0c9ed429f72220cff8864d"
+}, {
+  "registrationOrder" : 7,
+  "name" : "ceil",
+  "description" : [ "Rounds a number up, i.e. returns the closest integer larger than or equal to the argument." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "ceil(2.34) = 3", "ceil(2) = 2", "ceil(2.99) = 3" ],
+  "returnType" : "java.lang.Long",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:3c974d85d7e4cc9dc0d66453aced14c701189975cf81e2f4d7ece7938dbe4699",
+  "registrationId" : "function:skript:e0d2b6e7ec94d7e959557fc43424ee3301592b611cfe49135763fb4ede81a828"
+}, {
+  "registrationOrder" : 8,
+  "name" : "ceiling",
+  "description" : [ "Alias of <a href='#ceil'>ceil</a>." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "ceiling(2.34) = 3", "ceiling(2) = 2", "ceiling(2.99) = 3" ],
+  "returnType" : "java.lang.Long",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:bf99651c2dda8b9c349aff1b22a2e5cf17360a20f49808b217d727e1a367145e",
+  "registrationId" : "function:skript:525c263501eabc9765658c82daea028724005bfcc04c9e70b82c7e71d2e5a0c8"
+}, {
+  "registrationOrder" : 9,
+  "name" : "clamp",
+  "description" : [ "Clamps one or more values between two numbers.", "This function retains indices" ],
+  "since" : [ "2.8.0" ],
+  "examples" : [ "clamp(5, 0, 10) = 5", "clamp(5.5, 0, 5) = 5", "clamp(0.25, 0, 0.5) = 0.25", "clamp(5, 7, 10) = 7", "clamp((5, 0, 10, 9, 13), 7, 10) = (7, 7, 10, 9, 10)", "set {_clamped::*} to clamp({_values::*}, 0, 10)" ],
+  "returnType" : "java.lang.Number[]",
+  "returnTypeIsSingle" : false,
+  "parameters" : [ {
+    "name" : "values",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ {
+      "type" : "keyed"
+    } ],
+    "single" : false
+  }, {
+    "name" : "min",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "max",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:7390182ff37e1f445b20e90c0c1367de85474917c7f6e25114f00e09156d4ab7",
+  "registrationId" : "function:skript:79e061cd3aba6481d7885cb825cec3f483bf5d8aac1a17d8d2b786bc4ba98b18"
+}, {
+  "registrationOrder" : 10,
+  "name" : "combinations",
+  "description" : [ "Get the number of possible sets from 1 to 'options' with each set having a size equal to 'selected'", "For example, a combination with 3 options and a set size of 1, returns 3: (1), (2), (3)", "A combination of 3 options with a set size of 2 returns 3: (1, 2), (1, 3), (2, 3)", "Note that the bigger the 'options' and lower the 'selected' may result in approximations or even infinity values.", "Combinations differ from permutations in that combinations focus on unique sets, ignoring the order of elements, whereas permutations account for the arrangement of elements within the set.", "Example: (1, 2) and (2, 1) represent a single combination since order doesn't matter in combinations, but they are two distinct permutations because permutations consider the order." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "combinations(10, 8) = 45", "combinations(5, 3) = 10", "combinations(size of {some list::*}, 2)" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "options",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "selected",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:32f88dae60c6385495bd2d678bae55b5bf14adca9567ab9cc1ab38ec61606637",
+  "registrationId" : "function:skript:96dc030d1367dac3c557f2e321fcdf8fe8e30e2333cee92e6736e29ad75eec3e"
+}, {
+  "registrationOrder" : 11,
+  "name" : "concat",
+  "description" : [ "Joins the provided texts (and other things) into a single text." ],
+  "since" : [ "2.9.0" ],
+  "examples" : [ "concat(\"hello \", \"there\") # hello there", "concat(\"foo \", 100, \" bar\") # foo 100 bar" ],
+  "returnType" : "java.lang.String",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "texts",
+    "type" : "java.lang.Object[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:96b4d35cb9d8c290791a0b8b467a1e49edbb2d98b294fa0a4663cc4008f6579d",
+  "registrationId" : "function:skript:ab5528e4882bb94b40c7ceaedbd66db82b3158c68a7e81a083892200e688e179"
+}, {
+  "registrationOrder" : 12,
+  "name" : "cos",
+  "description" : [ "The cosine function. This is basically the <a href='#sin'>sine</a> shifted by 90°, i.e. <code>cos(a) = sin(a + 90°)</code>, for any number a. Uses degrees, not radians." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "cos(0) = 1", "cos(90) = 0" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:5b6545ffc82d0681797d66de4860753065a313c2a763ed6fe7ba869e812134a6",
+  "registrationId" : "function:skript:c75cb646c96d25080eaac9a01f45a426cc4d822ca1bb0341814df4a09e64bfa6"
+}, {
+  "registrationOrder" : 13,
+  "name" : "date",
+  "description" : [ "Creates a date from a year, month, and day, and optionally also from hour, minute, second and millisecond.", "A time zone and DST offset can be specified as well (in minutes), if they are left out the server's time zone and DST offset are used (the created date will not retain this information)." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "date(2014, 10, 1) # 0:00, 1st October 2014", "date(1990, 3, 5, 14, 30) # 14:30, 5th May 1990", "date(1999, 12, 31, 23, 59, 59, 999, -3*60, 0) # almost year 2000 in parts of Brazil (-3 hours offset, no DST)" ],
+  "returnType" : "ch.njol.skript.util.Date",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "year",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "month",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "day",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "hour",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "minute",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "second",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "millisecond",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "zone_offset",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "dst_offset",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:ed725a3ea42c5f4c353f0a1f47f18a5083ea8222eed6d5b0368116220817ea3f",
+  "registrationId" : "function:skript:b04e1b1429bc3af06a698e369aecdb1c8e5d9d0966f00752cb0b4bee04255a9d"
+}, {
+  "registrationOrder" : 14,
+  "name" : "dummy_echo",
+  "description" : [ "A Java function with one required parameter." ],
+  "since" : [ "1.0.0" ],
+  "examples" : [ "set {_value} to dummy_echo(\"hello\")" ],
+  "returnType" : "java.lang.String",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "text",
+    "type" : "java.lang.String",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "function:skriptdummyaddon:948a5b697ef5decf8a620e3e7de76611899d172278a435cd0be0dfb0eb48d5fb",
+  "registrationId" : "function:skriptdummyaddon:2b50bbbc753e113dda4e71c130fb91e0f58a5bdc6b03a2c92a66aec9c50c359e"
+}, {
+  "registrationOrder" : 15,
+  "name" : "dummy_no_args",
+  "description" : [ "A Java function with an explicitly empty parameter list." ],
+  "since" : [ "1.0.0" ],
+  "examples" : [ "set {_value} to dummy_no_args()" ],
+  "returnType" : "java.lang.String",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "function:skriptdummyaddon:5b6ce3f1f1ce7577426ce42281eb82c1acd51b63e236c3a24f3a1696af4a7369",
+  "registrationId" : "function:skriptdummyaddon:1c4dce1c367ce34fac299af0198071b2a672b4ee4940db8e06cdf1d666364c81"
+}, {
+  "registrationOrder" : 16,
+  "name" : "exp",
+  "description" : [ "The exponential function. You probably don't need this if you don't know what this is." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "exp(0) = 1", "exp(1) = 2.7183" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:6769faa1cfd1905ed85225d3aa6ae56aa5cfc1e5968d6adb3d8d139f2313cac5",
+  "registrationId" : "function:skript:c56504ef05961b0d520e060aaeba89aa5c73d254e62aefc7667dc27a26234a34"
+}, {
+  "registrationOrder" : 17,
+  "name" : "factorial",
+  "description" : [ "Get the factorial of a number.", "Getting the factorial of any number above 21 will return an approximation, not an exact value.", "Any number after 170 will always return Infinity.", "Should not be used to calculate permutations or combinations manually." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "factorial(0) = 1", "factorial(3) = 3*2*1 = 6", "factorial(5) = 5*4*3*2*1 = 120", "factorial(171) = Infinity" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "number",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:574edc8083a06ea2c4f5b16fdcf590cb31c13f6574b88e06de8ede122a7996d4",
+  "registrationId" : "function:skript:121b773f019230b7bc11a8dd6d7353706a61ab79c09f0ae99719a3ead17ebfcc"
+}, {
+  "registrationOrder" : 18,
+  "name" : "floor",
+  "description" : [ "Rounds a number down, i.e. returns the closest integer smaller than or equal to the argument." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "floor(2.34) = 2", "floor(2) = 2", "floor(2.99) = 2" ],
+  "returnType" : "java.lang.Long",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:6e108fd969edd871d3b49b56ce691344e7e805b68d63a8ecbcb13ef9d3bb2387",
+  "registrationId" : "function:skript:e1d83820522d14fdc725588f7b702ef4e5c1c8d8b6364c6555f68f49bfc915e2"
+}, {
+  "registrationOrder" : 19,
+  "name" : "formatNumber",
+  "description" : [ "Converts numbers to human-readable format. By default, '###,###' (e.g. '123,456,789') will be used for whole numbers and '###,###.##' (e.g. '123,456,789.00) will be used for decimal numbers. A hashtag '#' represents a digit, a comma ',' is used to separate numbers, and a period '.' is used for decimals. ", "Will return none if the format is invalid.", "For further reference, see this <a href=\"https://docs.oracle.com/javase/7/docs/api/java/text/DecimalFormat.html\" target=\"_blank\">article</a>." ],
+  "since" : [ "2.10" ],
+  "examples" : [ "command /balance:", "\taliases: bal", "\texecutable by: players", "\ttrigger:", "\t\tset {_money} to formatNumber({money::%sender's uuid%})", "\t\tsend \"Your balance: %{_money}%\" to sender" ],
+  "returnType" : "java.lang.String",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "number",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "format",
+    "type" : "java.lang.String",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:4ed79d2aeb64ace0a6ee3e1738cdf50ce93ecd909d27daed9342c1caad3c2266",
+  "registrationId" : "function:skript:8dd1180aef5733e3f3f0791ec87f6c16aa0a0d415579a814704d9620d1fe378c"
+}, {
+  "registrationOrder" : 20,
+  "name" : "fromBase",
+  "description" : [ "Turns a text version of a number in a specific base (decimal, hexadecimal, octal) into an actual number.\nFor example, converting \"20\" in hexadecimal (base 16) would be 'fromBase(\"20\", 16)', which would return 32.\nYou can use any base between 2 and 36.\n" ],
+  "since" : [ "2.14" ],
+  "examples" : [ "# /binaryText 01110011 01101011 01110010 01101001 01110000 01110100 00100001\n# sends \"skript!\"\ncommand binaryText <text>:\n\ttrigger:\n\tset {_characters::*} to argument split at \" \" without trailing empty string\n\t\ttransform {_characters::*} with fromBase(input, 2) # convert to codepoints\n\t\ttransform {_characters::*} with character from codepoint input # convert to characters\n\t\tsend join {_characters::*}\n" ],
+  "returnType" : "java.lang.Long[]",
+  "returnTypeIsSingle" : false,
+  "parameters" : [ {
+    "name" : "string value",
+    "type" : "java.lang.String[]",
+    "modifiers" : [ ],
+    "single" : false
+  }, {
+    "name" : "base",
+    "type" : "java.lang.Long",
+    "modifiers" : [ {
+      "type" : "range",
+      "min" : 2,
+      "max" : 36
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:b10887c35c29f7c00deedb65417b6a5746ce48e15258618e8d3ed55eda706d00",
+  "registrationId" : "function:skript:4798924f6226b8e8e5b7c3858a77f091fc77704d514af004ef598b302901943a"
+}, {
+  "registrationOrder" : 21,
+  "name" : "isNaN",
+  "description" : [ "Returns true if the input is NaN (not a number)." ],
+  "since" : [ "2.8.0" ],
+  "examples" : [ "isNaN(0) # false", "isNaN(0/0) # true", "isNaN(sqrt(-1)) # true" ],
+  "returnType" : "java.lang.Boolean",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:e05c3417624bb8fee9a4eda67b1e9d48e0394ea1d8093e82bff5e239fbb863a3",
+  "registrationId" : "function:skript:5e39a892af882b4b960aa46d722e396c30d5cf925d80d3f1af1f5717cdc73b4e"
+}, {
+  "registrationOrder" : 22,
+  "name" : "ln",
+  "description" : [ "The natural logarithm. You probably don't need this if you don't know what this is.", "Returns NaN (not a number) if the argument is negative." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "ln(1) = 0", "ln(exp(5)) = 5", "ln(2) = 0.6931" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:d429501c1283a20deb914f125b146c7449314d474af5b24021896af5b0a51e1c",
+  "registrationId" : "function:skript:27263ae0d2c059f04fd231ecb23d537d583cad52c1761fd191e3510331b6ba1c"
+}, {
+  "registrationOrder" : 23,
+  "name" : "location",
+  "description" : [ "Creates a location from a world and 3 coordinates, with an optional yaw and pitch.", "If for whatever reason the world is not found, it will fallback to the server's main world." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "# TELEPORTING\nteleport player to location(1,1,1, world \"world\")\nteleport player to location(1,1,1, world \"world\", 100, 0)\nteleport player to location(1,1,1, world \"world\", yaw of player, pitch of player)\nteleport player to location(1,1,1, world of player)\nteleport player to location(1,1,1, world(\"world\"))\nteleport player to location({_x}, {_y}, {_z}, {_w}, {_yaw}, {_pitch})\n\n# SETTING BLOCKS\nset block at location(1,1,1, world \"world\") to stone\nset block at location(1,1,1, world \"world\", 100, 0) to stone\nset block at location(1,1,1, world of player) to stone\nset block at location(1,1,1, world(\"world\")) to stone\nset block at location({_x}, {_y}, {_z}, {_w}) to stone\n\n# USING VARIABLES\nset {_l1} to location(1,1,1)\nset {_l2} to location(10,10,10)\nset blocks within {_l1} and {_l2} to stone\nif player is within {_l1} and {_l2}:\n\n# OTHER\nkill all entities in radius 50 around location(1,65,1, world \"world\")\ndelete all entities in radius 25 around location(50,50,50, world \"world_nether\")\nignite all entities in radius 25 around location(1,1,1, world of player)\n" ],
+  "returnType" : "org.bukkit.Location",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "x",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "y",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "z",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "world",
+    "type" : "org.bukkit.World",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "yaw",
+    "type" : "java.lang.Float",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  }, {
+    "name" : "pitch",
+    "type" : "java.lang.Float",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:bcce62d2f1bace8261f0175932caa4b361d291af345f948f575c21f1914f2347",
+  "registrationId" : "function:skript:3815ae559ecd5055e475c36e52995c5c50db913306c13d61ef9edc7a0534f729"
+}, {
+  "registrationOrder" : 24,
+  "name" : "log",
+  "description" : [ "A logarithm, with base 10 if none is specified. This is the inverse operation to exponentiation (for positive bases only), i.e. <code>log(base ^ exponent, base) = exponent</code> for any positive number 'base' and any number 'exponent'.", "Another useful equation is <code>base ^ log(a, base) = a</code> for any numbers 'base' and 'a'.", "Please note that due to how numbers are represented in computers, these equations do not hold for all numbers, as the computed values may slightly differ from the correct value.", "Returns NaN (not a number) if any of the arguments are negative." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "log(100) = 2 # 10^2 = 100", "log(16, 2) = 4 # 2^4 = 16" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "base",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+  "registrationId" : "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+}, {
+  "registrationOrder" : 25,
+  "name" : "max",
+  "description" : [ "Returns the maximum number from a list of numbers." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "max(1) = 1", "max(1, 2, 3, 4) = 4", "max({some list variable::*})" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "ns",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:eb3dbdf9faacac4619b9ebdd328aa123458cea295fb8dafd18bbd0028b3e87ba",
+  "registrationId" : "function:skript:bfed23f66ab1f8cbdd35c7e07b0a828ccbca0ae222742166aa16e865411eddc7"
+}, {
+  "registrationOrder" : 26,
+  "name" : "mean",
+  "description" : [ "Get the mean (average) of a list of numbers.", "You cannot get the mean of a set of numbers that includes infinity or NaN." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "mean(1, 2, 3) = 2", "mean(0, 5, 10) = 5", "mean(13, 97, 376, 709) = 298.75" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "numbers",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:d5befa6180b081cebdcae21f4d74f26adc45e55b3c25327977c04d618da8083c",
+  "registrationId" : "function:skript:6618c4497e7dd95723b7332f811caa1b27d2a03359ee1ef069bd8e8bc089f475"
+}, {
+  "registrationOrder" : 27,
+  "name" : "median",
+  "description" : [ "Get the middle value of a sorted list of numbers. If the list has an even number of values, the median is the average of the two middle numbers.", "You cannot get the median of a set of numbers that includes NaN." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "median(1, 2, 3, 4, 5) = 3", "median(1, 2, 3, 4, 5, 6) = 3.5", "median(0, 123, 456, 789) = 289.5" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "numbers",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:ffedca92fbfe2d0feb09b710e229010bea4ec3b8af42f0ed4822da652ab46963",
+  "registrationId" : "function:skript:f8abf8b9d5b2c14ea0eee9efd51d2c3eb34a091328dd58ad478ed655af6daed2"
+}, {
+  "registrationOrder" : 28,
+  "name" : "min",
+  "description" : [ "Returns the minimum number from a list of numbers." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "min(1) = 1", "min(1, 2, 3, 4) = 1", "min({some list variable::*})" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "ns",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:67a7ba1d4625a81553f91102f60feaebb0f1e0fb89945591fb1044e545d4a6af",
+  "registrationId" : "function:skript:5adb4a878ad8e60748e453baea9dde404dac1daee064d7bdc238eeb863cccc91"
+}, {
+  "registrationOrder" : 29,
+  "name" : "mod",
+  "description" : [ "Returns the modulo of the given arguments, i.e. the remainder of the division <code>d/m</code>, where d and m are the arguments of this function.", "The returned value is always positive. Returns NaN (not a number) if the second argument is zero." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "mod(3, 2) = 1", "mod(256436, 100) = 36", "mod(-1, 10) = 9" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "d",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "m",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:58d45d4bb937ac596c52369c41c51cabe28b1281df0dac686320e95d73c5be52",
+  "registrationId" : "function:skript:75433b03deb7adcbc9cb5ce170f1184014d08a021bbdaea6a195c49ed01bcb57"
+}, {
+  "registrationOrder" : 30,
+  "name" : "offlineplayer",
+  "description" : [ "Returns a offline player from their name or UUID. This function will still return the player if they're online. If Paper 1.16.5+ is used, the 'allowLookup' parameter can be set to false to prevent this function from doing a web lookup for players who have not joined before. Lookups can cause lag spikes of up to multiple seconds, so use offline players with caution." ],
+  "since" : [ "2.8.0, 2.9.0 (prevent lookups)" ],
+  "examples" : [ "set {_p} to offlineplayer(\"Notch\")", "set {_p} to offlineplayer(\"069a79f4-44e9-4726-a5be-fca90e38aaf5\")", "set {_p} to offlineplayer(\"Notch\", false)" ],
+  "returnType" : "org.bukkit.OfflinePlayer",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "nameOrUUID",
+    "type" : "java.lang.String",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "allowLookups",
+    "type" : "java.lang.Boolean",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:1ddeea162df2cd141444acf84805321a4f38622530bebf99397bf070468293ad",
+  "registrationId" : "function:skript:fadf99b36dcfd60a150ebfd9a3ed25d5318a3fbf51de4e1bee3915d042f4ed11"
+}, {
+  "registrationOrder" : 31,
+  "name" : "permutations",
+  "description" : [ "Get the number of possible ordered arrangements from 1 to 'options' with each arrangement having a size equal to 'selected'", "For example, permutations with 3 options and an arrangement size of 1, returns 3: (1), (2), (3)", "Permutations with 3 options and an arrangement size of 2 returns 6: (1, 2), (1, 3), (2, 1), (2, 3), (3, 1), (3, 2)", "Note that the bigger the 'options' and lower the 'selected' may result in approximations or even infinity values.", "Permutations differ from combinations in that permutations account for the arrangement of elements within the set, whereas combinations focus on unique sets and ignore the order of elements.", "Example: (1, 2) and (2, 1) are two distinct permutations because the positions of '1' and '2' are different, but they represent a single combination since order doesn't matter in combinations." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "permutations(10, 2) = 90", "permutations(10, 4) = 5040", "permutations(size of {some list::*}, 2)" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "options",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "selected",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:e5fe809fb192ba3bba0d145dfc9bfc1182996eeeb34078b8336b25afaf20d0dc",
+  "registrationId" : "function:skript:f794ca474b293c1ef0b898ffb65f36d7934ba54ad602922242e8c1c7e97734d5"
+}, {
+  "registrationOrder" : 32,
+  "name" : "player",
+  "description" : [ "Returns an online player from their name or UUID, if player is offline function will return nothing.", "Setting 'getExactPlayer' parameter to true will return the player whose name is exactly equal to the provided name instead of returning a player that their name starts with the provided name." ],
+  "since" : [ "2.8.0" ],
+  "examples" : [ "set {_p} to player(\"Notch\") # will return an online player whose name is or starts with 'Notch'", "set {_p} to player(\"Notch\", true) # will return the only online player whose name is 'Notch'", "set {_p} to player(\"069a79f4-44e9-4726-a5be-fca90e38aaf5\") # <none> if player is offline" ],
+  "returnType" : "org.bukkit.entity.Player",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "nameOrUUID",
+    "type" : "java.lang.String",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "getExactPlayer",
+    "type" : "java.lang.Boolean",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:4171a2ff1635cd0e0889a66a437c04ecc99802d25c522ca35c9360bcc52426c6",
+  "registrationId" : "function:skript:5096ce9cb2bf71d6f580c93085e0b5104931d5d71431b26c8e5ef1e3556516b8"
+}, {
+  "registrationOrder" : 33,
+  "name" : "product",
+  "description" : [ "Calculates the product of a list of numbers." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "product(1) = 1", "product(2, 3, 4) = 24", "product({some list variable::*})", "product(2, {_v::*}, and the player's y-coordinate)" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "ns",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:d3d53dc93e01f3fbf541dc014fd67f426e7270d5c360a49f57c7c310b1b19020",
+  "registrationId" : "function:skript:1f6d442c434f8a32494abf53c6533639b1cc9e9cd8a7bd55a74e7c46da013a8b"
+}, {
+  "registrationOrder" : 34,
+  "name" : "quaternion",
+  "description" : [ "Returns a quaternion from the given W, X, Y and Z parameters. " ],
+  "since" : [ "2.10" ],
+  "examples" : [ "quaternion(1, 5.6, 45.21, 10)" ],
+  "returnType" : "org.joml.Quaternionf",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "w",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "x",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "y",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "z",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:ff35523ba0541ddad1055cad3c79bbff66872cd58e180897485d5f827bde269c",
+  "registrationId" : "function:skript:a214bf85b9f963346265071c34467bcb2770417c08aba8d84db26d3296b29dd4"
+}, {
+  "registrationOrder" : 35,
+  "name" : "rgb",
+  "description" : [ "Returns a RGB color from the given red, green and blue parameters.\nAlpha values can be added optionally but these only take affect in certain situations, like text display backgrounds." ],
+  "since" : [ "2.5, 2.10 (alpha)" ],
+  "examples" : [ "dye player's leggings rgb(120, 30, 45)", "set the colour of a text display to rgb(10, 50, 100, 50)" ],
+  "returnType" : "ch.njol.skript.util.Color",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "red",
+    "type" : "java.lang.Long",
+    "modifiers" : [ {
+      "type" : "range",
+      "min" : 0,
+      "max" : 255
+    } ],
+    "single" : true
+  }, {
+    "name" : "green",
+    "type" : "java.lang.Long",
+    "modifiers" : [ {
+      "type" : "range",
+      "min" : 0,
+      "max" : 255
+    } ],
+    "single" : true
+  }, {
+    "name" : "blue",
+    "type" : "java.lang.Long",
+    "modifiers" : [ {
+      "type" : "range",
+      "min" : 0,
+      "max" : 255
+    } ],
+    "single" : true
+  }, {
+    "name" : "alpha",
+    "type" : "java.lang.Long",
+    "modifiers" : [ {
+      "type" : "range",
+      "min" : 0,
+      "max" : 255
+    }, {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:72593c25895f90d2ba0766c4f12bc6b8b5b23da223f44fe57a91fc46c1e50225",
+  "registrationId" : "function:skript:1abb8f9ceb5dd52531525418ef6c71938a62f04174efbf510f0f1802628aed6e"
+}, {
+  "registrationOrder" : 36,
+  "name" : "root",
+  "description" : [ "Calculates the <i>n</i>th root of a number." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "root(2, 4) = 2 # same as sqrt(4)", "root(4, 16) = 2", "root(-4, 16) = 0.5 # same as 16^(-1/4)" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "number",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:5e9466dbf169c5882af6dde0c35118d1516b5917a89249a2eb762c6a73669511",
+  "registrationId" : "function:skript:62f782c9bed738e46cf3d91ff47abe9ed932f38ee55ef060ef2bc13af1b163cf"
+}, {
+  "registrationOrder" : 37,
+  "name" : "round",
+  "description" : [ "Rounds a number, i.e. returns the closest integer to the argument. Place a second argument to define the decimal placement." ],
+  "since" : [ "2.2, 2.7 (decimal placement)" ],
+  "examples" : [ "round(2.34) = 2", "round(2) = 2", "round(2.99) = 3", "round(2.5) = 3" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "d",
+    "type" : "java.lang.Number",
+    "modifiers" : [ {
+      "type" : "optional"
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:aaa3c353297583623c4f1e98d23bb545f19360b3d0a4c5c32ddd7d444b6b7a7e",
+  "registrationId" : "function:skript:26160b2ce4977d489f2e0148aa363c7f59a5a7af8b21a9ec07e03ef10017f138"
+}, {
+  "registrationOrder" : 38,
+  "name" : "sin",
+  "description" : [ "The sine function. It starts at 0° with a value of 0, goes to 1 at 90°, back to 0 at 180°, to -1 at 270° and then repeats every 360°. Uses degrees, not radians." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "sin(90) = 1", "sin(60) = 0.866" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5",
+  "registrationId" : "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e"
+}, {
+  "registrationOrder" : 39,
+  "name" : "sqrt",
+  "description" : [ "The square root, which is the inverse operation to squaring a number (for positive numbers only). This is the same as <code>(argument) ^ (1/2)</code> – other roots can be calculated via <code>number ^ (1/root)</code>, e.g. <code>set {_l} to {_volume}^(1/3)</code>.", "Returns NaN (not a number) if the argument is negative." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "sqrt(4) = 2", "sqrt(2) = 1.4142", "sqrt(-1) = NaN" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:c8ee626a8a359866ae8df0ca8b7e9630eb08cae4a81c1766c79a06ec754a4ea6",
+  "registrationId" : "function:skript:7ab949e59d82f23d5276f03a262feb03e87864a8a9fcb8f5b602f9ff0b33d34f"
+}, {
+  "registrationOrder" : 40,
+  "name" : "sum",
+  "description" : [ "Sums a list of numbers." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "sum(1) = 1", "sum(2, 3, 4) = 9", "sum({some list variable::*})", "sum(2, {_v::*}, and the player's y-coordinate)" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "ns",
+    "type" : "java.lang.Number[]",
+    "modifiers" : [ ],
+    "single" : false
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:b3d3335bf53b23ed135b544f97e51fde9ff984f555f63e8e249f1b043bdc1eae",
+  "registrationId" : "function:skript:4beed31aa63f7c0f38a96b8fbeb8657545e8d512516bca063bc571283753e010"
+}, {
+  "registrationOrder" : 41,
+  "name" : "tan",
+  "description" : [ "The tangent function. This is basically <code><a href='#sin'>sin</a>(arg)/<a href='#cos'>cos</a>(arg)</code>. Uses degrees, not radians." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "tan(0) = 0", "tan(45) = 1", "tan(89.99) = 5729.5779" ],
+  "returnType" : "java.lang.Number",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:797b95d5045bf24392e99b7300fa464c6bed26a4fa583225eeedb9eb08fefc88",
+  "registrationId" : "function:skript:9dc7b6264aad2d8e43e5c192cf4b79b7161488c6670dc234b512eea4081029e3"
+}, {
+  "registrationOrder" : 42,
+  "name" : "toBase",
+  "description" : [ "Turns a number in a string using a specific base (decimal, hexadecimal, octal).\nFor example, converting 32 to hexadecimal (base 16) would be 'toBase(32, 16)', which would return \"20\".\nYou can use any base between 2 and 36.\n" ],
+  "since" : [ "2.14" ],
+  "examples" : [ "send \"Decode this binary number for a prize! %toBase({_guess}, 2)%\"" ],
+  "returnType" : "java.lang.String[]",
+  "returnTypeIsSingle" : false,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Long[]",
+    "modifiers" : [ ],
+    "single" : false
+  }, {
+    "name" : "base",
+    "type" : "java.lang.Long",
+    "modifiers" : [ {
+      "type" : "range",
+      "min" : 2,
+      "max" : 36
+    } ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:42e5a290aa4663e3e0e3ad626257c6d5d69826dcbbf3254686e3354000fcb280",
+  "registrationId" : "function:skript:dd8dc66b0f1b4fc1ffc4714629473fc72eeb22d1abbda35e9b4b52c5038fb626"
+}, {
+  "registrationOrder" : 43,
+  "name" : "uuid",
+  "description" : [ "Returns a UUID from the given string. The string must be in the format of a UUID." ],
+  "since" : [ "2.11" ],
+  "examples" : [ "uuid(\"069a79f4-44e9-4726-a5be-fca90e38aaf5\")" ],
+  "returnType" : "java.util.UUID",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "uuid",
+    "type" : "java.lang.String",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:08cefbe668689b3c2f79d682dd5a31c13b545e1886f15b0022c31bf2528974f0",
+  "registrationId" : "function:skript:2826b35410b09150ac36d3009499099d71ae3795f2c786445ae058f1d88255d8"
+}, {
+  "registrationOrder" : 44,
+  "name" : "vector",
+  "description" : [ "Creates a vector from a single argument. Equivalent to vector(n, n, n)." ],
+  "since" : [ "2.15" ],
+  "examples" : [ "vector(1) # = vector(1, 1, 1)" ],
+  "returnType" : "org.bukkit.util.Vector",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "n",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:2515f1ba162afd255a6edc4cb9053798e79a13908b6328cdbfde334d877e8a1c",
+  "registrationId" : "function:skript:fb4abfa3a7fad4aaf81775577ff9a0745fa0ff778bc495aecb5338ff84238807"
+}, {
+  "registrationOrder" : 45,
+  "name" : "vector",
+  "description" : [ "Creates a new vector, which can be used with various expressions, effects and functions." ],
+  "since" : [ "2.2-dev23" ],
+  "examples" : [ "vector(0, 0, 0)" ],
+  "returnType" : "org.bukkit.util.Vector",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "x",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "y",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  }, {
+    "name" : "z",
+    "type" : "java.lang.Number",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:2515f1ba162afd255a6edc4cb9053798e79a13908b6328cdbfde334d877e8a1c",
+  "registrationId" : "function:skript:2690244e4c23b288626ecf1b0cda552e8ef63a7392818b982420dd12371cc414"
+}, {
+  "registrationOrder" : 46,
+  "name" : "world",
+  "description" : [ "Gets a world from its name." ],
+  "since" : [ "2.2" ],
+  "examples" : [ "set {_nether} to world(\"%{_world}%_nether\")" ],
+  "returnType" : "org.bukkit.World",
+  "returnTypeIsSingle" : true,
+  "parameters" : [ {
+    "name" : "name",
+    "type" : "java.lang.String",
+    "modifiers" : [ ],
+    "single" : true
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "function:skript:a9c2b0c90ca804b5bb2e9a4f1a27d7cfea3fb7570e152bbae3fa54a6714aeb79",
+  "registrationId" : "function:skript:72452d16824012c49f3ab7f8aa2048fb2462582b06b401386da4b3f0045b34ad"
+} ]

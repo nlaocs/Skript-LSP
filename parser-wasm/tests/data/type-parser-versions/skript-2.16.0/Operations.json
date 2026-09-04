@@ -1,0 +1,305 @@
+{
+  "^" : [ {
+    "operatorSign" : "^",
+    "left" : "java.lang.Number",
+    "right" : "java.lang.Number",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 0,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:ec79ff3426044e90aca370a24d7435bc77f1ae8c70290777583fed8b69a9e675"
+  } ],
+  "*" : [ {
+    "operatorSign" : "*",
+    "left" : "java.lang.Number",
+    "right" : "java.lang.Number",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 1,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:fd409916d2f486d7fd9ac24fd5f1e6a01939adce38fd0d58fa13ee955b0e5714"
+  }, {
+    "operatorSign" : "*",
+    "left" : "org.bukkit.util.Vector",
+    "right" : "org.bukkit.util.Vector",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 2,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:2b13f334a8ec1f0355608e61464debd6b935cdc400ddbb6acee0c4078d27f7e2"
+  }, {
+    "operatorSign" : "*",
+    "left" : "org.bukkit.util.Vector",
+    "right" : "java.lang.Number",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 3,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:d3ff8113a5e8b87df3015e9effeb8ca5ec2a7638a9e53b1a3c9e7d8065ddf765"
+  }, {
+    "operatorSign" : "*",
+    "left" : "java.lang.Number",
+    "right" : "org.bukkit.util.Vector",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 4,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:cb73467965ce2e1a8959d08d70da782a47396d8e9a87e61c527b375e24a6b444"
+  }, {
+    "operatorSign" : "*",
+    "left" : "ch.njol.skript.util.Timespan",
+    "right" : "java.lang.Number",
+    "returnType" : "ch.njol.skript.util.Timespan",
+    "registrationOrder" : 5,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:d789ffe67c552cbf9099a77d7d1ae9f06243b5f96f9d8e211c2294213e01dace"
+  }, {
+    "operatorSign" : "*",
+    "left" : "java.lang.Number",
+    "right" : "ch.njol.skript.util.Timespan",
+    "returnType" : "ch.njol.skript.util.Timespan",
+    "registrationOrder" : 6,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:947d7948fe3afd1e9cc4f8871b3ed5a905d2706dc810e877e80fe4b0acb6a033"
+  } ],
+  "/" : [ {
+    "operatorSign" : "/",
+    "left" : "java.lang.Number",
+    "right" : "java.lang.Number",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 7,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:811a231b675f737f2c774fb5a18464d5bf474d0f8d99430f3877c3ed284ebb97"
+  }, {
+    "operatorSign" : "/",
+    "left" : "org.bukkit.util.Vector",
+    "right" : "org.bukkit.util.Vector",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 8,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:fbcbbf7f5ad963dea9a1cdf25174c5ba37afa29fc238bc6d76a7790e5aa7da19"
+  }, {
+    "operatorSign" : "/",
+    "left" : "org.bukkit.util.Vector",
+    "right" : "java.lang.Number",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 9,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:ecc26fcc7a5c8f196af0ba16824a11b6b704f0247d1ba979489c6fe7eb955676"
+  }, {
+    "operatorSign" : "/",
+    "left" : "java.lang.Number",
+    "right" : "org.bukkit.util.Vector",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 10,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:893b93d0a0412f2ea387f8a64accede1111476bcd21e77f31c59f0448ee02367"
+  }, {
+    "operatorSign" : "/",
+    "left" : "ch.njol.skript.util.Timespan",
+    "right" : "ch.njol.skript.util.Timespan",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 11,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:8a372e0ed9926719db38d2c2c22364baa10b0f999189b6511c74540d50183ab3"
+  }, {
+    "operatorSign" : "/",
+    "left" : "ch.njol.skript.util.Timespan",
+    "right" : "java.lang.Number",
+    "returnType" : "ch.njol.skript.util.Timespan",
+    "registrationOrder" : 12,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:8422c0a0f3f5454d4e4119889c5e9804ddd631ab546cc9c69da7061e01b31243"
+  } ],
+  "+" : [ {
+    "operatorSign" : "+",
+    "left" : "net.kyori.adventure.text.Component",
+    "right" : "net.kyori.adventure.text.Component",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "registrationOrder" : 13,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:8943d9a56b3d1fc912e08108ba1b5d90e52f43dbfabf9ced84472fe2bf6dc94a"
+  }, {
+    "operatorSign" : "+",
+    "left" : "net.kyori.adventure.text.Component",
+    "right" : "java.lang.String",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "registrationOrder" : 14,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:b18ec819ef784915611272c13f0673b75b9b6c1d5a8350e1a498baf7425a7c86"
+  }, {
+    "operatorSign" : "+",
+    "left" : "java.lang.String",
+    "right" : "net.kyori.adventure.text.Component",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "registrationOrder" : 15,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:3e815ddf32bb9613b77bce80e1ba6c344da8140da99d96f62b106cdc56fb6053"
+  }, {
+    "operatorSign" : "+",
+    "left" : "java.lang.Number",
+    "right" : "java.lang.Number",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 16,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:0a20c1c4b6d87f1ad8f91d5a16ddc0d3d517acffc944d47fa9a9b0f859bca434"
+  }, {
+    "operatorSign" : "+",
+    "left" : "org.bukkit.util.Vector",
+    "right" : "org.bukkit.util.Vector",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 17,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:3da3b310b6531a273955139b61239e9faae0fde20201e155e506e9df5383e52a"
+  }, {
+    "operatorSign" : "+",
+    "left" : "ch.njol.skript.util.Timespan",
+    "right" : "ch.njol.skript.util.Timespan",
+    "returnType" : "ch.njol.skript.util.Timespan",
+    "registrationOrder" : 18,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:b2e3b0950d2aed28e68c795e2cc5c7a7c88d76cb8816e8516de40356e8976f6f"
+  }, {
+    "operatorSign" : "+",
+    "left" : "ch.njol.skript.util.Date",
+    "right" : "ch.njol.skript.util.Timespan",
+    "returnType" : "ch.njol.skript.util.Date",
+    "registrationOrder" : 19,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:5dc4908a8e514e654231fac3a1fdd27a60806fc7e583f84d1aeba35236d12724"
+  }, {
+    "operatorSign" : "+",
+    "left" : "java.lang.String",
+    "right" : "java.lang.String",
+    "returnType" : "java.lang.String",
+    "registrationOrder" : 20,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:923fe24d89da02bf37cfb891b178ab43cf7a3cde7ee15381997898ecab4c90da"
+  }, {
+    "operatorSign" : "+",
+    "left" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+    "right" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+    "returnType" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+    "registrationOrder" : 21,
+    "addon" : {
+      "name" : "SkriptDummyAddon",
+      "version" : "1.1.0"
+    },
+    "registrationId" : "operation:skriptdummyaddon:1c76b93afce23f78d1100d2ff1607159b7d22062327e1011a3590ed20a85b325"
+  } ],
+  "-" : [ {
+    "operatorSign" : "-",
+    "left" : "java.lang.Number",
+    "right" : "java.lang.Number",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 22,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:b57e32357860cbf1668150e650c10105ae0c1040efd9dfd5bdb28720d9ea30e6"
+  }, {
+    "operatorSign" : "-",
+    "left" : "org.bukkit.util.Vector",
+    "right" : "org.bukkit.util.Vector",
+    "returnType" : "org.bukkit.util.Vector",
+    "registrationOrder" : 23,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:8c5586cee5f67c92168c73851176d4167f82b63f949c7b33481bfb6786ff1dcc"
+  }, {
+    "operatorSign" : "-",
+    "left" : "ch.njol.skript.util.Timespan",
+    "right" : "ch.njol.skript.util.Timespan",
+    "returnType" : "ch.njol.skript.util.Timespan",
+    "registrationOrder" : 24,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:0c9e27e436f12be515fbf037a83e0acf1b5ea9a47934502fc04651fb18a949a1"
+  }, {
+    "operatorSign" : "-",
+    "left" : "ch.njol.skript.util.Date",
+    "right" : "ch.njol.skript.util.Timespan",
+    "returnType" : "ch.njol.skript.util.Date",
+    "registrationOrder" : 25,
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.0"
+    },
+    "registrationId" : "operation:skript:a6007427780b70abb83258bb054a9ec33bb2e12d6005602f7fd75fe70248e77c"
+  } ],
+  "<~>" : [ {
+    "operatorSign" : "<~>",
+    "left" : "java.lang.Number",
+    "right" : "java.lang.Number",
+    "returnType" : "java.lang.Number",
+    "registrationOrder" : 26,
+    "addon" : {
+      "name" : "SkriptDummyAddon",
+      "version" : "1.1.0"
+    },
+    "registrationId" : "operation:skriptdummyaddon:aa73d546e3f32b01c1c18b9bb17322c9609ba25ae63f0309df5b63b350c2fbba"
+  } ]
+}

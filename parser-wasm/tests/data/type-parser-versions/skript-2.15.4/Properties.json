@@ -1,0 +1,874 @@
+[ {
+  "name" : "amount",
+  "documentationId" : "amount",
+  "description" : "The amount of something, say the number of items in a stack or in a queue.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "itemstack",
+    "typeClass" : "org.bukkit.inventory.ItemStack",
+    "description" : "The number of items in this stack. Can be set.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.ItemStackClassInfo$ItemStackAmountHandler",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.Integer" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "itemtype",
+    "typeClass" : "ch.njol.skript.aliases.ItemType",
+    "description" : "The amount of items in the stack this type represents. E.g. 5 for '5 stone swords'. Can be set.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.ItemTypeClassInfo$ItemTypeAmountHandler",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.Integer" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "numbered",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyAmount",
+    "description" : "The amount of a thing",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$18",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.String" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "queue",
+    "typeClass" : "org.skriptlang.skript.lang.util.SkriptQueue",
+    "description" : "The amount of elements in the queue.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.common.types.QueueClassInfo$QueueAmountHandler",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Integer",
+    "possibleReturnTypes" : [ "java.lang.Integer" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "slot",
+    "typeClass" : "ch.njol.skript.util.slot.Slot",
+    "description" : "The amount of items in the slot's stack. Can be set.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.SlotClassInfo$SlotAmountHandler",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.Integer" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:c6d819773e314f1b6f9f8fb6f65f5f9a9c8d18bfcc8d9e3af786a1986d938314"
+}, {
+  "name" : "contains",
+  "documentationId" : "contains",
+  "description" : "Something that can contain other things, such as an inventory or a string.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.ContainsHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "containing",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyContains",
+    "description" : "AnyContains can contain other things depending on its type.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$20",
+    "handlerKind" : "contains",
+    "elementTypes" : [ "java.lang.Object" ]
+  }, {
+    "typeCodeName" : "inventory",
+    "typeClass" : "org.bukkit.inventory.Inventory",
+    "description" : "Inventories can contain items.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.InventoryClassInfo$InventoryContainsHandler",
+    "handlerKind" : "contains",
+    "elementTypes" : [ "ch.njol.skript.aliases.ItemType", "org.bukkit.inventory.ItemStack" ]
+  }, {
+    "typeCodeName" : "string",
+    "typeClass" : "java.lang.String",
+    "description" : "Strings can contain other strings.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.JavaClasses$3",
+    "handlerKind" : "contains",
+    "elementTypes" : [ "java.lang.String" ]
+  }, {
+    "typeCodeName" : "textcomponent",
+    "typeClass" : "net.kyori.adventure.text.Component",
+    "description" : "Components can contain other components.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.text.types.TextComponentClassInfo$TextComponentContainsHandler",
+    "handlerKind" : "contains",
+    "elementTypes" : [ "net.kyori.adventure.text.Component", "java.lang.String" ]
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:6c0f25fc7f3d706c4147e8a8625b2cabaea2b5295ef3a386116c2209886a1b04"
+}, {
+  "name" : "display name",
+  "documentationId" : "display-name",
+  "description" : "A more prominently displayed name, such as a player's display name or an entity's custom name. Often more easily changed than the regular name.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "entity",
+    "typeClass" : "org.bukkit.entity.Entity",
+    "description" : "The entity's custom name, if it has one, as text. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.EntityClassInfo$EntityNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "DELETE" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "inventory",
+    "typeClass" : "org.bukkit.inventory.Inventory",
+    "description" : "The name of the inventory. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.InventoryClassInfo$InventoryNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "itemtype",
+    "typeClass" : "ch.njol.skript.aliases.ItemType",
+    "description" : "An item type's custom name, if set. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.ItemTypeClassInfo$ItemTypeNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "DELETE" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "nameable",
+    "typeClass" : "org.bukkit.Nameable",
+    "description" : "The custom name of the nameable, if it has one, as text. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.NameableClassInfo$NameableNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "player",
+    "typeClass" : "org.bukkit.entity.Player",
+    "description" : "The player's display name, as text. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.PlayerClassInfo$PlayerDisplayNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "slot",
+    "typeClass" : "ch.njol.skript.util.slot.Slot",
+    "description" : "The custom name of the item in the slot, if it has one. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.SlotClassInfo$SlotNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "DELETE" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:290b4eb1c8d678c9b46e5ff772e1c7f7d9ad0c285c546da4290d0030ae04cf2c"
+}, {
+  "name" : "dummy fixture property",
+  "documentationId" : "dummy-fixture-property",
+  "description" : "A standalone property registry entry from SkriptDummyAddon.",
+  "since" : [ "1.0.0" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "registrationId" : "property:skriptdummyaddon:e5febb650916e0816647fc601e5487688c5892d761ab8ec5ebda8c2785259427"
+}, {
+  "name" : "empty",
+  "documentationId" : "empty",
+  "description" : "Whether something is empty or not.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ConditionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "inventory",
+    "typeClass" : "org.bukkit.inventory.Inventory",
+    "description" : "Whether the inventory contains no items (all slots contain air).",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ConditionPropertyHandler",
+    "handlerKind" : "condition"
+  }, {
+    "typeCodeName" : "numbered",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyAmount",
+    "description" : "Whether this thing is empty, i.e. has an amount of 0.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ConditionPropertyHandler",
+    "handlerKind" : "condition"
+  }, {
+    "typeCodeName" : "queue",
+    "typeClass" : "org.skriptlang.skript.lang.util.SkriptQueue",
+    "description" : "Whether a queue is empty, i.e. whether there are no elements in the queue.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ConditionPropertyHandler",
+    "handlerKind" : "condition"
+  }, {
+    "typeCodeName" : "slot",
+    "typeClass" : "ch.njol.skript.util.slot.Slot",
+    "description" : "Whether this slot does not contain a (non-air) item.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ConditionPropertyHandler",
+    "handlerKind" : "condition"
+  }, {
+    "typeCodeName" : "string",
+    "typeClass" : "java.lang.String",
+    "description" : "Whether the string is empty, i.e. has no characters.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ConditionPropertyHandler",
+    "handlerKind" : "condition"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:8063cf907f7f4b45af435d0cb90b2ccd0a34e5aa7f902eb4001c52589ad6843a"
+}, {
+  "name" : "name",
+  "documentationId" : "name",
+  "description" : "A name, such as a script's name or a player's account name.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "block",
+    "typeClass" : "org.bukkit.block.Block",
+    "description" : "The custom name of the block, if it has one. Only TileEntities like chests and furnaces can have names. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.BlockClassInfo$BlockNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "commandsender",
+    "typeClass" : "org.bukkit.command.CommandSender",
+    "description" : "A command sender's name, as text. Cannot be changed.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "config",
+    "typeClass" : "ch.njol.skript.config.Config",
+    "description" : "The filename of the Config, as text.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "entity",
+    "typeClass" : "org.bukkit.entity.Entity",
+    "description" : "The entity's name, if it has one, as text.Note that the regular name cannot be changed, meaning the entity's custom (display) name will be changed instead.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.EntityClassInfo$EntityNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "DELETE" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "function",
+    "typeClass" : "ch.njol.skript.lang.function.DynamicFunctionReference",
+    "description" : "The function's name, as text.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "gamerule",
+    "typeClass" : "org.bukkit.GameRule",
+    "description" : "A gamerule's name, as text. Cannot be changed.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "inventory",
+    "typeClass" : "org.bukkit.inventory.Inventory",
+    "description" : "The name of the inventory. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.InventoryClassInfo$InventoryNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "itemtype",
+    "typeClass" : "ch.njol.skript.aliases.ItemType",
+    "description" : "An item type's custom name, if set. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.ItemTypeClassInfo$ItemTypeNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "DELETE" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "nameable",
+    "typeClass" : "org.bukkit.Nameable",
+    "description" : "The name of the nameable, if it has one, as text. Use 'display name' if you need a changeable name.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "named",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyNamed",
+    "description" : "The name of the thing, as text. Can be set if supported.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$17",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.String" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "node",
+    "typeClass" : "ch.njol.skript.config.Node",
+    "description" : "The key of the node, as text.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "offlineplayer",
+    "typeClass" : "org.bukkit.OfflinePlayer",
+    "description" : "The name of an offline player, as text. Cannot be changed.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "player",
+    "typeClass" : "org.bukkit.entity.Player",
+    "description" : "A player's account/true name, as text. Cannot be changed.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "script",
+    "typeClass" : "org.skriptlang.skript.lang.script.Script",
+    "description" : "A script's name, as text. If the experiment 'Script Reflection' is enabled, this will return the resolved name of the script, otherwise it returns the file name with path relative to the scripts folder. Cannot be changed.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.common.types.ScriptClassInfo$ScriptNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "slot",
+    "typeClass" : "ch.njol.skript.util.slot.Slot",
+    "description" : "The custom name of the item in the slot, if it has one. Can be set or reset.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.SlotClassInfo$SlotNameHandler",
+    "handlerKind" : "expression",
+    "returnType" : "net.kyori.adventure.text.Component",
+    "possibleReturnTypes" : [ "net.kyori.adventure.text.Component" ],
+    "acceptedChangers" : {
+      "SET" : [ "net.kyori.adventure.text.Component" ],
+      "DELETE" : [ "net.kyori.adventure.text.Component" ],
+      "RESET" : [ "net.kyori.adventure.text.Component" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "world",
+    "typeClass" : "org.bukkit.World",
+    "description" : "A world's name, as text. Cannot be changed.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler$1",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:cffe9b1e499358529300441b4197a564aef00a2e580bc36d4ce9eaa6141b25d0"
+}, {
+  "name" : "number",
+  "documentationId" : "number",
+  "description" : "The number of something, say the number of elements in a queue.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "numbered",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyAmount",
+    "description" : "The number of a thing",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$18",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.String" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:320cbce8004394cdf0f9bdb7569f4740899c7ad1f29cf59061ffc56ac5a12459"
+}, {
+  "name" : "scale",
+  "documentationId" : "scale",
+  "description" : "The scale of something, say the x/y/z scales of a display entity.",
+  "since" : [ "2.14" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "display",
+    "typeClass" : "org.bukkit.entity.Display",
+    "description" : "The scale multipliers to use for a displays. The x, y, and z scales of the display will be multiplied by the respective components of the vector.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.entity.displays.DisplayModule$1",
+    "handlerKind" : "expression",
+    "returnType" : "org.bukkit.util.Vector",
+    "possibleReturnTypes" : [ "org.bukkit.util.Vector" ],
+    "acceptedChangers" : {
+      "SET" : [ "org.bukkit.util.Vector" ],
+      "RESET" : [ "org.bukkit.util.Vector" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "scalableparticle",
+    "typeClass" : "org.skriptlang.skript.bukkit.particles.particleeffects.ScalableEffect",
+    "description" : "The scale multiplier to use for a particle. Generally larger numbers will result in larger particles.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.particles.ParticleModule$7",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "ADD" : [ "java.lang.Number" ],
+      "SET" : [ "java.lang.Number" ],
+      "REMOVE" : [ "java.lang.Number" ],
+      "RESET" : [ "java.lang.Number" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:665b4d55a4546b282d4eea8326f96bf5bc62aab495a6a4f42bccc5e7a677a9e7"
+}, {
+  "name" : "size",
+  "documentationId" : "size",
+  "description" : "The size of something, say the number of elements in a queue.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "numbered",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyAmount",
+    "description" : "The size of a thing",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$18",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Number",
+    "possibleReturnTypes" : [ "java.lang.Number" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.String" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "queue",
+    "typeClass" : "org.skriptlang.skript.lang.util.SkriptQueue",
+    "description" : "The size of the queue, in element count.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.common.types.QueueClassInfo$QueueAmountHandler",
+    "handlerKind" : "expression",
+    "returnType" : "java.lang.Integer",
+    "possibleReturnTypes" : [ "java.lang.Integer" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:7f5780b5d369767af750a5aa667dadbe9af01662aab6c50a224a80404de1c935"
+}, {
+  "name" : "speed",
+  "documentationId" : "speed",
+  "description" : "The speed at which something is moving.",
+  "since" : [ "2.14" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.base.ExpressionPropertyHandler",
+  "relatedTypes" : [ ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:a02aac3bd91a2e4523bb33a247f8c8172ae1397576437dfcee53357f0842d33c"
+}, {
+  "name" : "typed value",
+  "documentationId" : "typed-value",
+  "description" : "A value of a specific type, e.g. 'string value of x'.",
+  "since" : [ "2.13" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.TypedValueHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "node",
+    "typeClass" : "ch.njol.skript.config.Node",
+    "description" : "The value of the node, if it is an entry node, as text.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$14",
+    "handlerKind" : "typedValue",
+    "returnType" : "java.lang.String",
+    "possibleReturnTypes" : [ "java.lang.String" ],
+    "acceptedChangers" : { },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  }, {
+    "typeCodeName" : "valued",
+    "typeClass" : "ch.njol.skript.lang.util.common.AnyValued",
+    "description" : "The value of something. Can be set.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "ch.njol.skript.classes.data.SkriptClasses$19",
+    "handlerKind" : "typedValue",
+    "returnType" : "java.lang.Object",
+    "possibleReturnTypes" : [ "java.lang.Object" ],
+    "acceptedChangers" : {
+      "SET" : [ "java.lang.Object" ],
+      "DELETE" : [ "java.lang.Object" ],
+      "RESET" : [ "java.lang.Object" ]
+    },
+    "requiresSourceExpressionChange" : false,
+    "expressionMetadataState" : "resolved"
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:0ef8586d3d7bbb77913759a78c3fd425f37e869e21d70558119e84c61bb04586"
+}, {
+  "name" : "wxyz component",
+  "documentationId" : "wxyz-component",
+  "description" : "The W, X, Y, or Z components of something, e.g. the x coordinate of a location or vector.",
+  "since" : [ "2.14" ],
+  "handlerClass" : "org.skriptlang.skript.lang.properties.handlers.WXYZHandler",
+  "relatedTypes" : [ {
+    "typeCodeName" : "location",
+    "typeClass" : "org.bukkit.Location",
+    "description" : "The X, Y, or Z coordinate of the location.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.LocationClassInfo$LocationWXYZHandler",
+    "handlerKind" : "wxyz",
+    "returnType" : "java.lang.Double",
+    "possibleReturnTypes" : [ "java.lang.Double" ],
+    "acceptedChangers" : {
+      "ADD" : [ "java.lang.Float" ],
+      "SET" : [ "java.lang.Float" ],
+      "REMOVE" : [ "java.lang.Float" ]
+    },
+    "requiresSourceExpressionChange" : true,
+    "expressionMetadataState" : "resolved",
+    "supportedAxes" : [ "x", "y", "z" ]
+  }, {
+    "typeCodeName" : "quaternion",
+    "typeClass" : "org.joml.Quaternionf",
+    "description" : "W, X, Y, or Z component of the quaternion.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.common.types.QuaternionClassInfo$QuaternionWXYZHandler",
+    "handlerKind" : "wxyz",
+    "returnType" : "java.lang.Float",
+    "possibleReturnTypes" : [ "java.lang.Float" ],
+    "acceptedChangers" : {
+      "ADD" : [ "java.lang.Float" ],
+      "SET" : [ "java.lang.Float" ],
+      "REMOVE" : [ "java.lang.Float" ]
+    },
+    "requiresSourceExpressionChange" : true,
+    "expressionMetadataState" : "resolved",
+    "supportedAxes" : [ "w", "x", "y", "z" ]
+  }, {
+    "typeCodeName" : "vector",
+    "typeClass" : "org.bukkit.util.Vector",
+    "description" : "X, Y, or Z component of the vector.",
+    "provider" : {
+      "name" : "Skript",
+      "version" : "2.15.4"
+    },
+    "handlerClass" : "org.skriptlang.skript.bukkit.types.VectorClassInfo$VectorWXYZHandler",
+    "handlerKind" : "wxyz",
+    "returnType" : "java.lang.Double",
+    "possibleReturnTypes" : [ "java.lang.Double" ],
+    "acceptedChangers" : {
+      "ADD" : [ "java.lang.Float" ],
+      "SET" : [ "java.lang.Float" ],
+      "REMOVE" : [ "java.lang.Float" ]
+    },
+    "requiresSourceExpressionChange" : true,
+    "expressionMetadataState" : "resolved",
+    "supportedAxes" : [ "x", "y", "z" ]
+  } ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "property:skript:561f6777dbd81ecd87e937cbea12f880adc0395be579138f0fa6de6c13c6968a"
+} ]
