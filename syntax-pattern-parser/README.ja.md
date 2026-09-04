@@ -3,7 +3,7 @@
 [English](README.md)
 
 `syntax-pattern-parser`は、Skriptとaddonが登録した構文patternを解析します。SSG読み込み、
-構文検証、将来の候補照合、legacy SkriptHub調査で利用する、span付きASTを生成します。
+構文検証、`skript-parser`の候補照合、legacy SkriptHub調査で利用する、span付きASTを生成します。
 
 利用者が記述する`.sk` fileは解析しません。実sourceの位置とmacro展開の出典は
 [`skript-parser`](../skript-parser/README.ja.md)が扱います。
@@ -60,19 +60,14 @@ opening delimiterを保持します。UIはこれを「ここで閉じられる�
 ((group)
 ```
 
-primary errorはEOF、related spanは内側の未閉じ`(`を指します。外側のgroupは閉じているため
-errorではありません。
+最後の`)`は内側のgroupを閉じます。primary errorはEOFの`8..8`、related spanは閉じられていない
+外側の`(`である`0..1`を指します。
 
 すべての返却spanは、空入力やmultibyte UTF-8入力でもvalid character boundaryです。
 
 ## Plural rule
 
 `PluralRules`は、Skript runtimeが登録した単数・複数overrideを表します。
-
-```rust
-let rules = PluralRules::from_json(plural_rules_json)?;
-let parsed = parse("give %items% to %player%", &rules)?;
-```
 
 `from_json`はSSGの`PluralRules.json`全体を受け取ります。`rules` fieldだけを渡すもの
 ではありません。
@@ -90,8 +85,14 @@ test corpusは次を含みます。
 代表的な利用例:
 
 ```rust
-let rules = PluralRules::from_json(plural_rules_json)?;
-let parsed = parse("(send|message) %string%", &rules)?;
+use syntax_pattern_parser::syntax::{parse, ParseResult, PluralRules};
+
+fn parse_pattern(
+    plural_rules_json: &str,
+) -> Result<ParseResult, Box<dyn std::error::Error>> {
+    let rules = PluralRules::from_json(plural_rules_json)?;
+    Ok(parse("(send|message) %string%", &rules)?)
+}
 ```
 
 `ParseResult`はtop-level AST elementとwarningを持ちます。spanは元の文字列をindexするため、

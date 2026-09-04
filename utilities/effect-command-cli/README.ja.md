@@ -3,7 +3,7 @@
 [English](README.md)
 
 `effectcommandcli`は、1つのSkript EffectをSkriptSyntaxGenerator（SSG）の
-schema 3 / 4 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
+schema 3 / 4 / 5 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
 `ssg`、`syntaxes`、`skript-parser`、`parser-wasm`、必須CoreLibraryを接続する
 小さな実例としても利用できます。
 
@@ -12,6 +12,7 @@ schema 3 / 4 snapshotに対して解析する独立した確認用utilityです�
 CoreLibraryを実行ファイルへ埋め込むため、先にComponent artifactを生成します。
 
 ```console
+rustup target add wasm32-unknown-unknown
 cargo run -p xtask --locked -- build-core-library
 cargo build -p effect-command-cli --locked
 ```
@@ -29,6 +30,9 @@ effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1"
 `--snapshot`を省略した場合は`EFFECT_COMMAND_CLI_SNAPSHOT`、次にcurrent directoryを
 使用します。CoreLibraryの起動前にsnapshot全体を検証するため、未対応schema、digestの
 不一致、file不足、参照不整合があるsnapshotでは解析を開始しません。
+
+schema 5では`Language.json`が必須ですが、schema 3と4では不要です。必要なfile一覧は
+[`ssg`のformat説明](../../ssg/README.ja.md)を参照してください。
 
 ## 単発モード
 
@@ -53,18 +57,30 @@ parse tag、parse mark、代替候補、最遠failureを表示します。JSON r
 `schemaVersion: 4`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
 人間向け出力の`parseTime`は、1 millisecond以上なら`ms`、それ未満なら`ns`で表示します。
 JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
-parse処理だけを含み、SSG snapshotの読み込みとindex構築は含みません。
+RawTree解析、parserによる解析、transaction rollbackを含みます。SSG snapshotの読み込み、
+index構築、reportの構築と描画は含みません。
 
 人間向けのparse失敗は`miette`で表示し、最も遠くまで解析できたfailure spanを
 source上へ直接示します。人間向けの書式は可読性のため変更される可能性があります。
 安定した機械向け契約はJSON出力であり、構造変更時は`schemaVersion`を更新します。
 
-`patternElements`は、選択されなかったbranchも含む登録pattern全体のASTです。
-`elements`には、実際の照合へ参加したregexと型付きExpression captureだけを格納します。
+`patternElements`は、選択されなかったbranchも含む登録patternのASTです。
+レポート生成には上限があり、pattern ASTの再帰は深さ16、ネストした
+Expression情報は深さ8で打ち切られます。`elements`には、実際の照合へ参加した
+regexと型付きExpression captureだけを格納します。
+
+SSGの静的なEffectSection registrationは通常のEffectより先に候補として扱われ、
+Section syntax identityとともにレポートされます。
+通常のSection registrationはEffect候補になりません。JSON reportに独立した
+`effectSection` fieldは追加されません。
+
+人間向け出力はstdoutがterminalで、`NO_COLOR`が未設定の場合だけ色付きになります。
 
 addonによっては意図的なcatch-all Effectを登録します。例えばskript-reflectのexpression
-statementは`[1:await] <.+>`であるため、このaddonを含むsnapshotでは空でない任意入力が
-正しいEffectになり得ます。その場合、CLIはunknownを作らず、採用されたcatch-allを表示します。
+statementは`[1:await] <.+>`です。ただし、snapshotに登録されているだけでは不十分です。
+読み込んだWASM componentがregex captureに対応し、入力を検証する必要があります。
+native側はWASM routeのないregex構文を照合対象から除外するため、広いpatternだからといって
+空でない任意入力が成功するわけではありません。
 
 登録Effectの意味のあるprefixまで一致し、型付きcaptureだけが失敗した場合は`incomplete`を返します。
 Effect identityと失敗captureのspanを保持し、候補自体を認識できない入力だけを`unknown`にします。
@@ -111,9 +127,10 @@ definition/registration ID、addon、return type、multiplicity、宣言paramete
 省略optional parameter、再帰解析済みargument Expressionを表示します。opaqueなWASM Function
 leafは`structured: false`のまま区別できます。
 
-`.sk`内で宣言されたユーザーFunctionの登録は未接続です。parser側には既に
-`lookup_functions`からdocument definitionを受け取る入口があり、Structureを含むfile全体解析後に
-宣言収集とproject symbol管理を接続します。残るCLI作業は
+ライブラリ側では既に2段階のStructure解析でdocumentのFunction宣言を収集し、
+`lookup_functions`から参照できます。ただし、この1行解析CLIはその宣言をロードしないため、
+セッション内でユーザー定義Functionは使用できません。project全体のsymbol管理も未実装です。
+残るCLI作業は
 [Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79)で引き続き追跡します。
 
 このutilityが解析するのはトップレベルのEffect 1行だけです。`.sk` file全体の解析、

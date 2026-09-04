@@ -94,7 +94,6 @@ pub enum ExpansionKind {
 
 /// A location in the original document, optionally produced by another expansion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// Original range and optional parent expansion at one macro call site.
 pub struct ExpansionSite {
     pub original_range: TextRange,
     pub expansion: Option<ExpansionId>,
@@ -264,7 +263,9 @@ impl ExpansionGraph {
     }
 
     /// Returns the primary call-site path, from the innermost expansion to the root.
-    /// Returns one deterministic innermost-to-root provenance path.
+    ///
+    /// Follows the first call site at each expansion. Use [`Self::backtraces`]
+    /// when combined origins must retain every parent path. Unknown IDs return `None`.
     pub fn backtrace(&self, id: ExpansionId) -> Option<Vec<&Expansion>> {
         let mut result = Vec::new();
         let mut current = Some(id);
@@ -277,8 +278,9 @@ impl ExpansionGraph {
     }
 
     /// Returns every distinct call-site path, each ordered innermost to root.
-    /// Returns one deterministic innermost-to-root provenance path.
-    /// Returns every distinct innermost-to-root provenance path.
+    ///
+    /// Unlike [`Self::backtrace`], this visits every distinct parent expansion,
+    /// including branches anchored directly to original text. Unknown IDs return `None`.
     pub fn backtraces(&self, id: ExpansionId) -> Option<Vec<Vec<&Expansion>>> {
         self.collect_backtraces(id)
     }

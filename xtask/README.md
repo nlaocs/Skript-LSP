@@ -48,12 +48,15 @@ Both commands use the same `ComponentSpec` pipeline:
 
 1. run Cargo for `wasm32-unknown-unknown`
 2. use the optimized `core-library` workspace profile
-3. place intermediate files in a component-specific target directory
+3. respect `CARGO_TARGET_DIR` and place core-library intermediates in the
+   `core-library-component` directory; build the six test components together
+   in the shared `test-components` directory
 4. read the raw core Wasm module
 5. use `wit-component::ComponentEncoder` to embed component metadata
 6. validate the encoded Component
 7. require exactly the parser-addon exports
-8. atomically replace the generated artifact through a temporary file
+8. write a temporary artifact, remove the previous artifact, and rename the
+   temporary file into place
 
 The expected exports are:
 

@@ -4,7 +4,7 @@
 
 `syntax-pattern-parser` parses the syntax patterns registered by Skript and
 addons. It produces a span-preserving AST used by SSG loading, syntax
-validation, future candidate matching, and legacy SkriptHub analysis.
+validation, candidate matching in `skript-parser`, and legacy SkriptHub analysis.
 
 It does not parse user `.sk` files. See [`skript-parser`](../skript-parser/)
 for document source ranges and macro expansion provenance.
@@ -50,6 +50,9 @@ Parse errors contain a primary span. Unclosed groups, options, type
 delimiters, and regex delimiters also contain a typed related span pointing to
 the opening delimiter. This lets diagnostics highlight EOF while still
 showing where the construct began.
+
+For `((group)`, the existing `)` closes the inner group: the primary error is
+`8..8` (EOF), and the related opening span is `0..1` (the outer `(`).
 
 Current fatal error kinds cover:
 

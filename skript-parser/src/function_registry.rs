@@ -197,8 +197,9 @@ impl Default for FunctionReturnContract {
 ///
 /// Plurality is represented by `single == false`, matching Skript's
 /// `numbers`/`number` distinction without inventing a `number[]` type.  A
-/// default expression remains source text; parsing it belongs to the later
-/// Function-body integration layer.
+/// default expression remains source text in this registry. The CoreLibrary
+/// Structure handler validates it through the host Expression parser before
+/// registering the declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionParameterDeclaration {
     /// Parameter name used by named arguments and local bindings.

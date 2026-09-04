@@ -30,7 +30,9 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 ## WIT contract
 
 WIT packageは`nlaocs:skript-parser-addon@0.27.0`です。`parser-addon` worldはhost serviceを
-importし、guest実装をexportします。
+importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
+versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
+crateの`CARGO_PKG_VERSION`が使われます。
 
 Guest export:
 
@@ -82,15 +84,18 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
   guestが`addon.initialize`でhost profileを検証します。
 
 hostはText macroとTree macroをadvertiseし、実行します。AST macroはcontractだけが存在し、
-まだadvertiseされません。
+まだadvertiseされません。CoreLibraryのmanifestは`parser.hooks`、5つのsyntax parser capability、
+Tree macro、`parser.state-store`を必須とし、`parser.dynamic-syntax`とversion 2の
+`parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
 
 `addon.initialize`には、読み込んだSSG manifestから作った`RuntimeProfile`も渡します。snapshot、server、
-Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。componentは、Java classや
-parse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず処理できます。
-
-WIT 0.18.0では、SSG-IDのdefinition/registration/PatternRef target、宣言的selector、NotApplicableを追加しました。
-WIT 0.19.0では、Structure lifecycle、EntryValidator結果、Structure scoped context、body RawTree、
-SSGの全read-only sourceとhost側の型関係queryを追加し、ABIを4.0へ更新しました。
+Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。`ParserHost::new`は
+validation前に`HostConfig::inherit_catalog_runtime`を呼びます。`syntax_catalog`がSSG sourceを持つ場合、
+profileで未指定のfield（Skript versionやsnapshot identityを含む）はsourceから自動補完されるため、callerが
+同じversionを重複指定する必要はありません。source Catalogも明示的なSkript versionもないdefault configは
+CoreLibrary初期化で拒否され、明示したsnapshot identityはsource Catalogと一致する必要があります。
+componentは、Java classやparse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず
+処理できます。
 
 ## Open parser request
 
@@ -157,12 +162,17 @@ native memo keyに含まれ、candidate rollback時にはrevision自体も復元
 同じresolved orderを使います。`%type%` captureは再帰Expression sessionへ入り直すため、採用
 Effectと子Expressionのstateは1つのtransaction階層で管理されます。
 
-Effect subscriptionは`parser.effect` capabilityと`Effect` phaseを使います。native照合前はEffect
-category hook、照合後は採用exact registration、unknownの場合はEffect category hookを実行します。
-typed payloadはdefinition/registration ID、element class、pattern index、capture span、parse tag、
-XOR mark、解析済みConditionまたはnested Effect capture、dynamic handler metadata、alternative、
-最遠failureを保持します。置換できるのは採用候補の
-handlerとmetadataだけで、registration identity、capture、alternative、spanはhostが固定します。
+Effect subscriptionは`parser.effect` capabilityと`Effect` phaseを使います。hostはnative照合前に
+category-levelの`SyntaxKind::Effect` hookを呼びます。exact pattern/registrationのsemantic hookは候補照合中に
+実行され、外側のafter dispatchはunknownまたはnear-matchのdiagnostic用です。Skript互換の照合では、catalogの
+`EffectSection` registrationを通常のEffectより先に試します。通常のEffectを採用した場合は`Effect` syntax-kind
+targetを使いますが、one-line EffectSectionを採用した場合は`Section` syntax-kind targetを保ったまま`Effect`
+phaseを使います。WITの`effect-candidate`は安定したidentityとcaptureを公開し、`effect-section` identityは
+追加WIT flagではなく、host側dispatch targetの`Section` kindとcatalog lookupで保持されます。WITのpattern reference
+自体はdefinition/registration identityとpattern indexを持ちます。typed payloadはdefinition/registration ID、element
+class、pattern index、capture span、parse tag、XOR mark、解析済みConditionまたはnested Effect capture、dynamic
+handler metadata、alternative、最遠failureを保持します。置換できるのは採用候補のhandlerとmetadataだけで、
+registration identity、capture、alternative、spanはhostが固定します。
 
 unknown、Reject、不正output、host failureではEffect入口のStateStore savepointへ戻します。
 unknown nodeは正確なsource、mapped span、最遠failureを保持します。Reject hookのstateは破棄
@@ -177,14 +187,15 @@ registration順でConditionを照合します。再帰Expression sessionを共�
 
 `ParserHost::parse_section_in_parse`はlosslessな`RawNodeKind::Section`を受け取ります。headerは通常の
 Section、EffectSection、SectionExpression、frozen dynamic Sectionをまとめて照合し、採用候補には
-3種類のmetadata flagを保持します。子SectionとEffectを再帰解析する前後で、hostは
-`parser.section`を使い、`Section` phaseのexact registrationをdispatchします。enter phaseの
-context updateはそのbodyと子孫だけへ適用されます。未取得または複数取得されたbody nodeも、
-diagnostic付きpartial treeとして保持します。
+3種類のmetadata flagを保持します。子SectionとEffectを再帰解析する前後で、hostは`parser.section`を使い、
+`Section` phaseのexact registrationをdispatchします。block-formのEffectSectionはこのSection lifecycleを使います。
+一方、one-lineの`RawNodeKind::Simple` EffectSectionは上記のEffect pathを使い、`Section` syntax kindを保ったまま
+`Effect` phaseで処理されます。enter phaseのcontext updateはそのSection bodyと子孫だけへ適用されます。
+未取得または複数取得されたbody nodeも、diagnostic付きpartial treeとして保持します。
 
-CoreLibraryはSkript標準のconditional/while Section、`ExprWhether`、`ExprTernary`、`EffChange`、`EffDoIf`の
-semantic handlerを宣言します。addonも同じmanifest宣言を使い、独自のraw、Condition、nested
-Effect captureを処理できます。
+CoreLibraryはSkript標準のconditional、filter、loop、while、error-catching Section、`ExprWhether`、`ExprTernary`、
+`EffChange`、`EffDoIf`、`EffSecShoot`、`EffSecSpawn`などのsemantic handlerを宣言します。addonも同じmanifest
+宣言を使い、独自のraw、Condition、nested Effect captureを処理できます。
 
 ### Dynamic Structure登録
 
@@ -305,10 +316,11 @@ subscriptionはtarget、phase、signed priority、modeを指定します。
 - `transform`: 後続hookへ渡すreplacement payloadを返せます。
 - `override`: targetの通常処理に代わって処理します。
 
-targetはsyntax kind、definitionId、registrationId、または正確な
+targetはparse stage、parser ID、syntax kind、definitionId、registrationId、または正確な
 `registrationId + patternIndex`を指定できます。宣言的selectorでは現在のpattern、mark、tag、解析済みcapture、
-実効return type、Multiplicity、metadataをAND条件で絞れます。型条件は`Match`、`NoMatch`、`Unknown`の三値で、
-`Unknown`はskipせずWASMを呼び、component自身が最終的な適用可否を判断します。
+実効return type、Multiplicity、metadataをAND条件で絞れます。return-type selectorは`exact`、`assignable`、
+`convertible`のrelationを使います。catalog relationが不明な場合は`NoMatch`ではなく内部的に`Unknown`として
+扱われるため、WASMが呼ばれ、component自身が最終的な適用可否を判断できます。
 
 `NotApplicable`は「このpayloadは対象外」です。そのhookのreplacement、effects、StateStore write、dynamic syntax変更を
 破棄して次へ進みます。`ContinueProcessing`は変更を採用して続行し、`Handled`は採用してchainを停止し、`Reject`は
@@ -331,7 +343,6 @@ subscriptionの順序は決定的です。
 3. component load順
 4. component manifest内の宣言順
 
-実際の比較では、最初の3つをtarget specificityとして比較したあと、残りを順に比較します。
 overrideがhandledを返すと、後続の一致するhookを停止します。addon errorはcomponent failure
 として報告されます。trap、timeout、fuel枯渇、resource-limit違反が起きたcomponentは
 無効化されます。
@@ -356,6 +367,10 @@ payloadへ複製せず、`catalog-data` importから保持されたsnapshot全�
 - `declared-method-exists`は収録済みclassへ`Class.getDeclaredMethod`相当の検索を行います。
   schema 5のmethod metadataがあれば`Some(false)`まで確定でき、旧snapshotや未収録classは`None`で
   unresolvedを維持します。
+- SSG schema 5は`Language.json`も保持します。schema 3と4のsnapshotには保持されたLanguage entryが
+  ありません。`catalog-data::language-value`は正確なcase-sensitive key lookupを行い、missing keyまたは
+  旧snapshotでは`none`を返します。`language-pattern-matches`は保持されたregexがあればそれを使い、なければ
+  callerのfallbackを使います。入力全体にmatchするようanchorされ、regexのcompileはguest fuelの外で行われます。
 
 未知fieldも生JSONから利用できます。索引されたrecordは正しいJSONですが、空白やobject key順序は保証しません。
 各page/chunkは既定32 MiBの`HostConfig::max_catalog_response_bytes`で制限されますが、paginationと

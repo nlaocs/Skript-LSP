@@ -36,7 +36,7 @@ pub use expression::*;
 pub use expression_list::*;
 /// Nested parse-failure provenance shared by diagnostics and LSP adapters.
 pub use failure::*;
-/// Registered and future document-defined Function call parsing.
+/// Registered and document-defined Function call parsing.
 pub use function::*;
 /// Transactional registry for document-defined Function declarations.
 pub use function_registry::*;

@@ -48,12 +48,15 @@ parser hostのintegration testがこれらのartifactを埋め込みます。
 
 1. `wasm32-unknown-unknown`向けにCargoを実行する
 2. workspaceの最適化済み`core-library` profileを使用する
-3. component固有のtarget directoryへ中間fileを配置する
+3. `CARGO_TARGET_DIR`を尊重し、core-libraryの中間fileは
+   `core-library-component` directoryへ配置し、6つのtest componentは
+   共有の`test-components` directoryでまとめてbuildする
 4. raw core Wasm moduleを読む
 5. `wit-component::ComponentEncoder`でcomponent metadataを埋め込む
 6. encode済みComponentを検証する
 7. parser-addonのexportだけが正確に存在することを要求する
-8. temporary fileを経由して生成artifactをatomicに置き換える
+8. temporary artifactを書き、既存artifactを削除してからtemporary fileを
+   renameして配置する
 
 必要なexport:
 

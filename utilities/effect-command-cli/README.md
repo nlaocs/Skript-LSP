@@ -3,7 +3,7 @@
 [日本語](README.ja.md)
 
 `effectcommandcli` is a standalone inspection utility that parses one Skript
-Effect against an exact SkriptSyntaxGenerator (SSG) schema 3 or 4 snapshot. It never
+Effect against an exact SkriptSyntaxGenerator (SSG) schema 3, 4, or 5 snapshot. It never
 executes the Effect. The binary demonstrates how `ssg`, `syntaxes`,
 `skript-parser`, `parser-wasm`, and the mandatory CoreLibrary fit together.
 
@@ -13,6 +13,7 @@ CoreLibrary is embedded in the executable, so build its Component artifact
 first:
 
 ```console
+rustup target add wasm32-unknown-unknown
 cargo run -p xtask --locked -- build-core-library
 cargo build -p effect-command-cli --locked
 ```
@@ -32,6 +33,9 @@ When `--snapshot` is omitted, the utility uses
 snapshot is validated before CoreLibrary starts; unsupported schemas, digest
 mismatches, missing files, and invalid cross-file references fail before
 parsing.
+
+Schema 5 requires `Language.json`; schemas 3 and 4 do not. See the
+[`ssg` format documentation](../../ssg/README.md) for the required file inventories.
 
 ## One-Shot Mode
 
@@ -60,20 +64,31 @@ alternatives, and the farthest useful failure. JSON reports carry
 SSG schema. Human reports include `parseTime` in milliseconds for durations of
 at least one millisecond and in nanoseconds for shorter parses. JSON reports
 expose the duration as integer nanoseconds in `parseDurationNs`. The duration
-covers parsing only; loading and indexing the SSG snapshot is excluded.
+covers RawTree parsing, parser analysis, and transaction rollback. Snapshot
+loading, indexing, report construction, and rendering are excluded.
 
 Human parse failures use `miette` to label the farthest failure span directly
 in the source. Human formatting may evolve for readability; JSON output is the
 stable machine-readable contract and changes only with `schemaVersion`.
 
-`patternElements` is the complete AST of the selected registration pattern,
-including branches that were not selected. `elements` contains the regex and typed
-Expression captures that actually participated in the match.
+`patternElements` is the AST of the selected registration pattern, including
+branches that were not selected. Report rendering is bounded: pattern AST
+recursion is truncated at depth 16, while nested Expression data is truncated at
+depth 8. `elements` contains the regex and typed Expression captures that
+actually participated in the match.
+
+Static SSG EffectSection registrations are candidates before ordinary Effects
+and are reported with their Section syntax
+identity; ordinary Section registrations are not treated as Effects. The JSON
+report does not add a separate `effectSection` field.
+
+Human output is colored only when stdout is a terminal and `NO_COLOR` is absent.
 
 Some addons intentionally register catch-all Effects. For example,
-skript-reflect registers an expression statement as `[1:await] <.+>`, so any
-non-empty input may be a valid Effect in snapshots containing that addon. The CLI
-reports the selected catch-all instead of manufacturing an unknown result.
+skript-reflect registers an expression statement as `[1:await] <.+>`. Its presence
+in the snapshot alone is insufficient: a loaded WASM component must support the
+regex capture and validate the input. Native matching excludes regex syntax
+without a WASM route; a broad pattern does not make every non-empty input valid.
 
 When a registration matches a meaningful prefix but one typed capture fails,
 the result is `incomplete`. It preserves the Effect identity and underlines the
@@ -123,10 +138,11 @@ return type, multiplicity, declared parameter names, named bindings, omitted
 optional parameters, and recursively parsed argument Expressions. Opaque WASM
 Function leaves remain distinguishable with `structured: false`.
 
-User Functions declared inside `.sk` files are not registered yet. The parser
-already accepts document definitions through `lookup_functions`; declaration
-collection and project symbol management will connect that source after whole
-file Structure parsing. The remaining CLI work stays tracked by
+The libraries already collect document Function declarations through two-pass
+Structure parsing and expose them through `lookup_functions`. This one-line CLI
+does not load those declarations, so user-defined Functions are unavailable in
+its session. Project-wide symbol management is also not implemented. Remaining
+CLI work stays tracked by
 [Issue #79](https://github.com/nlaocs/Skript-LSP/issues/79).
 
 The utility parses exactly one top-level Effect line. It does not parse a whole

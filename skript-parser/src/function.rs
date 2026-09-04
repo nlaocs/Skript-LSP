@@ -1,15 +1,15 @@
 //! Skript-compatible parsing of registered Function calls.
 //!
 //! Call syntax and signature matching are independent from the source of a
-//! [`FunctionDefinition`]. SSG catalog definitions are available today;
-//! document-defined Functions can be supplied by an expression environment
-//! later without introducing a second call parser.
+//! [`FunctionDefinition`]. SSG catalog definitions and document-defined Functions
+//! supplied by an expression environment use the same call parser.
 //!
 //! Name, argument, exact-signature, list-signature, and named-argument behavior
-//! follows Skript 2.15.4's
+//! is based on Skript 2.15.4's
 //! [`FunctionReferenceParser`](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/org/skriptlang/skript/common/function/FunctionReferenceParser.java)
 //! and
 //! [`FunctionArgumentParser`](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/org/skriptlang/skript/common/function/FunctionArgumentParser.java).
+//! [`crate::FunctionVersionPolicy`] gates version-dependent features.
 
 use crate::expression::{
     ExpressionCandidate, ExpressionExpectedType, ExpressionNode, ExpressionNodeKind,
@@ -24,7 +24,7 @@ use syntaxes::{ClassName, Function, Multiplicity, ParameterModifier};
 
 /// One Function signature consumable by the native call parser.
 ///
-/// Catalog-backed and future document-backed Functions use this same shape.
+/// Catalog-backed and document-backed Functions use this same shape.
 /// An environment-provided definition with the same parameter signature takes
 /// precedence over the catalog definition, matching Skript's local namespace
 /// lookup before its global namespace.
