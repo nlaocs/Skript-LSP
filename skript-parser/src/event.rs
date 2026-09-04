@@ -2,8 +2,9 @@
 //!
 //! This module deliberately stops at the registration boundary.  It identifies
 //! the Event syntax and preserves its captures, but it does not decide what an
-//! event means or create an event-specific context.  A later `StructEvent` hook
-//! can consume the selected candidate and bind its captures to `host.event`.
+//! event means or create an event-specific context. The CoreLibrary `StructEvent`
+//! hook routes its Event capture through `host.event` and derives body context
+//! from the resulting candidate.
 use crate::{
     CandidateFailure, CandidateMatch, CandidateMatches, ExpressionParseContext,
     ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
@@ -23,7 +24,7 @@ pub struct EventParseRequest<'a> {
     pub context: ExpressionParseContext,
 }
 
-/// Resource budgets shared by Event matching and future capture parsing.
+/// Resource budgets shared by Event matching and recursive Expression captures.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventParserConfig {
     /// Shared recursion, candidate, and matcher limits.

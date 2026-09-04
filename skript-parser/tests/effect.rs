@@ -40,6 +40,10 @@ fn effect_fixture() -> Catalog {
         })
         .cloned()
         .collect();
+    catalog_with_syntaxes(source, syntaxes)
+}
+
+fn catalog_with_syntaxes(source: &Catalog, syntaxes: Vec<Syntax>) -> Catalog {
     Catalog::new(CatalogParts {
         syntaxes,
         converters: Vec::new(),
@@ -57,6 +61,41 @@ fn effect_fixture() -> Catalog {
             .map(|(key, value)| (key.to_owned(), value.to_owned()))
             .collect(),
     })
+}
+
+fn effect_section_fixture(effect_section: bool, include_effect: bool) -> Catalog {
+    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let source = snapshot.catalog();
+    let effect = source
+        .effects()
+        .find(|effect| {
+            effect
+                .common
+                .patterns
+                .iter()
+                .any(|pattern| pattern.source == "dummy effect registered through wrapper")
+        })
+        .expect("dummy Effect exists")
+        .clone();
+    let mut section = source
+        .sections()
+        .find(|section| {
+            section
+                .common
+                .element_class
+                .as_str()
+                .ends_with(".EffSecShoot")
+        })
+        .expect("Skript EffectSection exists")
+        .clone();
+    section.common.patterns = effect.common.patterns.clone();
+    section.effect_section = effect_section;
+
+    let mut syntaxes = vec![Syntax::Section(section)];
+    if include_effect {
+        syntaxes.push(Syntax::Effect(effect));
+    }
+    catalog_with_syntaxes(source, syntaxes)
 }
 
 fn simple_node(source: &MappedSource) -> skript_parser::RawNode {
@@ -118,6 +157,64 @@ fn parses_real_effect_without_placeholders_and_ignores_trailing_comment() {
     );
     assert!(selected.parsed_captures.is_empty());
     assert!(result.unknown.is_none());
+}
+
+#[test]
+fn effect_section_precedes_an_ordinary_effect_with_the_same_pattern() {
+    let catalog = effect_section_fixture(true, true);
+    let source = MappedSource::identity("dummy effect registered through wrapper");
+    let node = simple_node(&source);
+    let result = parse_effect(
+        &catalog,
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        EffectParserConfig::default(),
+    )
+    .expect("EffectSection must parse as an Effect");
+
+    let selected = result.selected.expect("EffectSection must be selected");
+    assert_eq!(selected.matched.kind, MatchSyntaxKind::Section);
+    assert!(
+        selected
+            .matched
+            .definition_id
+            .starts_with("section:skript:")
+    );
+    assert!(
+        selected
+            .matched
+            .registration_id
+            .starts_with("section:skript:")
+    );
+    assert_eq!(
+        selected.matched.pattern,
+        "dummy effect registered through wrapper"
+    );
+}
+
+#[test]
+fn ordinary_sections_do_not_become_effect_candidates() {
+    let catalog = effect_section_fixture(false, false);
+    let source = MappedSource::identity("dummy effect registered through wrapper");
+    let node = simple_node(&source);
+    let result = parse_effect(
+        &catalog,
+        EffectParseRequest {
+            source: &source,
+            node: &node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut NoopExpressionEnvironment,
+        EffectParserConfig::default(),
+    )
+    .expect("ordinary Section exclusion is a valid parse result");
+
+    assert!(result.selected.is_none());
+    assert!(result.unknown.is_some());
 }
 
 #[derive(Default)]

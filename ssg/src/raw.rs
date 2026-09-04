@@ -1,7 +1,9 @@
 //! Serde DTOs that mirror every JSON object emitted by supported SSG schemas.
 //!
 //! These structures are a wire-format boundary, not the semantic parser model.
-//! Optional values and empty lists preserve the distinctions made by the generator.
+//! Optional values preserve nullable fields, while present empty lists remain
+//! empty. Serde maps an omitted or JSON `null` optional field to `None`; the
+//! normalized model may apply format-specific defaults during conversion.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -675,6 +677,6 @@ pub struct Snapshot {
     pub classes: Vec<Class>,
     pub aliases: Aliases,
     pub plural_rules: PluralRules,
-    /// Effective global language key/value entries (schema 5 and later).
+    /// Effective global language key/value entries for schema 5 snapshots.
     pub language: BTreeMap<String, String>,
 }

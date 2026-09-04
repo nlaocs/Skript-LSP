@@ -4,7 +4,7 @@
 /// The mandatory CoreLibrary component bundled into the LSP executable.
 ///
 /// A missing artifact is a compile-time error. Rebuild it with
-/// `cargo run -p xtask -- build-core-library`.
+/// `cargo run -p xtask --locked -- build-core-library`.
 pub static CORE_LIBRARY_COMPONENT: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/artifacts/core-library.wasm"
@@ -14,7 +14,7 @@ pub static CORE_LIBRARY_COMPONENT: &[u8] = include_bytes!(concat!(
 ///
 /// The returned slice is embedded into the executable at compile time and is
 /// therefore valid for the lifetime of the process. The artifact must be built
-/// with cargo run -p xtask -- build-core-library before this crate is compiled.
+/// with `cargo run -p xtask --locked -- build-core-library` before this crate is compiled.
 ///
 /// # Examples
 ///
@@ -29,9 +29,13 @@ pub fn core_library_component() -> &'static [u8] {
 
 /// Creates the parser host with the mandatory bundled CoreLibrary loaded.
 ///
-/// This is the executable crate's normal entry point into parser-wasm. It
+/// This is the root library's entry point into parser-wasm. It
 /// guarantees that [parser_wasm::ParserHost::components] starts with
 /// nlaocs.core-library and avoids making callers locate the generated artifact.
+/// A loaded SSG Catalog supplies missing runtime-profile fields, including the
+/// required Skript version. The example below sets a version explicitly and
+/// demonstrates initialization only. Actual syntax parsing also requires the
+/// corresponding Catalog in `HostConfig::syntax_catalog`.
 ///
 /// # Examples
 ///

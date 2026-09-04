@@ -14,10 +14,16 @@ The component currently provides the integration foundation:
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
-- one core.health-check subscription at the Document phase
-- one core.expression-candidates Transform subscription for primitive and registered Expression semantics
-- Effect, Section, and Structure subscriptions for class-specific semantics
+- nine registered subscriptions: a Document health check, ParseStage
+  Expression candidates, registered-Expression and Type semantics, Condition,
+  Effect, Section, and Structure semantics, plus a low-priority Tree-phase
+  options preprocessor
 - typed exports for hooks and text, tree, and AST macro interfaces
+
+The manifest requires `parser.hooks`, the five syntax-parser capabilities,
+Tree macros, and `parser.state-store`. It optionally consumes
+`parser.dynamic-syntax` and `parser.catalog-data` version 2; Text and AST macro
+capabilities are not requirements.
 
 The health hook validates its target, phase, and payload, then continues
 without modifying the document.
@@ -25,8 +31,8 @@ without modifying the document.
 The Expression hook recognizes braced variables, quoted string literals,
 finite signed integer/decimal literals, booleans, SSG-supplied finite type literals,
 entity-data literals, and generated
-`ClassInfo` literals at legal split points. It also resolves the built-in
-dynamic semantics of `ExprAllBannedEntries`, `ExprAnyOf`, `ExprDefaultValue`,
+`ClassInfo` literals at legal split points. It also resolves built-in dynamic
+semantics including `ExprAllBannedEntries`, `ExprAnyOf`, `ExprDefaultValue`,
 `ExprCustomModelData`, `ExprElement`, `ExprEntities`, `ExprFromUUID`,
 `ExprInput`, `ExprInventoryInfo`, `ExprInventorySlot`,
 `ExprJoinSplit`, `ExprParse`, `ExprRandom`, `ExprRandomCharacter`,
@@ -48,9 +54,10 @@ and invokes CoreLibrary again with result graphs. CoreLibrary references the
 host-issued result tokens from its leaf candidate, so the selected roots become
 native child AST nodes with rebased spans instead of opaque metadata.
 
-The Effect and Section hooks provide the class-specific semantics for
-`EffChange`, `EffDoIf`, `EffSort`, `EffTransform`, `SecConditional`, and
-`SecWhile`. Sort and transform mapping captures are parsed as nested
+The Effect and Section hooks provide class-specific semantics including
+`EffChange`, `EffDoIf`, `EffSort`, `EffTransform`, `EffSecShoot`, `EffSecSpawn`,
+`SecConditional`, `SecFilter`, `SecLoop`, `SecWhile`, and `SecCatchErrors`, as
+well as version, platform, and event-context guards. Sort and transform mapping captures are parsed as nested
 Expressions with an InputSource context that is visible only inside the
 mapping. Property Expressions
 publish an owned `change-contract` assembled from `Properties.json` and, when
@@ -70,14 +77,31 @@ remains intentionally deferred.
 The Structure hook implements `StructEvent`, `StructFunction`, and
 `StructCommand`. It claims semantic captures through registered handler IDs,
 selects Trigger or EntryValidator body parsing, and derives Event context from
-the captured SSG Event data. Structure matching, `NodeType`, EntryValidator,
-and RawTree traversal remain native parser responsibilities. Third-party addons
-can implement their own Structure internals through the same hook without a
-CoreLibrary change.
+the captured SSG Event data. `StructFunction` publishes a
+`document-function` declaration and may request host Expression parses for
+default values; its body uses `FunctionEvent` context. `StructCommand` uses
+`ScriptCommandEvent` context for command defaults. Structure matching,
+`NodeType`, EntryValidator, and RawTree traversal remain native parser
+responsibilities. Third-party addons can implement their own Structure
+internals through the same hook without a CoreLibrary change.
 
-Text, tree, and AST macro exports currently return `unsupported-capability`.
-Function-call matching remains in the native parser; legacy-specific semantics
-are not implemented.
+Text and AST macro exports currently return `unsupported-capability`. The Tree
+macro export is implemented only for the low-priority CoreLibrary options
+preprocessor: it performs one-pass `{@...}` replacement on Simple and Section
+nodes, preserves replaced Section children, and emits undefined-option
+diagnostics. Generated nodes re-enter the Tree phase; this is not a general
+purpose CoreLibrary tree-macro API. Function-call matching remains in the
+native parser, while `StructFunction` only contributes the document-function
+declaration. Version-gated legacy Structure registrations are installed when
+the optional dynamic-syntax capability is available.
+
+Initialization requires a non-empty, parseable `runtime.skript-version`. When
+`ParserHost::new` receives an SSG-backed `syntax_catalog`, it automatically
+fills missing RuntimeProfile fields from that Catalog before initialization;
+callers do not need to duplicate the Skript version. With neither a source
+Catalog nor an explicit profile version, the default configuration therefore
+fails CoreLibrary initialization. Version-sensitive handlers may reject
+unsupported syntax or return unresolved diagnostics.
 
 ## Why It Is a WASM Component
 

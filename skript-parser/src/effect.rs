@@ -13,12 +13,15 @@ use crate::{
     ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseError,
     ExpressionParserConfig, ExpressionSession, FailureFrame, FailureFrameRole, FailureTrace,
     HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID, HOST_EXPRESSION_PARSER_ID, MappedSource,
-    MatchSpan, ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus, ParsedCaptureValue,
-    PatternCapture, PatternFailure, PatternFailureReason, RankedFailures, RawNode, RawNodeId,
-    RawNodeKind, RegisteredSyntaxIdentity, TextRange,
+    MatchSpan, MatchSyntaxKind, ParsedCapture, ParsedCaptureResult, ParsedCaptureStatus,
+    ParsedCaptureValue, PatternCandidate, PatternCapture, PatternFailure, PatternFailureReason,
+    RankedFailures, RawNode, RawNodeId, RawNodeKind, RegisteredSyntaxIdentity, TextRange,
+    catalog_syntax_kind,
 };
 use std::collections::{BTreeMap, HashSet};
-use syntaxes::{Catalog, DynamicSyntaxSnapshot, PossibleReturnTypesState, SyntaxKind};
+use syntaxes::{
+    Catalog, CommonSyntax, DynamicSyntaxSnapshot, PossibleReturnTypesState, Syntax, SyntaxKind,
+};
 use thiserror::Error;
 
 /// Input required to parse one lossless Simple node as an Effect.
@@ -160,7 +163,7 @@ pub enum EffectParseError {
     Condition(#[from] ConditionParseError),
 }
 
-/// Parses one Simple node with static Effect registrations.
+/// Parses one Simple node with static EffectSection and Effect registrations.
 ///
 /// # Examples
 ///
@@ -203,7 +206,7 @@ pub fn parse_effect<E: ExpressionParseEnvironment>(
     parse_effect_with_snapshot(catalog, None, request, environment, config)
 }
 
-/// Parses one Simple node with static and frozen dynamic Effect registrations.
+/// Parses one Simple node with static EffectSections and static/dynamic Effects.
 ///
 /// The complete code span must match one candidate. `%type%` captures recurse
 /// through the same Expression session, so nested candidates share memoization,
@@ -262,7 +265,7 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     depth: usize,
 ) -> Result<EffectMatches, EffectParseError> {
     session.ensure_depth(depth)?;
-    let mut candidates = session.syntax_candidates(SyntaxKind::Effect);
+    let mut candidates = effect_pattern_candidates(session);
     session.retain_viable_patterns(range, &mut candidates)?;
     let matches = session.match_candidates_at_depth(range, &candidates, depth)?;
     let CandidateMatches {
@@ -422,6 +425,52 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     })
 }
 
+fn effect_pattern_candidates<'a, E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'a, E>,
+) -> Vec<PatternCandidate<'a>> {
+    // Skript tries EffectSection registrations before ordinary Effects.
+    let mut candidates = session.syntax_candidates(SyntaxKind::Section);
+    {
+        let catalog = session.catalog();
+        candidates.retain(|candidate| {
+            effect_candidate_common(
+                catalog,
+                candidate.kind,
+                &candidate.definition_id,
+                &candidate.registration_id,
+            )
+            .is_some()
+        });
+    }
+    candidates.extend(session.syntax_candidates(SyntaxKind::Effect));
+    candidates
+}
+
+fn effect_candidate_common<'a>(
+    catalog: &'a Catalog,
+    kind: MatchSyntaxKind,
+    definition_id: &str,
+    registration_id: &str,
+) -> Option<&'a CommonSyntax> {
+    catalog
+        .syntax_by_registration_id(registration_id)
+        .into_iter()
+        .find_map(|syntax| match (kind, syntax) {
+            (MatchSyntaxKind::Effect, Syntax::Effect(effect))
+                if effect.common.definition_id.as_str() == definition_id =>
+            {
+                Some(&effect.common)
+            }
+            (MatchSyntaxKind::Section, Syntax::Section(section))
+                if section.effect_section
+                    && section.common.definition_id.as_str() == definition_id =>
+            {
+                Some(&section.common)
+            }
+            _ => None,
+        })
+}
+
 fn semantic_candidate_failure(
     matched: &CandidateMatch,
     resolved_order: Option<usize>,
@@ -452,11 +501,13 @@ fn effect_candidate_failure<E: ExpressionParseEnvironment>(
             .values()
             .find(|definition| definition.id.qualified() == matched.registration_id)
     });
-    let element_class = session
-        .catalog()
-        .effects()
-        .find(|effect| effect.common.registration_id.as_str() == matched.registration_id)
-        .map(|effect| effect.common.element_class.clone());
+    let element_class = effect_candidate_common(
+        session.catalog(),
+        matched.kind,
+        &matched.definition_id,
+        &matched.registration_id,
+    )
+    .map(|common| common.element_class.clone());
     EffectCandidateFailure {
         matched,
         element_class,
@@ -473,12 +524,13 @@ pub(crate) fn effect_semantic_summary(
         kind: "effect".to_owned(),
         definition_id: Some(candidate.matched.definition_id.clone()),
         registration_id: Some(candidate.matched.registration_id.clone()),
-        element_class: catalog
-            .effects()
-            .find(|effect| {
-                effect.common.registration_id.as_str() == candidate.matched.registration_id
-            })
-            .map(|effect| effect.common.element_class.clone()),
+        element_class: effect_candidate_common(
+            catalog,
+            candidate.matched.kind,
+            &candidate.matched.definition_id,
+            &candidate.matched.registration_id,
+        )
+        .map(|common| common.element_class.clone()),
         pattern_index: Some(candidate.matched.pattern_index),
         return_type: None,
         possible_return_types: Vec::new(),
@@ -503,18 +555,20 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             .values()
             .find(|definition| definition.id.qualified() == matched.registration_id)
     });
-    let element_class = session
-        .catalog()
-        .effects()
-        .find(|effect| effect.common.registration_id.as_str() == matched.registration_id)
-        .map(|effect| effect.common.element_class.clone());
+    let element_class = effect_candidate_common(
+        session.catalog(),
+        matched.kind,
+        &matched.definition_id,
+        &matched.registration_id,
+    )
+    .map(|common| common.element_class.clone());
     let handler = dynamic.map(|definition| definition.handler.clone());
     let dynamic_handler = dynamic.map(|definition| definition.handler.as_str());
     let metadata = dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone());
     let capture_bindings = session
         .environment()
         .registered_capture_bindings(RegisteredSyntaxIdentity {
-            kind: SyntaxKind::Effect,
+            kind: catalog_syntax_kind(matched.kind),
             definition_id: &matched.definition_id,
             registration_id: &matched.registration_id,
             pattern_index: Some(matched.pattern_index),

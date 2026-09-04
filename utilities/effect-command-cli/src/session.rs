@@ -29,10 +29,10 @@ const EVENT_CONTEXT_DOCUMENTS: [&str; 2] = [
 ];
 const EVENT_LIST_DOCUMENT: &str = "file:///effectcommandcli/event-list.sk";
 
-/// Snapshot loading, input validation, parser-host, or transaction failure.
+/// Snapshot loading, input or Event-context validation, parser-host, or transaction failure.
 #[derive(Debug, Error)]
 pub enum EffectCommandSessionError {
-    /// The schema 3 or 4 snapshot could not be loaded or validated.
+    /// The SSG snapshot could not be loaded or validated.
     #[error("failed to load SSG snapshot {path}: {source}")]
     Snapshot {
         path: PathBuf,
@@ -71,9 +71,11 @@ pub enum EffectCommandSessionError {
 /// Reusable SSG catalog and WASM parser host for Effect command analysis.
 ///
 /// Loading performs full schema and digest validation once. Successive calls to
-/// [`Self::analyze`] reuse the catalog and CoreLibrary host but receive distinct
-/// document revisions and speculative transactions. Analysis never executes an
-/// Effect and cancels every transaction after constructing the report.
+/// [`Self::analyze`] reuse the catalog and CoreLibrary host. Without an Event
+/// context, each analysis uses a new document revision and cancels its speculative
+/// transaction. With an Event context, it restores a savepoint in the retained
+/// Event transaction. Both paths discard analysis state before constructing the
+/// report and never execute an Effect.
 pub struct EffectCommandSession {
     snapshot_path: PathBuf,
     snapshot: SnapshotDescription,
@@ -86,7 +88,7 @@ pub struct EffectCommandSession {
 }
 
 impl EffectCommandSession {
-    /// Loads and validates one SSG schema 3 or 4 snapshot and initializes CoreLibrary.
+    /// Loads and validates an SSG schema 3 through 5 snapshot and initializes CoreLibrary.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, EffectCommandSessionError> {
         let snapshot_path = snapshot_directory(path);
         let loaded =

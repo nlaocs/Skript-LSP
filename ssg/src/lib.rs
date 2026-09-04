@@ -11,9 +11,10 @@ mod error;
 mod loader;
 /// Serde data-transfer objects that mirror SSG schema 3 through 5 JSON.
 ///
-/// These types preserve the generator's wire format, including nullable
-/// resolution states. They are public for format tooling; runtime consumers
-/// should prefer the normalized `syntaxes` model.
+/// These types preserve the generator's wire format, including nullable fields
+/// and explicit resolution-state values. For Serde `Option` fields, an omitted
+/// value and JSON `null` both deserialize as `None`. They are public for format
+/// tooling; runtime consumers should prefer the normalized `syntaxes` model.
 #[allow(missing_docs)]
 pub mod raw;
 mod validate;

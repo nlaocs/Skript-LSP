@@ -32,6 +32,9 @@ without linking the native host.
 
 The WIT package is `nlaocs:skript-parser-addon@0.27.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
+This WIT package version is separate from the Rust crate and component
+versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
+uses its crate version (`CARGO_PKG_VERSION`) as `component-version`.
 
 Guest exports:
 
@@ -97,11 +100,21 @@ older host without failing while lifting its manifest.
   `addon.initialize`.
 
 The host advertises and executes Text and Tree macros. The AST macro capability
-remains contract-only and is not advertised yet.
+remains contract-only and is not advertised yet. CoreLibrary's manifest
+requires `parser.hooks`, the five syntax-parser capabilities, Tree macros, and
+`parser.state-store`; it optionally consumes `parser.dynamic-syntax` and
+`parser.catalog-data` version 2. It does not require Text or AST macros.
 
 `addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
 manifest. It includes snapshot/server/Skript/Minecraft/Java versions, language,
-and enabled plugins in load order. Components may use it to select semantics
+and enabled plugins in load order. `ParserHost::new` calls
+`HostConfig::inherit_catalog_runtime` before validation: when
+`syntax_catalog` contains an SSG-backed source, missing profile fields,
+including the Skript version and snapshot identity, are filled from that
+source. Callers do not need to duplicate those values. A default configuration
+with neither a source Catalog nor an explicit Skript version is rejected by
+CoreLibrary initialization; explicitly supplied snapshot identity must still
+match the source Catalog. Components may use the profile to select semantics
 whose Java class or parse mark changed between releases without treating one
 Skript release as the implicit default.
 
@@ -198,13 +211,23 @@ resolved ordering. `%type%` captures re-enter the recursive Expression session,
 so selected Effect and child Expression state use one transaction hierarchy.
 
 Effect subscriptions declare `parser.effect` and run in the `Effect` phase.
-A category hook runs before native matching, then the selected exact
-registration, or the Effect category for an unknown node, runs afterward. The
-typed payload retains definition and registration IDs, element class, pattern
-index, capture spans, parse tags, XOR marks, parsed Condition or nested Effect
-captures, dynamic handler metadata, alternatives, and the farthest failure. A replacement may update only the selected handler and
-metadata; immutable registration identity, captures, alternatives, and spans
-are validated by the host.
+The host sends a category-level `SyntaxKind::Effect` hook before native
+matching. Exact pattern/registration semantic hooks run during candidate
+matching; the outer after dispatch is reserved for unknown or near-match
+diagnostics. Skript-compatible matching tries catalog `EffectSection`
+registrations before ordinary Effects. A selected ordinary Effect keeps an
+`Effect` syntax-kind target, while a selected one-line EffectSection keeps a
+`Section` syntax-kind target but still uses the `Effect` phase. The WIT
+`effect-candidate` exposes stable effect identity and captures; the host-side
+dispatch target retains the `Section` kind, while the WIT pattern reference
+itself carries definition/registration identity and pattern index. A guest can
+distinguish the EffectSection through catalog lookup rather than an extra WIT
+candidate flag. The typed payload retains definition and
+registration IDs, element class, pattern index, capture spans, parse tags, XOR
+marks, parsed Condition or nested Effect captures, dynamic handler metadata,
+alternatives, and the farthest failure. A replacement may update only the
+selected handler and metadata; immutable registration identity, captures,
+alternatives, and spans are validated by the host.
 
 Unknown, rejected, invalid-output, and failed Effect pipelines restore their
 entry StateStore savepoint. The returned unknown node keeps its exact source,
@@ -224,13 +247,18 @@ Expressions, Effects, or Sections.
 EffectSections, SectionExpressions, and frozen dynamic Sections. The selected
 candidate preserves those three metadata flags. Before and after recursively
 parsing its child Sections and Effects, the host dispatches the exact
-registration in the `Section` phase with `parser.section`. Enter-phase context
-updates apply only to that body and its descendants. Unknown or multiply
-claimed body nodes remain in the partial tree with diagnostics.
+registration in the `Section` phase with `parser.section`. A block-form
+EffectSection therefore follows this Section lifecycle; a one-line
+`RawNodeKind::Simple` EffectSection follows the Effect path above and retains
+its `Section` syntax kind while using the `Effect` phase. Enter-phase context
+updates apply only to the Section body and its descendants. Unknown or
+multiply claimed body nodes remain in the partial tree with diagnostics.
 
-CoreLibrary declares semantic handlers for Skript's conditional and while
-Sections, `ExprWhether`, `ExprTernary`, `EffChange`, and `EffDoIf`. Addons can use the same
-manifest declarations for their own raw, Condition, or nested Effect captures.
+CoreLibrary declares semantic handlers including Skript's conditional, filter,
+loop, while, and error-catching Sections, `ExprWhether`, `ExprTernary`,
+`EffChange`, `EffDoIf`, `EffSecShoot`, and `EffSecSpawn`. Addons can use the
+same manifest declarations for their own raw, Condition, or nested Effect
+captures.
 
 ### Dynamic Structure registration
 
@@ -381,12 +409,14 @@ A subscription selects a target, phase, signed priority, and mode.
 - `transform` may return a replacement payload for later hooks.
 - `override` handles the target instead of its normal implementation.
 
-Targets may address a syntax kind, definition ID, registration ID, or an exact
-`registrationId + patternIndex` pair. A declarative selector can further test
-the current pattern, mark, tags, parsed captures, effective return type,
-multiplicity, and metadata. Selector predicates are ANDed. Type predicates use
-`Match`, `NoMatch`, and `Unknown`; `Unknown` still invokes WASM so the component
-can make the final applicability decision.
+Targets may address a parse stage, a parser ID, a syntax kind, a definition ID,
+a registration ID, or an exact `registrationId + patternIndex` pair. A
+declarative selector can further test the current pattern, mark, tags, parsed
+captures, effective return type, multiplicity, and metadata. Selector
+predicates are ANDed. Return-type selectors use `exact`, `assignable`, or
+`convertible` relations. A missing catalog relation is reported internally as
+`Unknown`, rather than `NoMatch`, so WASM still receives the invocation and can
+make the final applicability decision.
 
 `NotApplicable` means that the hook did not claim the current payload. Its
 replacement, effects, StateStore writes, and dynamic syntax changes are
@@ -447,6 +477,12 @@ through the `catalog-data` import without copying all JSON into every payload.
 - `declared-method-exists` replays `Class.getDeclaredMethod` for a captured class.
   `Some(false)` is definitive when schema 5 method metadata is present, while
   `None` preserves older snapshots and uncaptured classes as unresolved.
+- SSG schema 5 also retains `Language.json`; schema 3 and 4 snapshots have no
+  retained Language entries. `catalog-data::language-value` performs an exact,
+  case-sensitive key lookup and returns `none` for a missing key or an older
+  snapshot. `language-pattern-matches` uses the retained regex when present and
+  otherwise the caller's fallback, anchors the match to the complete input, and
+  compiles the regex outside the guest fuel budget.
 
 Unknown fields remain available in the raw JSON. Indexed record bytes are
 valid JSON but do not preserve whitespace or object-key order. Each chunk or

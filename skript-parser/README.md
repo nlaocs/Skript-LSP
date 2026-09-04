@@ -2,15 +2,17 @@
 
 [日本語](README.ja.md)
 
-`skript-parser` owns source-level primitives for parsing actual `.sk`
-documents. Its current implementation focuses on UTF-8 ranges, virtual source
-mapping, validated Text edit application, macro expansion provenance, syntax
-contexts, and a lossless indentation-based RawTree.
+`skript-parser` owns source mapping, lossless RawTree construction, registered
+syntax matching, and recursive source-level syntax trees for `.sk` documents.
+It parses Expressions, Conditions, Effects, Event headers, Sections, and
+top-level Structures with declarative EntryValidator bodies. It also owns the
+transactional registry consumed by document-defined Function calls.
 
-The crate splits preprocessed source into physical lines, builds its
-comment/indentation structure, and matches line text against registered syntax
-patterns. It does not yet produce a complete Skript AST; later stages build on
-the ranges, provenance, RawTree, captures, and candidate ordering defined here.
+These stages are library APIs. Callers supply a Catalog and an
+`ExpressionParseEnvironment`; `parser-wasm` provides the real WASM-backed
+environment and CoreLibrary semantics. The crate does not run Skript code,
+provide LSP/HTTP transport, or guarantee complete semantics for every addon.
+Unknown or rejected input remains available as partial trees and diagnostics.
 
 ## Why This Is Separate from syntax-pattern-parser
 
@@ -88,6 +90,10 @@ cycles across the resulting directed acyclic graph. `backtrace` returns the
 primary path from the innermost call to the root for simple consumers, while
 `backtraces` returns every distinct parent-expansion path.
 
+The `Ast` expansion kind and syntax-context IDs provide provenance primitives;
+they do not imply an implemented AST macro execution pipeline or complete
+hygienic name resolution.
+
 ### Lossless RawTree
 
 `parse_raw_tree` converts a `MappedSource` into an arena-backed `RawTree`.
@@ -153,8 +159,10 @@ run the recursive Expression parser and return one or more typed resolutions at
 legal Skript split points. Local ranges remain relative to the matched line,
 while every result also carries its editor-facing `MappedSpan` provenance.
 
-Candidates are ordered by a dynamic registry's resolved order when present,
-otherwise by numeric priority, registration order, and declaration order.
+For mixed syntax kinds, candidates first follow the caller's first-seen kind
+order, preserving separate parser phases. Within each kind, resolved registry
+order comes first when present, followed by numeric priority, registration
+order, and declaration order.
 Patterns retain their registration index. Results contain the selected match,
 all later alternatives, or a farthest-failure diagnostic when nothing matches.
 
@@ -169,7 +177,11 @@ and nested element scopes before and after matching. Element paths include both
 sequence and choice-branch positions. Configurable state, backtrack, regex
 execution, evaluated-byte, and regex-engine limits bound ambiguous or hostile
 patterns. Transition memoization avoids repeating deterministic literal and
-regex work.
+regex work. `RankedFailures` retains candidate identities and pattern sources;
+`FailureTrace` connects enclosing syntax/captures to the innermost failure.
+Bounded diagnostic recovery can retain several failed captures without treating
+the incomplete candidate as accepted. It is not unrestricted error recovery.
+
 ## Recursive Expression Parsing
 
 `parse_expression` combines SSG `Catalog` registrations with leaf parsers from
@@ -179,10 +191,17 @@ dynamic return metadata, and registry revision in memo keys.
 
 Each top-level `ExpressionExpectedType` retains both its Java class and singular/plural requirement. The parser preserves `%type%` alternatives, plurality, nullable markers,
 literal/expression flags, and time state. It filters return classes through the
-Catalog hierarchy, rejects Multiple-only results for singular placeholders,
+Catalog hierarchy and registered converters, rejects Multiple-only results for singular placeholders,
 and recursively attaches typed captures as child `ExpressionNode` values.
 Variables, literals, functions, and custom addon parsers use the same mapped
 spans as registered expressions.
+
+Complete outer parentheses, arithmetic, and Expression lists have dedicated
+node forms. List splitting respects quotes, variables, and nested parentheses;
+a grouped list in a Function call remains one argument. Registered semantic
+handlers can refine return classes, multiplicity, metadata, and parsed captures.
+Regex captures requiring a parser route are not silently treated as fully
+understood syntax when that route is unavailable.
 
 Left-recursive forms such as `%strings% in upper case` use seed-and-grow parsing.
 Leading and trailing literal constraints are extracted conservatively from the
@@ -195,9 +214,11 @@ StateStore revision, and dynamic registry revision.
 Registered Functions use a dedicated call parser before ordinary registered
 Expression matching. It recognizes Skript's Unicode Function names, skips
 quoted strings, variables, and nested parentheses while finding argument
-boundaries, and resolves signatures from the exact SSG `Functions.json`
-catalog. Exact signatures are attempted before single-plural-parameter
-signatures, matching Skript 2.15.4.
+boundaries, and resolves signatures from the SSG `Functions.json` catalog and
+the environment's document registry. `FunctionVersionPolicy` selects version
+boundaries for local Functions, overloads, named arguments, and return syntax;
+the WASM host derives the policy from the runtime profile. Exact signatures are
+attempted before single-plural-parameter signatures.
 
 Each argument is recursively parsed as the parameter's Java component type.
 Named arguments are rebound to their declared parameter, optional parameters
@@ -208,16 +229,20 @@ definition/registration IDs, and parameter-to-child ranges; its parent
 
 `ExpressionParseEnvironment::lookup_functions` may prepend definitions visible
 in the current document or project. A definition with the same parameter shape
-shadows the catalog global, so future user Function declarations reuse the same
-call AST, recursion, and overload logic instead of adding a second parser.
+shadows the catalog global. The host already uses this for `StructFunction`
+declarations: all accepted headers register before bodies are parsed.
+`FunctionRegistryTransaction` validates declarations and supports rollback;
+`FunctionRegistrySnapshot` retains signatures for subsequent lookup. This does
+not implement a project-wide cross-file symbol index or variable type-flow analysis.
 
 ## Effect Parsing
 
 `parse_effect` consumes one lossless `RawNodeKind::Simple` node. It matches the
-node's exact code span against static SSG Effect registrations and returns the
+node's exact code span against static SSG EffectSection registrations first,
+then ordinary Effects, and returns the
 selected `EffectCandidate`, deterministic alternatives, or an
 `UnknownEffectNode`. The unknown form retains the original `RawNodeId`, exact
-code text, mapped source span, and merged farthest `PatternFailure` so later
+code text, mapped source span, and ranked candidate `FailureTrace` values so later
 LSP recovery does not discard an unrecognized line.
 
 `parse_effect_with_snapshot` combines static and dynamic registrations in the
@@ -226,6 +251,13 @@ metadata. Typed captures share an internal `ExpressionSession`, attaching child
 `ExpressionNode` values while reusing recursion limits, memoization, matcher
 hooks, and candidate transaction boundaries. Patterns without placeholders do
 not instantiate an Expression path.
+
+Only static Sections marked `effectSection` participate in one-line Effect
+parsing. Their source identity remains `MatchSyntaxKind::Section`, including
+Section definition/registration IDs; ordinary Sections are excluded. In the
+WASM host this is a Section target in the Effect phase, not a Section body
+lifecycle. General dynamic Section registrations do not imply EffectSection
+support. This entry point does not add a standalone void Function-call statement path.
 
 ## Condition Parsing
 
@@ -253,6 +285,10 @@ children as nested Sections or Effects. Header candidates combine ordinary
 Sections, EffectSections, and Expression registrations marked as
 SectionExpressions. The selected node retains all three metadata flags,
 semantic Condition captures, child Expressions, and dynamic handler metadata.
+
+The body mode is either `Trigger` (nested Sections and Effect lines) or
+`Conditions` (Condition lines). There is no general Condition-statement fallback
+for an unmatched Effect line in `Trigger` mode.
 
 `ExpressionParseEnvironment::enter_section_children` may derive a child
 context before the body is parsed; `exit_section_children` observes that same
@@ -307,10 +343,15 @@ should carry `MappedSpan` rather than reconstructing locations after the fact.
 | `text` | `TextRange` and UTF-8 range operations |
 | `source_map` | origins, segments, mapped source, and mapped spans |
 | `expansion` | expansion graph, component/hook ownership, and syntax contexts |
+| `tree_edit` | validated node/body edits and generated-tree provenance |
 | `raw_tree` | physical lines, comment splitting, indentation recovery, and RawTree |
-| pattern_match | registered-pattern matching, captures, ranking, hooks, and limits |
+| `pattern_match` | registered-pattern matching, captures, ranking, hooks, and limits |
+| `failure` | ranked candidate failures, nested causes, and semantic diagnostic spans |
 | `expression` | recursive Expression AST, type filtering, left recursion, memoization, and leaf parser integration |
-| `function` | registered Function calls, named/optional/list arguments, overloads, and document lookup extension |
+| `arithmetic` | operator precedence and catalog-backed arithmetic result types |
+| `expression_list` | top-level list splitting and conjunction semantics |
+| `function` | registered/document Function calls, named/optional/list arguments, and overloads |
+| `function_registry` | declaration validation, version policy, transactions, and frozen document lookup |
 | `effect` | Simple-node Effect candidates, dynamic metadata, nested Expressions, and unknown recovery |
 | `condition` | registration-order Condition matching, outer-parenthesis handling, and nested Expressions |
 | `event` | Event header matching, reference event classes, cancellability, and semantic captures |

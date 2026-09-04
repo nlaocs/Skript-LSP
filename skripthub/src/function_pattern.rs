@@ -1,5 +1,6 @@
 //! Compatibility parser for SkriptHub's legacy function syntax strings.
-//! SSG `Functions.json` is already structured and must not pass through this parser.
+//! SSG `Functions.json` already stores structured names, parameters, modifiers,
+//! and return metadata; those records must not pass through this parser.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Parsed legacy function wrapper retained for API compatibility.

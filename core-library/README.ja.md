@@ -13,10 +13,12 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 - component ID `nlaocs.core-library`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
-- Document phaseのcore.health-check subscription 1件
-- primitive候補と登録Expressionの意味解析用core.expression-candidates Transform subscription 1件
-- class固有の意味処理を行うEffect、Section、Structure subscription
+- Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
+  Structureの意味処理、およびlow-priority Tree phaseのoptions preprocessorからなる9件のsubscription
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
+
+manifestは`parser.hooks`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
+`parser.dynamic-syntax`とversion 2の`parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
 
@@ -29,8 +31,8 @@ integer/decimal literal、boolean、SSG由来の有限type literal、entity-data
 `ExprRandomCharacter`、`ExprRandomNumber`、`ExprReversedList`、`ExprSets`、
 `ExprShuffledList`、`ExprSortedList`、`ExprTernary`、`ExprWhether`と、標準の
 `PropExprAmount`、`PropExprCustomName`、`PropExprName`、`PropExprNumber`、
-`PropExprScale`、`PropExprSize`、`PropExprValueOf`、`PropExprWXYZ`について、
-動的な意味と返値metadataを解決します。property handlerはSSG metadataからsource classに
+`PropExprScale`、`PropExprSize`、`PropExprValueOf`、`PropExprWXYZ`などのbuilt-in dynamic semanticsと
+返値metadataを解決します。property handlerはSSG metadataからsource classに
 最も近いassignable classを選び、Skriptのproperty初期化規則に合わせます。hostから渡された
 expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
@@ -41,9 +43,10 @@ hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibra
 hostが発行したresult tokenをleaf候補から参照するため、選択されたrootはopaque metadataではなく、
 外側へspanを再配置したnative child ASTになります。
 
-EffectとSection hookは`EffChange`、`EffDoIf`、`EffSort`、`EffTransform`、`SecConditional`、`SecWhile`固有の
-意味処理を提供します。sortとtransformのmapping captureは、そのmapping内だけで見えるInputSource contextを
-使ってnested Expressionとして解析します。
+EffectとSection hookは、`EffChange`、`EffDoIf`、`EffSort`、`EffTransform`、`EffSecShoot`、`EffSecSpawn`、
+`SecConditional`、`SecFilter`、`SecLoop`、`SecWhile`、`SecCatchErrors`などのclass固有の意味処理を提供し、
+version、platform、event contextのguardも扱います。sortとtransformのmapping captureは、そのmapping内だけで
+見えるInputSource contextを使ってnested Expressionとして解析します。
 Property Expressionは`Properties.json`と、Skriptがchange-in-placeの書き戻しを要求する場合は解析済みsource
 Expressionのcontractからowned `change-contract`を公開します。`EffChange`はこのmetadataを優先し、なければ
 `Expressions.json`または`EventValues.json`の生recordへfallbackします。子を再解析せず
@@ -55,12 +58,24 @@ record数・byte数上限とbounded cacheがあります。variableの型履歴�
 
 Structure hookは`StructEvent`、`StructFunction`、`StructCommand`を実装します。登録handler IDを通じて
 意味付きcaptureを取得し、TriggerまたはEntryValidator body解析を選び、取得したSSG Event dataから
-Event contextを派生します。Structure照合、`NodeType`、EntryValidator、RawTree走査はnative parserの
-責務です。third-party addonも同じhookを使って独自Structureの内部を実装でき、CoreLibraryの変更は
-不要です。
+Event contextを派生します。`StructFunction`は`document-function` declarationを公開し、default valueの
+ためにhost Expression parseを要求することがあり、bodyでは`FunctionEvent` contextを使います。
+`StructCommand`のdefaultは`ScriptCommandEvent` contextで解析します。Structure照合、`NodeType`、
+EntryValidator、RawTree走査はnative parserの責務です。third-party addonも同じhookを使って独自Structureの
+内部を実装でき、CoreLibraryの変更は不要です。
 
-text、tree、AST macroのexportは、現時点では`unsupported-capability`を返します。
-Function callの照合はnative parserが担当し、legacy固有の意味処理は未実装です。
+textとAST macroのexportは、現時点では`unsupported-capability`を返します。Tree macro exportは、
+low-priorityのCoreLibrary options preprocessor専用に実装されています。SimpleとSection nodeの`{@...}`を
+一回だけ置換し、置換したSectionのchildrenを保持し、undefined option diagnosticを出します。生成nodeは
+Tree phaseへ再入しますが、これは汎用CoreLibrary tree-macro APIではありません。Function callの照合はnative
+parserが担当し、`StructFunction`はdocument-function declarationだけを提供します。optionalな
+dynamic-syntax capabilityが使える場合は、version-gatedなlegacy Structure registrationも追加されます。
+
+初期化には空でないparse可能な`runtime.skript-version`が必要です。`ParserHost::new`がSSG由来の
+`syntax_catalog`を受け取ると、初期化前にCatalogから未指定のRuntimeProfile fieldを自動補完するため、callerが
+Skript versionを重複指定する必要はありません。source Catalogも明示的なprofile versionもないdefault configは
+CoreLibrary初期化に失敗します。version依存のhandlerは未対応syntaxを拒否するか、unresolved diagnosticを返す
+ことがあります。
 
 ## WASM Componentである理由
 

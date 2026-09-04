@@ -182,9 +182,11 @@ pub struct CatalogParts {
 #[derive(Debug, Clone)]
 /// Immutable normalized registry with indexes for parser and LSP queries.
 ///
-/// A catalog is the semantic view of one complete server snapshot. It keeps
-/// generator registration order while adding indexes for syntax IDs, type code
-/// names, functions, converters, event values, aliases, and Java class
+/// When built by `ssg`, a catalog is the semantic view of one complete server
+/// snapshot. `CatalogParts` also permits partial catalogs for tests and other
+/// validated producers. It keeps generator registration order while adding
+/// indexes for syntax IDs, type code names, functions, converters, event values,
+/// aliases, and Java class
 /// relationships. Parser code should share a single catalog rather than copy
 /// individual JSON arrays.
 ///

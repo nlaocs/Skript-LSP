@@ -21,7 +21,7 @@ responseは`AbstractAddonSyntaxList`へdeserializeされます。API fieldには
 addon metadata、compatibility text、pattern文字列、return情報、削除状態、documentation
 fieldが含まれます。
 
-頻出するresponse文字列は`Arc<str>`へinternし、memory使用量を減らします。
+一部の頻出するresponse文字列は`Arc<str>`へinternし、memory使用量を減らします。
 
 ## Legacy変換
 
@@ -41,6 +41,8 @@ Function以外のpatternは、明示的に渡された`PluralRules`を使い、
 `syntax-pattern-parser`で解析します。推測したruleやglobal hardcodeのplural設定を
 使用してはいけません。
 
+Function entityは専用のlegacy function parserを使い、`PluralRules`は使用しません。
+
 返される`SkriptHubSyntax` trait objectはSkriptHubへのlinkを保持します。SSGで使用する
 正規化済み`syntaxes::Syntax` modelとは別のものです。
 
@@ -52,11 +54,13 @@ SkriptHubはfunctionを次のようなflatten済み文字列で公開します�
 example(value: string = "default")
 ```
 
-`function_pattern`には、この古い表現専用のparserがあります。function名、argument、
-default文字列、parenthesis、separator位置を検証します。
+`function_pattern`には、この古い表現専用のparserがあります。対応するfunction名と
+argumentの形、parenthesis、separator位置を検証し、default-expressionの文字列
+（空文字列のdefaultを含む）を保持します。
 
-SSGの`Functions.json`には、name、parameter、modifier、default、return metadataがすでに
-構造化されています。SSG functionをlegacy文字列parserへ通してはいけません。
+SSGの`Functions.json`には、name、parameter、modifier、return metadataがすでに構造化
+されています。flattenされたfunction文字列ではないため、SSG functionをlegacy文字列
+parserへ通してはいけません。
 
 ## Module構成
 

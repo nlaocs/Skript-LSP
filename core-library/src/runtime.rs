@@ -33,8 +33,10 @@ pub(crate) fn replace(
 
 /// Tests whether the host resolved a logical handler to the current SSG registration.
 ///
-/// The host expands Definition and class-suffix targets to their concrete
-/// registration IDs before constructing [`RegisteredHandlerBinding`].
+/// The host expands Definition, class-suffix, superclass, and other resolvable
+/// targets to concrete registration IDs before constructing
+/// [`RegisteredHandlerBinding`]. Opaque dynamic-handler IDs are matched by the
+/// host without relying on Java class-name suffixes.
 pub(crate) fn handler_matches(handler_id: &str, registration_id: &str) -> bool {
     let bindings = REGISTERED_HANDLER_BINDINGS
         .read()

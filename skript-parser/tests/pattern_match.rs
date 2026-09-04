@@ -50,6 +50,53 @@ fn match_one(
     )
 }
 
+#[test]
+fn mixed_syntax_kinds_preserve_parser_phase_then_registry_order() {
+    let source = "same pattern";
+    let parsed = parse(source);
+    let section_late = PatternCandidate {
+        kind: MatchSyntaxKind::Section,
+        definition_id: "section:test:late".to_owned(),
+        registration_id: "section:test:late#0".to_owned(),
+        resolved_order: Some(5),
+        ..candidate(source, &parsed, 50)
+    };
+    let effect_first_in_registry = PatternCandidate {
+        definition_id: "effect:test:first".to_owned(),
+        registration_id: "effect:test:first#0".to_owned(),
+        resolved_order: Some(0),
+        ..candidate(source, &parsed, 0)
+    };
+    let section_early = PatternCandidate {
+        kind: MatchSyntaxKind::Section,
+        definition_id: "section:test:early".to_owned(),
+        registration_id: "section:test:early#0".to_owned(),
+        resolved_order: Some(1),
+        ..candidate(source, &parsed, 10)
+    };
+    let mapped = MappedSource::identity(source);
+    let result = match_pattern_candidates(
+        MatchInput::from_source(&mapped, TextRange::new(0, source.len())).unwrap(),
+        &[section_late, effect_first_in_registry, section_early],
+        &mut RejectTypeExpressions,
+        &mut NoopPatternMatchHooks,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+
+    let selected = result.selected.expect("one candidate must be selected");
+    assert_eq!(selected.kind, MatchSyntaxKind::Section);
+    assert_eq!(selected.registration_id, "section:test:early#0");
+    assert_eq!(
+        result
+            .alternatives
+            .iter()
+            .map(|candidate| candidate.registration_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["section:test:late#0", "effect:test:first#0"]
+    );
+}
+
 #[derive(Debug, Default)]
 struct AcceptTypeExpressions;
 
