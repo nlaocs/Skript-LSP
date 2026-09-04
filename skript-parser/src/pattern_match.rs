@@ -959,10 +959,11 @@ struct MatchEngine<'input, 'candidate, 'ext, E> {
 /// Matches and deterministically ranks all candidates against one complete input.
 ///
 /// A candidate succeeds only when one of its patterns consumes the complete
-/// trimmed input. Successful candidates are ordered by resolved dynamic order,
-/// priority, generator registration order, and declaration order. If none
-/// match, the result prefers the deepest semantic failure and then the farthest
-/// failure at the same depth.
+/// trimmed input. Syntax kinds follow their first appearance in `candidates`;
+/// within a kind, ordering uses resolved registry order, priority, generator
+/// registration order, and declaration order. If none match, ranked failures
+/// prefer concrete spans, parse progress, and semantic specificity, retaining
+/// enclosing capture provenance for diagnostics.
 ///
 /// # Examples
 ///
@@ -1093,9 +1094,18 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
         current: None,
     };
 
+    // Different syntax kinds represent parser phases, not one shared registry.
+    // Preserve the caller's first-seen kind order, then apply registry ordering
+    // within each phase.
+    let mut kind_order = HashMap::new();
+    for candidate in candidates {
+        let next = kind_order.len();
+        kind_order.entry(candidate.kind).or_insert(next);
+    }
     let mut ranked = candidates.iter().enumerate().collect::<Vec<_>>();
     ranked.sort_by_key(|(declaration_order, candidate)| {
         (
+            kind_order[&candidate.kind],
             candidate.resolved_order.is_none(),
             candidate.resolved_order.unwrap_or(usize::MAX),
             candidate.priority,

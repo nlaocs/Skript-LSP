@@ -136,3 +136,17 @@ pub const fn match_kind(kind: SyntaxKind) -> MatchSyntaxKind {
         SyntaxKind::Structure => MatchSyntaxKind::Structure,
     }
 }
+
+/// Maps matcher hook kinds back to normalized catalog kinds.
+pub const fn catalog_syntax_kind(kind: MatchSyntaxKind) -> SyntaxKind {
+    match kind {
+        MatchSyntaxKind::Event => SyntaxKind::Event,
+        MatchSyntaxKind::Condition => SyntaxKind::Condition,
+        MatchSyntaxKind::Effect => SyntaxKind::Effect,
+        MatchSyntaxKind::Expression => SyntaxKind::Expression,
+        MatchSyntaxKind::Type => SyntaxKind::Type,
+        MatchSyntaxKind::Function => SyntaxKind::Function,
+        MatchSyntaxKind::Section => SyntaxKind::Section,
+        MatchSyntaxKind::Structure => SyntaxKind::Structure,
+    }
+}
