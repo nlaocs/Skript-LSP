@@ -2,14 +2,21 @@ mod boolean;
 mod class_info;
 mod enchantment_type;
 mod entity_data;
+mod entity_type;
 mod item_type;
 mod number;
 mod registered_literal;
 mod string_literal;
 mod timespan;
 
-use crate::nlaocs::skript_parser_addon::types::{ExpressionLeafCandidate, ExpressionPayload};
+use crate::nlaocs::skript_parser_addon::types::{
+    ExpressionLeafCandidate, ExpressionPayload, RegisteredSyntaxHandler,
+};
 use crate::{catalog, catalog::TypeRelation};
+
+pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
+    vec![entity_type::handler()]
+}
 
 pub(crate) fn match_type_option<'a>(
     name: &str,
@@ -47,6 +54,14 @@ pub(crate) fn parse(
     text: &str,
     end: u64,
 ) -> Option<ExpressionLeafCandidate> {
+    if let Some(active_type) = &payload.active_type {
+        return crate::runtime::handler_matches(
+            entity_type::HANDLER_ID,
+            &active_type.registration_id,
+        )
+        .then(|| entity_type::parse(payload, text, end))
+        .flatten();
+    }
     let candidates = [
         ("string", string_literal::parse(payload, text, end)),
         ("number", number::parse(payload, text, end)),

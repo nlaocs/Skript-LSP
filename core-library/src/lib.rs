@@ -220,6 +220,7 @@ impl addon::Guest for CoreLibrary {
                 handlers.extend(effects::handlers());
                 handlers.extend(sections::handlers());
                 handlers.extend(structures::handlers());
+                handlers.extend(types::handlers());
                 handlers
             },
             catalog_annotations: Vec::new(),
@@ -407,13 +408,6 @@ fn parse_type(input: HookInvocation) -> Result<HookOutput, AddonError> {
             "CoreLibrary Type parser requires an Expression payload",
         ));
     };
-    if payload.active_type.is_some() {
-        return Ok(HookOutput {
-            decision: HookDecision::NotApplicable,
-            replacement: None,
-            effects: empty_effects(),
-        });
-    }
     if let Some(candidate) = expression_candidates::parse_types(&payload) {
         payload.candidates.push(candidate);
         Ok(HookOutput {
@@ -753,7 +747,7 @@ mod tests {
         assert_eq!(manifest.state_namespaces.len(), 2);
         assert_eq!(manifest.state_namespaces[0].name, "commands");
         assert_eq!(manifest.state_namespaces[1].name, "aliases");
-        assert_eq!(manifest.registered_syntax_handlers.len(), 119);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 120);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",

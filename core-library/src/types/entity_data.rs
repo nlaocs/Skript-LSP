@@ -24,21 +24,55 @@ pub(super) fn parse(
         .remaining
         .start
         .checked_add(u64::try_from(text.len() - literal.len()).ok()?)?;
+    let mut parsed = parse_without_indefinite_article(payload, literal, literal_start, end)?;
+    parsed.range.start = payload.remaining.start;
+    Some(parsed)
+}
+
+/// Parses the entity description after a containing Type has consumed its prefix.
+/// Unlike `parse`, this must not strip another article from that description.
+pub(super) fn parse_without_indefinite_article(
+    payload: &ExpressionPayload,
+    text: &str,
+    start: u64,
+    end: u64,
+) -> Option<ExpressionLeafCandidate> {
+    if !payload.allow_literals {
+        return None;
+    }
+    // Skript 2.6.4 through 2.9.5 reject these characters before parseStatic;
+    // 2.10+ delegates directly to the registered EntityData patterns.
+    // https://github.com/SkriptLang/Skript/blob/2.9.5/src/main/java/ch/njol/skript/entity/EntityData.java
+    if crate::runtime::skript_at_least(2, 10) == Some(false)
+        && (text.is_empty()
+            || !text
+                .bytes()
+                .all(|byte| byte.is_ascii_alphabetic() || matches!(byte, b' ' | b'-')))
+    {
+        return None;
+    }
+    // EntityData delegates to SkriptParser.parseStatic, whose String.trim()
+    // removes only characters <= U+0020, not Rust's broader Unicode whitespace.
+    let without_leading = text.trim_start_matches(|character| character <= '\u{20}');
+    let literal = without_leading.trim_end_matches(|character| character <= '\u{20}');
+    // The shared literal index uses Unicode trim. Do not let it consume extra
+    // non-Java whitespace in the entity description on this parser's behalf.
+    if literal.trim() != literal {
+        return None;
+    }
+    let literal_start = start.checked_add((text.len() - without_leading.len()) as u64)?;
+    let literal_end = end.checked_sub((without_leading.len() - literal.len()) as u64)?;
     if let Some(option) = payload
         .literal_options
         .iter()
         .filter(|option| {
             option.range.start == literal_start
-                && option.range.end == end
+                && option.range.end == literal_end
                 && option.class_name == ENTITY_DATA
         })
         .min_by_key(|option| option.type_parse_order)
     {
-        return Some(candidate_from_entity_option(
-            option,
-            payload.remaining.start,
-            end,
-        ));
+        return Some(candidate_from_entity_option(option, start, end));
     }
 
     if !accepts_entity_data_fallback(payload) {
@@ -49,11 +83,11 @@ pub(super) fn parse(
     let version = profile
         .as_ref()
         .and_then(|profile| profile.minecraft_version.as_deref())?;
-    let literal = legacy_entity_literal(text, Some(version))?;
+    let literal = legacy_entity_literal_without_article(literal, Some(version))?;
     let mut candidate = candidate(
         "core.literal.entity-data",
         ExpressionLeafKind::Literal,
-        payload.remaining.start,
+        start,
         end,
         ENTITY_DATA,
         DynamicMultiplicity::Single,
@@ -89,12 +123,16 @@ fn candidate_from_entity_option(
 
 fn accepts_entity_data_fallback(payload: &ExpressionPayload) -> bool {
     let accepts_entity_data = payload.expected_types.iter().any(|expected| {
-        expected.class_name == ENTITY_DATA || expected.class_name == "java.lang.Object"
+        expected.class_name == ENTITY_DATA
+            || expected.class_name == "ch.njol.skript.entity.EntityType"
+            || expected.class_name == "java.lang.Object"
     });
     let supplier_is_available = payload
         .type_options
         .iter()
         .any(|option| option.class_name == ENTITY_DATA && option.has_supplier);
+    // Even new SSG schemas can describe Skript 2.6.4, which has no supplier.
+    // Composite Type handlers request all type options to inspect this flag.
     let structured_literals_are_available =
         supplier_is_available && crate::runtime::snapshot_schema_at_least(4) == Some(true);
     accepts_entity_data && !structured_literals_are_available
@@ -556,11 +594,19 @@ const LEGACY_ENTITY_LITERALS: &[LegacyEntityLiteral] = &[
     entity_since("raider", "raiders", "org.bukkit.entity.Raider", (1, 14, 0)),
 ];
 
+#[cfg(test)]
 fn legacy_entity_literal(
     text: &str,
     minecraft_version: Option<&str>,
 ) -> Option<LegacyEntityLiteral> {
     let text = crate::language::strip_indefinite_article(text.trim());
+    legacy_entity_literal_without_article(text, minecraft_version)
+}
+
+fn legacy_entity_literal_without_article(
+    text: &str,
+    minecraft_version: Option<&str>,
+) -> Option<LegacyEntityLiteral> {
     let minecraft_version = parse_version(minecraft_version?)?;
     LEGACY_ENTITY_LITERALS
         .iter()

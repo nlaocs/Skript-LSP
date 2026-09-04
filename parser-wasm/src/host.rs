@@ -3727,6 +3727,24 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
 
         for active_type in &specifically_hooked_types {
             payload.active_type = Some(active_type.clone());
+            payload.type_options = if registered_handler_requires_context(
+                &self.hooks.host.components,
+                RegisteredSyntaxIdentity {
+                    kind: CatalogSyntaxKind::Type,
+                    definition_id: &active_type.definition_id,
+                    registration_id: &active_type.registration_id,
+                    pattern_index: None,
+                    pattern_source: None,
+                    tags: None,
+                    mark: None,
+                    dynamic_handler: None,
+                },
+                REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+            ) {
+                all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
+            } else {
+                type_options.clone()
+            };
             let expected_payload = payload.clone();
             let type_savepoint = self
                 .hooks
@@ -6221,7 +6239,22 @@ fn specifically_hooked_expression_types(
     let Some(catalog) = host.config.syntax_catalog.as_deref() else {
         return Vec::new();
     };
-    catalog
+    // Registered Type handlers use the same resolved SSG identities as syntax
+    // handlers. Only their types need an additional, type-specific invocation.
+    let type_handlers = host
+        .components
+        .iter()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .flat_map(|component| {
+            component
+                .manifest
+                .registered_syntax_handlers
+                .iter()
+                .filter(|handler| handler.kind == SyntaxKind::Type)
+                .map(move |handler| (component, handler))
+        })
+        .collect::<Vec<_>>();
+    let mut options = catalog
         .types()
         .filter(|value| {
             expected_types.is_empty()
@@ -6238,10 +6271,27 @@ fn specifically_hooked_expression_types(
                     registration_id: value.registration_id.as_str().to_owned(),
                 },
                 HookPhase::Expression,
-            )
+            ) || type_handlers.iter().any(|(component, handler)| {
+                registered_handler_matches(
+                    component,
+                    handler,
+                    RegisteredSyntaxIdentity {
+                        kind: CatalogSyntaxKind::Type,
+                        definition_id: value.definition_id.as_str(),
+                        registration_id: value.registration_id.as_str(),
+                        pattern_index: None,
+                        pattern_source: None,
+                        tags: None,
+                        mark: None,
+                        dynamic_handler: None,
+                    },
+                )
+            })
         })
         .map(|value| expression_type_option(Some(catalog), value))
-        .collect()
+        .collect::<Vec<_>>();
+    options.sort_by_key(|option| option.type_parse_order);
+    options
 }
 
 fn expression_literal_options(
@@ -10987,7 +11037,7 @@ fn validate_manifest(
             .subscriptions
             .iter()
             .any(|subscription| match kind {
-                CatalogSyntaxKind::Expression => {
+                CatalogSyntaxKind::Expression | CatalogSyntaxKind::Type => {
                     subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
                         && subscription.phase == HookPhase::Expression
                         && matches!(subscription.mode, HookMode::Transform)
