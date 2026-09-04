@@ -1,4 +1,4 @@
-//! Transactional overlay for syntax registered or overridden by WASM components.
+//! Transactional overlay for syntax registered or overridden by components.
 //!
 //! Mutable document revisions are isolated from the immutable static catalog.
 //! Freezing validates references and produces deterministic candidate order.
@@ -63,9 +63,9 @@ pub enum DynamicStructureBodyMode {
     Trigger,
 }
 
-/// Parses a WIT Structure default value without reducing it to a scalar.
+/// Parses JSON text used for dynamic Structure metadata without reducing it to a scalar.
 ///
-/// The dynamic ABI transports defaults as JSON text so `null`, arrays, objects,
+/// The WIT dynamic ABI transports defaults as JSON text so `null`, arrays, objects,
 /// and numeric values retain their JSON meaning until the catalog model owns
 /// them as `serde_json::Value`.
 pub fn parse_json_value(value: &str) -> Result<serde_json::Value, serde_json::Error> {
@@ -261,8 +261,8 @@ struct RegistryInner {
 /// Thread-safe dynamic overlay rooted in an immutable static catalog.
 ///
 /// Components first stage registrations or overrides in a
-/// [DynamicSyntaxUpdate]. Committing the update changes the mutable baseline or
-/// document layer; [DynamicSyntaxRegistry::freeze] then validates ordering
+/// [`DynamicSyntaxUpdate`]. Committing the update changes the mutable baseline or
+/// document layer; [`DynamicSyntaxRegistry::freeze`] then validates ordering
 /// references and returns an immutable candidate list for one document revision.
 ///
 /// # Examples

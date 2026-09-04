@@ -130,8 +130,8 @@ pub fn all_files_for_schema(schema_version: u32) -> Option<&'static [&'static st
 #[derive(Debug, Clone)]
 /// Fully verified snapshot containing its source manifest and runtime catalog.
 ///
-/// A snapshot keeps provenance and runtime data together: [Snapshot::manifest]
-/// identifies the exact server/plugin environment, while [Snapshot::catalog]
+/// A snapshot keeps provenance and runtime data together: [`Snapshot::manifest`]
+/// identifies the exact server/plugin environment, while [`Snapshot::catalog`]
 /// exposes normalized indexes suitable for parser and LSP queries.
 ///
 /// # Examples

@@ -1,8 +1,8 @@
-/// すべてのsyntax型の基底トレイト
+/// Marker trait for syntax values in the legacy SkriptHub model.
 pub trait Syntax {}
-/// SkriptHubから入手したsyntaxの型の基底トレイト
-/// 後に、プラグインのような形でユーザーが自由に構文を追加できるようにするので、
-/// 正式なSyntaxとユーザーが追加したSyntaxを区別するためにこのトレイトを用いる。
+/// Trait implemented by legacy syntax entity types converted from SkriptHub API
+/// entries. It provides the conversion and SkriptHub link methods used by the
+/// compatibility layer.
 pub trait SkriptHubSyntax: Syntax {
     /// SkriptHubのAbstractAddonSyntaxListEntryから変換する
     fn _from_abstract_syntax_list_entry(

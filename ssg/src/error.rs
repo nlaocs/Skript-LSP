@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-/// Failure to read, authenticate, validate, or convert an SSG snapshot.
+/// Failure to read, verify the integrity of, validate, or convert an SSG snapshot.
 ///
 /// Display messages are stable enough for diagnostics; callers should match
 /// variants when behavior depends on the failure class.

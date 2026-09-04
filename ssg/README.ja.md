@@ -11,32 +11,40 @@ snapshotの生成は行いません。
 
 ## 対応format
 
-現在はSSG schema version 3と4に対応しています。完全なsnapshotは`Manifest.json`と18個の
-data fileで構成されます。
+SSG schema version 3から5に対応しています。完全なfile inventoryはschemaごとに異なります。
+
+- schema 3と4は`Manifest.json`と18個のdata fileで構成され、inventoryは
+  `LEGACY_DATA_FILES`と`LEGACY_ALL_FILES`で取得できます
+- schema 5は`Manifest.json`と19個のdata fileで構成され、`Language.json`が必須で、
+  `DATA_FILES`と`ALL_FILES`に含まれます
 
 - syntax: Conditions、Effects、Events、Expressions、Functions、Sections、Structures、Types
 - relationship: ClassHierarchy、Converters、Comparators、EventValues
 - additional registry: Aliases、Differences、Operations、Operators、Properties、PluralRules
+- schema 5のruntime metadata: `Language.json`
 
-正確なfile名は`DATA_FILES`と`ALL_FILES`として公開されています。
+対応schemaのrequired inventoryは`data_files_for_schema`と`all_files_for_schema`で取得できます。
+`DATA_FILES`と`ALL_FILES`は現在のschema 5用で、schema 3と4用は`LEGACY_*` constantです。
 
-schema 3 snapshotは互換性のため読み込みを維持し、現在のgeneratorはschema 4を生成します。
-機能の有無はManifest capabilityで
-表現されるため、意図的に非対応のregistryと、file欠落・不正値は区別されます。
+schema 3と4 snapshotは互換性のため読み込みを維持し、現在のgenerator formatはschema 5です。
+schema 5ではすべての`ClassHierarchy.json` recordに`methods`が必要です。schema 3と4では
+このmetadataを省略できます。`Language.json`のrootはobjectで、valueはstringでなければなりません。
+機能の有無はManifest capabilityで表現されるため、意図的に非対応のregistryと、file欠落・不正値は
+区別されます。
 
 ## 読み込みpipeline
 
 `load(directory)`は次の順序で処理します。
 
 1. `Manifest.json`を読み込み、deserializeする
-2. schema versionが3から4の対応範囲内であることを要求する
+2. schema versionが3から5の対応範囲内であることを要求する
 3. manifestと完全なfile inventoryを検証する
-4. すべてのdata fileを読み込む
-5. serialized fileに対するcontent digestを検証する
+4. schemaでrequiredなすべてのdata fileを読み込む
+5. schemaでrequiredなserialized fileに対するcontent digestを検証する
 6. manifest由来のsnapshot IDを検証する
-7. raw DTOをJSON path付きerrorでdeserializeする
+7. raw DTOとschema 5のlanguage entryをJSON path付きerrorでdeserializeする
 8. file単体とfile間のinvariantを検証する
-9. version固有のplural ruleを構築する
+9. snapshotのplural ruleをparseする
 10. raw snapshotを`syntaxes::Catalog`へ変換する
 
 返される`Snapshot`は、raw Manifestと正規化済みCatalogの両方を保持します。
@@ -57,6 +65,7 @@ fn load_catalog(
 checkは次のとおりです。
 
 - required file、schema、digest、snapshot identity
+- schema 5の`Language.json` object/string valueとclass declared method
 - registration orderとIDの一意性
 - capabilityとdataの整合性
 - resolution stateとnullable valueの整合性
@@ -65,9 +74,17 @@ checkは次のとおりです。
 - EventValueのtime rangeとresolution field
 - alias target indexと到達可能性
 
-schema 3 / 4 readerのforward compatibilityのため、未知のJSON fieldは受け入れます。ただし
-digestは元のserialized file全体を対象とするため、未知fieldによってdigest検証を回避する
-ことはできません。
+schema 3 / 4 / 5 readerのforward compatibilityのため、未知のJSON fieldは受け入れます。ただし
+digestは元のserialized file全体を対象とするため、未知fieldによってdigest検証を回避することは
+できません。typed enum valueとrequired field typeは正しくなければなりません。
+
+optionalなlist fieldでは、省略またはJSON `null`はraw DTOで`None`になり、存在する空arrayは
+空collectionとして保持されます。convert時には複数のoptional collectionがempty vectorへ正規化され、
+legacy expression metadataにはunresolved stateが使用されます。正規化済みCatalogではschema 5の
+languageを`language_value`と`language_entries`で取得できます。language keyはcase-sensitiveで、
+存在しないkeyは`None`、空文字列のvalueは`Some("")`です。`Class.methods`は古いsnapshotが
+method metadataを持たない場合は`None`、metadataがありmethodがない場合は`Some(empty)`です。
+`declared_method_exists`はmethod metadataが利用できない場合に`None`を返します。
 
 ## Moduleの境界
 

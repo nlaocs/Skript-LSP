@@ -40,7 +40,7 @@ pub struct Addon {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Whether runtime-derived metadata was resolved or remained dynamic.
+/// Whether runtime-derived metadata was resolved or unresolved.
 pub enum ResolutionState {
     Resolved,
     Unresolved,
@@ -346,7 +346,7 @@ pub enum ParameterModifier {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-/// One function parameter and optional default value.
+/// One function parameter and its modifiers.
 pub struct FunctionParameter {
     pub name: String,
     pub parameter_type: ClassName,
@@ -603,7 +603,9 @@ pub struct Class {
     pub interfaces: Vec<ClassName>,
     pub component_type: Option<ClassName>,
     pub container_element_type: Option<ClassName>,
-    /// Methods declared directly by this class. `None` means the snapshot predates this data.
+    /// Methods declared directly by this class. `None` means metadata is
+    /// unavailable (for example, an older snapshot); `Some(empty)` means
+    /// metadata was available and no methods were declared.
     pub methods: Option<Vec<ClassMethod>>,
     pub provider: Option<Addon>,
 }

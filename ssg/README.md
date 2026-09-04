@@ -12,20 +12,30 @@ inspect Java classes, or generate snapshots.
 
 ## Supported Format
 
-The loader currently accepts SSG schema versions 3 and 4. A complete snapshot has
-`Manifest.json` plus 18 data files:
+The loader accepts SSG schema versions 3 through 5. Complete inventories are
+schema-specific:
+
+- schemas 3 and 4 have `Manifest.json` plus 18 data files; use
+  `LEGACY_DATA_FILES` and `LEGACY_ALL_FILES` for their inventories
+- schema 5 has `Manifest.json` plus 19 data files; `Language.json` is required
+  and is included in `DATA_FILES` and `ALL_FILES`
 
 - syntax: Conditions, Effects, Events, Expressions, Functions, Sections,
   Structures, and Types
 - relationships: ClassHierarchy, Converters, Comparators, and EventValues
 - additional registries: Aliases, Differences, Operations, Operators,
   Properties, and PluralRules
+- runtime metadata in schema 5: `Language.json`
 
-The exact filenames are exported as `DATA_FILES` and `ALL_FILES`.
+`data_files_for_schema` and `all_files_for_schema` return the required inventory
+for a supported schema. `DATA_FILES` and `ALL_FILES` are the current schema 5
+inventory; the `LEGACY_*` constants are the schema 3 and 4 inventory.
 
-Schema 3 snapshots remain readable for compatibility; current generators emit
-schema 4. Feature availability is
-described by Manifest capabilities, so an intentionally unsupported registry
+Schema 3 and 4 snapshots remain readable for compatibility; schema 5 is the
+current generator format. Schema 5 also requires `methods` in every
+`ClassHierarchy.json` record, while schema 3 and 4 may omit that metadata.
+`Language.json` must be an object whose values are strings. Feature availability
+is described by Manifest capabilities, so an intentionally unsupported registry
 is different from a missing file or malformed value.
 
 ## Loading Pipeline
@@ -33,14 +43,14 @@ is different from a missing file or malformed value.
 `load(directory)` performs these steps in order:
 
 1. read and deserialize `Manifest.json`
-2. require a supported schema version from 3 through 4
+2. require a supported schema version from 3 through 5
 3. validate the manifest and its complete file inventory
-4. read every data file
-5. verify the content digest over serialized files
+4. read every schema-required data file
+5. verify the content digest over schema-required serialized files
 6. verify the snapshot ID derived from the manifest
-7. deserialize raw DTOs with JSON path-aware errors
+7. deserialize raw DTOs and schema 5 language entries with JSON path-aware errors
 8. validate per-file and cross-file invariants
-9. build version-specific plural rules
+9. parse the snapshot's plural rules
 10. convert the raw snapshot into `syntaxes::Catalog`
 
 The result is a `Snapshot` that retains both the raw Manifest and normalized
@@ -62,6 +72,7 @@ Validation reports the source JSON file and, where available, the exact nested
 path. Checks include:
 
 - required files, schema, digests, and snapshot identity
+- schema 5 `Language.json` object/string values and declared class methods
 - registration order and ID uniqueness
 - capability and data consistency
 - resolution-state and nullable-value consistency
@@ -70,9 +81,21 @@ path. Checks include:
 - EventValue time range and resolution fields
 - alias target indices and reachability
 
-Unknown JSON fields are accepted for forward-compatible schema 3 and 4 readers.
-Unknown fields do not bypass digest verification because the digest covers the
-original serialized files.
+Unknown JSON fields are accepted for forward-compatible schema 3, 4, and 5
+readers. Unknown fields do not bypass digest verification because the digest
+covers the original serialized files. Typed enum values and required field types
+must still be valid.
+
+For optional list fields, an omitted or JSON `null` value is deserialized as
+`None`, while a present empty array is preserved as an empty collection in the
+raw DTO. Conversion normalizes several optional collections to empty vectors and
+uses an unresolved state for legacy expression metadata. The normalized catalog
+exposes schema 5 language through `language_value` and `language_entries`:
+language keys are case-sensitive, an absent key returns `None`, and an empty
+value returns `Some("")`. `Class.methods` is `None` when older snapshot data
+omits method metadata and `Some(empty)` when method metadata is available but
+the class declares no methods; `declared_method_exists` returns `None` when that
+metadata is unavailable.
 
 ## Module Boundaries
 

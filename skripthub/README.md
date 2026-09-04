@@ -22,8 +22,8 @@ The response is deserialized into `AbstractAddonSyntaxList`. API fields include
 SkriptHub IDs, addon metadata, compatibility text, pattern strings, return
 information, removal state, and documentation fields.
 
-Frequently repeated response strings use `Arc<str>` interning to reduce memory
-usage.
+Selected frequently repeated response strings use `Arc<str>` interning to reduce
+memory usage.
 
 ## Legacy Conversion
 
@@ -43,6 +43,9 @@ Non-function patterns are parsed by `syntax-pattern-parser` using an explicitly
 provided `PluralRules` value. They must not use a guessed or globally
 hardcoded plural configuration.
 
+The Function entity uses a dedicated legacy function parser and does not use
+`PluralRules`.
+
 The resulting `SkriptHubSyntax` trait objects preserve links back to SkriptHub.
 They are separate from the normalized `syntaxes::Syntax` model used by SSG.
 
@@ -55,12 +58,13 @@ example(value: string = "default")
 ```
 
 `function_pattern` contains a dedicated parser for this old representation. It
-validates function names, arguments, default strings, parentheses, and
-separator placement.
+validates the supported function-name and argument shape, parentheses, and
+separator placement, and captures default-expression text (including an empty
+string default).
 
 SSG `Functions.json` already contains structured names, parameters, modifiers,
-defaults, and return metadata. SSG functions must never pass through the
-legacy string parser.
+and return metadata. It is not a flattened function string, so SSG functions
+must never pass through the legacy string parser.
 
 ## Module Layout
 
