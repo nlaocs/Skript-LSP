@@ -11,7 +11,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.29.0`とABI `11.0`
+- WIT package `nlaocs:skript-parser-addon@0.30.0`とABI `12.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -52,6 +52,8 @@ version-gatedな互換経路を使用します。hostはmetadataキーに`nlaocs
 内部の`entity-data` JSONのキー名は変更しません。Type由来literalは既定で登録Expressionの後に
 評価されます。quoted/interpolated stringだけは、SkriptのVariableString parserと同じ早い段階を
 明示的に要求します。省略引数の補完やlive Minecraft registryへ依存するparserまで実装したことは意味しません。
+有限なSnapshot情報だけでは確定できない場合、Type parserは入力を推測または不正扱いせず、
+不足するproviderを含む構造化unresolved結果を返します。
 
 `%expression%`を含むquoted stringとvariableは、汎用`host.expression` parse requestを返します。
 hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibraryを再度呼び出します。CoreLibraryは

@@ -11,7 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.29.0` and ABI `11.0`
+- WIT package `nlaocs:skript-parser-addon@0.30.0` and ABI `12.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -69,6 +69,9 @@ are considered after registered Expressions by default. Quoted and interpolated
 strings explicitly request the earlier phase used by Skript's VariableString parser.
 This does not implement default argument resolution or environment-backed parsers
 such as live Minecraft registries.
+When finite snapshot data is insufficient, a Type parser reports a structured
+unresolved result with the missing provider instead of guessing or rejecting
+the input as invalid.
 
 Quoted strings and variables containing `%expression%` issue generic
 `host.expression` parse requests. The host parses those ranges transactionally

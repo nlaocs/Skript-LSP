@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.29.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.30.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -72,8 +72,8 @@ host側の型関係queryの追加で0.19.0、Skript互換のJava共通型query�
 汎用semantic payloadとSSG由来contractの拡張で0.24.0まで進み、host側の継承距離query追加で0.25.0、
 正規化済みexperiment catalogへの直接アクセス追加で0.27.0へ、schema version付きpublic
 Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、providerが指定するExpression leaf timing、
-完全なactive Type metadata、parser-class targetの追加で0.29.0へ変わりました。
-manifestの現在の`abi`値は11.0で、
+完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
+unresolved結果追加で0.30.0へ変わりました。manifestの現在の`abi`値は12.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -144,12 +144,20 @@ handlerを要求せず所有Typeを候補へ加えます。hostは要求返値�
 converter経由のTypeより先に置いた上で、各groupを`typeParseOrder`順に並べます。payloadの`active-type`は
 対象SSG Typeのsource record、addon、parser class、parse order、`before`/`after`関係を示します。componentはType
 targetへsubscribeし、自身が担当するactive registrationだけを処理します。Type parserが文字列を解釈し、その値を
-Literalとして返す構造です。Typeごとに候補listは分離され、rejectまたは候補なしの呼び出しだけstateとeffectsを
-rollbackするため、別Typeが生成済みの候補は失われません。
+Literalとして返す構造です。Typeごとに候補listは分離され、stateとeffectsはnative側での採用まで保留します。
+別Typeが生成済みの候補は失われません。
+runtimeやregistryの情報がないためTypeを確定できない場合、componentは理由と任意のprovider IDを持つ
+構造化unresolved結果を返せます。parserを持つTypeに適用可能なproviderから応答がなければ、hostは
+そのTypeのregistration IDを含む同形式のunresolved結果を生成します。担当parserが入力を拒否した場合は
+`type-parser-outcome: no-match`、候補または明示的unresolvedを返した場合は`handled`を指定します。
+対象外のhookは`NotApplicable`を返します。handler宣言の有無ではなく実際の応答で判別するため、
+`registered-syntax-handlers`を使わない直接のType subscriptionにも同じ規則が適用されます。
 複合Typeが内部で使用するEntityDataのsupplier情報などを必要とする場合は、既存の
 `expression.type-options.all` context requirementを指定できます。hostは該当する呼び出しにだけ
 全Type optionを渡します。
 Javaのparser自体を実行したり、`usage`から文法を推測したりする機能ではありません。
+このparser経路へ入るのは、SSGで`hasParser: true`と記録されたType登録だけです。
+runtime parserを持たないTypeを`usage`や表示名から推測して受理することはありません。
 
 各leaf候補は`before-registered`または`after-registered`のtimingを宣言します。native parserはCoreLibrary固有の
 parser IDを識別せず、このfieldだけで登録Expressionとの前後関係を決めます。third-party parserもVariableStringの
@@ -173,7 +181,10 @@ context値を導出できます。`host.expression`は`parse.mode`（`all`、`ex
 型探索へ混ぜません。hostはnative
 parserでstatic/dynamic登録Expressionと順位付けする前に、変更不可request field、UTF-8 range、
 parser ID、return type/Multiplicity、metadataを検証します。nativeのrange、type、Multiplicity
-検証で全leafが除外された場合、そのdispatchのstateとeffectsをsavepointへ戻します。再帰matcher
+検証後も各leaf dispatchのState/effectsは候補へ保留し、savepointへ戻します。同じ入力を複数Typeが
+認識しても、採用されたExpression部分木の分だけを反映します。拒否、型不適合、非採用候補の
+書き込みや診断は残しません。同じ処理は枝ごとに一度だけ適用し、backtrackingでは適用記録も
+Stateと一緒に復元します。再帰matcher
 呼び出しはそれぞれcandidate frameを持つため、子候補の選択が親のselected stateを上書きしません。
 no-matchとparser failureでは開始時のStateStore savepointへ戻します。parse overlay revisionは
 native memo keyに含まれ、candidate rollback時にはrevision自体も復元されます。
@@ -467,8 +478,9 @@ handled overrideは`matched`または`failed`を返す必要があります。ma
 あります。hook replacementでidentityとprovenance fieldは変更できません。
 
 各syntax候補は同じparse StateStore savepointから開始します。失敗候補と非採用alternativeの
-書き込みはrollbackされ、採用候補のStateStore書き込みとHookEffectsだけがparse結果へ残ります。hook callと
-component failureはdiagnostic/tracing用に保持します。
+書き込みはrollbackされ、採用候補のStateStore書き込みとHookEffectsだけがparse結果へ残ります。診断と
+call traceもその候補に対応する内容を復元し、非採用alternativeの分は合算しません。候補が
+選べなかった場合には、最終failure traceから拒否理由の診断を取り出して返します。
 ## Hook rule
 
 subscriptionはtarget、phase、signed priority、modeを指定します。

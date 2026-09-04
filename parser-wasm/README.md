@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.29.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.30.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -86,8 +86,9 @@ multiple targets for each registered semantic handler, including dynamic
   experiment catalog access changed it to 0.27.0; public schema-versioned
   Expression data and editable semantic envelopes changed it to 0.28.0;
   provider-controlled Expression leaf timing, complete active-Type metadata,
-  and parser-class targets changed it to 0.29.0. The manifest's current `abi`
-  value is 11.0 and is a
+  and parser-class targets changed it to 0.29.0; structured unresolved Type
+  parser results changed it to 0.30.0. The manifest's current `abi`
+  value is 12.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
 
@@ -186,12 +187,23 @@ record, addon, parser class, parse order, and `before`/`after` relations. Compon
 subscribe to the Type target and handle only the active registrations they own.
 Returning a Literal is still correct: the Type parser interprets the text, while
 the Literal represents its parsed value. Each Type invocation receives an isolated
-candidate list; rejection or no candidate rolls its state and effects back without
+candidate list. Its State/effects remain deferred until native selection, without
 discarding candidates produced by another Type.
+If a Type cannot decide without runtime or registry data, a component can return a
+structured unresolved result with a reason and optional provider ID. When an exact
+parser-backed Type has no applicable provider response, the host produces the same
+result with its Type registration ID. A provider reports `type-parser-outcome:
+no-match` when it is responsible but rejects this input, or `handled` when it
+supplies candidates or an explicit unresolved result. Unrelated hooks return
+`NotApplicable`. This distinction uses the executed response, not the presence of
+`registered-syntax-handlers`, so direct Type subscriptions work identically.
 Type handlers can request the existing `expression.type-options.all` context requirement
 when a composite Type needs metadata from other Types, such as an EntityData
 supplier. The host provides that wider view only for the matching invocation.
 This routing does not execute the Java parser or derive a grammar from `usage`.
+Only SSG Type registrations with `hasParser: true` enter this parser route.
+Types without a runtime parser are not accepted by guessing from their usage or
+display name.
 
 Each leaf candidate declares `before-registered` or `after-registered` timing.
 The native parser uses that field instead of recognizing CoreLibrary parser IDs.
@@ -224,9 +236,13 @@ otherwise incompatible dynamic registration only when an enabled component
 declares it, avoiding broad unresolved registrations during every type search.
 The host validates immutable request fields, UTF-8 ranges, parser
 IDs, return type/multiplicity, and metadata before the native parser ranks the
-results with registered static and dynamic expressions. A leaf set eliminated
-by native range, type, or multiplicity validation restores its dispatch
-savepoint and effects. Every recursive matcher invocation owns a nested
+results with registered static and dynamic expressions. Each leaf dispatch
+detaches its State/effects onto the candidates and restores its savepoint,
+including when multiple Types successfully recognize the same input. Only
+the selected Expression subtree applies that work; rejected, incompatible,
+and losing candidates cannot leak writes or diagnostics. Shared work is applied
+once per branch, and backtracking restores both the overlay and its receipts.
+Every recursive matcher invocation owns a nested
 candidate frame, so child selection cannot overwrite its parent's selected
 state. No-match and parser failure restore the entry StateStore savepoint. The
 parse-overlay revision is part of native memo keys and is itself restored by
@@ -571,8 +587,10 @@ provenance fields are immutable across hook replacement.
 
 Each syntax candidate starts from the same parse StateStore savepoint. Failed
 candidates and non-selected alternatives are rolled back. Only writes made by
-the selected candidate remain in the parse transaction, while hook calls and
-component failures stay available for diagnostics and tracing.
+the selected candidate remain in the parse transaction. Its diagnostics and
+call trace are restored with that candidate, not accumulated from losing
+alternatives. Rejection diagnostics can instead be promoted from the final
+failure trace when no candidate is selected.
 ## Hook rules
 
 A subscription selects a target, phase, signed priority, and mode.
