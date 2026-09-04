@@ -2,8 +2,8 @@ use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionListConjunction,
     ExpressionNodeKind, ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig,
-    FailureTrace, MappedSource, ParsedCaptureStatus, ParsedCaptureValue, PatternFailureReason,
-    RawTreeOptions, TextRange, parse_raw_tree,
+    FailureTrace, MappedSource, MatchSyntaxKind, ParsedCaptureStatus, ParsedCaptureValue,
+    PatternFailureReason, RawTreeOptions, TextRange, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -198,6 +198,54 @@ fn common_effects_parse_with_collection_and_nested_expression_inputs() {
         );
     }
 
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn real_effect_section_parses_as_an_effect_without_losing_section_identity() {
+    let catalog = full_dynamic_catalog();
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog.clone()),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 20)
+        .unwrap();
+
+    let result = parse_effect(&mut host, &transaction, 20, "shoot zombie");
+    let selected = result
+        .matches
+        .selected
+        .as_ref()
+        .expect("shoot EffectSection must parse as a one-line Effect");
+    assert_eq!(selected.matched.kind, MatchSyntaxKind::Section);
+    let section = catalog
+        .syntax_by_registration_id(&selected.matched.registration_id)
+        .into_iter()
+        .find_map(|syntax| match syntax {
+            Syntax::Section(section)
+                if section.common.definition_id.as_str() == selected.matched.definition_id =>
+            {
+                Some(section)
+            }
+            _ => None,
+        })
+        .expect("selected identity must still resolve to the source Section");
+    assert!(section.effect_section);
+    assert_eq!(
+        section.common.element_class.as_str(),
+        "ch.njol.skript.sections.EffSecShoot"
+    );
+    assert!(
+        result
+            .calls
+            .iter()
+            .all(|call| { call.subscription_id != "core.section-semantics" })
+    );
     transaction.cancel().unwrap();
 }
 

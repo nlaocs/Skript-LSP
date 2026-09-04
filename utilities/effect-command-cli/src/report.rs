@@ -31,8 +31,9 @@ pub(crate) struct SnapshotDescription {
 /// Stable Effect analysis result used by terminal and JSON rendering.
 ///
 /// The internal DTO deliberately differs from parser implementation types. It
-/// keeps the utility's JSON contract stable while the parser grows additional
-/// node kinds, including future structured Function calls.
+/// versions the utility's JSON contract separately from the parser. Reports
+/// include structured Function calls, recursive captures, and the selected
+/// syntax identity, including Section identities for one-line EffectSections.
 #[derive(Debug, Clone)]
 pub struct AnalysisReport {
     data: ReportData,
@@ -98,7 +99,7 @@ impl AnalysisReport {
                     &candidate.matched.definition_id,
                     &candidate.matched.registration_id,
                     catalog,
-                    SyntaxCategory::Effect,
+                    effect_syntax_category(candidate.matched.kind),
                 );
                 if syntax.element_class.is_none() {
                     syntax.element_class = candidate
@@ -1220,7 +1221,7 @@ fn effect_report(input: &str, candidate: EffectCandidate, catalog: &Catalog) -> 
             _ => None,
         })
         .collect::<Vec<_>>();
-    let syntax = syntax_identity(&matched, catalog, SyntaxCategory::Effect);
+    let syntax = syntax_identity(&matched, catalog, effect_syntax_category(matched.kind));
     let pattern = pattern_report(matched.pattern_index, &matched.pattern, catalog, true);
     let span = match_span(&matched.matched.span);
     let elements = resolved_elements(&matched.matched.captures, &expressions, input, catalog, 0);
@@ -1241,7 +1242,11 @@ fn effect_report(input: &str, candidate: EffectCandidate, catalog: &Catalog) -> 
 
 fn candidate_summary(candidate: EffectCandidate, catalog: &Catalog) -> CandidateSummaryReport {
     CandidateSummaryReport {
-        syntax: syntax_identity(&candidate.matched, catalog, SyntaxCategory::Effect),
+        syntax: syntax_identity(
+            &candidate.matched,
+            catalog,
+            effect_syntax_category(candidate.matched.kind),
+        ),
         pattern_index: candidate.matched.pattern_index,
         pattern: candidate.matched.pattern,
     }
@@ -1251,6 +1256,14 @@ fn candidate_summary(candidate: EffectCandidate, catalog: &Catalog) -> Candidate
 enum SyntaxCategory {
     Effect,
     Expression,
+    Section,
+}
+
+const fn effect_syntax_category(kind: MatchSyntaxKind) -> SyntaxCategory {
+    match kind {
+        MatchSyntaxKind::Section => SyntaxCategory::Section,
+        _ => SyntaxCategory::Effect,
+    }
 }
 
 fn syntax_identity(
@@ -1278,6 +1291,9 @@ fn syntax_identity_from_ids(
         .filter_map(|syntax| match (category, syntax) {
             (SyntaxCategory::Effect, Syntax::Effect(value)) => Some(&value.common),
             (SyntaxCategory::Expression, Syntax::Expression(value)) => Some(&value.common),
+            (SyntaxCategory::Section, Syntax::Section(value)) if value.effect_section => {
+                Some(&value.common)
+            }
             _ => None,
         })
         .find(|common| common.definition_id.as_str() == definition_id);
@@ -1762,7 +1778,7 @@ fn candidate_failure_report(
                 &alternative.matched.definition_id,
                 &alternative.matched.registration_id,
                 catalog,
-                SyntaxCategory::Effect,
+                effect_syntax_category(alternative.matched.kind),
             ),
             pattern_index: alternative.matched.pattern_index,
             pattern: alternative.matched.pattern.clone(),

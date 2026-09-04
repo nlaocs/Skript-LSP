@@ -3093,7 +3093,7 @@ impl WasmPatternHooks<'_> {
             registration_id: request.candidate.matched.registration_id.clone(),
             pattern_index: u64::try_from(request.candidate.matched.pattern_index)
                 .unwrap_or(u64::MAX),
-            syntax_kind: SyntaxKind::Effect,
+            syntax_kind: wit_syntax_kind(request.candidate.matched.kind),
         };
         let result = self
             .host
@@ -5378,12 +5378,7 @@ fn effect_candidate_to_wit(
         raw_node_id: candidate.raw_node_id.get(),
         definition_id: candidate.matched.definition_id.clone(),
         registration_id: candidate.matched.registration_id.clone(),
-        element_class: catalog
-            .effects()
-            .find(|effect| {
-                effect.common.registration_id.as_str() == candidate.matched.registration_id
-            })
-            .map(|effect| effect.common.element_class.as_str().to_owned()),
+        element_class: effect_candidate_element_class(candidate, catalog),
         priority: candidate.matched.priority,
         registration_order: u64::try_from(candidate.matched.registration_order).unwrap_or(u64::MAX),
         pattern_index: u64::try_from(candidate.matched.pattern_index).unwrap_or(u64::MAX),
@@ -5468,6 +5463,29 @@ fn effect_candidate_to_wit(
             .map(|capture| parsed_capture_to_wit(capture, input))
             .collect(),
     }
+}
+
+fn effect_candidate_element_class(
+    candidate: &EffectCandidate,
+    catalog: &Catalog,
+) -> Option<String> {
+    catalog
+        .syntax_by_registration_id(&candidate.matched.registration_id)
+        .into_iter()
+        .find_map(|syntax| match (candidate.matched.kind, syntax) {
+            (MatchSyntaxKind::Effect, Syntax::Effect(effect))
+                if effect.common.definition_id.as_str() == candidate.matched.definition_id =>
+            {
+                Some(effect.common.element_class.as_str().to_owned())
+            }
+            (MatchSyntaxKind::Section, Syntax::Section(section))
+                if section.effect_section
+                    && section.common.definition_id.as_str() == candidate.matched.definition_id =>
+            {
+                Some(section.common.element_class.as_str().to_owned())
+            }
+            _ => None,
+        })
 }
 
 fn effect_failure_to_wit(failure: &PatternFailure) -> WitEffectFailure {
@@ -8244,7 +8262,7 @@ impl ParserHost {
                 definition_id: selected.matched.definition_id.clone(),
                 registration_id: selected.matched.registration_id.clone(),
                 pattern_index: u64::try_from(selected.matched.pattern_index).unwrap_or(u64::MAX),
-                syntax_kind: SyntaxKind::Effect,
+                syntax_kind: wit_syntax_kind(selected.matched.kind),
             })
             .or_else(|| {
                 matches
@@ -8256,13 +8274,13 @@ impl ParserHost {
                             || DispatchTarget::Registration {
                                 definition_id: candidate.matched.definition_id.clone(),
                                 registration_id: candidate.matched.registration_id.clone(),
-                                syntax_kind: SyntaxKind::Effect,
+                                syntax_kind: wit_syntax_kind(candidate.matched.kind),
                             },
                             |pattern_index| DispatchTarget::Pattern {
                                 definition_id: candidate.matched.definition_id.clone(),
                                 registration_id: candidate.matched.registration_id.clone(),
                                 pattern_index: u64::try_from(pattern_index).unwrap_or(u64::MAX),
-                                syntax_kind: SyntaxKind::Effect,
+                                syntax_kind: wit_syntax_kind(candidate.matched.kind),
                             },
                         )
                     })
