@@ -446,7 +446,6 @@ struct StateStoreInner {
     namespaces: NamespaceRegistry,
     projects: BTreeMap<String, ProjectState>,
     latest_document_revisions: BTreeMap<(String, String), u64>,
-    next_transaction_id: u64,
 }
 
 #[derive(Clone)]
@@ -541,7 +540,6 @@ impl StateStore {
                 namespaces: NamespaceRegistry::default(),
                 projects: BTreeMap::new(),
                 latest_document_revisions: BTreeMap::new(),
-                next_transaction_id: 1,
             })),
         })
     }
@@ -580,11 +578,9 @@ impl StateStore {
             .or_insert(document_revision);
         *latest = (*latest).max(document_revision);
         inner.projects.entry(project_uri.clone()).or_default();
-        let transaction_id = inner.next_transaction_id;
-        inner.next_transaction_id = inner.next_transaction_id.saturating_add(1);
         Ok(ParseTransaction {
             inner: Arc::new(Mutex::new(ParseTransactionInner {
-                transaction_id,
+                transaction_id: Arc::new(()),
                 store: self.clone(),
                 project_uri,
                 document_id: document_id.to_owned(),
@@ -594,6 +590,9 @@ impl StateStore {
                 base_revisions: BTreeMap::new(),
                 current_revisions: BTreeMap::new(),
                 overlay_revision: 0,
+                next_overlay_revision: 1,
+                applied_deltas: BTreeSet::new(),
+                next_delta_id: 0,
                 closed: false,
             })),
         })
@@ -607,7 +606,7 @@ impl StateStore {
 }
 
 struct ParseTransactionInner {
-    transaction_id: u64,
+    transaction_id: Arc<()>,
     store: StateStore,
     project_uri: String,
     document_id: String,
@@ -617,10 +616,24 @@ struct ParseTransactionInner {
     base_revisions: BTreeMap<RevisionKey, u64>,
     current_revisions: BTreeMap<RevisionKey, u64>,
     overlay_revision: u64,
+    // Not rolled back: different speculative writes must not share memo keys.
+    next_overlay_revision: u64,
+    applied_deltas: BTreeSet<u64>,
+    next_delta_id: u64,
     closed: bool,
 }
 
 impl ParseTransactionInner {
+    fn restore(&mut self, savepoint: &StateSavepoint) {
+        self.writes.clone_from(&savepoint.writes);
+        self.read_write_set.clone_from(&savepoint.read_write_set);
+        self.base_revisions.clone_from(&savepoint.base_revisions);
+        self.current_revisions
+            .clone_from(&savepoint.current_revisions);
+        self.overlay_revision = savepoint.overlay_revision;
+        self.applied_deltas.clone_from(&savepoint.applied_deltas);
+    }
+
     fn ensure_open(&self) -> Result<(), StateError> {
         if self.closed {
             Err(StateError::TransactionClosed)
@@ -679,12 +692,13 @@ impl ParseTransaction {
         let inner = self.lock()?;
         inner.ensure_open()?;
         Ok(StateSavepoint {
-            transaction_id: inner.transaction_id,
+            transaction_id: Arc::clone(&inner.transaction_id),
             writes: inner.writes.clone(),
             read_write_set: inner.read_write_set.clone(),
             base_revisions: inner.base_revisions.clone(),
             current_revisions: inner.current_revisions.clone(),
             overlay_revision: inner.overlay_revision,
+            applied_deltas: inner.applied_deltas.clone(),
         })
     }
 
@@ -692,17 +706,94 @@ impl ParseTransaction {
     pub fn rollback_to(&self, savepoint: &StateSavepoint) -> Result<(), StateError> {
         let mut inner = self.lock()?;
         inner.ensure_open()?;
-        if inner.transaction_id != savepoint.transaction_id {
+        if !Arc::ptr_eq(&inner.transaction_id, &savepoint.transaction_id) {
             return Err(StateError::ForeignSavepoint);
         }
-        inner.writes.clone_from(&savepoint.writes);
-        inner.read_write_set.clone_from(&savepoint.read_write_set);
-        inner.base_revisions.clone_from(&savepoint.base_revisions);
-        inner
-            .current_revisions
-            .clone_from(&savepoint.current_revisions);
-        inner.overlay_revision = savepoint.overlay_revision;
+        inner.restore(savepoint);
         Ok(())
+    }
+
+    /// Captures candidate-owned changes without retaining them in the parse.
+    pub(crate) fn defer_since(&self, before: &StateSavepoint) -> Result<StateDelta, StateError> {
+        let mut inner = self.lock()?;
+        inner.ensure_open()?;
+        if !Arc::ptr_eq(&inner.transaction_id, &before.transaction_id) {
+            return Err(StateError::ForeignSavepoint);
+        }
+        let id = inner.next_delta_id;
+        inner.next_delta_id =
+            inner
+                .next_delta_id
+                .checked_add(1)
+                .ok_or_else(|| StateError::Internal {
+                    message: "candidate delta ID overflow".to_owned(),
+                })?;
+        let delta = StateDelta {
+            transaction_id: Arc::clone(&inner.transaction_id),
+            id,
+            writes: inner
+                .writes
+                .iter()
+                .filter(|(address, value)| before.writes.get(*address) != Some(*value))
+                .map(|(address, value)| (address.clone(), value.clone()))
+                .collect(),
+            reads: inner
+                .read_write_set
+                .reads
+                .difference(&before.read_write_set.reads)
+                .cloned()
+                .collect(),
+            write_set: inner
+                .read_write_set
+                .writes
+                .difference(&before.read_write_set.writes)
+                .cloned()
+                .collect(),
+            observed_revisions: inner
+                .current_revisions
+                .keys()
+                .map(|key| {
+                    let revision = before
+                        .current_revisions
+                        .get(key)
+                        .or_else(|| inner.base_revisions.get(key))
+                        .copied()
+                        .unwrap_or(0);
+                    (key.clone(), revision)
+                })
+                .collect(),
+            nested: inner
+                .applied_deltas
+                .difference(&before.applied_deltas)
+                .copied()
+                .collect(),
+        };
+        inner.restore(before);
+        Ok(delta)
+    }
+
+    /// Applies selected work once per branch; rollback also restores this receipt.
+    pub(crate) fn apply_delta(&self, delta: &StateDelta) -> Result<bool, StateError> {
+        let mut inner = self.lock()?;
+        inner.ensure_open()?;
+        if !Arc::ptr_eq(&inner.transaction_id, &delta.transaction_id) {
+            return Err(StateError::ForeignSavepoint);
+        }
+        if inner.applied_deltas.contains(&delta.id) {
+            return Ok(false);
+        }
+        let invocation = InvocationTransaction {
+            parse: Arc::clone(&self.inner),
+            component_id: String::new(),
+            writes: delta.writes.clone(),
+            reads: delta.reads.clone(),
+            write_set: delta.write_set.clone(),
+            observed_revisions: delta.observed_revisions.clone(),
+        };
+        invocation.merge_into(&mut inner)?;
+        inner.applied_deltas.extend(delta.nested.iter().copied());
+        inner.applied_deltas.insert(delta.id);
+        Ok(true)
     }
 
     /// Returns dependencies accumulated by every accepted invocation so far.
@@ -787,12 +878,25 @@ impl ParseTransaction {
 #[derive(Debug, Clone)]
 /// Opaque snapshot of a parse overlay used for candidate rollback.
 pub struct StateSavepoint {
-    transaction_id: u64,
+    transaction_id: Arc<()>,
     writes: BTreeMap<Address, Option<StateValue>>,
     read_write_set: StateReadWriteSet,
     base_revisions: BTreeMap<RevisionKey, u64>,
     current_revisions: BTreeMap<RevisionKey, u64>,
     overlay_revision: u64,
+    applied_deltas: BTreeSet<u64>,
+}
+
+/// A speculative subtree's State changes, independent of unselected siblings.
+#[derive(Debug, Clone)]
+pub(crate) struct StateDelta {
+    transaction_id: Arc<()>,
+    id: u64,
+    writes: BTreeMap<Address, Option<StateValue>>,
+    reads: BTreeSet<StateRecordKey>,
+    write_set: BTreeSet<StateRecordKey>,
+    observed_revisions: BTreeMap<RevisionKey, u64>,
+    nested: BTreeSet<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -946,13 +1050,18 @@ impl InvocationTransaction {
 
     /// Merges invocation writes into the parent parse overlay.
     pub fn commit(self) -> Result<(), StateError> {
+        let handle = Arc::clone(&self.parse);
+        let mut parse = handle.lock().map_err(|_| StateError::Internal {
+            message: "parse transaction mutex was poisoned".to_owned(),
+        })?;
+        self.merge_into(&mut parse)
+    }
+
+    fn merge_into(self, parse: &mut ParseTransactionInner) -> Result<(), StateError> {
         let overlay_changed = self
             .writes
             .keys()
             .any(|address| address.scope != StateScope::Invocation);
-        let mut parse = self.parse.lock().map_err(|_| StateError::Internal {
-            message: "parse transaction mutex was poisoned".to_owned(),
-        })?;
         parse.ensure_open()?;
         for (key, observed) in &self.observed_revisions {
             if parse
@@ -1034,7 +1143,8 @@ impl InvocationTransaction {
             *revision = revision.saturating_add(1);
         }
         if overlay_changed {
-            parse.overlay_revision = parse.overlay_revision.saturating_add(1);
+            parse.overlay_revision = parse.next_overlay_revision;
+            parse.next_overlay_revision = parse.next_overlay_revision.saturating_add(1);
         }
         Ok(())
     }
@@ -1377,3 +1487,6 @@ pub(super) fn persistence_error(error: impl std::fmt::Display) -> StateError {
         message: error.to_string(),
     }
 }
+
+#[cfg(test)]
+mod candidate_tests;
