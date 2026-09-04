@@ -274,11 +274,13 @@ fn select_unique<E: ExpressionParseEnvironment>(
     list_signature: bool,
 ) -> Result<(Selection, Option<FailureTrace>), ExpressionParseError> {
     let mut selected = None;
-    let mut selected_transaction_open = false;
     let mut failure = None;
     for definition in definitions {
         session
             .begin_semantic_candidate()
+            .map_err(environment_error)?;
+        session
+            .begin_expression_candidate()
             .map_err(environment_error)?;
         let parsed = if list_signature {
             parse_list_definition(session, call, definition, depth)
@@ -289,42 +291,35 @@ fn select_unique<E: ExpressionParseEnvironment>(
             Ok(parsed) => parsed,
             Err(error) => {
                 session
+                    .defer_expression_candidate(false)
+                    .map_err(environment_error)?;
+                session
                     .finish_semantic_candidate(false)
                     .map_err(environment_error)?;
-                if selected_transaction_open {
-                    session
-                        .finish_semantic_candidate(false)
-                        .map_err(environment_error)?;
-                }
                 return Err(error);
             }
         };
         failure = choose_failure_trace(failure, parsed.failure);
-        let Some(candidate) = parsed.candidate else {
+        let Some(mut candidate) = parsed.candidate else {
+            session
+                .defer_expression_candidate(false)
+                .map_err(environment_error)?;
             session
                 .finish_semantic_candidate(false)
                 .map_err(environment_error)?;
             continue;
         };
-        if selected.is_none() {
-            selected = Some(candidate);
-            selected_transaction_open = true;
-            continue;
-        }
-
-        session
-            .finish_semantic_candidate(false)
+        candidate.node.effects = session
+            .defer_expression_candidate(true)
             .map_err(environment_error)?;
-        session
-            .finish_semantic_candidate(false)
-            .map_err(environment_error)?;
-        return Ok((Selection::Ambiguous, failure));
-    }
-
-    if selected_transaction_open {
         session
             .finish_semantic_candidate(true)
             .map_err(environment_error)?;
+        if selected.is_none() {
+            selected = Some(candidate);
+            continue;
+        }
+        return Ok((Selection::Ambiguous, failure));
     }
     Ok((
         selected.map_or(Selection::None, |candidate| {
@@ -579,6 +574,7 @@ fn build_candidate<E: ExpressionParseEnvironment>(
     Ok(DefinitionParse {
         candidate: Some(ExpressionCandidate {
             node: ExpressionNode {
+                effects: None,
                 kind: ExpressionNodeKind::Function {
                     parser_id: definition.parser_id.clone(),
                 },
@@ -654,6 +650,7 @@ fn parse_parameter_value<E: ExpressionParseEnvironment>(
             failure,
         });
     };
+    session.select_expression(&node)?;
     if parameter.single {
         return Ok(ParameterParse {
             nodes: Some(vec![node]),

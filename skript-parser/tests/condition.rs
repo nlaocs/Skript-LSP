@@ -201,6 +201,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
         });
         Ok(candidate
             .map(|range| ExpressionLeafCandidate {
+                effects: None,
                 parser_id: "test.string".to_owned(),
                 kind: ExpressionLeafKind::Literal,
                 timing: ExpressionLeafTiming::AfterRegistered,

@@ -19,9 +19,11 @@ use crate::{
     snapshot_pattern_candidates,
 };
 use crate::{FunctionCall, FunctionDefinition, FunctionLookupRequest};
+use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{
     Catalog, ClassName, DynamicMultiplicity, DynamicSyntaxSnapshot, Multiplicity,
@@ -147,9 +149,42 @@ pub struct ExpressionPublicData {
     pub json: String,
 }
 
+/// Opaque, candidate-owned work that an environment applies only on selection.
+///
+/// The native parser never interprets this value. Clones share its identity so
+/// an environment can avoid applying the same speculative work twice.
+#[derive(Clone)]
+pub struct ExpressionEffects(Arc<dyn Any + Send + Sync>);
+
+impl ExpressionEffects {
+    pub fn new(value: impl Any + Send + Sync) -> Self {
+        Self(Arc::new(value))
+    }
+
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.0.downcast_ref()
+    }
+}
+
+impl std::fmt::Debug for ExpressionEffects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ExpressionEffects(..)")
+    }
+}
+
+impl PartialEq for ExpressionEffects {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExpressionEffects {}
+
 /// Parsed Expression node with nested typed captures and mapped provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionNode {
+    /// Deferred effects for this entire subtree, when supplied by the environment.
+    pub effects: Option<ExpressionEffects>,
     pub kind: ExpressionNodeKind,
     pub function: Option<FunctionCall>,
     pub span: MatchSpan,
@@ -971,6 +1006,8 @@ pub struct ExpressionLeafRequest<'a> {
 /// One prefix recognized by CoreLibrary or an addon parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionLeafCandidate {
+    /// Speculative work to keep only if this candidate is selected.
+    pub effects: Option<ExpressionEffects>,
     pub parser_id: String,
     pub kind: ExpressionLeafKind,
     pub timing: ExpressionLeafTiming,
@@ -1051,17 +1088,36 @@ pub enum RegisteredExpressionDecision {
 
 /// Unified native/WASM environment used during recursive Expression parsing.
 pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
+    /// Applies deferred work belonging to a selected Expression subtree.
+    fn apply_expression_effects(&mut self, _effects: &ExpressionEffects) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Starts a speculative registered Expression subtree.
+    fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Detaches accepted work from the current overlay, or discards failed work.
+    fn defer_expression_candidate(
+        &mut self,
+        _accepted: bool,
+    ) -> Result<Option<ExpressionEffects>, String> {
+        Ok(None)
+    }
+
     /// Returns leaf candidates in parser priority order.
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
     ) -> Result<ExpressionLeafParse, String>;
 
-    /// Finalizes state and effects staged while producing the latest leaf set.
+    /// Closes the latest leaf dispatch after native validation.
     ///
     /// `accepted` is `true` when at least one returned leaf survived native
-    /// range, kind, type, and multiplicity validation. Environments may use
-    /// this callback to retain or roll back their speculative transaction.
+    /// range, kind, type, and multiplicity validation, not that it was selected.
+    /// Candidate-owned mutations must remain deferred in `effects`; committing
+    /// all successful providers here would retain work from losing alternatives.
     fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
@@ -1222,7 +1278,7 @@ impl ExpressionParseEnvironment for NoopExpressionEnvironment {
 }
 
 /// Failure while validating or recursively parsing an Expression.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum ExpressionParseError {
     #[error("invalid expression input range {range}")]
     InvalidInputRange { range: TextRange },
@@ -1402,6 +1458,9 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
         .filter(|candidate| candidate.node.span.local_range.end == request.range.end)
         .collect::<Vec<_>>();
     let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
+    if let Some(candidate) = &selected {
+        session.select_expression(&candidate.node)?;
+    }
     let failure = if selected.is_none() {
         let (kind, primary, related) =
             expression_failure_ranges(request.source.virtual_source(), request.range);
@@ -1423,6 +1482,22 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
 }
 
 impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
+    pub(crate) fn select_expression(
+        &mut self,
+        node: &ExpressionNode,
+    ) -> Result<(), ExpressionParseError> {
+        if let Some(effects) = &node.effects {
+            self.environment
+                .apply_expression_effects(effects)
+                .map_err(|message| ExpressionParseError::Environment { message })?;
+        } else {
+            for child in &node.children {
+                self.select_expression(child)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn parse_complete_range(
         &mut self,
         range: TextRange,
@@ -1447,6 +1522,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             .filter(|candidate| candidate.node.span.local_range.end == range.end)
             .collect::<Vec<_>>();
         let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
+        if let Some(candidate) = &selected {
+            self.select_expression(&candidate.node)?;
+        }
         let failure = if selected.is_none() {
             let (kind, primary, related) =
                 expression_failure_ranges(self.source.virtual_source(), range);
@@ -1666,6 +1744,27 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .filter(|definition| shapes.insert(definition.shape())),
         );
         Ok(definitions)
+    }
+
+    pub(crate) fn activate_pattern_candidate(
+        &mut self,
+        candidate: &CandidateMatch,
+    ) -> Result<(), String> {
+        if let Some(state) = &candidate.extension_state {
+            self.environment.restore_pattern_candidate_state(state)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        self.environment.begin_expression_candidate()
+    }
+
+    pub(crate) fn defer_expression_candidate(
+        &mut self,
+        accepted: bool,
+    ) -> Result<Option<ExpressionEffects>, String> {
+        self.environment.defer_expression_candidate(accepted)
     }
 
     pub(crate) fn begin_semantic_candidate(&mut self) -> Result<(), String> {
@@ -2002,6 +2101,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                             let child = inner_candidate.node;
                             candidates.push(ExpressionCandidate {
                                 node: ExpressionNode {
+                                    effects: None,
                                     kind: ExpressionNodeKind::Grouped,
                                     function: None,
                                     span: group_span.clone(),
@@ -2083,6 +2183,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     node: ExpressionNode {
                         kind,
                         function: None,
+                        effects: leaf.effects,
                         span: self.map_range(leaf.range)?,
                         return_type: leaf.return_type,
                         possible_return_types,
@@ -2143,6 +2244,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_starts.push(candidate_range.start);
                 self.frame_depths.push(depth);
                 let matcher_config = self.config.matcher.clone();
+                self.environment
+                    .begin_expression_candidate()
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
                 let matched = match_pattern_candidates_with_environment(
                     input,
                     &matcher_candidates,
@@ -2152,10 +2256,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_depths.pop();
                 self.frame_starts.pop();
                 let matched = matched?;
+                let first_candidate = candidates.len();
                 failure = choose_failure_trace(failure, matched.primary_failure().cloned());
                 for matched in matched.selected.into_iter().chain(matched.alternatives) {
                     self.environment
                         .begin_semantic_candidate()
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    self.activate_pattern_candidate(&matched)
                         .map_err(|message| ExpressionParseError::Environment { message })?;
                     let resolution = self.registered_node(
                         matched,
@@ -2177,6 +2284,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                             failure = choose_failure_trace(failure, trace);
                         }
                     }
+                }
+                let effects = self
+                    .environment
+                    .defer_expression_candidate(candidates.len() > first_candidate)
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
+                if let Some(candidate) = candidates.get_mut(first_candidate) {
+                    candidate.node.effects = effects;
                 }
             }
 
@@ -2218,6 +2332,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 continue;
             };
 
+            self.begin_expression_candidate()
+                .map_err(|message| ExpressionParseError::Environment { message })?;
             let mut children = Vec::with_capacity(raw.pieces.len());
             let mut child_starts = Vec::with_capacity(raw.pieces.len());
             let mut first = 0;
@@ -2265,10 +2381,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     break;
                 };
                 child_starts.push(first);
+                self.select_expression(&node)?;
                 children.push(node);
                 first = last + 1;
             }
             if !valid || children.len() < 2 {
+                self.defer_expression_candidate(false)
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
                 continue;
             }
 
@@ -2276,6 +2395,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             if conjunction == ExpressionListConjunction::And
                 && expected_types.iter().all(|expected| !expected.plural)
             {
+                self.defer_expression_candidate(false)
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
                 continue;
             }
 
@@ -2319,8 +2440,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 ExpressionListConjunction::Or => Multiplicity::Multiple,
             };
             let metadata = common_child_metadata(&children);
+            let effects = self
+                .defer_expression_candidate(true)
+                .map_err(|message| ExpressionParseError::Environment { message })?;
             lists.push(ExpressionCandidate {
                 node: ExpressionNode {
+                    effects,
                     kind: ExpressionNodeKind::List { conjunction },
                     function: None,
                     span: self.map_range(list_range)?,
@@ -2659,6 +2784,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         .filter(|candidate| candidate.node.span.local_range.end == range.end);
                     match candidates.next() {
                         Some(candidate) => {
+                            self.select_expression(&candidate.node)?;
                             let mut parsed =
                                 expression_parsed_capture(capture_index, candidate.node);
                             parsed.binding = binding.clone();
@@ -2952,6 +3078,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         }
         Ok(RegisteredNodeResolution::Accepted(ExpressionCandidate {
             node: ExpressionNode {
+                effects: None,
                 kind: ExpressionNodeKind::Registered {
                     definition_id: matched.definition_id,
                     registration_id: matched.registration_id,
@@ -3709,6 +3836,37 @@ fn list_return_type(catalog: &Catalog, children: &[ExpressionNode]) -> Option<Cl
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
+    fn take_pattern_candidate_state(&mut self) -> Option<ExpressionEffects> {
+        self.environment.take_pattern_candidate_state()
+    }
+
+    fn restore_pattern_candidate_state(&mut self, state: &ExpressionEffects) -> Result<(), String> {
+        self.environment.restore_pattern_candidate_state(state)
+    }
+
+    fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+        self.environment.checkpoint_pattern_branch()
+    }
+
+    fn restore_pattern_branch(&mut self, checkpoint: u64) -> Result<(), String> {
+        self.environment.restore_pattern_branch(checkpoint)
+    }
+
+    fn select_type_resolution(
+        &mut self,
+        resolution: &TypeExpressionResolution,
+    ) -> Result<(), String> {
+        if let Some(node) = resolution
+            .resolution_id
+            .as_ref()
+            .and_then(|id| self.resolved_nodes.get(id))
+            .cloned()
+        {
+            self.select_expression(&node)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
     fn begin_pattern_match(&mut self) -> Result<(), String> {
         self.environment.begin_pattern_match()
     }
@@ -3942,6 +4100,7 @@ mod tests {
     fn capture_summary_exposes_the_concrete_expression_kind() {
         let source = MappedSource::identity("{value}");
         let node = ExpressionNode {
+            effects: None,
             kind: ExpressionNodeKind::Variable {
                 parser_id: "core.variable".to_owned(),
             },
@@ -3973,6 +4132,7 @@ mod tests {
     fn capture_context_can_derive_values_from_expression_children() {
         let source = MappedSource::identity("{values::*}");
         let child = ExpressionNode {
+            effects: None,
             kind: ExpressionNodeKind::Variable {
                 parser_id: "core.variable".to_owned(),
             },

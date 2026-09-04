@@ -43,6 +43,7 @@ impl ExpressionParseEnvironment for DocumentFunctionEnvironment {
             let range = TextRange::new(request.remaining.start, *end);
             let text = range.slice(request.input)?;
             text.parse::<i64>().ok().map(|_| ExpressionLeafCandidate {
+                effects: None,
                 parser_id: "test.number".to_owned(),
                 kind: ExpressionLeafKind::Literal,
                 timing: ExpressionLeafTiming::AfterRegistered,

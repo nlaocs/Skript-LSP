@@ -9,6 +9,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.timespan",
     classes: &["ch.njol.skript.util.Timespan"],
     parse,
+    unresolved: None,
     all_type_options: false,
 };
 

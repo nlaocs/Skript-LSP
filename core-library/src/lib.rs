@@ -31,7 +31,7 @@ use nlaocs::skript_parser_addon::types::{
     ExpressionPayload, HookDecision, HookEffects, HookInvocation, HookMode, HookOutput,
     HookPayload, HookPhase, HookSelector, HookSubscription, HookTarget, HostProfile, ParseResult,
     RegisteredExpressionPayload, StateNamespaceDeclaration, StateNamespaceVisibility, SyntaxKind,
-    TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput,
+    TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput, TypeParserOutcome,
 };
 #[cfg(test)]
 use nlaocs::skript_parser_addon::types::{RuntimePlugin, RuntimeProfile};
@@ -307,6 +307,13 @@ fn require_skript_version(version: Option<&str>) -> Result<&str, CompatibilityEr
             message: format!("CoreLibrary cannot parse the Skript version `{version}`"),
         });
     }
+    if !runtime::supports_skript_version(version) {
+        return Err(CompatibilityError {
+            kind: CompatibilityErrorKind::InvalidManifest,
+            subject: "runtime.skript-version".to_owned(),
+            message: format!("CoreLibrary supports Skript 2.6.4 through 2.16.x, not `{version}`"),
+        });
+    }
     Ok(version)
 }
 
@@ -415,18 +422,30 @@ fn parse_type(input: HookInvocation) -> Result<HookOutput, AddonError> {
         return Ok(interpolation_output(payload, outcome));
     }
     if let Some(candidate) = expression_candidates::parse_types(&payload) {
+        payload.type_parser_outcome = Some(TypeParserOutcome::Handled);
         payload.candidates.push(candidate);
         Ok(HookOutput {
             decision: HookDecision::ContinueProcessing,
             replacement: Some(HookPayload::Expression(payload)),
             effects: empty_effects(),
         })
-    } else {
+    } else if let Some(unresolved) = expression_candidates::unresolved_type(&payload) {
+        payload.type_parser_outcome = Some(TypeParserOutcome::Handled);
+        payload.type_parser_unresolved.push(unresolved);
         Ok(HookOutput {
             decision: HookDecision::ContinueProcessing,
-            replacement: None,
+            replacement: Some(HookPayload::Expression(payload)),
             effects: empty_effects(),
         })
+    } else if types::is_applicable(&payload) {
+        payload.type_parser_outcome = Some(TypeParserOutcome::NoMatch);
+        Ok(HookOutput {
+            decision: HookDecision::ContinueProcessing,
+            replacement: Some(HookPayload::Expression(payload)),
+            effects: empty_effects(),
+        })
+    } else {
+        Ok(not_applicable())
     }
 }
 
@@ -473,10 +492,14 @@ fn interpolation_output(
     mut payload: ExpressionPayload,
     outcome: primitives::interpolation::Outcome,
 ) -> HookOutput {
+    let type_parser_applicable = payload.active_type.is_some() && types::is_applicable(&payload);
+    if type_parser_applicable {
+        payload.type_parser_outcome = Some(TypeParserOutcome::Handled);
+    }
     match outcome {
         primitives::interpolation::Outcome::Requests(parse_requests) => HookOutput {
             decision: HookDecision::ContinueProcessing,
-            replacement: None,
+            replacement: type_parser_applicable.then_some(HookPayload::Expression(payload)),
             effects: HookEffects {
                 parse_requests,
                 ..empty_effects()
@@ -868,6 +891,8 @@ mod tests {
         assert!(require_skript_version(Some("2.6.4")).is_ok());
         assert!(require_skript_version(Some("2.16.0-pre1")).is_ok());
         assert!(require_skript_version(Some("unknown")).is_err());
+        assert!(require_skript_version(Some("2.6.3")).is_err());
+        assert!(require_skript_version(Some("2.17.0")).is_err());
     }
 
     #[test]
@@ -1001,7 +1026,7 @@ mod tests {
             .find(|option| option.code_name == "string");
         let first = <CoreLibrary as hooks::Guest>::invoke(invocation.clone()).unwrap();
         assert_eq!(first.effects.parse_requests.len(), 1);
-        assert!(first.replacement.is_none());
+        assert!(first.replacement.is_some());
 
         let request = first.effects.parse_requests[0].clone();
         assert!(
@@ -1159,6 +1184,29 @@ mod tests {
         assert_eq!(
             metadata_value(&payload.candidates[0].metadata, "literal-source"),
             Some("supplier")
+        );
+    }
+
+    #[test]
+    fn addon_type_sharing_a_standard_java_class_requires_its_own_parser() {
+        let HookPayload::Expression(mut payload) = expression_invocation("addon truth").payload
+        else {
+            unreachable!();
+        };
+        let mut active_type = test_type_options()
+            .into_iter()
+            .find(|option| option.code_name == "boolean")
+            .expect("test options contain Boolean");
+        active_type.definition_id = "type:addon:boolean".to_owned();
+        active_type.registration_id = "type:addon:boolean:0".to_owned();
+        active_type.addon_name = "ExampleAddon".to_owned();
+        payload.active_type = Some(active_type);
+
+        let unresolved = crate::types::unresolved(&payload, "addon truth")
+            .expect("CoreLibrary must not silently claim or ignore an addon Type");
+        assert_eq!(
+            unresolved.required_provider.as_deref(),
+            Some("type-parser/type:addon:boolean:0")
         );
     }
 
@@ -2189,6 +2237,8 @@ mod tests {
                 depth: 0,
                 type_options: Vec::new(),
                 literal_options: Vec::new(),
+                type_parser_unresolved: Vec::new(),
+                type_parser_outcome: None,
                 candidates: Vec::new(),
             }),
         }

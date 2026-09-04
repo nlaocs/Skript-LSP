@@ -7,6 +7,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.string",
     classes: &["java.lang.String"],
     parse,
+    unresolved: None,
     all_type_options: false,
 };
 

@@ -60,10 +60,16 @@ pub(crate) fn parse_arithmetic<E: ExpressionParseEnvironment>(
                 session
                     .begin_semantic_candidate()
                     .map_err(environment_error)?;
+                session
+                    .begin_expression_candidate()
+                    .map_err(environment_error)?;
                 let parsed =
                     parse_operation(session, candidate_range, root, operator, &operation, depth);
                 match parsed {
-                    Ok(Some(candidate)) => {
+                    Ok(Some(mut candidate)) => {
+                        candidate.node.effects = session
+                            .defer_expression_candidate(true)
+                            .map_err(environment_error)?;
                         session
                             .finish_semantic_candidate(true)
                             .map_err(environment_error)?;
@@ -71,10 +77,16 @@ pub(crate) fn parse_arithmetic<E: ExpressionParseEnvironment>(
                     }
                     Ok(None) => {
                         session
+                            .defer_expression_candidate(false)
+                            .map_err(environment_error)?;
+                        session
                             .finish_semantic_candidate(false)
                             .map_err(environment_error)?;
                     }
                     Err(error) => {
+                        session
+                            .defer_expression_candidate(false)
+                            .map_err(environment_error)?;
                         session
                             .finish_semantic_candidate(false)
                             .map_err(environment_error)?;
@@ -111,9 +123,11 @@ fn parse_operation<E: ExpressionParseEnvironment>(
     let Some(left) = parse_operand(session, left_range, &operation.left, depth + 1)? else {
         return Ok(None);
     };
+    session.select_expression(&left)?;
     let Some(right) = parse_operand(session, right_range, &operation.right, depth + 1)? else {
         return Ok(None);
     };
+    session.select_expression(&right)?;
 
     let metadata = BTreeMap::from([
         ("arithmetic.operator".to_owned(), operator.sign.clone()),
@@ -137,6 +151,7 @@ fn parse_operation<E: ExpressionParseEnvironment>(
     ]);
     Ok(Some(ExpressionCandidate {
         node: ExpressionNode {
+            effects: None,
             kind: ExpressionNodeKind::Arithmetic {
                 operator: operator.sign.clone(),
                 operation_registration_id: operation.registration_id.as_str().to_owned(),

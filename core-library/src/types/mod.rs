@@ -11,13 +11,14 @@ mod timespan;
 
 use crate::nlaocs::skript_parser_addon::types::{
     ExpressionLeafCandidate, ExpressionPayload, RegisteredSyntaxHandler,
-    RegisteredSyntaxHandlerTarget, SyntaxKind,
+    RegisteredSyntaxHandlerTarget, SyntaxKind, TypeParserUnresolved,
 };
 
 pub(super) struct TypeParser {
     id: &'static str,
     classes: &'static [&'static str],
     parse: fn(&ExpressionPayload, &str, u64) -> Option<ExpressionLeafCandidate>,
+    unresolved: Option<fn(&ExpressionPayload, &str) -> Option<TypeParserUnresolved>>,
     all_type_options: bool,
 }
 
@@ -105,6 +106,29 @@ pub(crate) fn parse(
     Some(candidate)
 }
 
+pub(crate) fn is_applicable(payload: &ExpressionPayload) -> bool {
+    payload.allow_literals
+        && (standard_parser(payload).is_some() || registered_literal::applicable(payload))
+}
+
+pub(crate) fn unresolved(payload: &ExpressionPayload, text: &str) -> Option<TypeParserUnresolved> {
+    if let Some(parser) = standard_parser(payload) {
+        return (parser.unresolved?)(payload, text);
+    }
+    let active = payload.active_type.as_ref()?;
+    if active.addon_name.eq_ignore_ascii_case("Skript")
+        || !PARSERS
+            .iter()
+            .any(|parser| parser.classes.contains(&active.class_name.as_str()))
+    {
+        return None;
+    }
+    Some(TypeParserUnresolved {
+        reason: "the Type shares a standard Java class but belongs to another addon".to_owned(),
+        required_provider: Some(format!("type-parser/{}", active.registration_id)),
+    })
+}
+
 fn standard_parser(payload: &ExpressionPayload) -> Option<&'static TypeParser> {
     let active = payload.active_type.as_ref()?;
     PARSERS.iter().find(|parser| {
@@ -115,6 +139,9 @@ fn standard_parser(payload: &ExpressionPayload) -> Option<&'static TypeParser> {
         #[cfg(test)]
         if active.registration_id.starts_with("type:test:") {
             return true;
+        }
+        if !active.addon_name.eq_ignore_ascii_case("Skript") {
+            return false;
         }
         crate::runtime::handler_matches(parser.id, &active.registration_id)
     })

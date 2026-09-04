@@ -142,7 +142,7 @@ pub struct EffectMatches {
 }
 
 /// Failure while validating a RawTree node or parsing its Effect contents.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum EffectParseError {
     #[error("Effect parsing requires a Simple RawTree node, got {actual:?}")]
     UnsupportedNodeKind { actual: RawNodeKind },
@@ -301,6 +301,9 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .begin_semantic_candidate()
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        session
+            .activate_pattern_candidate(&matched)
             .map_err(|message| ExpressionParseError::Environment { message })?;
         let candidate =
             effect_candidate(raw_node_id, matched, resolved_order, session, range, depth);

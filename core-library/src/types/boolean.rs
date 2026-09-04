@@ -18,6 +18,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.boolean",
     classes: &["java.lang.Boolean"],
     parse,
+    unresolved: None,
     all_type_options: false,
 };
 

@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.29.0;
+package nlaocs:skript-parser-addon@0.30.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -544,6 +544,21 @@ interface types {
         alias-type-count: option<u64>,
     }
 
+    /// A Type parser recognized a possible value but needs another provider
+    /// before it can accept or reject the candidate conclusively.
+    record type-parser-unresolved {
+        reason: string,
+        required-provider: option<string>,
+    }
+
+    /// Result of an applicable Type parser. A missing value means that the
+    /// hook was not applicable; hooks should use `not-applicable` for that
+    /// case. `handled` includes an explicit unresolved-provider result.
+    enum type-parser-outcome {
+        handled,
+        no-match,
+    }
+
     record expression-payload {
         input: string,
         context: parse-context,
@@ -558,6 +573,8 @@ interface types {
         depth: u32,
         type-options: list<expression-type-option>,
         literal-options: list<expression-literal-option>,
+        type-parser-unresolved: list<type-parser-unresolved>,
+        type-parser-outcome: option<type-parser-outcome>,
         candidates: list<expression-leaf-candidate>,
     }
 

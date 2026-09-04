@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.29.0;
+package nlaocs:skript-parser-addon@0.30.0;
 
 /// Read-only access to the complete retained SSG source and host type relations.
 interface catalog-data {

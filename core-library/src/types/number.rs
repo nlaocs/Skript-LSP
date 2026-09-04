@@ -15,6 +15,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
         "java.lang.Byte",
     ],
     parse,
+    unresolved: None,
     all_type_options: false,
 };
 

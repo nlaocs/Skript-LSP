@@ -81,11 +81,11 @@ fn enter_rejection_fallback_catalog() -> Arc<Catalog> {
         })
         .expect("fixture Section")
         .clone();
-    let pattern_source = "spawn zombie";
-    fallback.common.definition_id = DefinitionId("section:test:spawn-fallback".to_owned());
-    fallback.common.registration_id = RegistrationId("section:test:spawn-fallback:0".to_owned());
+    let pattern_source = "filter %~objects% to match";
+    fallback.common.definition_id = DefinitionId("section:test:filter-fallback".to_owned());
+    fallback.common.registration_id = RegistrationId("section:test:filter-fallback:0".to_owned());
     fallback.common.registration_order = usize::MAX;
-    fallback.common.element_class = ClassName("test.GenericSpawnSection".to_owned());
+    fallback.common.element_class = ClassName("test.GenericFilterSection".to_owned());
     fallback.common.patterns = vec![Pattern {
         source: pattern_source.to_owned(),
         parsed: syntax::parse(pattern_source, source.plural_rules())
@@ -448,10 +448,9 @@ fn section_enter_rejection_retries_a_later_header_candidate() {
         HostConfig {
             syntax_catalog: Some(enter_rejection_fallback_catalog()),
             runtime_profile: RuntimeProfile {
-                // EffSecSpawn was introduced in 2.6.1.  The fallback is a
-                // second registration for the same source-level header and
-                // must be tried after the native handler rejects the first.
-                skript_version: Some("2.6.0".to_owned()),
+                // SecFilter was introduced in 2.10, so the supported 2.6.4
+                // profile exercises fallback after a native rejection.
+                skript_version: Some("2.6.4".to_owned()),
                 ..RuntimeProfile::default()
             },
             ..HostConfig::default()
@@ -465,7 +464,7 @@ fn section_enter_rejection_retries_a_later_header_candidate() {
         &mut host,
         &transaction,
         10,
-        "spawn zombie:\n    dummy effect registered through wrapper\n",
+        "filter {_list::*} to match:\n    dummy effect registered through wrapper\n",
         SectionParserConfig::default(),
     )
     .expect("a rejected Section candidate must remain recoverable");
@@ -477,7 +476,7 @@ fn section_enter_rejection_retries_a_later_header_candidate() {
         .expect("the fallback Section must be selected after enter rejection");
     assert_eq!(
         selected.element_class.as_ref().map(ClassName::as_str),
-        Some("test.GenericSpawnSection")
+        Some("test.GenericFilterSection")
     );
     assert!(result.matches.unknown.is_none());
     assert!(result.calls.iter().any(|call| {

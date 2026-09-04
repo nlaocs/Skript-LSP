@@ -1,6 +1,6 @@
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafTiming,
-    ExpressionPayload, MetadataEntry, TextRange,
+    ExpressionPayload, MetadataEntry, TextRange, TypeParserUnresolved,
 };
 
 pub(crate) fn parse(payload: &ExpressionPayload) -> Option<ExpressionLeafCandidate> {
@@ -22,6 +22,18 @@ pub(crate) fn parse_types(payload: &ExpressionPayload) -> Option<ExpressionLeafC
         };
         if let Some(candidate) = crate::types::parse(payload, text, end) {
             return Some(candidate);
+        }
+    }
+    None
+}
+
+pub(crate) fn unresolved_type(payload: &ExpressionPayload) -> Option<TypeParserUnresolved> {
+    for end in payload.candidate_ends.iter().copied().rev() {
+        let Some(text) = expression_slice(payload, end) else {
+            continue;
+        };
+        if let Some(unresolved) = crate::types::unresolved(payload, text) {
+            return Some(unresolved);
         }
     }
     None

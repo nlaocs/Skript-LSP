@@ -12,11 +12,7 @@ pub(super) fn parse(payload: &ExpressionPayload, end: u64) -> Option<ExpressionL
     let option = payload
         .literal_options
         .iter()
-        .filter(|option| {
-            option.code_name == active.code_name
-                && option.class_name == active.class_name
-                && option.type_parse_order == active.type_parse_order
-        })
+        .filter(|option| belongs_to_active_type(option, active))
         .filter(|option| option.range.start == payload.remaining.start && option.range.end == end)
         .min_by_key(|option| option.type_parse_order)?;
     Some(candidate_from_option(
@@ -25,6 +21,28 @@ pub(super) fn parse(payload: &ExpressionPayload, end: u64) -> Option<ExpressionL
         option.range.start,
         option.range.end,
     ))
+}
+
+pub(super) fn applicable(payload: &ExpressionPayload) -> bool {
+    if !payload.allow_literals {
+        return false;
+    }
+    let Some(active) = payload.active_type.as_ref() else {
+        return false;
+    };
+    payload
+        .literal_options
+        .iter()
+        .any(|option| belongs_to_active_type(option, active))
+}
+
+fn belongs_to_active_type(
+    option: &ExpressionLiteralOption,
+    active: &crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption,
+) -> bool {
+    option.code_name == active.code_name
+        && option.class_name == active.class_name
+        && option.type_parse_order == active.type_parse_order
 }
 
 pub(super) fn candidate_from_option(

@@ -20,6 +20,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.class-info",
     classes: &["ch.njol.skript.classes.ClassInfo"],
     parse,
+    unresolved: None,
     all_type_options: true,
 };
 

@@ -946,6 +946,13 @@ enum FailureReasonReport {
         supported: Vec<String>,
         current: Vec<String>,
     },
+    TypeParserUnresolved {
+        definition_id: String,
+        registration_id: String,
+        parser_class: Option<String>,
+        reason: String,
+        required_provider: Option<String>,
+    },
     TrailingInput,
     HookRejected {
         reason: String,
@@ -968,6 +975,14 @@ impl FailureReasonReport {
                 "only available in {}; current event is {}",
                 supported.join(" or "),
                 current.join(" or ")
+            ),
+            Self::TypeParserUnresolved {
+                reason,
+                required_provider,
+                ..
+            } => required_provider.as_ref().map_or_else(
+                || format!("type parser could not decide: {reason}"),
+                |provider| format!("type parser needs provider {provider}: {reason}"),
             ),
             Self::TrailingInput => "unexpected trailing input".to_owned(),
             Self::HookRejected { reason } => format!("hook rejected candidate: {reason}"),
@@ -1779,6 +1794,19 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                 PatternFailureReason::EventRestricted { supported, current } => {
                     FailureReasonReport::EventRestricted { supported, current }
                 }
+                PatternFailureReason::TypeParserUnresolved {
+                    definition_id,
+                    registration_id,
+                    parser_class,
+                    reason,
+                    required_provider,
+                } => FailureReasonReport::TypeParserUnresolved {
+                    definition_id,
+                    registration_id,
+                    parser_class,
+                    reason,
+                    required_provider,
+                },
                 PatternFailureReason::TrailingInput => FailureReasonReport::TrailingInput,
                 PatternFailureReason::HookRejected { reason } => {
                     FailureReasonReport::HookRejected { reason }

@@ -1,6 +1,7 @@
 use crate::expression_candidates::{candidate, metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
+    TypeParserUnresolved,
 };
 
 const ENCHANTMENT_TYPE: &str = "ch.njol.skript.util.EnchantmentType";
@@ -9,6 +10,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.enchantment-type",
     classes: &["ch.njol.skript.util.EnchantmentType"],
     parse,
+    unresolved: Some(unresolved),
     all_type_options: false,
 };
 
@@ -21,6 +23,16 @@ pub(super) fn parse(
         return None;
     }
     parse_with(payload, text, end, enchantment_literal)
+}
+
+fn unresolved(payload: &ExpressionPayload, text: &str) -> Option<TypeParserUnresolved> {
+    if !payload.allow_literals || split_level(text.trim()).0.is_empty() {
+        return None;
+    }
+    Some(TypeParserUnresolved {
+        reason: "the enchantment name is not present in the SSG snapshot".to_owned(),
+        required_provider: Some("minecraft.registry.enchantment".to_owned()),
+    })
 }
 
 fn parse_with(

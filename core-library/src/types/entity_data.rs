@@ -11,6 +11,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.entity-data",
     classes: &["ch.njol.skript.entity.EntityData"],
     parse,
+    unresolved: None,
     all_type_options: true,
 };
 

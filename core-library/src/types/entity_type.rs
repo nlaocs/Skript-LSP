@@ -14,6 +14,7 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.entity-type",
     classes: &[ENTITY_TYPE],
     parse,
+    unresolved: None,
     all_type_options: true,
 };
 

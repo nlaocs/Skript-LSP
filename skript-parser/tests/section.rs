@@ -64,6 +64,7 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
                 .unwrap_or_else(|| "0".to_owned()),
         );
         Ok(vec![ExpressionLeafCandidate {
+            effects: None,
             parser_id: "test.string".to_owned(),
             kind: ExpressionLeafKind::Literal,
             timing: ExpressionLeafTiming::AfterRegistered,
