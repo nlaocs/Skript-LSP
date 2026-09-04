@@ -34,6 +34,8 @@ test専用guest componentをbuildします。現在の出力は次のとおり�
 artifacts/catalog-data-addon.wasm
 artifacts/dynamic-syntax-addon.wasm
 artifacts/effect-addon.wasm
+artifacts/expression-data-addon-a.wasm
+artifacts/expression-data-addon-b.wasm
 artifacts/matching-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm
@@ -49,7 +51,7 @@ parser hostのintegration testがこれらのartifactを埋め込みます。
 1. `wasm32-unknown-unknown`向けにCargoを実行する
 2. workspaceの最適化済み`core-library` profileを使用する
 3. `CARGO_TARGET_DIR`を尊重し、core-libraryの中間fileは
-   `core-library-component` directoryへ配置し、6つのtest componentは
+   `core-library-component` directoryへ配置し、test componentは
    共有の`test-components` directoryでまとめてbuildする
 4. raw core Wasm moduleを読む
 5. `wit-component::ComponentEncoder`でcomponent metadataを埋め込む

@@ -11,6 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
+- WIT package `nlaocs:skript-parser-addon@0.28.0) and ABI `10.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -48,11 +49,50 @@ the recursive native parser. Registered Expression matching, recursion, and
 ranking remain Rust host responsibilities; CoreLibrary owns only the built-in
 semantics that cannot be recovered from SSG registration data alone.
 
+The Type hook also handles registrations declared with `kind: Type`. The first
+such built-in parser is `types/entity_type.rs`, which owns its handler registration
+and implements Skript's amount-bearing `EntityType` literal. `3 creepers` is one
+Literal with return class `ch.njol.skript.entity.EntityType` and `Single`
+multiplicity, not three Expression nodes. Its metadata records the effective
+`entity-type-amount`, the original `entity-type-raw-amount` (`-1` when omitted),
+the Type definition/registration IDs, and an `entity-data` JSON object retaining
+the nested EntityData supplier metadata. Entity names and plural forms come from
+the snapshot; old snapshots retain the existing version-gated compatibility path.
+The host namespaces these metadata keys with `nlaocs.core-library/`; keys inside
+the nested `entity-data` JSON retain their original names.
+This does not implement default argument resolution or every standard Type parser.
+
 Quoted strings and variables containing `%expression%` issue generic
 `host.expression` parse requests. The host parses those ranges transactionally
 and invokes CoreLibrary again with result graphs. CoreLibrary references the
 host-issued result tokens from its leaf candidate, so the selected roots become
 native child AST nodes with rebased spans instead of opaque metadata.
+
+The built-in variable parser publishes `public_data` separately from
+owner-protected `metadata`. Its schema is `nlaocs.skript.variable` version `1`:
+
+```json
+{"scope":"local","name":[{"kind":"text","text":"money"},{"kind":"expression","childIndex":0}]}
+```
+
+`scope` is `local` or `global`. `name` is a source-name template. Text parts
+preserve source spelling, including escaped `%%`, while expression parts refer
+to existing children of the originating semantic Expression node through
+`childIndex`; they do not duplicate a child's return type or multiplicity.
+The data is node-local, so a `Grouped` wrapper does not copy the child's
+records. The source-name text is semantic information: changing it does not
+rewrite the original source, and the CLI/report must keep it on its own node.
+
+The host validates only the public-data envelope (unique schema ID per list,
+schema version at least `1`, and a JSON object). It does not validate
+VariableData semantic consistency or derive type/multiplicity from its JSON.
+Editors and addons must keep the name template, child indexes, return type,
+and multiplicity consistent; changing a list shape requires updating the
+standard multiplicity field. This is parse-time semantic data, not a runtime
+variable value or a shared `StateStore` entry. Variable type tracking and
+server-side variable value mutation are not implemented, and public-data
+changes do not retroactively edit a whole AST.
+Type consolidation remains a follow-up; issue #102 is not complete.
 
 The Effect and Section hooks provide class-specific semantics including
 `EffChange`, `EffDoIf`, `EffSort`, `EffTransform`, `EffSecShoot`, `EffSecSpawn`,

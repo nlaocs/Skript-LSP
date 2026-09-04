@@ -35,6 +35,8 @@ Builds test-only guest components, currently:
 artifacts/catalog-data-addon.wasm
 artifacts/dynamic-syntax-addon.wasm
 artifacts/effect-addon.wasm
+artifacts/expression-data-addon-a.wasm
+artifacts/expression-data-addon-b.wasm
 artifacts/matching-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm
@@ -49,7 +51,7 @@ Both commands use the same `ComponentSpec` pipeline:
 1. run Cargo for `wasm32-unknown-unknown`
 2. use the optimized `core-library` workspace profile
 3. respect `CARGO_TARGET_DIR` and place core-library intermediates in the
-   `core-library-component` directory; build the six test components together
+   `core-library-component` directory; build the test component variants together
    in the shared `test-components` directory
 4. read the raw core Wasm module
 5. use `wit-component::ComponentEncoder` to embed component metadata

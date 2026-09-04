@@ -58,14 +58,22 @@ pattern, and addon metadata.
 
 Human output identifies the selected Effect, addon, implementation class,
 registration pattern, pattern AST, captures, expected Skript types, resolved
-Java return types, multiplicity, nested Expressions, parse tags, parse marks,
-alternatives, and the farthest useful failure. JSON reports carry
-`schemaVersion: 4` so consumers can version their reader independently from the
-SSG schema. Human reports include `parseTime` in milliseconds for durations of
+Java return types, multiplicity, nested Expressions, public semantic data,
+parse tags, parse marks, alternatives, and the farthest useful failure. JSON
+reports carry `schemaVersion: 5` so consumers can version their reader
+independently from the SSG schema. Human reports include `parseTime` in
+milliseconds for durations of
 at least one millisecond and in nanoseconds for shorter parses. JSON reports
 expose the duration as integer nanoseconds in `parseDurationNs`. The duration
 covers RawTree parsing, parser analysis, and transaction rollback. Snapshot
 loading, indexing, report construction, and rendering are excluded.
+
+Each resolved Expression reports its node-local `publicData` records beside
+`metadata`. A record has `schemaId`, `schemaVersion`, and `json`; valid JSON is
+emitted as a structured raw value rather than a JSON string, so large integer
+and decimal spellings are preserved. Nested children keep their own records,
+including the empty list on a grouped wrapper. Human output shows the same
+schema/version and JSON object without changing the rendered source.
 
 Human parse failures use `miette` to label the farthest failure span directly
 in the source. Human formatting may evolve for readability; JSON output is the
