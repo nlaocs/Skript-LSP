@@ -51,6 +51,7 @@ pub(crate) fn candidate(
         return_type: Some(return_type.to_owned()),
         multiplicity: Some(multiplicity),
         children: Vec::new(),
+        public_data: Vec::new(),
         metadata: Vec::new(),
     }
 }

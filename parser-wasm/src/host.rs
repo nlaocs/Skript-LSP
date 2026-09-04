@@ -4,6 +4,8 @@
 //! coordinates macros and dynamic syntax, and commits only accepted side effects.
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
+mod public_data;
+
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -108,6 +110,7 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionLiteralSource as WitExpressionLiteralSource,
     ExpressionPayload as WitExpressionPayload,
     ExpressionPossibleReturnTypesState as WitPossibleReturnTypesState,
+    ExpressionPublicData as WitExpressionPublicData,
     ExpressionReturnTypeState as WitReturnTypeState,
     ExpressionTypeOption as WitExpressionTypeOption, FunctionDeclaration as WitFunctionDeclaration,
     FunctionDeclarationScope as WitFunctionDeclarationScope,
@@ -3992,6 +3995,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
             },
             effective_multiplicity: request.declared_multiplicity.map(multiplicity_to_wit),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         };
         let original = payload.clone();
@@ -4040,6 +4044,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 != original.effective_possible_return_types_state
             || output.effective_multiplicity != original.effective_multiplicity
             || output.selected_property_option_indices != original.selected_property_option_indices
+            || !public_data::same(&output.public_data, &original.public_data)
             || !same_metadata_entries(&output.metadata, &original.metadata);
         if !changed && matches!(result.decision, HookDecision::ContinueProcessing) {
             if !original.regex_captures.is_empty() {
@@ -4063,6 +4068,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 WitPossibleReturnTypesState::Unresolved => PossibleReturnTypesState::Unresolved,
             },
             multiplicity: output.effective_multiplicity.map(multiplicity_from_wit),
+            public_data: public_data::from_wit(output.public_data)?,
             metadata: metadata_entries(output.metadata)?,
         })
     }
@@ -4538,47 +4544,53 @@ fn flatten_structure_entries(
 fn structure_entry_to_wit(value: &StructureEntry, parent: Option<u64>) -> WitStructureEntry {
     let (value_kind, value_summary) = match &value.value {
         StructureEntryValue::Raw(_) => (WitStructureEntryValueKind::Raw, None),
-        StructureEntryValue::Expression(node) => (
-            WitStructureEntryValueKind::Expression,
-            Some(WitParseSummary {
-                kind: "expression".to_owned(),
-                definition_id: match &node.kind {
-                    ExpressionNodeKind::Registered { definition_id, .. } => {
-                        Some(definition_id.clone())
-                    }
-                    _ => None,
-                },
-                registration_id: match &node.kind {
-                    ExpressionNodeKind::Registered {
-                        registration_id, ..
-                    } => Some(registration_id.clone()),
-                    _ => None,
-                },
-                element_class: None,
-                pattern_index: match &node.kind {
-                    ExpressionNodeKind::Registered { pattern_index, .. } => {
-                        Some(*pattern_index as u64)
-                    }
-                    _ => None,
-                },
-                return_type: node
-                    .return_type
-                    .as_ref()
-                    .map(|value| value.as_str().to_owned()),
-                possible_return_types: node
-                    .possible_return_types
-                    .iter()
-                    .map(|value| value.as_str().to_owned())
-                    .collect(),
-                possible_return_types_state: match node.possible_return_types_state {
-                    PossibleReturnTypesState::Complete => WitPossibleReturnTypesState::Complete,
-                    PossibleReturnTypesState::Partial => WitPossibleReturnTypesState::Partial,
-                    PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
-                },
-                multiplicity: node.multiplicity.map(multiplicity_to_wit),
-                metadata: metadata_to_wit(&node.metadata),
-            }),
-        ),
+        StructureEntryValue::Expression(node) => {
+            let node = unwrap_grouped_expression(node);
+            (
+                WitStructureEntryValueKind::Expression,
+                Some(WitParseSummary {
+                    kind: "expression".to_owned(),
+                    definition_id: match &node.kind {
+                        ExpressionNodeKind::Registered { definition_id, .. } => {
+                            Some(definition_id.clone())
+                        }
+                        _ => None,
+                    },
+                    registration_id: match &node.kind {
+                        ExpressionNodeKind::Registered {
+                            registration_id, ..
+                        } => Some(registration_id.clone()),
+                        _ => None,
+                    },
+                    element_class: None,
+                    pattern_index: match &node.kind {
+                        ExpressionNodeKind::Registered { pattern_index, .. } => {
+                            Some(*pattern_index as u64)
+                        }
+                        _ => None,
+                    },
+                    return_type: node
+                        .return_type
+                        .as_ref()
+                        .map(|value| value.as_str().to_owned()),
+                    possible_return_types: node
+                        .possible_return_types
+                        .iter()
+                        .map(|value| value.as_str().to_owned())
+                        .collect(),
+                    possible_return_types_state: match node.possible_return_types_state {
+                        PossibleReturnTypesState::Complete => WitPossibleReturnTypesState::Complete,
+                        PossibleReturnTypesState::Partial => WitPossibleReturnTypesState::Partial,
+                        PossibleReturnTypesState::Unresolved => {
+                            WitPossibleReturnTypesState::Unresolved
+                        }
+                    },
+                    multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                    public_data: public_data::to_wit(&node.public_data),
+                    metadata: metadata_to_wit(&node.metadata),
+                }),
+            )
+        }
         StructureEntryValue::Trigger(_) => (WitStructureEntryValueKind::Trigger, None),
         StructureEntryValue::Container(_) => (WitStructureEntryValueKind::Container, None),
         StructureEntryValue::Section(_) => (WitStructureEntryValueKind::Section, None),
@@ -4605,6 +4617,16 @@ fn structure_entry_to_wit(value: &StructureEntry, parent: Option<u64>) -> WitStr
         value_kind,
         value_summary,
     }
+}
+
+fn unwrap_grouped_expression(mut node: &ExpressionNode) -> &ExpressionNode {
+    while matches!(&node.kind, ExpressionNodeKind::Grouped) {
+        let Some(child) = node.children.first() else {
+            break;
+        };
+        node = child;
+    }
+    node
 }
 
 fn structure_child_node_ids(body: &StructureBody) -> Vec<u64> {
@@ -5307,6 +5329,7 @@ fn parsed_capture_to_wit(capture: &ParserParsedCapture, input: &str) -> WitParse
                     PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
                 },
                 multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                public_data: public_data::to_wit(&summary.public_data),
                 metadata: metadata_to_wit(&summary.metadata),
             }),
         attachments: capture
@@ -5639,6 +5662,7 @@ fn same_registered_expression_children(
                 && left.possible_return_types == right.possible_return_types
                 && left.possible_return_types_state == right.possible_return_types_state
                 && left.multiplicity == right.multiplicity
+                && public_data::same(&left.public_data, &right.public_data)
                 && same_metadata_entries(&left.metadata, &right.metadata)
         })
 }
@@ -5848,6 +5872,9 @@ fn same_parse_summary(left: Option<&WitParseSummary>, right: Option<&WitParseSum
                 && left.pattern_index == right.pattern_index
                 && left.return_type == right.return_type
                 && left.multiplicity == right.multiplicity
+                && left.possible_return_types == right.possible_return_types
+                && left.possible_return_types_state == right.possible_return_types_state
+                && public_data::same(&left.public_data, &right.public_data)
                 && same_metadata_entries(&left.metadata, &right.metadata)
         }
         _ => false,
@@ -6125,6 +6152,7 @@ fn wit_expression_candidate(
             WitDynamicMultiplicity::Both => Multiplicity::Both,
         }),
         children,
+        public_data: public_data::from_wit(candidate.public_data)?,
         metadata,
     })
 }
@@ -6830,6 +6858,7 @@ fn expression_child_to_wit(
             PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
         },
         multiplicity: child.multiplicity.map(multiplicity_to_wit),
+        public_data: public_data::to_wit(&child.public_data),
         metadata: metadata_to_wit(&child.metadata),
     }
 }
@@ -7024,25 +7053,7 @@ fn same_registered_expression_identity(
             .zip(&right.tags)
             .all(|(left, right)| left.value == right.value && left.implicit == right.implicit)
         && left.mark == right.mark
-        && left.children.len() == right.children.len()
-        && left
-            .children
-            .iter()
-            .zip(&right.children)
-            .all(|(left, right)| {
-                left.text == right.text
-                    && left.kind == right.kind
-                    && left.parser_id == right.parser_id
-                    && left.definition_id == right.definition_id
-                    && left.registration_id == right.registration_id
-                    && left.pattern_index == right.pattern_index
-                    && left.element_class == right.element_class
-                    && left.return_type == right.return_type
-                    && left.possible_return_types == right.possible_return_types
-                    && left.possible_return_types_state == right.possible_return_types_state
-                    && left.multiplicity == right.multiplicity
-                    && same_metadata_entries(&left.metadata, &right.metadata)
-            })
+        && same_registered_expression_children(&left.children, &right.children)
         && same_parsed_captures(&left.parsed_captures, &right.parsed_captures)
         && left.common_child_return_type == right.common_child_return_type
         && same_expression_type_options(&left.type_options, &right.type_options)
@@ -11441,10 +11452,12 @@ fn normalize_hook_metadata(
                 );
             }
             validate_selected_property_options(replacement)?;
+            public_data::validate(&replacement.public_data)?;
             merge_owned_metadata(&original.metadata, &mut replacement.metadata, component_id)
         }
         (HookPayload::Expression(original), HookPayload::Expression(replacement)) => {
             for candidate in &mut replacement.candidates {
+                public_data::validate(&candidate.public_data)?;
                 let previous = original.candidates.iter().find(|previous| {
                     previous.parser_id == candidate.parser_id
                         && previous.range.start == candidate.range.start
@@ -12608,6 +12621,7 @@ impl<'a> ParseResultArena<'a> {
                     PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
                 },
                 multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                public_data: public_data::to_wit(&node.public_data),
                 metadata: metadata_to_wit(&node.metadata),
             }),
             children,
@@ -12661,6 +12675,7 @@ impl<'a> ParseResultArena<'a> {
                 possible_return_types: Vec::new(),
                 possible_return_types_state: WitPossibleReturnTypesState::Complete,
                 multiplicity: None,
+                public_data: Vec::new(),
                 metadata: metadata_to_wit(&node.metadata),
             }),
             children,
@@ -12739,6 +12754,7 @@ impl<'a> ParseResultArena<'a> {
                     PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
                 },
                 multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                public_data: public_data::to_wit(&summary.public_data),
                 metadata: metadata_to_wit(&summary.metadata),
             });
         self.push_node(ParseResultNode {
@@ -12849,6 +12865,9 @@ fn validate_parse_result(request: &ParseRequest, result: &ParseResult) -> Result
     }
     let mut nodes = HashMap::with_capacity(result.nodes.len());
     for (index, node) in result.nodes.iter().enumerate() {
+        if let Some(summary) = &node.summary {
+            public_data::validate(&summary.public_data).map_err(&invalid)?;
+        }
         if nodes.insert(node.node_id, index).is_some() {
             return Err(invalid(format!("duplicate node ID {}", node.node_id)));
         }
@@ -12990,7 +13009,12 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .candidate
                     .children
                     .iter()
-                    .map(|child| child.text.len())
+                    .map(|child| {
+                        child
+                            .text
+                            .len()
+                            .saturating_add(public_data::size(&child.public_data))
+                    })
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(metadata_entries_size(&value.candidate.metadata)),
@@ -13078,6 +13102,12 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .len()
                             .saturating_add(entry.entry_data_class.len())
                             .saturating_add(entry.source.len())
+                            .saturating_add(
+                                entry
+                                    .value_summary
+                                    .as_ref()
+                                    .map_or(0, |summary| public_data::size(&summary.public_data)),
+                            )
                     })
                     .fold(0usize, usize::saturating_add),
             )
@@ -13108,6 +13138,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .parser_id
                             .len()
                             .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(public_data::size(&candidate.public_data))
                             .saturating_add(metadata_entries_size(&candidate.metadata))
                     })
                     .fold(0usize, usize::saturating_add),
@@ -13115,6 +13146,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::RegisteredExpression(value) => value
             .input
             .len()
+            .saturating_add(public_data::size(&value.public_data))
             .saturating_add(parse_context_size(&value.context))
             .saturating_add(value.definition_id.len())
             .saturating_add(value.registration_id.len())
@@ -13164,6 +13196,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .saturating_add(child.registration_id.as_ref().map_or(0, String::len))
                             .saturating_add(child.element_class.as_ref().map_or(0, String::len))
                             .saturating_add(child.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(public_data::size(&child.public_data))
                             .saturating_add(metadata_entries_size(&child.metadata))
                     })
                     .fold(0usize, usize::saturating_add),
@@ -13450,6 +13483,7 @@ fn parsed_capture_size(capture: &WitParsedCapture) -> usize {
                 .saturating_add(summary.registration_id.as_ref().map_or(0, String::len))
                 .saturating_add(summary.element_class.as_ref().map_or(0, String::len))
                 .saturating_add(summary.return_type.as_ref().map_or(0, String::len))
+                .saturating_add(public_data::size(&summary.public_data))
                 .saturating_add(metadata_entries_size(&summary.metadata))
         }))
         .saturating_add(
@@ -13614,6 +13648,11 @@ fn parse_result_size(result: &ParseResult) -> usize {
 fn parse_result_node_size(node: &ParseResultNode) -> usize {
     node.parser_id
         .len()
+        .saturating_add(
+            node.summary
+                .as_ref()
+                .map_or(0, |summary| public_data::size(&summary.public_data)),
+        )
         .saturating_add(node.kind.len())
         .saturating_add(node.text.len())
         .saturating_add(metadata_entries_size(&node.metadata))
@@ -14047,12 +14086,278 @@ mod tests {
             effective_possible_return_types: vec!["java.lang.String".to_owned()],
             effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             effective_multiplicity: Some(WitDynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: vec![WitMetadataEntry {
                 owner_component_id: None,
                 key: "phase".to_owned(),
                 value: "resolved".to_owned(),
             }],
         })
+    }
+
+    fn public_data_entry(json: &str) -> WitExpressionPublicData {
+        WitExpressionPublicData {
+            schema_id: "example.semantic".to_owned(),
+            schema_version: 1,
+            json: json.to_owned(),
+        }
+    }
+
+    fn registered_expression_child(
+        public_data: Vec<WitExpressionPublicData>,
+    ) -> WitRegisteredExpressionChild {
+        WitRegisteredExpressionChild {
+            text: "child".to_owned(),
+            kind: "expression".to_owned(),
+            parser_id: Some("parser:test".to_owned()),
+            definition_id: Some("expression:test:definition".to_owned()),
+            registration_id: Some("expression:test:registration".to_owned()),
+            pattern_index: Some(0),
+            element_class: Some("example.ExprTest".to_owned()),
+            return_type: Some("java.lang.String".to_owned()),
+            possible_return_types: vec!["java.lang.String".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+            multiplicity: Some(WitDynamicMultiplicity::Single),
+            public_data,
+            metadata: Vec::new(),
+        }
+    }
+
+    fn empty_mapped_span() -> MappedSpan {
+        MappedSpan {
+            virtual_range: WitTextRange { start: 0, end: 0 },
+            origins: Vec::new(),
+        }
+    }
+
+    fn condition_with_children(children: Vec<WitRegisteredExpressionChild>) -> HookPayload {
+        HookPayload::Condition(WitConditionPayload {
+            input: "example".to_owned(),
+            context: WitParseContext {
+                syntax_context: 0,
+                event_classes: Vec::new(),
+                values: Vec::new(),
+            },
+            candidate: WitConditionCandidate {
+                definition_id: "condition:test:definition".to_owned(),
+                registration_id: "condition:test:registration".to_owned(),
+                element_class: None,
+                priority: 0,
+                registration_order: 0,
+                pattern_index: 0,
+                pattern: "example".to_owned(),
+                span: empty_mapped_span(),
+                captures: Vec::new(),
+                tags: Vec::new(),
+                mark: 0,
+                marks: Vec::new(),
+                handler: None,
+                metadata: Vec::new(),
+                children,
+            },
+        })
+    }
+
+    fn structure_with_value_summary(public_data: Vec<WitExpressionPublicData>) -> HookPayload {
+        HookPayload::Structure(WitStructurePayload {
+            input: "example".to_owned(),
+            body_tree: RawTree {
+                roots: Vec::new(),
+                nodes: Vec::new(),
+                diagnostics: Vec::new(),
+                indentation: None,
+            },
+            context: WitParseContext {
+                syntax_context: 0,
+                event_classes: Vec::new(),
+                values: Vec::new(),
+            },
+            timing: WitStructureTiming::EnterBody,
+            type_options: Vec::new(),
+            candidate: WitStructureCandidate {
+                raw_node_id: 0,
+                definition_id: "structure:test:definition".to_owned(),
+                registration_id: "structure:test:registration".to_owned(),
+                element_class: None,
+                priority: 0,
+                registration_order: 0,
+                pattern_index: 0,
+                pattern: "example".to_owned(),
+                span: empty_mapped_span(),
+                declared_node_type: WitStructureNodeType::Simple,
+                actual_node_type: WitStructureNodeType::Simple,
+                regex_captures: Vec::new(),
+                tags: Vec::new(),
+                mark: 0,
+                marks: Vec::new(),
+                parsed_captures: Vec::new(),
+                body_mode: WitStructureBodyMode::None,
+                child_node_ids: Vec::new(),
+                entries: vec![WitStructureEntry {
+                    raw_node_id: None,
+                    parent_entry: None,
+                    key: "value".to_owned(),
+                    entry_data_class: "example.EntryData".to_owned(),
+                    kind: WitStructureEntryKind::Expression,
+                    source: "source".to_owned(),
+                    span: empty_mapped_span(),
+                    defaulted: false,
+                    value_kind: WitStructureEntryValueKind::Expression,
+                    value_summary: Some(WitParseSummary {
+                        kind: "grouped".to_owned(),
+                        definition_id: None,
+                        registration_id: None,
+                        element_class: None,
+                        pattern_index: None,
+                        return_type: None,
+                        possible_return_types: Vec::new(),
+                        possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+                        multiplicity: None,
+                        public_data,
+                        metadata: Vec::new(),
+                    }),
+                }],
+                handler: None,
+                metadata: Vec::new(),
+                declarations: Vec::new(),
+            },
+        })
+    }
+
+    #[test]
+    fn registered_expression_child_public_data_mutation_is_rejected() {
+        let mut original = registered_expression();
+        let HookPayload::RegisteredExpression(value) = &mut original else {
+            unreachable!();
+        };
+        value
+            .children
+            .push(registered_expression_child(vec![public_data_entry(
+                r#"{"name":"before"}"#,
+            )]));
+
+        let mut replacement = original.clone();
+        let HookPayload::RegisteredExpression(value) = &mut replacement else {
+            unreachable!();
+        };
+        value.children[0].public_data[0].json = r#"{"name":"after"}"#.to_owned();
+
+        assert!(normalize_hook_metadata(&original, &mut replacement, "another.addon").is_err());
+    }
+
+    #[test]
+    fn condition_child_public_data_counts_toward_hook_size() {
+        let public_data = vec![public_data_entry(r#"{"name":"value"}"#)];
+        let without = condition_with_children(vec![registered_expression_child(Vec::new())]);
+        let with = condition_with_children(vec![registered_expression_child(public_data.clone())]);
+
+        assert_eq!(
+            hook_payload_size(&with),
+            hook_payload_size(&without).saturating_add(public_data::size(&public_data))
+        );
+    }
+
+    #[test]
+    fn structure_value_summary_public_data_counts_toward_hook_size() {
+        let public_data = vec![public_data_entry(r#"{"name":"value"}"#)];
+        let without = structure_with_value_summary(Vec::new());
+        let with = structure_with_value_summary(public_data.clone());
+
+        assert_eq!(
+            hook_payload_size(&with),
+            hook_payload_size(&without).saturating_add(public_data::size(&public_data))
+        );
+    }
+
+    #[test]
+    fn structure_entry_summary_unwraps_grouped_expression_public_data() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig {
+                syntax_catalog: Some(Arc::new(
+                    ssg::load(fixture)
+                        .expect("schema 3 fixture must load")
+                        .into_catalog(),
+                )),
+                ..core_test_config()
+            },
+        )
+        .expect("core fixture must initialize");
+        let transaction = host
+            .begin_parse(
+                "file:///workspace",
+                "file:///workspace/structure-entry.sk",
+                1,
+            )
+            .expect("parse transaction must initialize");
+        let text = "({_balances::*})";
+        let source = MappedSource::identity(text);
+        let result = host
+            .parse_expression_in_parse(
+                &transaction,
+                InvocationContext {
+                    invocation_id: 1,
+                    subscription_id: String::new(),
+                    document_id: "file:///workspace/structure-entry.sk".to_owned(),
+                    document_revision: 1,
+                    expansion: None,
+                    syntax_context: 7,
+                },
+                ExpressionParseRequest {
+                    source: &source,
+                    range: ParserTextRange::new(0, text.len()),
+                    expected_types: vec![skript_parser::ExpressionExpectedType {
+                        class_name: ClassName("java.lang.Object".to_owned()),
+                        plural: true,
+                    }],
+                    context: ExpressionParseContext {
+                        syntax_context: 7,
+                        ..ExpressionParseContext::default()
+                    },
+                },
+                ExpressionParserConfig::default(),
+            )
+            .expect("grouped expression must parse");
+        let mut node = result
+            .matches
+            .selected
+            .expect("grouped expression must select a candidate")
+            .node;
+        assert!(matches!(&node.kind, ExpressionNodeKind::Grouped));
+        assert_eq!(node.children.len(), 1);
+        let child_public_data = vec![skript_parser::ExpressionPublicData {
+            schema_id: "example.semantic".to_owned(),
+            schema_version: 1,
+            json: r#"{"name":"value"}"#.to_owned(),
+        }];
+        node.children[0].public_data = child_public_data.clone();
+        assert!(node.public_data.is_empty());
+        assert_eq!(node.children[0].public_data, child_public_data);
+
+        let entry = StructureEntry {
+            raw_node_id: None,
+            key: "value".to_owned(),
+            entry_data_class: ClassName("example.EntryData".to_owned()),
+            kind: EntryKind::Expression,
+            source: text.to_owned(),
+            span: node.span.clone(),
+            defaulted: false,
+            value: StructureEntryValue::Expression(Box::new(node)),
+        };
+        let projected = structure_entry_to_wit(&entry, None);
+        let summary = projected
+            .value_summary
+            .expect("expression entries expose a value summary");
+        assert_eq!(summary.public_data.len(), 1);
+        assert_eq!(summary.public_data[0].schema_id, "example.semantic");
+        assert_eq!(summary.public_data[0].json, r#"{"name":"value"}"#);
+
+        transaction.cancel().expect("parse transaction must close");
     }
 
     #[test]
@@ -14064,6 +14369,40 @@ mod tests {
         changed.time = -1;
 
         assert!(!same_registered_expression_identity(&changed, &original));
+    }
+
+    #[test]
+    fn public_expression_data_can_be_changed_or_removed_without_forging_metadata() {
+        let mut original = registered_expression();
+        let HookPayload::RegisteredExpression(value) = &mut original else {
+            unreachable!()
+        };
+        value.public_data.push(WitExpressionPublicData {
+            schema_id: "example.semantic".to_owned(),
+            schema_version: 1,
+            json: r#"{"name":"before"}"#.to_owned(),
+        });
+        let mut replacement = original.clone();
+        let HookPayload::RegisteredExpression(value) = &mut replacement else {
+            unreachable!()
+        };
+        value.public_data[0].json = r#"{"name":"after"}"#.to_owned();
+        value.effective_return_type = Some("java.lang.Long".to_owned());
+        normalize_hook_metadata(&original, &mut replacement, "another.addon").unwrap();
+        let HookPayload::RegisteredExpression(value) = &mut replacement else {
+            unreachable!()
+        };
+        value.public_data.clear();
+        normalize_hook_metadata(&original, &mut replacement, "another.addon").unwrap();
+        let HookPayload::RegisteredExpression(value) = replacement else {
+            unreachable!()
+        };
+        assert!(value.public_data.is_empty());
+        assert_eq!(
+            value.effective_return_type.as_deref(),
+            Some("java.lang.Long")
+        );
+        assert_eq!(value.metadata[0].key, "phase");
     }
 
     fn output(decision: HookDecision, replacement: Option<HookPayload>) -> HookOutput {

@@ -1,6 +1,10 @@
 use crate::expression_candidates::{candidate, metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
+    ExpressionPublicData,
+};
+use crate::public_data::{
+    VARIABLE_SCHEMA_ID, VARIABLE_SCHEMA_VERSION, VariableData, VariableNamePart, VariableScope,
 };
 
 const SEPARATOR: &str = "::";
@@ -19,6 +23,11 @@ pub(super) fn parse(
         return None;
     }
     let body = &text[1..text.len() - 1];
+    // Interpolated names must own their parsed child Expressions. The
+    // interpolation provider creates those before publishing the same schema.
+    if !percent_expression_ranges(normalized_name(body))?.is_empty() {
+        return None;
+    }
     let mut candidate = candidate(
         "core.variable",
         ExpressionLeafKind::Variable,
@@ -42,7 +51,41 @@ pub(super) fn parse(
             .metadata
             .push(metadata("expression.capability.nested-structures", "true"));
     }
+    candidate.public_data.push(public_name_data(body)?);
     Some(candidate)
+}
+
+pub(super) fn public_name_data(body: &str) -> Option<ExpressionPublicData> {
+    let scope = if body.trim().starts_with('_') {
+        VariableScope::Local
+    } else {
+        VariableScope::Global
+    };
+    let name = normalized_name(body);
+    let mut parts = Vec::new();
+    let mut previous = 0;
+    for (index, range) in percent_expression_ranges(name)?.into_iter().enumerate() {
+        let text_end = range.start - 1;
+        if previous < text_end {
+            parts.push(VariableNamePart::Text {
+                text: name[previous..text_end].to_owned(),
+            });
+        }
+        parts.push(VariableNamePart::Expression {
+            child_index: u32::try_from(index).ok()?,
+        });
+        previous = range.end + 1;
+    }
+    if previous < name.len() {
+        parts.push(VariableNamePart::Text {
+            text: name[previous..].to_owned(),
+        });
+    }
+    Some(ExpressionPublicData {
+        schema_id: VARIABLE_SCHEMA_ID.to_owned(),
+        schema_version: VARIABLE_SCHEMA_VERSION,
+        json: serde_json::to_string(&VariableData { scope, name: parts }).ok()?,
+    })
 }
 
 /// Mirrors Skript's `Variable.isValidVariableName` checks which affect parsing.
@@ -156,6 +199,46 @@ fn percent_expression_ranges(input: &str) -> Option<Vec<std::ops::Range<usize>>>
 #[cfg(test)]
 mod tests {
     use super::is_valid_variable_name_body;
+
+    #[test]
+    fn publishes_local_global_list_and_interpolated_name_templates() {
+        use crate::public_data::{VariableData, VariableNamePart, VariableScope};
+        let parse = |body| {
+            serde_json::from_str::<VariableData>(&super::public_name_data(body).unwrap().json)
+                .unwrap()
+        };
+        assert_eq!(parse("_money").scope, VariableScope::Local);
+        assert_eq!(parse("money").scope, VariableScope::Global);
+        assert_eq!(
+            parse("_\u{6240}\u{6301}\u{91d1}").name,
+            vec![VariableNamePart::Text {
+                text: "\u{6240}\u{6301}\u{91d1}".into()
+            }]
+        );
+        assert_eq!(
+            parse("_values::*").name,
+            vec![VariableNamePart::Text {
+                text: "values::*".into()
+            }]
+        );
+        assert_eq!(
+            parse("_data::%player%::%{_key}%").name,
+            vec![
+                VariableNamePart::Text {
+                    text: "data::".into()
+                },
+                VariableNamePart::Expression { child_index: 0 },
+                VariableNamePart::Text { text: "::".into() },
+                VariableNamePart::Expression { child_index: 1 },
+            ]
+        );
+        assert_eq!(
+            parse("literal%%percent").name,
+            vec![VariableNamePart::Text {
+                text: "literal%%percent".into()
+            }]
+        );
+    }
 
     #[test]
     fn accepts_simple_and_interpolated_variable_names() {

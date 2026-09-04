@@ -152,6 +152,7 @@ fn parse_operation<E: ExpressionParseEnvironment>(
             mark: 0,
             children: vec![left, right],
             routed_captures: Vec::new(),
+            public_data: Vec::new(),
             metadata,
         },
         expected_alternative: None,

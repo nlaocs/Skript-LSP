@@ -1,11 +1,11 @@
 use skript_parser::{
     ExpressionExpectedType, ExpressionFailureKind, ExpressionLeafCandidate, ExpressionLeafKind,
     ExpressionLeafParse, ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext,
-    ExpressionParseEnvironment, ExpressionParseRequest, ExpressionParserConfig, ExpressionRootMode,
-    MappedSource, NoopExpressionEnvironment, PatternHookControl, PatternHookEvent,
-    PatternMatchEnvironment, PatternMatchError, RegisteredExpressionDecision,
-    RegisteredExpressionRequest, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
-    parse_expression, parse_expression_with_snapshot,
+    ExpressionParseEnvironment, ExpressionParseRequest, ExpressionParserConfig,
+    ExpressionPublicData, ExpressionRootMode, MappedSource, NoopExpressionEnvironment,
+    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, PatternMatchError,
+    RegisteredExpressionDecision, RegisteredExpressionRequest, RegisteredSyntaxIdentity, TextRange,
+    TypeExpressionOutcome, TypeExpressionRequest, parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,18 @@ fn expected_plural(class_name: &str) -> ExpressionExpectedType {
     ExpressionExpectedType {
         class_name: ClassName(class_name.to_owned()),
         plural: true,
+    }
+}
+
+fn expression_public_data(
+    schema_id: &str,
+    schema_version: u32,
+    json: &str,
+) -> ExpressionPublicData {
+    ExpressionPublicData {
+        schema_id: schema_id.to_owned(),
+        schema_version,
+        json: json.to_owned(),
     }
 }
 
@@ -135,6 +147,173 @@ fn catalog_with_syntaxes(source: &Catalog, syntaxes: Vec<Syntax>) -> Catalog {
             .map(|(key, value)| (key.to_owned(), value.to_owned()))
             .collect(),
     })
+}
+
+fn public_data_snapshot(catalog: &Catalog) -> DynamicSyntaxSnapshot {
+    let id = DynamicSyntaxId::new("test.public-data", "parent");
+    let pattern = "public parent %string%";
+    DynamicSyntaxSnapshot {
+        document_id: "file:///public-data.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([(
+            id.clone(),
+            DynamicSyntaxDefinition {
+                id: id.clone(),
+                kind: SyntaxKind::Expression,
+                patterns: vec![DynamicPattern {
+                    source: pattern.to_owned(),
+                    parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules())
+                        .expect("public-data pattern must parse"),
+                }],
+                priority: -100,
+                before: Vec::new(),
+                after: Vec::new(),
+                return_type: Some("java.lang.String".to_owned()),
+                return_multiplicity: Some(DynamicMultiplicity::Single),
+                structure_node_type: None,
+                structure_body_mode: None,
+                entry_validator: None,
+                handler: "test.public-data.parent".to_owned(),
+                metadata: BTreeMap::new(),
+                component_load_order: 1,
+                declaration_order: 0,
+            },
+        )]),
+        overrides: BTreeMap::new(),
+        candidates: vec![RankedSyntaxCandidate {
+            source: SyntaxCandidateSource::Dynamic(id),
+            kind: SyntaxKind::Expression,
+            overrides: Vec::new(),
+        }],
+    }
+}
+
+#[test]
+fn leaf_public_data_reaches_parent_captures_and_group_summary() {
+    let catalog = expression_fixture();
+    let snapshot = public_data_snapshot(&catalog);
+    let leaf_data = vec![expression_public_data(
+        "test.expression.leaf",
+        1,
+        r#"{"source":"leaf"}"#,
+    )];
+
+    let direct_text = "public parent \"leaf\"";
+    let direct_source = MappedSource::identity(direct_text);
+    let mut direct_environment = PublicDataEnvironment::default();
+    let direct = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &direct_source,
+            range: TextRange::new(0, direct_text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut direct_environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parent with a leaf capture must parse");
+    let direct_parent = direct.selected.expect("parent must be selected").node;
+    assert_eq!(direct_parent.children[0].public_data, leaf_data);
+    let direct_capture = direct_parent
+        .parsed_captures()
+        .into_iter()
+        .next()
+        .expect("leaf capture must be exposed");
+    assert_eq!(
+        direct_capture
+            .result
+            .summary
+            .expect("leaf capture summary must exist")
+            .public_data,
+        leaf_data
+    );
+
+    let grouped_text = "public parent (\"leaf\")";
+    let grouped_source = MappedSource::identity(grouped_text);
+    let mut grouped_environment = PublicDataEnvironment::default();
+    let grouped = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &grouped_source,
+            range: TextRange::new(0, grouped_text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut grouped_environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parent with a grouped leaf capture must parse");
+    let grouped_parent = grouped.selected.expect("parent must be selected").node;
+    let group = &grouped_parent.children[0];
+    assert!(matches!(group.kind, ExpressionNodeKind::Grouped));
+    assert!(group.public_data.is_empty());
+    assert_eq!(group.children[0].public_data, leaf_data);
+    let grouped_capture = grouped_parent
+        .parsed_captures()
+        .into_iter()
+        .next()
+        .expect("grouped capture must be exposed");
+    assert_eq!(
+        grouped_capture
+            .result
+            .summary
+            .expect("grouped capture summary must exist")
+            .public_data,
+        leaf_data
+    );
+}
+
+#[test]
+fn registered_public_data_reaches_node_summary_and_grouping() {
+    let catalog = expression_fixture();
+    let snapshot = public_data_snapshot(&catalog);
+    let registered_data = vec![expression_public_data(
+        "test.expression.registered",
+        2,
+        r#"{"source":"registered"}"#,
+    )];
+    let text = "public parent (public parent \"leaf\")";
+    let source = MappedSource::identity(text);
+    let mut environment = PublicDataEnvironment::default();
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("nested registered expressions must parse");
+
+    let outer = result.selected.expect("outer parent must be selected").node;
+    assert_eq!(outer.public_data, registered_data);
+    let group = &outer.children[0];
+    assert!(group.public_data.is_empty());
+    let inner = &group.children[0];
+    assert_eq!(inner.public_data, registered_data);
+
+    let outer_capture = outer
+        .parsed_captures()
+        .into_iter()
+        .next()
+        .expect("grouped registered capture must be exposed");
+    assert_eq!(
+        outer_capture
+            .result
+            .summary
+            .expect("grouped registered summary must exist")
+            .public_data,
+        registered_data
+    );
+    assert!(environment.resolutions >= 2);
 }
 
 #[test]
@@ -1048,12 +1227,96 @@ impl ExpressionParseEnvironment for DynamicReturnEnvironment {
             possible_return_types: vec![ClassName("java.lang.Long".to_owned())],
             possible_return_types_state: PossibleReturnTypesState::Complete,
             multiplicity: Some(Multiplicity::Single),
+            public_data: Vec::new(),
             metadata: BTreeMap::new(),
         })
     }
 
     fn finish_registered_expression(&mut self, accepted: bool) -> Result<(), String> {
         self.finalizations.push(accepted);
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+#[derive(Default)]
+struct PublicDataEnvironment {
+    resolutions: usize,
+}
+
+impl PatternMatchEnvironment for PublicDataEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for PublicDataEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let candidate = request.candidate_ends.iter().rev().find_map(|end| {
+            let range = TextRange::new(request.remaining.start, *end);
+            let text = range.slice(request.input)?;
+            (text == "\"leaf\"").then_some(range)
+        });
+        let Some(range) = candidate else {
+            return Ok(ExpressionLeafParse::default());
+        };
+        Ok(vec![ExpressionLeafCandidate {
+            parser_id: "test.public-data.leaf".to_owned(),
+            kind: ExpressionLeafKind::Literal,
+            range,
+            return_type: Some(ClassName("java.lang.String".to_owned())),
+            multiplicity: Some(Multiplicity::Single),
+            children: Vec::new(),
+            public_data: vec![expression_public_data(
+                "test.expression.leaf",
+                1,
+                r#"{"source":"leaf"}"#,
+            )],
+            metadata: BTreeMap::new(),
+        }]
+        .into())
+    }
+
+    fn can_resolve_registered_expression(&self, syntax: RegisteredSyntaxIdentity<'_>) -> bool {
+        syntax.dynamic_handler == Some("test.public-data.parent")
+    }
+
+    fn resolve_registered_expression(
+        &mut self,
+        _request: RegisteredExpressionRequest<'_>,
+    ) -> Result<RegisteredExpressionDecision, String> {
+        self.resolutions += 1;
+        Ok(RegisteredExpressionDecision::Resolved {
+            return_type: Some(ClassName("java.lang.String".to_owned())),
+            possible_return_types: vec![ClassName("java.lang.String".to_owned())],
+            possible_return_types_state: PossibleReturnTypesState::Complete,
+            multiplicity: Some(Multiplicity::Single),
+            public_data: vec![expression_public_data(
+                "test.expression.registered",
+                2,
+                r#"{"source":"registered"}"#,
+            )],
+            metadata: BTreeMap::new(),
+        })
+    }
+
+    fn finish_registered_expression(&mut self, _accepted: bool) -> Result<(), String> {
         Ok(())
     }
 
@@ -1090,6 +1353,7 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Multiple),
             children: Vec::new(),
+            public_data: Vec::new(),
             metadata: BTreeMap::new(),
         }]
         .into())
@@ -1141,6 +1405,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
                 children: Vec::new(),
+                public_data: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .into_iter()

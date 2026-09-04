@@ -194,6 +194,7 @@ mod tests {
                 .collect(),
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Multiple),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

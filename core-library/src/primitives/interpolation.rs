@@ -78,6 +78,7 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                     result.request_id == request.request_id
                         && result.parser_id == request.parser_id
                         && matches!(result.status, ParseResultStatus::Success)
+                        && result.roots.len() == 1
                 })
             })
         {
@@ -107,15 +108,23 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
         let expression_count = requests.len().to_string();
         leaf.metadata
             .push(metadata("embedded-expression-count", &expression_count));
-        leaf.children = results
+        leaf.children = requests
             .iter()
-            .flat_map(|result| {
-                result.roots.iter().map(|root_id| ParseResultReference {
+            .map(|request| {
+                let result = results
+                    .iter()
+                    .find(|result| result.request_id == request.request_id)
+                    .expect("every request has one validated result");
+                ParseResultReference {
                     host_token: result.host_token,
-                    root_id: *root_id,
-                })
+                    root_id: result.roots[0],
+                }
             })
             .collect();
+        if container.kind == "variable-name" {
+            leaf.public_data
+                .push(variable::public_name_data(container.body)?);
+        }
         return Some(Outcome::Candidate(leaf, results.to_vec()));
     }
     None

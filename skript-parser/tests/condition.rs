@@ -207,6 +207,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
                 children: Vec::new(),
+                public_data: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .into_iter()

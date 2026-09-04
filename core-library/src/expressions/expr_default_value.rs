@@ -167,6 +167,7 @@ mod tests {
             effective_possible_return_types: Vec::new(),
             effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
             effective_multiplicity: Some(DynamicMultiplicity::Both),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }
@@ -188,6 +189,7 @@ mod tests {
             possible_return_types: vec![return_type.to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity,
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

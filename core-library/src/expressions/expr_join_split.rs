@@ -117,6 +117,7 @@ mod tests {
             possible_return_types: vec![STRING.to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

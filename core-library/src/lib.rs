@@ -12,6 +12,7 @@ mod expressions;
 mod language;
 mod loop_context;
 mod primitives;
+pub mod public_data;
 mod runtime;
 mod sections;
 mod structures;
@@ -1438,6 +1439,7 @@ mod tests {
             possible_return_types: vec!["org.bukkit.OfflinePlayer".to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Multiple),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         });
         let expressions::SemanticResolution::Resolved {
@@ -1670,6 +1672,7 @@ mod tests {
             possible_return_types: vec!["ch.njol.skript.classes.ClassInfo".to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: vec![metadata("target-class", "java.lang.Number")],
         });
         value.children.push(expression_child(
@@ -1716,6 +1719,7 @@ mod tests {
             possible_return_types: vec!["ch.njol.skript.entity.EntityData".to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: vec![
                 metadata("literal-represented-class", "org.bukkit.entity.Player"),
                 metadata("literal-plural", "true"),
@@ -1822,6 +1826,7 @@ mod tests {
             possible_return_types: vec!["ch.njol.skript.classes.ClassInfo".to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: vec![metadata("target-class", "java.lang.Object")],
         });
         random.children.push(expression_child(
@@ -1868,6 +1873,7 @@ mod tests {
             possible_return_types: vec!["ch.njol.skript.classes.ClassInfo".to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: vec![
                 metadata("target-class", "java.awt.Color"),
                 metadata("type-plural", plural),
@@ -1948,6 +1954,7 @@ mod tests {
                     ExpressionPossibleReturnTypesState::Unresolved
                 },
                 multiplicity: Some(DynamicMultiplicity::Single),
+                public_data: Vec::new(),
                 metadata: child_metadata,
             });
             assert!(matches!(
@@ -2085,6 +2092,7 @@ mod tests {
             effective_possible_return_types: Vec::new(),
             effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
             effective_multiplicity: Some(DynamicMultiplicity::Both),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }
@@ -2106,6 +2114,7 @@ mod tests {
             possible_return_types: vec![return_type.to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(multiplicity),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

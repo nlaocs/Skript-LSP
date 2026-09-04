@@ -132,6 +132,21 @@ pub enum ExpressionNodeKind {
     },
 }
 
+/// Public, schema-versioned analysis data attached to an Expression.
+///
+/// `schema_id` identifies the public contract represented by `json`, not the
+/// component that produced or owns it. An Expression's public-data collection
+/// contains at most one entry per schema ID, and versions start at 1.
+/// `json` is a JSON object string; schema-specific meaning belongs to addons,
+/// and Transform/Override hooks may edit these values. The native parser keeps
+/// the contents opaque, while source text and spans remain immutable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpressionPublicData {
+    pub schema_id: String,
+    pub schema_version: u32,
+    pub json: String,
+}
+
 /// Parsed Expression node with nested typed captures and mapped provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionNode {
@@ -149,6 +164,8 @@ pub struct ExpressionNode {
     pub children: Vec<ExpressionNode>,
     /// Non-Expression captures resolved through open parser IDs.
     pub(crate) routed_captures: Vec<ParsedCapture>,
+    /// Public schema-versioned analysis data; the native parser keeps it opaque.
+    pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -371,6 +388,7 @@ pub struct ParsedCaptureSemanticSummary {
     pub possible_return_types: Vec<ClassName>,
     pub possible_return_types_state: PossibleReturnTypesState,
     pub multiplicity: Option<Multiplicity>,
+    pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -647,6 +665,7 @@ fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSu
         possible_return_types: node.possible_return_types.clone(),
         possible_return_types_state: node.possible_return_types_state,
         multiplicity: node.multiplicity,
+        public_data: node.public_data.clone(),
         metadata,
     }
 }
@@ -730,6 +749,7 @@ pub(crate) fn condition_parsed_capture(capture_index: usize, node: ConditionNode
                 possible_return_types: Vec::new(),
                 possible_return_types_state: PossibleReturnTypesState::Complete,
                 multiplicity: None,
+                public_data: Vec::new(),
                 metadata: node.metadata.clone(),
             }),
             ParsedCaptureValue::Condition(node),
@@ -776,6 +796,7 @@ pub(crate) fn event_parsed_capture(
         possible_return_types: Vec::new(),
         possible_return_types_state: PossibleReturnTypesState::Complete,
         multiplicity: None,
+        public_data: Vec::new(),
         metadata,
     };
     ParsedCapture {
@@ -950,6 +971,8 @@ pub struct ExpressionLeafCandidate {
     pub multiplicity: Option<Multiplicity>,
     /// Expressions parsed through host requests and owned by this leaf.
     pub children: Vec<ExpressionNode>,
+    /// Public schema-versioned analysis data to carry onto the resulting node.
+    pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -1009,6 +1032,7 @@ pub enum RegisteredExpressionDecision {
         possible_return_types: Vec<ClassName>,
         possible_return_types_state: PossibleReturnTypesState,
         multiplicity: Option<Multiplicity>,
+        public_data: Vec<ExpressionPublicData>,
         metadata: BTreeMap<String, String>,
     },
     Reject {
@@ -1980,6 +2004,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                     captures: Vec::new(),
                                     tags: Vec::new(),
                                     mark: 0,
+                                    // Group wrappers change child layout; opaque schema data stays
+                                    // attached to the original child.
+                                    public_data: Vec::new(),
                                     metadata: child.metadata.clone(),
                                     children: vec![child],
                                     routed_captures: Vec::new(),
@@ -2060,6 +2087,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         captures: Vec::new(),
                         tags: Vec::new(),
                         mark: 0,
+                        public_data: leaf.public_data,
                         children: leaf.children,
                         routed_captures: Vec::new(),
                         metadata: leaf.metadata,
@@ -2303,6 +2331,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     mark: 0,
                     children,
                     routed_captures: Vec::new(),
+                    public_data: Vec::new(),
                     metadata,
                 },
                 expected_alternative: None,
@@ -2559,6 +2588,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let mut node_metadata = metadata
             .as_ref()
             .map_or_else(BTreeMap::new, |value| value.metadata.clone());
+        let mut node_public_data = Vec::new();
         let dynamic_handler = self
             .dynamic_handler_for_registration(&matched.registration_id)
             .map(str::to_owned);
@@ -2866,12 +2896,14 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     possible_return_types: resolved_possible_return_types,
                     possible_return_types_state: resolved_possible_return_types_state,
                     multiplicity: resolved_multiplicity,
+                    public_data: resolved_public_data,
                     metadata,
                 } => {
                     return_type = resolved_return_type;
                     possible_return_types = resolved_possible_return_types;
                     possible_return_types_state = resolved_possible_return_types_state;
                     multiplicity = resolved_multiplicity;
+                    node_public_data = resolved_public_data;
                     node_metadata.extend(metadata);
                 }
                 RegisteredExpressionDecision::Reject {
@@ -2934,6 +2966,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 mark: matched.matched.mark,
                 children,
                 routed_captures,
+                public_data: node_public_data,
                 metadata: node_metadata,
             },
             expected_alternative: None,
@@ -3922,6 +3955,7 @@ mod tests {
             captures: Vec::new(),
             tags: Vec::new(),
             mark: 0,
+            public_data: Vec::new(),
             children: Vec::new(),
             routed_captures: Vec::new(),
             metadata: BTreeMap::new(),
@@ -3952,6 +3986,7 @@ mod tests {
             captures: Vec::new(),
             tags: Vec::new(),
             mark: 0,
+            public_data: Vec::new(),
             children: Vec::new(),
             routed_captures: Vec::new(),
             metadata: BTreeMap::from([(

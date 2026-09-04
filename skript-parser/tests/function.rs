@@ -49,6 +49,7 @@ impl ExpressionParseEnvironment for DocumentFunctionEnvironment {
                 return_type: Some(ClassName("java.lang.Long".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
                 children: Vec::new(),
+                public_data: Vec::new(),
                 metadata: BTreeMap::new(),
             })
         });

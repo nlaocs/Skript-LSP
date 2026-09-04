@@ -536,6 +536,7 @@ pub(crate) fn effect_semantic_summary(
         possible_return_types: Vec::new(),
         possible_return_types_state: PossibleReturnTypesState::Complete,
         multiplicity: None,
+        public_data: Vec::new(),
         metadata: candidate.metadata.clone(),
     }
 }

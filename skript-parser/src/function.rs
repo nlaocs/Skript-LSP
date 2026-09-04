@@ -602,6 +602,7 @@ fn build_candidate<E: ExpressionParseEnvironment>(
                 mark: 0,
                 children,
                 routed_captures: Vec::new(),
+                public_data: Vec::new(),
                 metadata,
             },
             expected_alternative: None,

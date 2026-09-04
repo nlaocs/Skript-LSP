@@ -68,6 +68,7 @@ mod tests {
             possible_return_types_state:
                 crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete,
             multiplicity: Some(DynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

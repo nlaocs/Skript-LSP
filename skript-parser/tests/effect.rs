@@ -336,6 +336,7 @@ impl ExpressionParseEnvironment for StringLiteralEnvironment {
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
                 children: Vec::new(),
+                public_data: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .collect::<Vec<_>>()
@@ -522,6 +523,7 @@ impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
                     return_type: Some(ClassName(return_type.to_owned())),
                     multiplicity: Some(Multiplicity::Single),
                     children: Vec::new(),
+                    public_data: Vec::new(),
                     metadata: BTreeMap::new(),
                 })
             })
