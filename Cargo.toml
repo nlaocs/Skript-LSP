@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["core-library", "parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "test-components/catalog-data-addon", "test-components/dynamic-syntax-addon", "test-components/effect-addon", "test-components/expression-data-addon", "test-components/matching-addon", "test-components/text-macro-addon", "test-components/tree-macro-addon", "utilities/*", "xtask"]
+members = ["core-library", "parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "test-components/catalog-data-addon", "test-components/dynamic-syntax-addon", "test-components/effect-addon", "test-components/expression-data-addon", "test-components/matching-addon", "test-components/text-macro-addon", "test-components/tree-macro-addon", "test-components/type-parser-addon", "utilities/*", "xtask"]
 
 [dependencies]
 parser-wasm = { path = "parser-wasm" }

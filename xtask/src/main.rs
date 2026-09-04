@@ -76,6 +76,14 @@ const TREE_MACRO_ADDON: ComponentSpec = ComponentSpec {
     feature: None,
 };
 
+const TYPE_PARSER_ADDON: ComponentSpec = ComponentSpec {
+    package: "type-parser-addon",
+    module_name: "type_parser_addon.wasm",
+    artifact_name: "type-parser-addon.wasm",
+    display_name: "Type parser test addon",
+    feature: None,
+};
+
 const EXPRESSION_DATA_ADDON_A: ComponentSpec = ComponentSpec {
     package: "expression-data-addon",
     module_name: "expression_data_addon.wasm",
@@ -113,6 +121,7 @@ fn build_test_components() -> Result<()> {
         &MATCHING_ADDON,
         &TEXT_MACRO_ADDON,
         &TREE_MACRO_ADDON,
+        &TYPE_PARSER_ADDON,
     ])?;
     build_components(&[&EXPRESSION_DATA_ADDON_A])?;
     build_components(&[&EXPRESSION_DATA_ADDON_B])
