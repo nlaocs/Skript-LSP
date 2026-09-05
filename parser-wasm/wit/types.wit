@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.27.0;
+package nlaocs:skript-parser-addon@0.32.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -240,6 +240,8 @@ interface types {
     variant registered-syntax-handler-target {
         definition(string),
         registration(string),
+        /// Matches every Type registration using this exact parser class.
+        parser-class(string),
         class-suffix(string),
         /// Matches every static registration with this direct Java superclass.
         super-class(string),
@@ -459,18 +461,36 @@ interface types {
         custom,
     }
 
+    enum expression-leaf-timing {
+        before-registered,
+        after-registered,
+    }
+
     record parse-result-reference {
         host-token: u64,
         root-id: u64,
     }
 
+    /// Public semantic data, editable by subsequent Transform/Override hooks.
+    /// A schema ID identifies a shared contract, not an owning component.
+    /// Each list contains at most one entry per schema ID. Versions start at 1.
+    /// The JSON must be an object; schema-specific meaning belongs to addons.
+    /// Source text and spans remain immutable, even when semantic data changes.
+    record expression-public-data {
+        schema-id: string,
+        schema-version: u32,
+        json: string,
+    }
+
     record expression-leaf-candidate {
         parser-id: string,
         kind: expression-leaf-kind,
+        timing: expression-leaf-timing,
         range: text-range,
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
         children: list<parse-result-reference>,
+        public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }
 
@@ -478,9 +498,14 @@ interface types {
         source-record: option<catalog-record-ref>,
         definition-id: string,
         registration-id: string,
+        addon-name: string,
+        addon-version: string,
         code-name: string,
         class-name: string,
+        parser-class: option<string>,
         type-parse-order: u64,
+        before: list<string>,
+        after: list<string>,
         singular: string,
         plural: string,
         user-input-patterns: list<string>,
@@ -519,6 +544,21 @@ interface types {
         alias-type-count: option<u64>,
     }
 
+    /// A Type parser recognized a possible value but needs another provider
+    /// before it can accept or reject the candidate conclusively.
+    record type-parser-unresolved {
+        reason: string,
+        required-provider: option<string>,
+    }
+
+    /// Result of an applicable Type parser. A missing value means that the
+    /// hook was not applicable; hooks should use `not-applicable` for that
+    /// case. `handled` includes an explicit unresolved-provider result.
+    enum type-parser-outcome {
+        handled,
+        no-match,
+    }
+
     record expression-payload {
         input: string,
         context: parse-context,
@@ -533,6 +573,8 @@ interface types {
         depth: u32,
         type-options: list<expression-type-option>,
         literal-options: list<expression-literal-option>,
+        type-parser-unresolved: list<type-parser-unresolved>,
+        type-parser-outcome: option<type-parser-outcome>,
         candidates: list<expression-leaf-candidate>,
     }
 
@@ -560,6 +602,7 @@ interface types {
         possible-return-types: list<string>,
         possible-return-types-state: expression-possible-return-types-state,
         multiplicity: option<dynamic-multiplicity>,
+        public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }
 
@@ -627,6 +670,7 @@ interface types {
         possible-return-types: list<string>,
         possible-return-types-state: expression-possible-return-types-state,
         multiplicity: option<dynamic-multiplicity>,
+        public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }
 
@@ -711,6 +755,7 @@ interface types {
         effective-possible-return-types: list<string>,
         effective-possible-return-types-state: expression-possible-return-types-state,
         effective-multiplicity: option<dynamic-multiplicity>,
+        public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }
 

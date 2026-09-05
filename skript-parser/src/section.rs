@@ -105,7 +105,7 @@ pub struct SectionMatches {
 type ParsedSectionCandidate = Result<(SectionCandidate, Vec<SectionDiagnostic>), FailureTrace>;
 type SectionCandidateAttempt = Result<Option<ParsedSectionCandidate>, SectionParseError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum SectionParseError {
     #[error("Section parsing requires a Section RawTree node, got {actual:?}")]
     UnsupportedNodeKind { actual: RawNodeKind },
@@ -211,6 +211,9 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .begin_semantic_candidate()
+            .map_err(|message| SectionParseError::Environment { message })?;
+        session
+            .activate_pattern_candidate(&matched)
             .map_err(|message| SectionParseError::Environment { message })?;
         let attempt: SectionCandidateAttempt = (|| {
             let Some(mut candidate) =

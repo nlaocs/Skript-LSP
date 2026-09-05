@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.27.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.32.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -83,8 +83,14 @@ multiple targets for each registered semantic handler, including dynamic
   handler matching, changed it to 0.22.0. Generic semantic payloads and complete
   SSG-backed contracts changed it through 0.24.0; the host-owned hierarchy
   distance query changed it to 0.25.0; exact declared Java method probes changed
-  experiment catalog access moves it to 0.27.0. The manifest's current `abi` value is
-9.0 and is a
+  experiment catalog access changed it to 0.27.0; public schema-versioned
+  Expression data and editable semantic envelopes changed it to 0.28.0;
+  provider-controlled Expression leaf timing, complete active-Type metadata,
+  and parser-class targets changed it to 0.29.0; structured unresolved Type
+  parser results changed it to 0.30.0; runtime Type parser registration
+  metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
+  changed it to 0.32.0. The manifest's current `abi`
+  value is 14.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
 
@@ -126,7 +132,8 @@ subscribe to their own `parser(...)` target. A hook returns one or more
 `parse-request` records and is invoked again with matching `parse-result`
 graphs after the host completes them. Graph nodes carry semantic summaries,
 children, mapped spans, diagnostics, metadata, and opaque versioned addon
-attachments. Each completed result receives a host-owned token. Expression
+attachments. Expression summaries may also carry schema-versioned public data;
+each node keeps its own list. Each completed result receives a host-owned token. Expression
 leaf candidates may reference a token and root ID to adopt that parsed
 Expression as a native child AST without reparsing or relying on metadata keys.
 Each continuation receives the results accumulated by all preceding rounds, so
@@ -159,7 +166,9 @@ CoreLibrary or an addon may resolve
 the effective Java return type and multiplicity, or reject the candidate.
 Components give each semantic handler a stable handler ID and declare one or
 more targets in `registered-syntax-handlers`. Each target is a `definition`,
-`registration`, `class-suffix`, or `dynamic-handler` target. Targets use OR
+`registration`, `parser-class`, `class-suffix`, `super-class`, or
+`dynamic-handler` target. `parser-class` is valid only for `kind: Type` and
+matches the exact parser class exported by SSG. Targets use OR
 semantics, so one handler can cover multiple static registrations and dynamic
 definitions. The host resolves static definition, registration, and class-suffix
 targets against the loaded catalog once and sends the resulting definition and
@@ -168,6 +177,46 @@ the opaque handler ID declared by a dynamic syntax definition at parse time;
 it is not a catalog lookup and can still provide capture parsers and named
 context requirements for that dynamic candidate. Runtime semantic selection
 never depends on the Java class suffix.
+
+Handlers may also declare `kind: Type`. Resolved Definition, Registration,
+parser-class, class-suffix, and super-class bindings opt their Types into
+type-specific `Expression`-phase dispatch. Finite snapshot literals also opt in
+their owning Type without requiring a component handler. The host first filters
+by expected return-type compatibility, then preserves direct assignability ahead
+of converter-only candidates and orders each group by `typeParseOrder`.
+The payload's `active-type` identifies the exact SSG Type and includes its source
+record, addon, parser class, parse order, and `before`/`after` relations. Components
+subscribe to the Type target and handle only the active registrations they own.
+Returning a Literal is still correct: the Type parser interprets the text, while
+the Literal represents its parsed value. Each Type invocation receives an isolated
+candidate list. Its State/effects remain deferred until native selection, without
+discarding candidates produced by another Type.
+If a Type cannot decide without runtime or registry data, a component can return a
+structured unresolved result with a reason and optional provider ID. When an exact
+parser-backed Type has no applicable provider response, the host produces the same
+result with its Type registration ID. A provider reports `type-parser-outcome:
+no-match` when it is responsible but rejects this input, or `handled` when it
+supplies candidates or an explicit unresolved result. Unrelated hooks return
+`NotApplicable`. This distinction uses the executed response, not the presence of
+`registered-syntax-handlers`, so direct Type subscriptions work identically.
+Type handlers can request the existing `expression.type-options.all` context requirement
+when a composite Type needs metadata from other Types, such as EntityData supplier
+values. Runtime registered Type patterns are parsed and indexed once when the
+catalog is loaded. A component queries `catalog-data.registered-type-pattern-match`
+with a Type registration ID and input, and receives only the first matching
+registration's indexes, source code name, value class, represented class, tags,
+and mark. This avoids copying and reparsing hundreds of patterns for every leaf
+hook while leaving the Type-specific interpretation in the component.
+This routing does not execute the Java parser or derive a grammar from `usage`.
+Only SSG Type registrations with `hasParser: true` enter this parser route.
+Types without a runtime parser are not accepted by guessing from their usage or
+display name.
+
+Each leaf candidate declares `before-registered` or `after-registered` timing.
+The native parser uses that field instead of recognizing CoreLibrary parser IDs.
+This lets a third-party parser reproduce an early parser such as VariableString,
+while ordinary Type literals remain behind registered Expressions.
+
 A handler can narrow a target with `pattern-indices`, exact `pattern-sources`,
 required or forbidden parse tags, and aggregate ParseMark values. Predicates
 inside one list use OR semantics, while non-empty predicate groups combine
@@ -194,13 +243,159 @@ otherwise incompatible dynamic registration only when an enabled component
 declares it, avoiding broad unresolved registrations during every type search.
 The host validates immutable request fields, UTF-8 ranges, parser
 IDs, return type/multiplicity, and metadata before the native parser ranks the
-results with registered static and dynamic expressions. A leaf set eliminated
-by native range, type, or multiplicity validation restores its dispatch
-savepoint and effects. Every recursive matcher invocation owns a nested
+results with registered static and dynamic expressions. Each leaf dispatch
+detaches its State/effects onto the candidates and restores its savepoint,
+including when multiple Types successfully recognize the same input. Only
+the selected Expression subtree applies that work; rejected, incompatible,
+and losing candidates cannot leak writes or diagnostics. Shared work is applied
+once per branch, and backtracking restores both the overlay and its receipts.
+Every recursive matcher invocation owns a nested
 candidate frame, so child selection cannot overwrite its parent's selected
 state. No-match and parser failure restore the entry StateStore savepoint. The
 parse-overlay revision is part of native memo keys and is itself restored by
 candidate rollback.
+
+### Public semantic data
+
+Expression semantic payloads carry `public-data` (`public_data` in the native
+Rust model) separately from owner-protected `metadata`. Each record has a
+unique `schema-id`, a `schema-version` of at least `1`, and a `json` string
+whose value must be a JSON object. The host validates only this envelope. It
+does not validate addon-specific fields inside the object; the addon that
+defines a schema interprets them. In particular, the host does not check
+VariableData semantic consistency. An editor or addon must keep a name
+template, its `childIndex` references, and the node's return type and
+multiplicity consistent; changing a list shape requires changing the standard
+multiplicity field as well, because the host does not derive it from JSON.
+
+Public data is node-local. A list belongs to its originating Expression node,
+and `childIndex` in a schema refers to that node's own `children`. It does not
+refer to an enclosing Effect capture list or a `Grouped` wrapper's child list.
+The native grouped wrapper therefore keeps `public_data` empty while the
+original child retains its records. Reports and CLI output show each node's
+own list and do not flatten data across node identities. Variable name text
+also preserves source spelling, including escaped `%%`; it is not an evaluated
+runtime key. Editing that source-name data changes semantic interpretation but
+does not rewrite the original source text.
+
+An `observe` hook can read these records. Any `Transform` or `Override` hook
+that is allowed to run for the current candidate may replace or remove them,
+and the caller order applies: a later hook sees the earlier hook's accepted
+replacement. The schema ID is a public contract, not an owner marker. Public
+data describes parse-time semantics, not runtime variable values or entries in
+the shared `StateStore`. Variable type tracking and server-side variable
+value mutation are not implemented. Editing it does not rewrite input source or spans,
+does not edit sibling, parent, or child nodes retroactively, and does not
+perform a whole-AST transformation.
+
+For example, an existing `hooks::Guest::invoke` can transform a CoreLibrary
+variable leaf in the Expression payload with the WIT fields already exposed by
+this crate:
+
+```rust,ignore
+use exports::nlaocs::skript_parser_addon::hooks;
+use nlaocs::skript_parser_addon::types::{
+    AddonError, DynamicMultiplicity, HookDecision, HookEffects, HookInvocation,
+    HookOutput, HookPayload,
+};
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum VariableScope {
+    Local,
+    Global,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum VariableNamePart {
+    Text { text: String },
+    Expression {
+        #[serde(rename = "childIndex")]
+        child_index: u32,
+    },
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct VariableData {
+    scope: VariableScope,
+    name: Vec<VariableNamePart>,
+}
+
+impl hooks::Guest for MyAddon {
+    fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        let not_applicable = || HookOutput {
+            decision: HookDecision::NotApplicable,
+            replacement: None,
+            effects: HookEffects {
+                diagnostics: Vec::new(),
+                context_updates: Vec::new(),
+                parse_requests: Vec::new(),
+                parse_results: Vec::new(),
+            },
+        };
+        let HookPayload::Expression(mut payload) = input.payload else {
+            return Ok(not_applicable());
+        };
+        let Some(candidate) = payload.candidates.iter_mut().find(|candidate| {
+            candidate.public_data.iter().any(|record| {
+                record.schema_id == "nlaocs.skript.variable" && record.schema_version == 1
+            }) && candidate.multiplicity == Some(DynamicMultiplicity::Single)
+        }) else {
+            return Ok(not_applicable());
+        };
+
+        {
+            let Some(record) = candidate.public_data.iter_mut().find(|record| {
+                record.schema_id == "nlaocs.skript.variable" && record.schema_version == 1
+            }) else {
+                return Ok(not_applicable());
+            };
+            let Ok(mut data) = serde_json::from_str::<VariableData>(&record.json) else {
+                return Ok(not_applicable());
+            };
+            for part in &mut data.name {
+                if let VariableNamePart::Text { text } = part {
+                    *text = text.replace("price", "money");
+                }
+            }
+            let Ok(json) = serde_json::to_string(&data) else {
+                return Ok(not_applicable());
+            };
+            record.json = json;
+        }
+        candidate.return_type = Some("java.lang.String".to_owned());
+        candidate.multiplicity = Some(DynamicMultiplicity::Single);
+
+        Ok(HookOutput {
+            decision: HookDecision::ContinueProcessing,
+            replacement: Some(HookPayload::Expression(payload)),
+            effects: HookEffects {
+                diagnostics: Vec::new(),
+                context_updates: Vec::new(),
+                parse_requests: Vec::new(),
+                parse_results: Vec::new(),
+            },
+        })
+    }
+}
+```
+
+This intentionally edits an `Expression` leaf candidate: its mutable
+type fields are `return_type` and `multiplicity`. `possible_return_types` is not
+a leaf-candidate field; it belongs to the later registered-Expression
+semantic payload.
+
+The variable schema used by CoreLibrary is `nlaocs.skript.variable` version
+`1`. Its JSON shape is:
+
+```json
+{"scope":"local","name":[{"kind":"text","text":"money"},{"kind":"expression","childIndex":0}]}
+```
+
+`scope` is `local` or `global`. `name` is a source-name template; expression
+parts point to existing children of the same semantic node, and do not repeat
+their return type or multiplicity.
 
 ## Effect Parsing
 
@@ -399,8 +594,10 @@ provenance fields are immutable across hook replacement.
 
 Each syntax candidate starts from the same parse StateStore savepoint. Failed
 candidates and non-selected alternatives are rolled back. Only writes made by
-the selected candidate remain in the parse transaction, while hook calls and
-component failures stay available for diagnostics and tracing.
+the selected candidate remain in the parse transaction. Its diagnostics and
+call trace are restored with that candidate, not accumulated from losing
+alternatives. Rejection diagnostics can instead be promoted from the final
+failure trace when no candidate is selected.
 ## Hook rules
 
 A subscription selects a target, phase, signed priority, and mode.

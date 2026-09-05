@@ -78,6 +78,7 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                     result.request_id == request.request_id
                         && result.parser_id == request.parser_id
                         && matches!(result.status, ParseResultStatus::Success)
+                        && result.roots.len() == 1
                 })
             })
         {
@@ -104,18 +105,28 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
             container.return_type(payload),
             container.multiplicity(text),
         );
+        leaf.timing =
+            crate::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::BeforeRegistered;
         let expression_count = requests.len().to_string();
         leaf.metadata
             .push(metadata("embedded-expression-count", &expression_count));
-        leaf.children = results
+        leaf.children = requests
             .iter()
-            .flat_map(|result| {
-                result.roots.iter().map(|root_id| ParseResultReference {
+            .map(|request| {
+                let result = results
+                    .iter()
+                    .find(|result| result.request_id == request.request_id)
+                    .expect("every request has one validated result");
+                ParseResultReference {
                     host_token: result.host_token,
-                    root_id: *root_id,
-                })
+                    root_id: result.roots[0],
+                }
             })
             .collect();
+        if container.kind == "variable-name" {
+            leaf.public_data
+                .push(variable::public_name_data(container.body)?);
+        }
         return Some(Outcome::Candidate(leaf, results.to_vec()));
     }
     None
@@ -131,7 +142,13 @@ struct Container<'a> {
 
 impl<'a> Container<'a> {
     fn from_text(payload: &ExpressionPayload, text: &'a str) -> Option<Self> {
-        if payload.allow_literals && is_quoted_correctly(text) {
+        if payload
+            .active_type
+            .as_ref()
+            .is_some_and(|active| active.class_name == "java.lang.String")
+            && payload.allow_literals
+            && is_quoted_correctly(text)
+        {
             return Some(Self {
                 kind: "string",
                 parser_id: "core.literal.variable-string",
@@ -140,7 +157,8 @@ impl<'a> Container<'a> {
                 body_offset: 1,
             });
         }
-        if payload.allow_expressions
+        if payload.active_type.is_none()
+            && payload.allow_expressions
             && text.len() >= 3
             && text.starts_with('{')
             && text.ends_with('}')

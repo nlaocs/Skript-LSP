@@ -1,10 +1,11 @@
 use skript_parser::{
-    ExpressionExpectedType, ExpressionFailureKind, ExpressionLeafCandidate, ExpressionLeafKind,
-    ExpressionLeafParse, ExpressionLeafRequest, ExpressionNodeKind, ExpressionParseContext,
-    ExpressionParseEnvironment, ExpressionParseRequest, ExpressionParserConfig, ExpressionRootMode,
-    MappedSource, NoopExpressionEnvironment, PatternHookControl, PatternHookEvent,
-    PatternMatchEnvironment, PatternMatchError, RegisteredExpressionDecision,
-    RegisteredExpressionRequest, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
+    ExpressionEffects, ExpressionExpectedType, ExpressionFailureKind, ExpressionLeafCandidate,
+    ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest, ExpressionLeafTiming,
+    ExpressionNodeKind, ExpressionParseContext, ExpressionParseEnvironment, ExpressionParseRequest,
+    ExpressionParserConfig, ExpressionPublicData, ExpressionRootMode, MappedSource,
+    NoopExpressionEnvironment, PatternHookControl, PatternHookEvent, PatternMatchEnvironment,
+    PatternMatchError, RegisteredExpressionDecision, RegisteredExpressionRequest,
+    RegisteredSyntaxIdentity, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
     parse_expression, parse_expression_with_snapshot,
 };
 use std::collections::BTreeMap;
@@ -32,6 +33,18 @@ fn expected_plural(class_name: &str) -> ExpressionExpectedType {
     ExpressionExpectedType {
         class_name: ClassName(class_name.to_owned()),
         plural: true,
+    }
+}
+
+fn expression_public_data(
+    schema_id: &str,
+    schema_version: u32,
+    json: &str,
+) -> ExpressionPublicData {
+    ExpressionPublicData {
+        schema_id: schema_id.to_owned(),
+        schema_version,
+        json: json.to_owned(),
     }
 }
 
@@ -135,6 +148,173 @@ fn catalog_with_syntaxes(source: &Catalog, syntaxes: Vec<Syntax>) -> Catalog {
             .map(|(key, value)| (key.to_owned(), value.to_owned()))
             .collect(),
     })
+}
+
+fn public_data_snapshot(catalog: &Catalog) -> DynamicSyntaxSnapshot {
+    let id = DynamicSyntaxId::new("test.public-data", "parent");
+    let pattern = "public parent %string%";
+    DynamicSyntaxSnapshot {
+        document_id: "file:///public-data.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([(
+            id.clone(),
+            DynamicSyntaxDefinition {
+                id: id.clone(),
+                kind: SyntaxKind::Expression,
+                patterns: vec![DynamicPattern {
+                    source: pattern.to_owned(),
+                    parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules())
+                        .expect("public-data pattern must parse"),
+                }],
+                priority: -100,
+                before: Vec::new(),
+                after: Vec::new(),
+                return_type: Some("java.lang.String".to_owned()),
+                return_multiplicity: Some(DynamicMultiplicity::Single),
+                structure_node_type: None,
+                structure_body_mode: None,
+                entry_validator: None,
+                handler: "test.public-data.parent".to_owned(),
+                metadata: BTreeMap::new(),
+                component_load_order: 1,
+                declaration_order: 0,
+            },
+        )]),
+        overrides: BTreeMap::new(),
+        candidates: vec![RankedSyntaxCandidate {
+            source: SyntaxCandidateSource::Dynamic(id),
+            kind: SyntaxKind::Expression,
+            overrides: Vec::new(),
+        }],
+    }
+}
+
+#[test]
+fn leaf_public_data_reaches_parent_captures_and_group_summary() {
+    let catalog = expression_fixture();
+    let snapshot = public_data_snapshot(&catalog);
+    let leaf_data = vec![expression_public_data(
+        "test.expression.leaf",
+        1,
+        r#"{"source":"leaf"}"#,
+    )];
+
+    let direct_text = "public parent \"leaf\"";
+    let direct_source = MappedSource::identity(direct_text);
+    let mut direct_environment = PublicDataEnvironment::default();
+    let direct = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &direct_source,
+            range: TextRange::new(0, direct_text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut direct_environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parent with a leaf capture must parse");
+    let direct_parent = direct.selected.expect("parent must be selected").node;
+    assert_eq!(direct_parent.children[0].public_data, leaf_data);
+    let direct_capture = direct_parent
+        .parsed_captures()
+        .into_iter()
+        .next()
+        .expect("leaf capture must be exposed");
+    assert_eq!(
+        direct_capture
+            .result
+            .summary
+            .expect("leaf capture summary must exist")
+            .public_data,
+        leaf_data
+    );
+
+    let grouped_text = "public parent (\"leaf\")";
+    let grouped_source = MappedSource::identity(grouped_text);
+    let mut grouped_environment = PublicDataEnvironment::default();
+    let grouped = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &grouped_source,
+            range: TextRange::new(0, grouped_text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut grouped_environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("parent with a grouped leaf capture must parse");
+    let grouped_parent = grouped.selected.expect("parent must be selected").node;
+    let group = &grouped_parent.children[0];
+    assert!(matches!(group.kind, ExpressionNodeKind::Grouped));
+    assert!(group.public_data.is_empty());
+    assert_eq!(group.children[0].public_data, leaf_data);
+    let grouped_capture = grouped_parent
+        .parsed_captures()
+        .into_iter()
+        .next()
+        .expect("grouped capture must be exposed");
+    assert_eq!(
+        grouped_capture
+            .result
+            .summary
+            .expect("grouped capture summary must exist")
+            .public_data,
+        leaf_data
+    );
+}
+
+#[test]
+fn registered_public_data_reaches_node_summary_and_grouping() {
+    let catalog = expression_fixture();
+    let snapshot = public_data_snapshot(&catalog);
+    let registered_data = vec![expression_public_data(
+        "test.expression.registered",
+        2,
+        r#"{"source":"registered"}"#,
+    )];
+    let text = "public parent (public parent \"leaf\")";
+    let source = MappedSource::identity(text);
+    let mut environment = PublicDataEnvironment::default();
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("nested registered expressions must parse");
+
+    let outer = result.selected.expect("outer parent must be selected").node;
+    assert_eq!(outer.public_data, registered_data);
+    let group = &outer.children[0];
+    assert!(group.public_data.is_empty());
+    let inner = &group.children[0];
+    assert_eq!(inner.public_data, registered_data);
+
+    let outer_capture = outer
+        .parsed_captures()
+        .into_iter()
+        .next()
+        .expect("grouped registered capture must be exposed");
+    assert_eq!(
+        outer_capture
+            .result
+            .summary
+            .expect("grouped registered summary must exist")
+            .public_data,
+        registered_data
+    );
+    assert!(environment.resolutions >= 2);
 }
 
 #[test]
@@ -738,6 +918,321 @@ fn parses_leaf_candidates_from_the_extension_environment() {
 }
 
 #[test]
+fn leaf_timing_controls_registered_expression_precedence_without_parser_id_conventions() {
+    let catalog = expression_fixture();
+    let text = "dummy direct registry expression";
+
+    for (parser_id, timing, registered_wins) in [
+        (
+            "addon.literal.early",
+            ExpressionLeafTiming::BeforeRegistered,
+            false,
+        ),
+        (
+            "core.literal.string",
+            ExpressionLeafTiming::AfterRegistered,
+            true,
+        ),
+    ] {
+        let source = MappedSource::identity(text);
+        let mut environment = TimedLeafEnvironment { parser_id, timing };
+        let result = parse_expression(
+            &catalog,
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![expected("java.lang.String")],
+                context: ExpressionParseContext::default(),
+            },
+            &mut environment,
+            ExpressionParserConfig::default(),
+        )
+        .expect("leaf timing parse must succeed");
+        let selected = result.selected.expect("candidate must be selected");
+
+        if registered_wins {
+            assert!(matches!(
+                selected.node.kind,
+                ExpressionNodeKind::Registered { .. }
+            ));
+        } else {
+            assert!(matches!(
+                selected.node.kind,
+                ExpressionNodeKind::Literal { ref parser_id }
+                    if parser_id == "addon.literal.early"
+            ));
+        }
+    }
+}
+
+#[test]
+fn applies_effects_only_to_the_selected_native_leaf() {
+    let catalog = expression_fixture();
+    let text = "effect leaf";
+    let source = MappedSource::identity(text);
+    let mut environment = NativeEffectsEnvironment {
+        leaf_text: text,
+        candidates: vec![
+            NativeEffectCandidate {
+                marker: 1,
+                parser_id: "test.effects.first",
+                timing: ExpressionLeafTiming::BeforeRegistered,
+                return_type: "java.lang.String",
+            },
+            NativeEffectCandidate {
+                marker: 2,
+                parser_id: "test.effects.second",
+                timing: ExpressionLeafTiming::BeforeRegistered,
+                return_type: "java.lang.String",
+            },
+        ],
+        applied: Vec::new(),
+    };
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("native leaf candidates must parse");
+
+    let selected = result.selected.expect("the first leaf must be selected");
+    assert!(matches!(
+        &selected.node.kind,
+        ExpressionNodeKind::Custom { parser_id } if parser_id == "test.effects.first"
+    ));
+    assert_eq!(
+        selected
+            .node
+            .effects
+            .as_ref()
+            .and_then(|effects| effects.downcast_ref::<usize>().copied()),
+        Some(1)
+    );
+    let alternative = result
+        .alternatives
+        .iter()
+        .find(|candidate| {
+            matches!(
+                &candidate.node.kind,
+                ExpressionNodeKind::Custom { parser_id } if parser_id == "test.effects.second"
+            )
+        })
+        .expect("the second leaf must remain an alternative");
+    assert_eq!(
+        alternative
+            .node
+            .effects
+            .as_ref()
+            .and_then(|effects| effects.downcast_ref::<usize>().copied()),
+        Some(2)
+    );
+    assert_eq!(environment.applied, [1]);
+}
+
+#[test]
+fn does_not_apply_effects_for_native_incompatible_leaf_candidates() {
+    let catalog = expression_fixture();
+    let text = "effect leaf";
+    let source = MappedSource::identity(text);
+    let mut environment = NativeEffectsEnvironment {
+        leaf_text: text,
+        candidates: vec![NativeEffectCandidate {
+            marker: 3,
+            parser_id: "test.effects.incompatible",
+            timing: ExpressionLeafTiming::BeforeRegistered,
+            return_type: "java.lang.String",
+        }],
+        applied: Vec::new(),
+    };
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.Number")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("native type rejection must be a normal no-match");
+
+    assert!(result.selected.is_none());
+    assert!(result.alternatives.is_empty());
+    assert!(environment.applied.is_empty());
+}
+
+#[test]
+fn deferred_after_registered_leaf_effects_lose_to_registered_parent() {
+    let catalog = expression_fixture();
+    let text = "dummy direct registry expression";
+    let source = MappedSource::identity(text);
+    let mut environment = NativeEffectsEnvironment {
+        leaf_text: text,
+        candidates: vec![NativeEffectCandidate {
+            marker: 4,
+            parser_id: "test.effects.deferred",
+            timing: ExpressionLeafTiming::AfterRegistered,
+            return_type: "java.lang.String",
+        }],
+        applied: Vec::new(),
+    };
+    let result = parse_expression(
+        &catalog,
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("registered parent must outrank a deferred leaf");
+
+    let selected = result.selected.expect("registered parent must be selected");
+    assert!(matches!(
+        &selected.node.kind,
+        ExpressionNodeKind::Registered { .. }
+    ));
+    assert!(selected.node.effects.is_none());
+    let deferred = result
+        .alternatives
+        .iter()
+        .find(|candidate| {
+            matches!(
+                &candidate.node.kind,
+                ExpressionNodeKind::Custom { parser_id } if parser_id == "test.effects.deferred"
+            )
+        })
+        .expect("deferred leaf must remain an alternative");
+    assert_eq!(
+        deferred
+            .node
+            .effects
+            .as_ref()
+            .and_then(|effects| effects.downcast_ref::<usize>().copied()),
+        Some(4)
+    );
+    assert!(environment.applied.is_empty());
+}
+
+fn semantic_fallback_snapshot(catalog: &Catalog) -> DynamicSyntaxSnapshot {
+    let first_id = DynamicSyntaxId::new("test.semantic-fallback", "first");
+    let second_id = DynamicSyntaxId::new("test.semantic-fallback", "second");
+    let definition = |id: DynamicSyntaxId,
+                      pattern: &str,
+                      priority: i32,
+                      handler: &str,
+                      declaration_order: u64| DynamicSyntaxDefinition {
+        id,
+        kind: SyntaxKind::Expression,
+        patterns: vec![DynamicPattern {
+            source: pattern.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules())
+                .expect("semantic fallback pattern must parse"),
+        }],
+        priority,
+        before: Vec::new(),
+        after: Vec::new(),
+        return_type: Some("java.lang.String".to_owned()),
+        return_multiplicity: Some(DynamicMultiplicity::Single),
+        structure_node_type: None,
+        structure_body_mode: None,
+        entry_validator: None,
+        handler: handler.to_owned(),
+        metadata: BTreeMap::new(),
+        component_load_order: 1,
+        declaration_order,
+    };
+    DynamicSyntaxSnapshot {
+        document_id: "file:///semantic-fallback.sk".to_owned(),
+        document_revision: 1,
+        registry_revision: 1,
+        definitions: BTreeMap::from([
+            (
+                first_id.clone(),
+                definition(
+                    first_id.clone(),
+                    "use %string%",
+                    -100,
+                    "test.semantic-fallback.first",
+                    0,
+                ),
+            ),
+            (
+                second_id.clone(),
+                definition(
+                    second_id.clone(),
+                    "use %object%",
+                    -99,
+                    "test.semantic-fallback.second",
+                    1,
+                ),
+            ),
+        ]),
+        overrides: BTreeMap::new(),
+        candidates: vec![
+            RankedSyntaxCandidate {
+                source: SyntaxCandidateSource::Dynamic(first_id),
+                kind: SyntaxKind::Expression,
+                overrides: Vec::new(),
+            },
+            RankedSyntaxCandidate {
+                source: SyntaxCandidateSource::Dynamic(second_id),
+                kind: SyntaxKind::Expression,
+                overrides: Vec::new(),
+            },
+        ],
+    }
+}
+
+#[test]
+fn semantic_fallback_activates_the_alternative_matcher_state() {
+    let catalog = expression_fixture();
+    let snapshot = semantic_fallback_snapshot(&catalog);
+    let text = "use value";
+    let source = MappedSource::identity(text);
+    let mut environment = SemanticFallbackEnvironment::default();
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .expect("semantic fallback must parse the accepted alternative");
+
+    let selected = result
+        .selected
+        .expect("the fallback registered expression must be selected");
+    assert!(matches!(
+        &selected.node.kind,
+        ExpressionNodeKind::Registered { registration_id, .. }
+            if registration_id.ends_with("/second")
+    ));
+    assert_eq!(
+        environment.semantic_observations,
+        vec![
+            ("test.semantic-fallback.first".to_owned(), Some(1)),
+            ("test.semantic-fallback.second".to_owned(), Some(2)),
+        ]
+    );
+    assert_eq!(environment.active_marker, Some(2));
+}
+
+#[test]
 fn top_level_plural_expectation_controls_multiple_leaf_acceptance() {
     let catalog = expression_fixture();
     let source = MappedSource::identity("values");
@@ -1048,12 +1543,98 @@ impl ExpressionParseEnvironment for DynamicReturnEnvironment {
             possible_return_types: vec![ClassName("java.lang.Long".to_owned())],
             possible_return_types_state: PossibleReturnTypesState::Complete,
             multiplicity: Some(Multiplicity::Single),
+            public_data: Vec::new(),
             metadata: BTreeMap::new(),
         })
     }
 
     fn finish_registered_expression(&mut self, accepted: bool) -> Result<(), String> {
         self.finalizations.push(accepted);
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+#[derive(Default)]
+struct PublicDataEnvironment {
+    resolutions: usize,
+}
+
+impl PatternMatchEnvironment for PublicDataEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for PublicDataEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let candidate = request.candidate_ends.iter().rev().find_map(|end| {
+            let range = TextRange::new(request.remaining.start, *end);
+            let text = range.slice(request.input)?;
+            (text == "\"leaf\"").then_some(range)
+        });
+        let Some(range) = candidate else {
+            return Ok(ExpressionLeafParse::default());
+        };
+        Ok(vec![ExpressionLeafCandidate {
+            effects: None,
+            parser_id: "test.public-data.leaf".to_owned(),
+            kind: ExpressionLeafKind::Literal,
+            timing: ExpressionLeafTiming::AfterRegistered,
+            range,
+            return_type: Some(ClassName("java.lang.String".to_owned())),
+            multiplicity: Some(Multiplicity::Single),
+            children: Vec::new(),
+            public_data: vec![expression_public_data(
+                "test.expression.leaf",
+                1,
+                r#"{"source":"leaf"}"#,
+            )],
+            metadata: BTreeMap::new(),
+        }]
+        .into())
+    }
+
+    fn can_resolve_registered_expression(&self, syntax: RegisteredSyntaxIdentity<'_>) -> bool {
+        syntax.dynamic_handler == Some("test.public-data.parent")
+    }
+
+    fn resolve_registered_expression(
+        &mut self,
+        _request: RegisteredExpressionRequest<'_>,
+    ) -> Result<RegisteredExpressionDecision, String> {
+        self.resolutions += 1;
+        Ok(RegisteredExpressionDecision::Resolved {
+            return_type: Some(ClassName("java.lang.String".to_owned())),
+            possible_return_types: vec![ClassName("java.lang.String".to_owned())],
+            possible_return_types_state: PossibleReturnTypesState::Complete,
+            multiplicity: Some(Multiplicity::Single),
+            public_data: vec![expression_public_data(
+                "test.expression.registered",
+                2,
+                r#"{"source":"registered"}"#,
+            )],
+            metadata: BTreeMap::new(),
+        })
+    }
+
+    fn finish_registered_expression(&mut self, _accepted: bool) -> Result<(), String> {
         Ok(())
     }
 
@@ -1084,12 +1665,15 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
         request: ExpressionLeafRequest<'_>,
     ) -> Result<ExpressionLeafParse, String> {
         Ok(vec![ExpressionLeafCandidate {
+            effects: None,
             parser_id: "test.multiple".to_owned(),
             kind: ExpressionLeafKind::Custom,
+            timing: ExpressionLeafTiming::BeforeRegistered,
             range: request.remaining,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Multiple),
             children: Vec::new(),
+            public_data: Vec::new(),
             metadata: BTreeMap::new(),
         }]
         .into())
@@ -1106,6 +1690,316 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
 }
 
 struct LiteralEnvironment;
+
+struct TimedLeafEnvironment {
+    parser_id: &'static str,
+    timing: ExpressionLeafTiming,
+}
+
+struct NativeEffectCandidate {
+    marker: usize,
+    parser_id: &'static str,
+    timing: ExpressionLeafTiming,
+    return_type: &'static str,
+}
+
+struct NativeEffectsEnvironment {
+    leaf_text: &'static str,
+    candidates: Vec<NativeEffectCandidate>,
+    applied: Vec<usize>,
+}
+
+#[derive(Default)]
+struct SemanticFallbackEnvironment {
+    active_marker: Option<usize>,
+    pattern_frames: Vec<PatternFrame>,
+    branch_states: Vec<Option<usize>>,
+    semantic_states: Vec<Option<usize>>,
+    semantic_observations: Vec<(String, Option<usize>)>,
+}
+
+#[derive(Default)]
+struct PatternFrame {
+    base: Option<usize>,
+    selected: Option<usize>,
+}
+
+impl PatternMatchEnvironment for NativeEffectsEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for NativeEffectsEnvironment {
+    fn apply_expression_effects(&mut self, effects: &ExpressionEffects) -> Result<(), String> {
+        let marker = effects
+            .downcast_ref::<usize>()
+            .copied()
+            .ok_or_else(|| "native test effect marker must be usize".to_owned())?;
+        self.applied.push(marker);
+        Ok(())
+    }
+
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let Some(range) = request.candidate_ends.iter().rev().find_map(|end| {
+            let range = TextRange::new(request.remaining.start, *end);
+            let text = range.slice(request.input)?;
+            (text == self.leaf_text).then_some(range)
+        }) else {
+            return Ok(ExpressionLeafParse::default());
+        };
+        Ok(self
+            .candidates
+            .iter()
+            .map(|candidate| ExpressionLeafCandidate {
+                effects: Some(ExpressionEffects::new(candidate.marker)),
+                parser_id: candidate.parser_id.to_owned(),
+                kind: ExpressionLeafKind::Custom,
+                timing: candidate.timing,
+                range,
+                return_type: Some(ClassName(candidate.return_type.to_owned())),
+                multiplicity: Some(Multiplicity::Single),
+                children: Vec::new(),
+                public_data: Vec::new(),
+                metadata: BTreeMap::new(),
+            })
+            .collect::<Vec<_>>()
+            .into())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+impl PatternMatchEnvironment for SemanticFallbackEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn take_pattern_candidate_state(&mut self) -> Option<ExpressionEffects> {
+        let marker = self.active_marker?;
+        if let Some(frame) = self.pattern_frames.last_mut() {
+            frame.selected.get_or_insert(marker);
+        }
+        Some(ExpressionEffects::new(marker))
+    }
+
+    fn restore_pattern_candidate_state(&mut self, state: &ExpressionEffects) -> Result<(), String> {
+        self.active_marker = Some(
+            state
+                .downcast_ref::<usize>()
+                .copied()
+                .ok_or_else(|| "fallback state marker must be usize".to_owned())?,
+        );
+        Ok(())
+    }
+
+    fn begin_pattern_match(&mut self) -> Result<(), String> {
+        self.pattern_frames.push(PatternFrame {
+            base: self.active_marker,
+            selected: None,
+        });
+        Ok(())
+    }
+
+    fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
+        let frame = self
+            .pattern_frames
+            .pop()
+            .ok_or_else(|| "fallback matcher frame is missing".to_owned())?;
+        self.active_marker = if accepted {
+            frame.selected.or(frame.base)
+        } else {
+            frame.base
+        };
+        Ok(())
+    }
+
+    fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+        let checkpoint = self.branch_states.len() as u64;
+        self.branch_states.push(self.active_marker);
+        Ok(Some(checkpoint))
+    }
+
+    fn restore_pattern_branch(&mut self, checkpoint: u64) -> Result<(), String> {
+        self.active_marker = *self
+            .branch_states
+            .get(checkpoint as usize)
+            .ok_or_else(|| "fallback branch checkpoint is missing".to_owned())?;
+        Ok(())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for SemanticFallbackEnvironment {
+    fn apply_expression_effects(&mut self, effects: &ExpressionEffects) -> Result<(), String> {
+        self.active_marker = Some(
+            effects
+                .downcast_ref::<usize>()
+                .copied()
+                .ok_or_else(|| "fallback effect marker must be usize".to_owned())?,
+        );
+        Ok(())
+    }
+
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let Some(range) = request.candidate_ends.iter().rev().find_map(|end| {
+            let range = TextRange::new(request.remaining.start, *end);
+            (range.slice(request.input)? == "value").then_some(range)
+        }) else {
+            return Ok(ExpressionLeafParse::default());
+        };
+        let marker = match request
+            .expected_types
+            .first()
+            .map(|expected| expected.class_name.as_str())
+        {
+            Some("java.lang.String") => 1usize,
+            Some("java.lang.Object") => 2usize,
+            _ => return Ok(ExpressionLeafParse::default()),
+        };
+        Ok(vec![ExpressionLeafCandidate {
+            effects: Some(ExpressionEffects::new(marker)),
+            parser_id: "test.semantic-fallback.value".to_owned(),
+            kind: ExpressionLeafKind::Literal,
+            timing: ExpressionLeafTiming::BeforeRegistered,
+            range,
+            return_type: Some(ClassName(
+                (if marker == 1 {
+                    "java.lang.String"
+                } else {
+                    "java.lang.Object"
+                })
+                .to_owned(),
+            )),
+            multiplicity: Some(Multiplicity::Single),
+            children: Vec::new(),
+            public_data: Vec::new(),
+            metadata: BTreeMap::new(),
+        }]
+        .into())
+    }
+
+    fn can_resolve_registered_expression(&self, syntax: RegisteredSyntaxIdentity<'_>) -> bool {
+        syntax
+            .dynamic_handler
+            .is_some_and(|handler| handler.starts_with("test.semantic-fallback."))
+    }
+
+    fn resolve_registered_expression(
+        &mut self,
+        request: RegisteredExpressionRequest<'_>,
+    ) -> Result<RegisteredExpressionDecision, String> {
+        let handler = request
+            .dynamic_handler
+            .ok_or_else(|| "semantic fallback handler is missing".to_owned())?;
+        self.semantic_observations
+            .push((handler.to_owned(), self.active_marker));
+        if handler.ends_with(".first") {
+            Ok(RegisteredExpressionDecision::Reject {
+                reason: "first semantic candidate is rejected".to_owned(),
+                diagnostics: Vec::new(),
+            })
+        } else {
+            Ok(RegisteredExpressionDecision::UseDeclared)
+        }
+    }
+
+    fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        self.semantic_states.push(self.active_marker);
+        Ok(())
+    }
+
+    fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let state = self
+            .semantic_states
+            .pop()
+            .ok_or_else(|| "fallback semantic scope is missing".to_owned())?;
+        if !accepted {
+            self.active_marker = state;
+        }
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+impl PatternMatchEnvironment for TimedLeafEnvironment {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for TimedLeafEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let candidate = request.candidate_ends.iter().rev().find_map(|end| {
+            let range = TextRange::new(request.remaining.start, *end);
+            let text = range.slice(request.input)?;
+            (text == "dummy direct registry expression").then_some(range)
+        });
+        Ok(candidate
+            .map(|range| ExpressionLeafCandidate {
+                effects: None,
+                parser_id: self.parser_id.to_owned(),
+                kind: ExpressionLeafKind::Literal,
+                timing: self.timing,
+                range,
+                return_type: Some(ClassName("java.lang.String".to_owned())),
+                multiplicity: Some(Multiplicity::Single),
+                children: Vec::new(),
+                public_data: Vec::new(),
+                metadata: BTreeMap::new(),
+            })
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
 
 impl PatternMatchEnvironment for LiteralEnvironment {
     fn resolve_type(
@@ -1135,12 +2029,15 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
         });
         Ok(candidate
             .map(|range| ExpressionLeafCandidate {
+                effects: None,
                 parser_id: "test.string".to_owned(),
                 kind: ExpressionLeafKind::Literal,
+                timing: ExpressionLeafTiming::AfterRegistered,
                 range,
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
                 children: Vec::new(),
+                public_data: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .into_iter()

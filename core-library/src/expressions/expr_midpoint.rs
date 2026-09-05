@@ -194,6 +194,7 @@ mod tests {
             possible_return_types: types.iter().map(|value| (*value).to_owned()).collect(),
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: None,
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

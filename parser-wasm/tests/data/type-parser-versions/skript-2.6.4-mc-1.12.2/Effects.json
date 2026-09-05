@@ -1,0 +1,1322 @@
+[ {
+  "kind" : "effect",
+  "registrationOrder" : 0,
+  "name" : "Delay",
+  "elementClass" : "ch.njol.skript.effects.Delay",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4" ],
+  "description" : [ "Delays the script's execution by a given timespan. Please note that delays are not persistent, e.g. trying to create a tempban script with <code>ban player → wait 7 days → unban player</code> will not work if you restart your server anytime within these 7 days. You also have to be careful even when using small delays!" ],
+  "examples" : [ "wait 2 minutes", "halt for 5 minecraft hours", "wait a tick" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(wait|halt) [for] %timespan%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:751b28432979bd1f00e370ffe6f6c3279e4936b90071eda5ed732d7cda2c0504",
+  "registrationId" : "effect:skript:751b28432979bd1f00e370ffe6f6c3279e4936b90071eda5ed732d7cda2c0504:36def24a61270cac0658c53e6da328bf6d8e4e4b1c68808b72eaec47ca6a2a7c:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 1,
+  "name" : "Action Bar",
+  "elementClass" : "ch.njol.skript.effects.EffActionBar",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Sends an action bar message to the given player(s)." ],
+  "examples" : [ "send action bar \"Hello player!\" to player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "send [the] action bar [with text] %string% to %players%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:d094f9273e69035052ac954e4b4e9a5a3e189ee7db6aa6325394a5f2c00ffd9c",
+  "registrationId" : "effect:skript:d094f9273e69035052ac954e4b4e9a5a3e189ee7db6aa6325394a5f2c00ffd9c:b00a7f56611813ae321e0f56236e38ec1936a9eec13d75966d1ccfd17c6dcaf2:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 2,
+  "name" : "Ban",
+  "elementClass" : "ch.njol.skript.effects.EffBan",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4, 2.1.1 (ban reason), 2.5 (timespan)" ],
+  "description" : [ "Bans or unbans a player or an IP address.", "If a reason is given, it will be shown to the player when they try to join the server while banned.", "A length of ban may also be given to apply a temporary ban. If it is absent for any reason, a permanent ban will be used instead.", "We recommend that you test your scripts so that no accidental permanent bans are applied.", "Note that banning people does not kick them from the server.", "Consider using the <a href='effects.html#EffKick'>kick effect</a> after applying a ban." ],
+  "examples" : [ "unban player", "ban \"127.0.0.1\"", "IP-ban the player because \"he is an idiot\"", "ban player due to \"inappropriate language\" for 2 days" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "ban %strings/offlineplayers% [(by reason of|because [of]|on account of|due to) %-string%] [for %-timespan%]", "unban %strings/offlineplayers%", "ban %players% by IP [(by reason of|because [of]|on account of|due to) %-string%] [for %-timespan%]", "unban %players% by IP", "IP(-| )ban %players% [(by reason of|because [of]|on account of|due to) %-string%] [for %-timespan%]", "(IP(-| )unban|un[-]IP[-]ban) %players%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:8a0164ff1ee2c648c662ee5d4cca86ca226247ec7a0585c719f97715510e8f05",
+  "registrationId" : "effect:skript:8a0164ff1ee2c648c662ee5d4cca86ca226247ec7a0585c719f97715510e8f05:9a83b913357f1fc81870da54d9a659cebe2cb8a193a425b4a953288aa44d8a83:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 3,
+  "name" : "Break Block",
+  "elementClass" : "ch.njol.skript.effects.EffBreakNaturally",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Breaks the block and spawns items as if a player had mined it", "You can add a tool, which will spawn items based on how that tool would break the block", "(ie: When using a hand to break stone, it drops nothing, whereas with a pickaxe it drops cobblestone)" ],
+  "examples" : [ "on right click:", "break clicked block naturally", "loop blocks in radius 10 around player:", "break loop-block using player's tool", "loop blocks in radius 10 around player:", "break loop-block naturally using diamond pickaxe" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "break %blocks% [naturally] [using %-itemtype%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:b28e618687fd6f24c0614f83a97a6fd3fc6fd5e5c1934fa02ce50cfe553a25d5",
+  "registrationId" : "effect:skript:b28e618687fd6f24c0614f83a97a6fd3fc6fd5e5c1934fa02ce50cfe553a25d5:cda8bfe069bc627f941ae0db471db51d743010477df65709d7f86efb0fcbab86:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 4,
+  "name" : "Broadcast",
+  "elementClass" : "ch.njol.skript.effects.EffBroadcast",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0, 2.6 (broadcasting objects), 2.6.1 (using advanced formatting)" ],
+  "description" : [ "Broadcasts a message to the server." ],
+  "examples" : [ "broadcast \"Welcome %player% to the server!\"", "broadcast \"Woah! It's a message!\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "broadcast %objects% [(to|in) %-worlds%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:88f6f9cdc26fe5e18f1c8e718638d5040cd1dfb56a0c5e41d9e27e99def445c1",
+  "registrationId" : "effect:skript:88f6f9cdc26fe5e18f1c8e718638d5040cd1dfb56a0c5e41d9e27e99def445c1:c659827e8f85c7bbb249c1a3e671b4c4bc997b5a447d88493efc736bd38dba08:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 5,
+  "name" : "Cancel Command Cooldown",
+  "elementClass" : "ch.njol.skript.effects.EffCancelCooldown",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev34" ],
+  "description" : [ "Only usable in commands. Makes it so the current command usage isn't counted towards the cooldown." ],
+  "examples" : [ "command /nick &lt;text&gt;:", "executable by: players", "cooldown: 10 seconds", "trigger:", "if length of arg-1 is more than 16:", "# Makes it so that invalid arguments don't make you wait for the cooldown again", "cancel the cooldown", "send \"Your nickname may be at most 16 characters.\"", "stop", "set the player's display name to arg-1" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(cancel|ignore) [the] [current] [command] cooldown", "un(cancel|ignore) [the] [current] [command] cooldown" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:8bc00d8f932e3cd9d964d5189692c4be6b8484bbb7c4945fe61c6fd60db1d5d0",
+  "registrationId" : "effect:skript:8bc00d8f932e3cd9d964d5189692c4be6b8484bbb7c4945fe61c6fd60db1d5d0:ce067756616da2d4a29db71a5eddcefac6b29560a1031d96113700f2acbd128e:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 6,
+  "name" : "Cancel Drops",
+  "elementClass" : "ch.njol.skript.effects.EffCancelDrops",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Cancels drops of items or experiences in a death or block break event. Please note that this doesn't keep items or experiences of a dead player. If you want to do that, use the <a href='effects.html#EffKeepInventory'>Keep Inventory / Experience</a> effect." ],
+  "examples" : [ "on death of a zombie:", "if name of the entity is \"&cSpecial\":", "cancel drops of items", "on break of a coal ore:", "cancel the experience drops" ],
+  "requires" : [ "1.12.2 or newer (cancelling item drops of blocks)" ],
+  "noDoc" : false,
+  "events" : [ "death", "break / mine" ],
+  "deprecated" : false,
+  "patterns" : [ "(cancel|clear|delete) [the] drops [of (1¦items|2¦[e]xp[erience][s])]", "(cancel|clear|delete) [the] (1¦item|2¦[e]xp[erience]) drops" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:e66bc8b5009849957aa57607f28a51a4f0be0f4bc0bf3747693aaf8abbc31cf3",
+  "registrationId" : "effect:skript:e66bc8b5009849957aa57607f28a51a4f0be0f4bc0bf3747693aaf8abbc31cf3:aa4fa4c173555de1ec3f1729565e73e92d878f8a00f4e5850e4759caa3ed180f:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 7,
+  "name" : "Cancel Event",
+  "elementClass" : "ch.njol.skript.effects.EffCancelEvent",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Cancels the event (e.g. prevent blocks from being placed, or damage being taken)." ],
+  "examples" : [ "on damage:", "victim is a player", "victim has the permission \"skript.god\"", "cancel the event" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "cancel [the] event", "uncancel [the] event" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:09a0f498f4d9bd69404fe6c9777fbb626dbe6f9e1a73ef4758f58e3c8306cc3e",
+  "registrationId" : "effect:skript:09a0f498f4d9bd69404fe6c9777fbb626dbe6f9e1a73ef4758f58e3c8306cc3e:28664b1844e95ae894ece3b8d05b65a6fb2bd4ca8c9ba38a9a878ccb8d0a7869:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 8,
+  "name" : "Change: Set/Add/Remove/Delete/Reset",
+  "elementClass" : "ch.njol.skript.effects.EffChange",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0 (set, add, remove, delete), 2.0 (remove all)" ],
+  "description" : [ "A very general effect that can change many <a href='../expressions'>expressions</a>. Many expressions can only be set and/or deleted, while some can have things added to or removed from them." ],
+  "examples" : [ "# set:", "Set the player's display name to \"&lt;red&gt;%name of player%\"", "set the block above the victim to lava", "# add:", "add 2 to the player's health # preferably use '<a href='#heal'>heal</a>' for this", "add argument to {blacklist::*}", "give a diamond pickaxe of efficiency 5 to the player", "increase the data value of the clicked block by 1", "# remove:", "remove 2 pickaxes from the victim", "subtract 2.5 from {points::%uuid of player%}", "# remove all:", "remove every iron tool from the player", "remove all minecarts from {entitylist::*}", "# delete:", "delete the block below the player", "clear drops", "delete {variable}", "# reset:", "reset walk speed of player", "reset chunk at the targeted block" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(add|give) %objects% to %~objects%", "increase %~objects% by %objects%", "give %~objects% %objects%", "set %~objects% to %objects%", "remove (all|every) %objects% from %~objects%", "(remove|subtract) %objects% from %~objects%", "reduce %~objects% by %objects%", "(delete|clear) %~objects%", "reset %~objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:6ee75b66c80a06b67ed170f5baac626dd83c371e28f16057ebdfbd3391310fe2",
+  "registrationId" : "effect:skript:6ee75b66c80a06b67ed170f5baac626dd83c371e28f16057ebdfbd3391310fe2:cb6db174bab115abb95df7770b8bc752406b712173b642ae3897f06a596e7de4:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 9,
+  "name" : "Charge Creeper",
+  "elementClass" : "ch.njol.skript.effects.EffChargeCreeper",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5" ],
+  "description" : [ "Charges or uncharges a creeper. A creeper is charged when it has been struck by lightning." ],
+  "examples" : [ "on spawn of creeper:", "charge the event-entity" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %livingentities% [a[n]] (charged|powered|1¦((un|non[-])charged|(un|non[-])powered)) [creeper[s]]", "(charge|power|1¦(uncharge|unpower)) %livingentities%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:f64d4eb31198ec081e0cb4ab841153273110aefcaa472600fc858345a3eb167c",
+  "registrationId" : "effect:skript:f64d4eb31198ec081e0cb4ab841153273110aefcaa472600fc858345a3eb167c:8b403db2994e0bbc8c6192dfff7db94ff2ca566ac744d3a7928c86d37940c4d2:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 10,
+  "name" : "Colour Items",
+  "elementClass" : "ch.njol.skript.effects.EffColorItems",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0, 2.2-dev26 (maps and potions)" ],
+  "description" : [ "Colours items in a given <a href='classes.html#color'>colour</a>. You can also use RGB codes if you feel limited with the 16 default colours. RGB codes are three numbers from 0 to 255 in the order <code>(red, green, blue)</code>, where <code>(0,0,0)</code> is black and <code>(255,255,255)</code> is white. Armor is colourable for all Minecraft versions. With Minecraft 1.11 or newer you can also colour potions and maps. Note that the colours might not look exactly how you'd expect." ],
+  "examples" : [ "dye player's helmet blue", "colour the player's tool red" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(dye|colo[u]r|paint) %itemtypes% %color%", "(dye|colo[u]r|paint) %itemtypes% \\(%number%, %number%, %number%\\)" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:1bc89b66569b660ca51e0a8056627ddf00dc002a33b2a4531dca83e819fcb976",
+  "registrationId" : "effect:skript:1bc89b66569b660ca51e0a8056627ddf00dc002a33b2a4531dca83e819fcb976:e04134d3ce74730dc4f52b43336b9b3b7bae6c68c8fc8f6eafb630e4d1e3e916:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 11,
+  "name" : "Command",
+  "elementClass" : "ch.njol.skript.effects.EffCommand",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Executes a command. This can be useful to use other plugins in triggers." ],
+  "examples" : [ "make player execute command \"/suicide\"", "execute console command \"/say Hello everyone!\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "[execute] [the] command %strings% [by %-commandsenders%]", "[execute] [the] %commandsenders% command %strings%", "(let|make) %commandsenders% execute [[the] command] %strings%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:5f1f4e00f61f69ba76643f21aed23a1f1c44ea02e6f662f02c99218e60e82683",
+  "registrationId" : "effect:skript:5f1f4e00f61f69ba76643f21aed23a1f1c44ea02e6f662f02c99218e60e82683:bb14330912343db08425a60ee3e626fe3a665fbdfb2e10765827c9285f64aca1:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 12,
+  "name" : "Connect",
+  "elementClass" : "ch.njol.skript.effects.EffConnect",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Connects a player to another bungeecord server" ],
+  "examples" : [ "connect all players to \"hub\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "connect %players% to [server] %string%", "send %players% to server %string%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:174e4b491d6f6fd84ba1b8757b2c66f7711459a8f50b0ba73a0ab078d5a3d2d1",
+  "registrationId" : "effect:skript:174e4b491d6f6fd84ba1b8757b2c66f7711459a8f50b0ba73a0ab078d5a3d2d1:6f57dfd742fc08b7a575cd46839226d3b20d4603f0e35766d40312a5d2834331:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 13,
+  "name" : "Continue",
+  "elementClass" : "ch.njol.skript.effects.EffContinue",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev37, INSERT VERSION (while loops)" ],
+  "description" : [ "Skips the value currently being looped, moving on to the next value if it exists." ],
+  "examples" : [ "loop all players:", "if loop-value does not have permission \"moderator\":", "continue # filter out non moderators", "broadcast \"%loop-player% is a moderator!\" # Only moderators get broadcast" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "continue [loop]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:6d52aa80300cf184f4ce7ab35e1578352b450ead779e670ab7c0dfd3e8f47eef",
+  "registrationId" : "effect:skript:6d52aa80300cf184f4ce7ab35e1578352b450ead779e670ab7c0dfd3e8f47eef:384e6886e6634af06c6bd8a14d08393b96c45ffa0f4ff9d81978e3bf13ee10d7:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 14,
+  "name" : "Do If",
+  "elementClass" : "ch.njol.skript.effects.EffDoIf",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Execute an effect if a condition is true." ],
+  "examples" : [ "on join:", "give a diamond to the player if the player has permission \"rank.vip\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "<.+> if <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:e07e6b1a2bd70e9e79b0f6c3d943f616b45afa0678e3065a18b1f3763be4b943",
+  "registrationId" : "effect:skript:e07e6b1a2bd70e9e79b0f6c3d943f616b45afa0678e3065a18b1f3763be4b943:803ce872d556c3c14c6eac8807e0aa6e0f831bcce015b977236f8560eb7c30fe:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 15,
+  "name" : "Drop",
+  "elementClass" : "ch.njol.skript.effects.EffDrop",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Drops one or more items." ],
+  "examples" : [ "on death of creeper:", "drop 1 TNT" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "drop %itemtypes/experiences% [%directions% %locations%] [(1¦without velocity)]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:498598d410fb33761fe89bcf9dd26d68a6f34ad9fa154d9fac866cf95a3c17b3",
+  "registrationId" : "effect:skript:498598d410fb33761fe89bcf9dd26d68a6f34ad9fa154d9fac866cf95a3c17b3:069ddb324de215bfd78f5eedd9f35e0be1fba1250a56dc94ad2cd2fee419b811:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 16,
+  "name" : "Enchant/Disenchant",
+  "elementClass" : "ch.njol.skript.effects.EffEnchant",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0" ],
+  "description" : [ "Enchant or disenchant an existing item." ],
+  "examples" : [ "enchant the player's tool with sharpness 5", "disenchant the player's tool" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "enchant %~itemtypes% with %enchantmenttypes%", "disenchant %~itemtypes%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:fef10c847ee9a4206f74b8dd8c6dde189863e921a376b85ddd92ef6f72f5300e",
+  "registrationId" : "effect:skript:fef10c847ee9a4206f74b8dd8c6dde189863e921a376b85ddd92ef6f72f5300e:2285f5d5b0c9aa5a4240a21a928177555e7c10a750cd185a6b9e0d5e3a7a0fec:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 17,
+  "name" : "Equip",
+  "elementClass" : "ch.njol.skript.effects.EffEquip",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Equips an entity with some given armor. This will replace any armor that the entity is wearing." ],
+  "examples" : [ "equip player with diamond helmet", "equip player with all diamond armor" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "equip [%livingentity%] with %itemtypes%", "make %livingentity% wear %itemtypes%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:9590df9cca72a6defa4e13890f17f631f413ecfb014c90be2c331c5805a34fbb",
+  "registrationId" : "effect:skript:9590df9cca72a6defa4e13890f17f631f413ecfb014c90be2c331c5805a34fbb:e8a5abb37307cedc10a0b3351ca35660c5004d9fcec28cb93551477da8c0b695:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 18,
+  "elementClass" : "ch.njol.skript.effects.EffExceptionDebug",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "noDoc" : true,
+  "deprecated" : false,
+  "patterns" : [ "cause exception" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:3c8047b30ab2dca973124f058cf7ced483c51387e6e2f8890099b1457bd86494",
+  "registrationId" : "effect:skript:3c8047b30ab2dca973124f058cf7ced483c51387e6e2f8890099b1457bd86494:d0678ff3c59368a028a43517c5c85b923a724a06ddda3eac9cc3bf304432613b:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 19,
+  "name" : "Exit",
+  "elementClass" : "ch.njol.skript.effects.EffExit",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "<i>unknown</i> (before 2.1)" ],
+  "description" : [ "Exits a given amount of loops and conditionals, or the entire trigger." ],
+  "examples" : [ "if player has any ore:", "stop", "message \"%player% has no ores!\"", "loop blocks above the player:", "loop-block is not air:", "exit 2 sections", "set loop-block to water" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(exit|stop) [trigger]", "(exit|stop) [(1|a|the|this)] (0¦section|1¦loop|2¦conditional)", "(exit|stop) <\\d+> (0¦section|1¦loop|2¦conditional)s", "(exit|stop) all (0¦section|1¦loop|2¦conditional)s" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:85544148b002a6bed6aa64a3dc49a94cc9ba944ac8b6ca53068a59206dcd96e1",
+  "registrationId" : "effect:skript:85544148b002a6bed6aa64a3dc49a94cc9ba944ac8b6ca53068a59206dcd96e1:675564dc81d2e0c5587a7d67de385f8a7cd8e86775413b10ac93fca47c9c755d:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 20,
+  "name" : "Explosion",
+  "elementClass" : "ch.njol.skript.effects.EffExplosion",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Creates an explosion of a given force. The Minecraft Wiki has an <a href='https://www.minecraftwiki.net/wiki/Explosion'>article on explosions</a> which lists the explosion forces of TNT, creepers, etc.", "Hint: use a force of 0 to create a fake explosion that does no damage whatsoever, or use the explosion effect introduced in Skript 2.0.", "Starting with Bukkit 1.4.5 and Skript 2.0 you can use safe explosions which will damage entities but won't destroy any blocks." ],
+  "examples" : [ "create an explosion of force 10 at the player", "create an explosion of force 0 at the victim" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "[(create|make)] [an] explosion (of|with) (force|strength|power) %number% [%directions% %locations%] [(1¦with fire)]", "[(create|make)] [a] safe explosion (of|with) (force|strength|power) %number% [%directions% %locations%]", "[(create|make)] [a] fake explosion [%directions% %locations%]", "[(create|make)] [an] explosion[ ]effect [%directions% %locations%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:8bec3cc60a5178b28fc9c7320d2617a14880927af00772625d326b6c43452fd0",
+  "registrationId" : "effect:skript:8bec3cc60a5178b28fc9c7320d2617a14880927af00772625d326b6c43452fd0:41bc1b0ef4d244f04ce4f5bc0d884c5bff9466e98babac0592a14cd64a56f187:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 21,
+  "name" : "Feed",
+  "elementClass" : "ch.njol.skript.effects.EffFeed",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev34" ],
+  "description" : [ "Feeds the specified players." ],
+  "examples" : [ "feed all players", "feed the player by 5 beefs" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "feed [the] %players% [by %-number% [beef[s]]]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:b1d66df0bd068905dcfd1cdffe6f1b963decd46cce2390204cbca5583e63b004",
+  "registrationId" : "effect:skript:b1d66df0bd068905dcfd1cdffe6f1b963decd46cce2390204cbca5583e63b004:98afb8229906f41aec388f31ffc977b60bdcf61db1399c1d5fe246bcaae273f7:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 22,
+  "name" : "Launch firework",
+  "elementClass" : "ch.njol.skript.effects.EffFireworkLaunch",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Launch firework effects at the given location(s)." ],
+  "examples" : [ "launch ball large coloured red, purple and white fading to light green and black at player's location with duration 1" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(launch|deploy) [[a] firework [with effect[s]]] %fireworkeffects% at %locations% [([with] (duration|power)|timed) %number%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:5d8b2bd1d596899a91a5a2a0d67c1293b46d61f9b2f5469981e7ef364fb52dee",
+  "registrationId" : "effect:skript:5d8b2bd1d596899a91a5a2a0d67c1293b46d61f9b2f5469981e7ef364fb52dee:49fedf737bd5ac4bd1a1a3980c05caf3550fda8e7600a7d50f913507debee256:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 23,
+  "name" : "Force Attack",
+  "elementClass" : "ch.njol.skript.effects.EffForceAttack",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5.1" ],
+  "description" : [ "Makes a living entity attack an entity with a melee attack." ],
+  "examples" : [ "spawn a wolf at player's location", "make last spawned wolf attack player" ],
+  "requires" : [ "Minecraft 1.15.2+" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %livingentities% attack %entity%", "force %livingentities% to attack %entity%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:54e1dd3eef00c654d6fb122888d3127fbaaa7a115fca838213b9519e2db18f17",
+  "registrationId" : "effect:skript:54e1dd3eef00c654d6fb122888d3127fbaaa7a115fca838213b9519e2db18f17:bd843c4bcfec0757fd220f2125577db5029056c25820e3c5c613e64786584751:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 24,
+  "name" : "Damage/Heal/Repair",
+  "elementClass" : "ch.njol.skript.effects.EffHealth",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Damage/Heal/Repair an entity, or item." ],
+  "examples" : [ "damage player by 5 hearts", "heal the player", "repair tool of player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "damage %livingentities/itemtypes% by %number% [heart[s]] [with fake cause %-damagecause%]", "heal %livingentities% [by %-number% [heart[s]]]", "repair %itemtypes% [by %-number%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:9efad5ba3c3906e941e93aca5062f83587632166fcb1a1f0a47d63c2a5732167",
+  "registrationId" : "effect:skript:9efad5ba3c3906e941e93aca5062f83587632166fcb1a1f0a47d63c2a5732167:89cd9b9f0c25ae916257bc5b43e855fc84efda6e2ca3e00a4c117d77dcae6f16:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 25,
+  "name" : "Hide Player from Server List",
+  "elementClass" : "ch.njol.skript.effects.EffHidePlayerFromServerList",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Hides a player from the <a href='expressions.html#ExprHoverList'>hover list</a> and decreases the <a href='expressions.html#ExprOnlinePlayersCount'>online players count</a> (only if the player count wasn't changed before)." ],
+  "examples" : [ "on server list ping:", "hide {vanished::*} from the server list" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "hide %players% (in|on|from) [the] server list", "hide %players%'[s] info[rmation] (in|on|from) [the] server list" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:c7af0fa1e945d0952f40b3b3afd5ca8de0eed4b31a97e7fbac160741f5274855",
+  "registrationId" : "effect:skript:c7af0fa1e945d0952f40b3b3afd5ca8de0eed4b31a97e7fbac160741f5274855:9a7aac75c177495cc90048e4ef6de67ec51e9e5baae06d044033b9a5031fc8fc:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 26,
+  "name" : "Ignite/Extinguish",
+  "elementClass" : "ch.njol.skript.effects.EffIgnite",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4" ],
+  "description" : [ "Lights entities on fire or extinguishes them." ],
+  "examples" : [ "ignite the player", "extinguish the player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(ignite|set fire to) %entities% [for %-timespan%]", "(set|light) %entities% on fire [for %-timespan%]", "extinguish %entities%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:44eb22ede41f961872d29a51d9701dd916bca3f88812bee783c0973e832a492f",
+  "registrationId" : "effect:skript:44eb22ede41f961872d29a51d9701dd916bca3f88812bee783c0973e832a492f:e3a2bf625f052390090dc4e6f0adf5a2417f7fe0190f54a88ff51263e78fb212:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 27,
+  "name" : "Make Incendiary",
+  "elementClass" : "ch.njol.skript.effects.EffIncendiary",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5" ],
+  "description" : [ "Sets if an entity's explosion will leave behind fire. This effect is also usable in an explosion prime event." ],
+  "examples" : [ "on explosion prime:", "make the explosion fiery" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %entities% [(1¦not)] incendiary", "make %entities%'[s] explosion [(1¦not)] (incendiary|fiery)", "make [the] [event(-| )]explosion [(1¦not)] (incendiary|fiery)" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:d98eca534eafe4bf2da12d84a2247f469c5efef29a986c6a5d70a412dc0fef2d",
+  "registrationId" : "effect:skript:d98eca534eafe4bf2da12d84a2247f469c5efef29a986c6a5d70a412dc0fef2d:de0f1dfe03ffe50f2a6716af3f8ed144190da1e796c1129a47b113c65b12af59:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 28,
+  "name" : "Make Invulnerable",
+  "elementClass" : "ch.njol.skript.effects.EffInvulnerability",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5" ],
+  "description" : [ "Makes an entity invulnerable/not invulnerable." ],
+  "examples" : [ "make target entity invulnerable" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %entities% invulnerable", "make %entities% (not invulnerable|vulnerable)" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:76de5937bab7fb298baac2498a9f2b08aa527e4da94856db5a0592311457e0b1",
+  "registrationId" : "effect:skript:76de5937bab7fb298baac2498a9f2b08aa527e4da94856db5a0592311457e0b1:f9f030fe10562a1125cc3d63ec252eb0ed389f9ecf989e3586b22745a3db2b66:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 29,
+  "name" : "Keep Inventory / Experience",
+  "elementClass" : "ch.njol.skript.effects.EffKeepInventory",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Keeps the inventory or/and experiences of the dead player in a death event." ],
+  "examples" : [ "on death of a player:", "if the victim is an op:", "keep the inventory and experiences" ],
+  "noDoc" : false,
+  "events" : [ "death" ],
+  "deprecated" : false,
+  "patterns" : [ "keep [the] (inventory|items) [(1¦and [e]xp[erience][s] [point[s]])]", "keep [the] [e]xp[erience][s] [point[s]] [(1¦and (inventory|items))]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:df982946f6e8ef9cd9c1641be655dd90c9bc1cf3ff1b6d58e9e364b677eb6d57",
+  "registrationId" : "effect:skript:df982946f6e8ef9cd9c1641be655dd90c9bc1cf3ff1b6d58e9e364b677eb6d57:f3b03dac5f2c33c2dbcb6f44ba7b48692164080417d77055ea5ce4de5953f822:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 30,
+  "name" : "Kick",
+  "elementClass" : "ch.njol.skript.effects.EffKick",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Kicks a player from the server." ],
+  "examples" : [ "on place of TNT, lava, or obsidian:", "kick the player due to \"You may not place %block%!\"", "cancel the event" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "kick %players% [(by reason of|because [of]|on account of|due to) %-string%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:03398106c7c375da4ca228d86145dcc3daed12fc37ee91c6fd3a7c5ae926fee3",
+  "registrationId" : "effect:skript:03398106c7c375da4ca228d86145dcc3daed12fc37ee91c6fd3a7c5ae926fee3:3ac545844b4efe12d009ad4fde92ea3282bc999e5a6f600e25fdfdf450214a6c:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 31,
+  "name" : "Kill",
+  "elementClass" : "ch.njol.skript.effects.EffKill",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Kills an entity.", "Note: This effect does not set the entity's health to 0 (which causes issues), but damages the entity by 100 times its maximum health." ],
+  "examples" : [ "kill the player", "kill all creepers in the player's world", "kill all endermen, witches and bats" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "kill %entities%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:ce08837a18c827a16857238eab84023aa3947bcfc33f9d13d4d786bf7b475de5",
+  "registrationId" : "effect:skript:ce08837a18c827a16857238eab84023aa3947bcfc33f9d13d4d786bf7b475de5:0112c7e4b54229e412738818df60a79dd8f9f7e151f2865dd7fabf4374da0f4b:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 32,
+  "name" : "Leash entities",
+  "elementClass" : "ch.njol.skript.effects.EffLeash",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Leash living entities to other entities." ],
+  "examples" : [ "leash the player to the target entity" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(leash|lead) %livingentities% to %entity%", "make %entity% (leash|lead) %livingentities%", "un(leash|lead) [holder of] %livingentities%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:d88e8114c6ff8cad93579768e9a58db319d5ecfc7ad602a137afa1884437f0a1",
+  "registrationId" : "effect:skript:d88e8114c6ff8cad93579768e9a58db319d5ecfc7ad602a137afa1884437f0a1:6bebd8f90028ad69180abe4e540a4e40dec1a99812d87d79cff929045241abe2:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 33,
+  "name" : "Lightning",
+  "elementClass" : "ch.njol.skript.effects.EffLightning",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4" ],
+  "description" : [ "Strike lightning at a given location. Can use 'lightning effect' to create a lightning that does not harm entities or start fires." ],
+  "examples" : [ "strike lightning at the player", "strike lightning effect at the victim" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(create|strike) lightning(1¦[ ]effect|) %directions% %locations%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:e1fc96a7133122269eaf596a50eacea7ac77d1fc2355d48e3caba14ca0c22c33",
+  "registrationId" : "effect:skript:e1fc96a7133122269eaf596a50eacea7ac77d1fc2355d48e3caba14ca0c22c33:901519505f0d1387744fd2e2cd4098eb9ec909aa2e644f68043b7446f3ba8529:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 34,
+  "name" : "Load Server Icon",
+  "elementClass" : "ch.njol.skript.effects.EffLoadServerIcon",
+  "superClass" : "ch.njol.skript.util.AsyncEffect",
+  "since" : [ "2.3" ],
+  "description" : [ "Loads server icons from the given files. You can get the loaded icon using the", "<a href='expressions.html#ExprLastLoadedServerIcon'>last loaded server icon</a> expression.", "Please note that the image must be 64x64 and the file path starts from the server folder." ],
+  "examples" : [ "on load:", "clear {server-icons::*}", "loop 5 times:", "load server icon from file \"icons/%loop-number%.png\"", "add the last loaded server icon to {server-icons::*}", "on server list ping:", "set the icon to a random server icon out of {server-icons::*}" ],
+  "requires" : [ "Paper 1.12.2 or newer" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "load [the] server icon (from|of) [the] [image] [file] %string%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:e06d0322b2cec7482d584d4e5a7ec5bb3639f505723d24afeb353f56145a9b51",
+  "registrationId" : "effect:skript:e06d0322b2cec7482d584d4e5a7ec5bb3639f505723d24afeb353f56145a9b51:06c0818d32436df54c6d626f88c34ab5eadec8bdba91b6fcac51fdac0532751e:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 35,
+  "name" : "Log",
+  "elementClass" : "ch.njol.skript.effects.EffLog",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0" ],
+  "description" : [ "Writes text into a .log file. Skript will write these files to /plugins/Skript/logs.", "NB: Using 'server.log' as the log file will write to the default server log. Omitting the log file altogether will log the message as '[Skript] [&lt;script&gt;.sk] &lt;message&gt;' in the server log." ],
+  "examples" : [ "on place of TNT:", "log \"%player% placed TNT in %world% at %location of block%\" to \"tnt/placement.log\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "log %strings% [(to|in) [file[s]] %-strings%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:42dcdab7ea608805e0da5cafb861bcb70fb44e1e039b858f7d7edc0f5b52b085",
+  "registrationId" : "effect:skript:42dcdab7ea608805e0da5cafb861bcb70fb44e1e039b858f7d7edc0f5b52b085:5433f4e11544cf649773fbe95719a54b43faed5a6770ee07a9cfd66ff9c95cd9:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 36,
+  "name" : "Make Fly",
+  "elementClass" : "ch.njol.skript.effects.EffMakeFly",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev34" ],
+  "description" : [ "Forces a player to start/stop flying." ],
+  "examples" : [ "make player fly", "force all players to stop flying" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "force %players% to [(start|1¦stop)] fly[ing]", "make %players% (start|1¦stop) flying", "make %players% fly" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:ffd739f2a6faf764041b030d3affbe2bdbac7d8e33d058dc422bc459895615eb",
+  "registrationId" : "effect:skript:ffd739f2a6faf764041b030d3affbe2bdbac7d8e33d058dc422bc459895615eb:8d7a6dc5ddce8838a95af1b7b52cf4b059ed506fd7187ba39a411d9123c2f5c0:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 37,
+  "name" : "Make Say",
+  "elementClass" : "ch.njol.skript.effects.EffMakeSay",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Forces a player to send a message to the chat. If the message starts with a slash it will force the player to use command." ],
+  "examples" : [ "make the player say \"Hello.\"", "force all players to send the message \"I love this server\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %players% (say|send [the] message[s]) %strings%", "force %players% to (say|send [the] message[s]) %strings%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:548990d6a8b889e15fd536a3ca90045a6c0284641199f3061a350f7c81a999aa",
+  "registrationId" : "effect:skript:548990d6a8b889e15fd536a3ca90045a6c0284641199f3061a350f7c81a999aa:e327d61fbf7dc0b9efc216c17b55f15753b6a92019e219fb0f6a72a268b2aedb:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 38,
+  "name" : "Message",
+  "elementClass" : "ch.njol.skript.effects.EffMessage",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0, 2.2-dev26 (advanced features), 2.5.2 (optional sender), 2.6 (sending objects)" ],
+  "description" : [ "Sends a message to the given player. Only styles written", "in given string or in <a href=expressions.html#ExprColoured>formatted expressions</a> will be parsed.", "Adding an optional sender allows the messages to be sent as if a specific player sent them.", "This is useful with Minecraft 1.16.4's new chat ignore system, in which players can choose to ignore other players,", "but for this to work, the message needs to be sent from a player." ],
+  "examples" : [ "message \"A wild %player% appeared!\"", "message \"This message is a distraction. Mwahaha!\"", "send \"Your kill streak is %{kill streak::%uuid of player%}%.\" to player", "if the targeted entity exists:", "message \"You're currently looking at a %type of the targeted entity%!\"", "on chat:", "cancel event", "send \"[%player%] >> %message%\" to all players from player" ],
+  "requires" : [ "Minecraft 1.16.4+ for optional sender" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(message|send [message[s]]) %objects% [to %commandsenders%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+  "registrationId" : "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 39,
+  "name" : "op/deop",
+  "elementClass" : "ch.njol.skript.effects.EffOp",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Grant/revoke a user operator state." ],
+  "examples" : [ "op the player", "deop all players" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "[de[-]]op %offlineplayers%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:949643947d3cdc6cc7e920aa632cd7b75eca286776f2af2d1cb19b7c8234e3e2",
+  "registrationId" : "effect:skript:949643947d3cdc6cc7e920aa632cd7b75eca286776f2af2d1cb19b7c8234e3e2:165a6f5703efa8ff9ad6292338f110a05ebd68f0ec73da828110bf8f195d4cf7:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 40,
+  "name" : "Open/Close Inventory",
+  "elementClass" : "ch.njol.skript.effects.EffOpenInventory",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0, 2.1.1 (closing), 2.2-Fixes-V10 (anvil), 2.4 (hopper, dropper, dispenser" ],
+  "description" : [ "Opens an inventory to a player. The player can then access and modify the inventory as if it was a chest that he just opened.", "Please note that currently 'show' and 'open' have the same effect, but 'show' will eventually show an unmodifiable view of the inventory in the future." ],
+  "examples" : [ "show the victim's inventory to the player", "open the player's inventory for the player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(open|show) ((0¦(crafting [table]|workbench)|1¦chest|2¦anvil|3¦hopper|4¦dropper|5¦dispenser) (view|window|inventory|)|%-inventory/inventorytype%) (to|for) %players%", "close [the] inventory [view] (to|of|for) %players%", "close %players%'[s] inventory [view]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:02d7930711735a3f1b4ca0ca33e8846e9bf1bcad0bd3c524b79922f9862ac131",
+  "registrationId" : "effect:skript:02d7930711735a3f1b4ca0ca33e8846e9bf1bcad0bd3c524b79922f9862ac131:dcfd3d580bc5dba103c3863210f719a78062f525bdb7918ac1fad7c005c6b450:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 41,
+  "name" : "Player Info Visibility",
+  "elementClass" : "ch.njol.skript.effects.EffPlayerInfoVisibility",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Sets whether all player related information is hidden in the server list.", "The Vanilla Minecraft client will display ??? (dark gray) instead of player counts and will not show the", "<a href='expressions.html#ExprHoverList'>hover hist</a> when hiding player info.", "<a href='expressions.html#ExprVersionString'>The version string</a> can override the ???.", "Also the <a href='expressions.html#ExprOnlinePlayersCount'>Online Players Count</a> and", "<a href='expressions.html#ExprMaxPlayers'>Max Players</a> expressions will return -1 when hiding player info." ],
+  "examples" : [ "hide player info", "hide player related information in the server list", "reveal all player related info" ],
+  "requires" : [ "Paper 1.12.2 or newer" ],
+  "noDoc" : false,
+  "events" : [ "server list ping" ],
+  "deprecated" : false,
+  "patterns" : [ "hide [all] player [related] info[rmation] [(in|on|from) [the] server list]", "(show|reveal) [all] player [related] info[rmation] [(in|to|on|from) [the] server list]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:2dddd02129b558b1e3577510e2ed026a44f2abb750161d4eefd59850e1777a3a",
+  "registrationId" : "effect:skript:2dddd02129b558b1e3577510e2ed026a44f2abb750161d4eefd59850e1777a3a:967d353361f7485ecece86ba6db0234b603e83c147ed30aefc94110dbbd69cba:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 42,
+  "name" : "Player Visibility",
+  "elementClass" : "ch.njol.skript.effects.EffPlayerVisibility",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Change visibility of a player for the given players.", "When reveal is used in combination of the <a href='expressions.html#ExprHiddenPlayers'>hidden players</a> expression and the viewers are not specified, this will default it to the given player in the hidden players expression.", "Note: if a player was hidden and relogs, this player will be visible again." ],
+  "examples" : [ "on join:", "if {vanished::%player's uuid%} is true:", "hide the player from all players", "reveal hidden players of {_player}" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "hide %players% [(from|for) %-players%]", "reveal %players% [(to|for|from) %-players%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:75490dd77b28680fcaa675434173d7adddf9379e840680a9f3cec62d134148e2",
+  "registrationId" : "effect:skript:75490dd77b28680fcaa675434173d7adddf9379e840680a9f3cec62d134148e2:75b9c220d26d816fc43dbd29b1be781a2a4b84fca31187733dce18fe35d511c6:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 43,
+  "name" : "Play Sound",
+  "elementClass" : "ch.njol.skript.effects.EffPlaySound",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev28, 2.4 (sound categories)" ],
+  "description" : [ "Plays a sound at given location for everyone or just for given players, or plays a sound to specified players. Both Minecraft sound names and <a href=\"https://hub.spigotmc.org/javadocs/spigot/org/bukkit/Sound.html\">Spigot sound names</a> are supported. Playing resource pack sounds are supported too. The sound category is 'master' by default.", "Please note that sound names can get changed in any Minecraft or Spigot version, or even removed from Minecraft itself." ],
+  "examples" : [ "play sound \"block.note_block.pling\" # It is block.note.pling in 1.12.2", "play sound \"entity.experience_orb.pickup\" with volume 0.5 to the player", "play sound \"custom.music.1\" in jukebox category at {speakerBlock}" ],
+  "requires" : [ "Minecraft 1.11+ (sound categories)" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "play sound[s] %strings% [(in|from) %-soundcategory%] [(at|with) volume %-number%] [(and|at|with) pitch %-number%] at %locations% [(to|for) %-players%]", "play sound[s] %strings% [(in|from) %-soundcategory%] [(at|with) volume %-number%] [(and|at|with) pitch %-number%] [(to|for) %players%] [(at|from) %-locations%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:1d1eb6b3acc05f0887cf1a3ae2b9242970f5d15efdf3a770e6a470470ca470d3",
+  "registrationId" : "effect:skript:1d1eb6b3acc05f0887cf1a3ae2b9242970f5d15efdf3a770e6a470470ca470d3:2954749e47a16c8f3f502457850e0f437a8b31979659cae0512e3550755b8d2d:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 44,
+  "name" : "Poison/Cure",
+  "elementClass" : "ch.njol.skript.effects.EffPoison",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.3.2" ],
+  "description" : [ "Poison or cure a creature." ],
+  "examples" : [ "poison the player", "poison the victim for 20 seconds", "cure the player from poison" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "poison %livingentities% [for %-timespan%]", "(cure|unpoison) %livingentities% [(from|of) poison]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:946f3332aa22f0761be2ab6572e98e30388078cb80e58a00da5f318759fe8435",
+  "registrationId" : "effect:skript:946f3332aa22f0761be2ab6572e98e30388078cb80e58a00da5f318759fe8435:0ce29624566a65841db0d7b410f3ea0ed60412e885b31d8bc87e2fcafaa53959:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 45,
+  "name" : "Potion Effects",
+  "elementClass" : "ch.njol.skript.effects.EffPotion",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0, 2.2-dev27 (ambient and particle-less potion effects), 2.5 (replacing existing effect), 2.5.2 (potion effects)" ],
+  "description" : [ "Apply or remove potion effects to/from entities." ],
+  "examples" : [ "apply swiftness 2 to the player", "remove haste from the victim", "on join:", "apply potion of strength of tier {strength.%player%} to the player for 999 days", "apply potion effects of player's tool to player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "apply %potioneffects% to %livingentities%", "apply [potion of] %potioneffecttypes% [potion] [[[of] tier] %-number%] to %livingentities% [for %-timespan%] [(1¦replacing [the] existing effect)]", "apply ambient [potion of] %potioneffecttypes% [potion] [[[of] tier] %-number%] to %livingentities% [for %-timespan%] [(1¦replacing [the] existing effect)]", "apply [potion of] %potioneffecttypes% [potion] [[[of] tier] %-number%] without [any] particles to %livingentities% [for %-timespan%] [(1¦replacing [the] existing effect)]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:eae1ce01b1cb09fbfd0a039212927576f36c1e0c5e5c56793f691c07dcd72075",
+  "registrationId" : "effect:skript:eae1ce01b1cb09fbfd0a039212927576f36c1e0c5e5c56793f691c07dcd72075:3fd259d6656b9e394131439fcede65f6737b506e2307ceb3292ae63c400150ef:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 46,
+  "name" : "Push",
+  "elementClass" : "ch.njol.skript.effects.EffPush",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4.6" ],
+  "description" : [ "Push entities around." ],
+  "examples" : [ "push the player upwards", "push the victim downwards at speed 0.5" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(push|thrust) %entities% %direction% [(at|with) (speed|velocity|force) %-number%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:25ead52c739fa8ec69bd6cb9ca05fc5c890f07cb03afc104469c67df32c108c1",
+  "registrationId" : "effect:skript:25ead52c739fa8ec69bd6cb9ca05fc5c890f07cb03afc104469c67df32c108c1:10e8cba9d09e6a87a68726b8b46ba7ed52bd4955098964d27fd27157d486325f:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 47,
+  "name" : "PvP",
+  "elementClass" : "ch.njol.skript.effects.EffPvP",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.3.4" ],
+  "description" : [ "Set the PvP state for a given world." ],
+  "examples" : [ "enable PvP #(current world only)", "disable PvP in all worlds" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "enable PvP [in %worlds%]", "disable PVP [in %worlds%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:36c7290d077fe3683f88c8d64c746b9bf5948f7c3175d1f6b37629724f81c01d",
+  "registrationId" : "effect:skript:36c7290d077fe3683f88c8d64c746b9bf5948f7c3175d1f6b37629724f81c01d:25b36dc32e982de3c80b55e6bd78572694c1d1460a954c98e44b07a95e6d9df4:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 48,
+  "name" : "Replace",
+  "elementClass" : "ch.njol.skript.effects.EffReplace",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0, 2.2-dev24 (replace in multiple strings and replace items in inventory), 2.5 (replace first, case sensitivity)" ],
+  "description" : [ "Replaces all occurrences of a given text with another text. Please note that you can only change variables and a few expressions, e.g. a <a href='../expressions.html#ExprMessage'>message</a> or a line of a sign." ],
+  "examples" : [ "replace \"<item>\" in {textvar} with \"%item%\"", "replace every \"&\" with \"§\" in line 1", "# The following acts as a simple chat censor, but it will e.g. censor mass, hassle, assassin, etc. as well:", "on chat:", "replace all \"kys\", \"idiot\" and \"noob\" with \"****\" in the message", "replace all stone and dirt in player's inventory and player's top inventory with diamond" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "replace (all|every|) %strings% in %strings% with %string% [(1¦with case sensitivity)]", "replace (all|every|) %strings% with %string% in %strings% [(1¦with case sensitivity)]", "replace first %strings% in %strings% with %string% [(1¦with case sensitivity)]", "replace first %strings% with %string% in %string% [(1¦with case sensitivity)]", "replace (all|every|) %itemtypes% in %inventories% with %itemtype%", "replace (all|every|) %itemtypes% with %itemtype% in %inventories%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:da39ce1e781f2b3cc821c59572dfbcdcf40f3e9f4f64624d7e8d8d7fbcc217cb",
+  "registrationId" : "effect:skript:da39ce1e781f2b3cc821c59572dfbcdcf40f3e9f4f64624d7e8d8d7fbcc217cb:4f6fe6bf4702ff2207ebadfc289354be5e3690830c8cb2a31592d580be9cb31b:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 49,
+  "name" : "Title - Reset",
+  "elementClass" : "ch.njol.skript.effects.EffResetTitle",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Resets the title of the player to the default values." ],
+  "examples" : [ "reset the titles of all players", "reset the title" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "reset [the] title[s] [of %players%]", "reset [the] %players%'[s] title[s]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:b12ca2a7a3fcf83d5ce94d384cf3b362bc5484336bfc80e24edba425fbd10af4",
+  "registrationId" : "effect:skript:b12ca2a7a3fcf83d5ce94d384cf3b362bc5484336bfc80e24edba425fbd10af4:89d36d6a779718fa0080dcbb53de5ca0077bf93c6e0fd0220008f1871b4363c1:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 50,
+  "name" : "Force Respawn",
+  "elementClass" : "ch.njol.skript.effects.EffRespawn",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev21" ],
+  "description" : [ "Forces player(s) to respawn if they are dead. If this is called without delay from death event, one tick is waited before respawn attempt." ],
+  "examples" : [ "on death of player:", "force event-player to respawn" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "force %players% to respawn" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:d1faae1a427dbbfc1ea39899566c4ed7e79f4f8e648daa34fe79ba0647e60c4c",
+  "registrationId" : "effect:skript:d1faae1a427dbbfc1ea39899566c4ed7e79f4f8e648daa34fe79ba0647e60c4c:d5b891e188ec00f4c6b069beb2203cb2e9f88d9b811932139bfca5743f97fe2b:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 51,
+  "name" : "Return",
+  "elementClass" : "ch.njol.skript.effects.EffReturn",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2" ],
+  "description" : [ "Makes a function return a value" ],
+  "examples" : [ "function double(i: number) :: number:", "return 2 * {_i}" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "return %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:133a11f422f7a2ded4d8ccd1d05747bc07eb7b6d1b77114a290a862927407bc0",
+  "registrationId" : "effect:skript:133a11f422f7a2ded4d8ccd1d05747bc07eb7b6d1b77114a290a862927407bc0:37949173ea8eabf1e98d07acc8ca5f07c7fd5c725667a9a64420ae7c0e088aee:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 52,
+  "name" : "Enable/Disable/Reload Script File",
+  "elementClass" : "ch.njol.skript.effects.EffScriptFile",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Enables, disables, or reloads a script file." ],
+  "examples" : [ "reload script \"test\"", "enable script file \"testing\"", "unload script file \"script.sk\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(1¦enable|1¦load|2¦reload|3¦disable|3¦unload) s(c|k)ript [file] %string%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:844942b484d94f69e8a237a1154db49d685ed8f408ef84972d9f58f9dd7995a0",
+  "registrationId" : "effect:skript:844942b484d94f69e8a237a1154db49d685ed8f408ef84972d9f58f9dd7995a0:0c644287daa8028b3b4e46457e6b023157fb68687bd2bc4d2d3a2195aaa9b32d:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 53,
+  "name" : "Send Block Change",
+  "elementClass" : "ch.njol.skript.effects.EffSendBlockChange",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev37c, 2.5.1 (block data support)" ],
+  "description" : [ "Makes a player see a block as something it really isn't. BlockData support is only for MC 1.13+" ],
+  "examples" : [ "make player see block at player as dirt", "make player see target block as campfire[facing=south]" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %players% see %blocks% as %itemtype%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:1933c82b8887ab4289a00cd8a020935fa6dd6821c8dc9ed2c121b7fc1f93bb24",
+  "registrationId" : "effect:skript:1933c82b8887ab4289a00cd8a020935fa6dd6821c8dc9ed2c121b7fc1f93bb24:f7ce02df556a0953ed240059553ee7521a572759d050f0df5d4add66d422a8f1:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 54,
+  "name" : "Send Resource Pack",
+  "elementClass" : "ch.njol.skript.effects.EffSendResourcePack",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Request that the player's client download and switch resource packs. The client will download", "the resource pack in the background, and will automatically switch to it once the download is complete.", "The URL must be a direct download link.", "The hash is used for caching, the player won't have to re-download the resource pack that way.", "The hash must be SHA-1, you can get SHA-1 hash of your resource pack using", "<a href=\"https://emn178.github.io/online-tools/sha1_checksum.html\">this online tool</a>.", "The <a href='events.html#resource_pack_request_action'>resource pack request action</a> can be used to check", "status of the sent resource pack request." ],
+  "examples" : [ "on join:", "send the resource pack from \"URL\" with hash \"hash\" to the player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "send [the] resource pack [from [[the] URL]] %string% to %players%", "send [the] resource pack [from [[the] URL]] %string% with hash %string% to %players%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:77f1dab11ad321634fd2c0609ce2ce7b37598d1b2341a0c3fc9734962c4d9c8b",
+  "registrationId" : "effect:skript:77f1dab11ad321634fd2c0609ce2ce7b37598d1b2341a0c3fc9734962c4d9c8b:f0c3917a2f1fc0b3ccda3a3a9e697b4fc8d22cca3c0bed70e10426f1911ff955:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 55,
+  "name" : "Title - Send",
+  "elementClass" : "ch.njol.skript.effects.EffSendTitle",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Sends a title/subtitle to the given player(s) with optional fadein/stay/fadeout times for Minecraft versions 1.11 and above.", "If you're sending only the subtitle, it will be shown only if there's a title displayed at the moment, otherwise it will be sent with the next title. To show only the subtitle, use: <code>send title \" \" with subtitle \"yourtexthere\" to player</code>.", "Note: if no input is given for the times, it will keep the ones from the last title sent, use the <a href='effects.html#EffResetTitle'>reset title</a> effect to restore the default values." ],
+  "examples" : [ "send title \"Competition Started\" with subtitle \"Have fun, Stay safe!\" to player for 5 seconds", "send title \"Hi %player%\" to player", "send title \"Loot Drop\" with subtitle \"starts in 3 minutes\" to all players", "send title \"Hello %player%!\" with subtitle \"Welcome to our server\" to player for 5 seconds with fadein 1 second and fade out 1 second", "send subtitle \"Party!\" to all players" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "send title %string% [with subtitle %-string%] [to %players%] [for %-timespan%] [with fade[(-| )]in %-timespan%] [(and|with) fade[(-| )]out %-timespan%]", "send subtitle %string% [to %players%] [for %-timespan%] [with fade[(-| )]in %-timespan%] [(and|with) fade[(-| )]out %-timespan%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:e689c5a23785756938edabd8157b1ef9ff9f6eae4301be7e2dfc64cc8a6530b9",
+  "registrationId" : "effect:skript:e689c5a23785756938edabd8157b1ef9ff9f6eae4301be7e2dfc64cc8a6530b9:143c0417cb73d5c51384c7a83d291786390709533eb68f44f515c1ce45413ecf:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 56,
+  "name" : "Shear",
+  "elementClass" : "ch.njol.skript.effects.EffShear",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0" ],
+  "description" : [ "Shears or 'un-shears' a sheep. Please note that no wool is dropped, this only sets the 'sheared' state of the sheep." ],
+  "examples" : [ "on rightclick on a sheep holding a sword:", "shear the clicked sheep" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "shear %livingentities%", "un[-]shear %livingentities%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:91e0ab0f83809bc76db962ca9d3fe16cbe7d9b5abbbdb9d76599748ecab9c3bd",
+  "registrationId" : "effect:skript:91e0ab0f83809bc76db962ca9d3fe16cbe7d9b5abbbdb9d76599748ecab9c3bd:158153505cd8c0c2be3e1eb4a318cad4aaf081d687119b08877694e95411dd50:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 57,
+  "name" : "Shoot",
+  "elementClass" : "ch.njol.skript.effects.EffShoot",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4" ],
+  "description" : [ "Shoots a projectile (or any other entity) from a given entity." ],
+  "examples" : [ "shoot an arrow", "make the player shoot a creeper at speed 10", "shoot a pig from the creeper" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "shoot %entitydatas% [from %livingentities/locations%] [(at|with) (speed|velocity) %-number%] [%-direction%]", "(make|let) %livingentities/locations% shoot %entitydatas% [(at|with) (speed|velocity) %-number%] [%-direction%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:01e791fdb8daed2f1706604310f66aba59f30bde30e73dc23a6fa242ff2e9a6a",
+  "registrationId" : "effect:skript:01e791fdb8daed2f1706604310f66aba59f30bde30e73dc23a6fa242ff2e9a6a:50fe835e20419baebb57e3d4371fb6bd7fee354cd81346e5c4d3bfe683c573a2:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 58,
+  "name" : "Silence Entity",
+  "elementClass" : "ch.njol.skript.effects.EffSilence",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5" ],
+  "description" : [ "Controls whether or not an entity is silent." ],
+  "examples" : [ "make target entity silent" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "silence %entities%", "unsilence %entities%", "make %entities% silent", "make %entities% not silent" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:9f22afb2a20f170f1879d02af144b3dc25a5a826123b42849dee0ca45dfec4be",
+  "registrationId" : "effect:skript:9f22afb2a20f170f1879d02af144b3dc25a5a826123b42849dee0ca45dfec4be:3bd6e35c99f94bb93ef55feca6db3d191db110ca15e140524c1ffb8bc55bc7f5:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 59,
+  "name" : "Stop Server",
+  "elementClass" : "ch.njol.skript.effects.EffStopServer",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5" ],
+  "description" : [ "Stops or restarts the server. If restart is used when the restart-script spigot.yml option isn't defined, the server will stop instead." ],
+  "examples" : [ "stop the server", "restart server" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(stop|shut[ ]down) [the] server", "restart [the] server" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:4da095843c45323a668f758966ed6febc9876a83aae00e6e51a4554b9ff86005",
+  "registrationId" : "effect:skript:4da095843c45323a668f758966ed6febc9876a83aae00e6e51a4554b9ff86005:c609ca317b38ed8dce41596f75430272c09084098e4140d55ea08d72192af04c:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 60,
+  "name" : "Stop Sound",
+  "elementClass" : "ch.njol.skript.effects.EffStopSound",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.4" ],
+  "description" : [ "Stops a sound from playing to the specified players. Both Minecraft sound names and <a href=\"https://hub.spigotmc.org/javadocs/spigot/org/bukkit/Sound.html\">Spigot sound names</a> are supported. Resource pack sounds are supported too. The sound category is 'master' by default. A sound can't be stopped from a different category.", "Please note that sound names can get changed in any Minecraft or Spigot version, or even removed from Minecraft itself." ],
+  "examples" : [ "stop sound \"block.chest.open\" for the player", "stop playing sounds \"ambient.underwater.loop\" and \"ambient.underwater.loop.additions\" to the player" ],
+  "requires" : [ "Minecraft 1.10.2+, Minecraft 1.11+ (sound categories)" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "stop sound[s] %strings% [(in|from) %-soundcategory%] [(from playing to|for) %players%]", "stop playing sound[s] %strings% [(in|from) %-soundcategory%] [(to|for) %players%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:17353cb84eb9c9f243d015f62f94d72488af44978ce939abeac2d40befa05b05",
+  "registrationId" : "effect:skript:17353cb84eb9c9f243d015f62f94d72488af44978ce939abeac2d40befa05b05:06e58cffebd589c1591b053c4a14dc860e95ef14d9ce35791a08826c39f59342:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 61,
+  "name" : "Locally Suppress Warning",
+  "elementClass" : "ch.njol.skript.effects.EffSuppressWarnings",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Suppresses target warnings from the current script." ],
+  "examples" : [ "locally suppress conflict warnings", "suppress the variable save warnings" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "[local[ly]] suppress [the] (1¦conflict|2¦variable save|3¦[missing] conjunction[s]|4¦starting [with] expression[s]) warning[s]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:fe877fe7cb0b03d0fcd0056727a9cdbe62b0ab75ab6f5844eaf11c5875e1015f",
+  "registrationId" : "effect:skript:fe877fe7cb0b03d0fcd0056727a9cdbe62b0ab75ab6f5844eaf11c5875e1015f:caba22ecc412c40c2a2a5ad5766bd83d853d9f40bd45904508a88fb5aa5f4842:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 62,
+  "name" : "Swing Hand",
+  "elementClass" : "ch.njol.skript.effects.EffSwingHand",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.5.1" ],
+  "description" : [ "Makes an entity swing their hand. This does nothing if the entity does not have an animation for swinging their hand." ],
+  "examples" : [ "make player swing their main hand" ],
+  "requires" : [ "Minecraft 1.15.2+" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "make %livingentities% swing [their] [main] hand", "make %livingentities% swing [their] off[ ]hand" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:1bc1c5e9e9b54bf047e9b0ae872abbaf32b21473975a5b0344efd76b67dd20df",
+  "registrationId" : "effect:skript:1bc1c5e9e9b54bf047e9b0ae872abbaf32b21473975a5b0344efd76b67dd20df:54bd58c15ddba85f5b61f7df40f2658f4835bcff2940726873b7ee97c357e543:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 63,
+  "name" : "Teleport",
+  "elementClass" : "ch.njol.skript.effects.EffTeleport",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Teleport an entity to a specific location.", "This effect is delayed by default on Paper, meaning certain syntax such as the return effect for functions cannot be used after this effect.", "The keyword 'force' indicates this effect will not be delayed,", "which may cause lag spikes or server crashes when using this effect to teleport entities to unloaded chunks." ],
+  "examples" : [ "teleport the player to {homes.%player%}", "teleport the attacker to the victim" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "[(1¦force)] teleport %entities% (to|%direction%) %location%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba",
+  "registrationId" : "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba:ec481af6232b34ea01da61c7b8c990783eea35cebe829e043f37402a9be33ffc:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 64,
+  "name" : "Toggle",
+  "elementClass" : "ch.njol.skript.effects.EffToggle",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.4" ],
+  "description" : [ "Toggle the state of a block." ],
+  "examples" : [ "# use arrows to toggle switches, doors, etc.", "on projectile hit:", "projectile is arrow", "toggle the block at the arrow" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(close|turn off|de[-]activate) %blocks%", "(toggle|switch) [[the] state of] %blocks%", "(open|turn on|activate) %blocks%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:6279a95da65ec011e3207c669dd4dbc243dcfbd7b8a321a66759b076c4900402",
+  "registrationId" : "effect:skript:6279a95da65ec011e3207c669dd4dbc243dcfbd7b8a321a66759b076c4900402:72732c1c72ab6f9c5a14da045acd0a6f983e3562ce846f57d41287401006d53e:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 65,
+  "name" : "Toggle Flight",
+  "elementClass" : "ch.njol.skript.effects.EffToggleFlight",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.3" ],
+  "description" : [ "Toggle the <a href='expressions.html#ExprFlightMode'>flight mode</a> of a player." ],
+  "examples" : [ "allow flight to event-player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(allow|enable) (fly|flight) (for|to) %players%", "(disallow|disable) (fly|flight) (for|to) %players%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:aa68f32357ef53b0400195d3c090a3e1a98da4d31526ff9580d52711c8201d6f",
+  "registrationId" : "effect:skript:aa68f32357ef53b0400195d3c090a3e1a98da4d31526ff9580d52711c8201d6f:0a1b36c6bf03796fa62db233e0d389a40fc13e6012c7568d980061e3c1a44335:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 66,
+  "name" : "Tree",
+  "elementClass" : "ch.njol.skript.effects.EffTree",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0" ],
+  "description" : [ "Creates a tree.", "This may require that there is enough space above the given location and that the block below is dirt/grass, but it is possible that the tree will just grow anyways, possibly replacing every block in its path." ],
+  "examples" : [ "grow a tall redwood tree above the clicked block" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(grow|create|generate) tree [of type %structuretype%] %directions% %locations%", "(grow|create|generate) %structuretype% %directions% %locations%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:a38409258234dfb9f4773ddaf87a3bc9a6b9d784ab188ce8004b0663277b46d0",
+  "registrationId" : "effect:skript:a38409258234dfb9f4773ddaf87a3bc9a6b9d784ab188ce8004b0663277b46d0:6ff8fafc7e25b84c323b01168af2f686c8fff4fbccfaa94fb04dd91f28cf5f28:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 67,
+  "name" : "Vectors - Rotate Around Vector",
+  "elementClass" : "ch.njol.skript.effects.EffVectorRotateAroundAnother",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev28" ],
+  "description" : [ "Rotates a vector around another vector" ],
+  "examples" : [ "rotate {_v} around vector 1, 0, 0 by 90" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "rotate %vectors% around %vector% by %number% [degrees]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:10bd7d1dc1f8b91cc743ee069bde4970f656c2e7ac5a74b8d667d3e806f85da3",
+  "registrationId" : "effect:skript:10bd7d1dc1f8b91cc743ee069bde4970f656c2e7ac5a74b8d667d3e806f85da3:e484fb19a6c1f169a7435e5f93c84f27e3fd6d47c85129d8d6bea59e1a859690:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 68,
+  "name" : "Vectors - Rotate around XYZ",
+  "elementClass" : "ch.njol.skript.effects.EffVectorRotateXYZ",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.2-dev28" ],
+  "description" : [ "Rotates a vector around x, y, or z axis by some degrees" ],
+  "examples" : [ "rotate {_v} around x-axis by 90", "rotate {_v} around y-axis by 90", "rotate {_v} around z-axis by 90 degrees" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "rotate %vectors% around (1¦x|2¦y|3¦z)(-| )axis by %number% [degrees]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:62bb162028374ee62b3aa7bd3d06b3047aca9a484791ba3760f3c568143f2714",
+  "registrationId" : "effect:skript:62bb162028374ee62b3aa7bd3d06b3047aca9a484791ba3760f3c568143f2714:a4a96edc867e90ddef13216c8a94443acfac4abf030f0d1b4834fe715bb16d02:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 69,
+  "name" : "Vehicle",
+  "elementClass" : "ch.njol.skript.effects.EffVehicle",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.0" ],
+  "description" : [ "Makes an entity ride another entity, e.g. a minecart, a saddled pig, an arrow, etc." ],
+  "examples" : [ "make the player ride a saddled pig", "make the attacker ride the victim" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(make|let|force) %entities% [to] (ride|mount) [(in|on)] %entities/entitydatas%", "(make|let|force) %entities% [to] (dismount|(dismount|leave) (from|of|) (any|the[ir]|his|her|) vehicle[s])", "(eject|dismount) (any|the|) passenger[s] (of|from) %entities%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:0e037c346b3ff64de21be73354db40c14040eb0eacb152f6a8ac747bacaf49d0",
+  "registrationId" : "effect:skript:0e037c346b3ff64de21be73354db40c14040eb0eacb152f6a8ac747bacaf49d0:43e19241ca26a165a1a4d2fe33236f08ba6e7b0a80d024d85b4345300d1e9f33:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 70,
+  "name" : "Play Effect",
+  "elementClass" : "ch.njol.skript.effects.EffVisualEffect",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "2.1" ],
+  "description" : [ "Plays a <a href='classes.html#visualeffect'>visual effect</a> at a given location or on a given entity.", "Please note that some effects can only be played on entities, e.g. wolf hearts or the hurt effect, and that these are always visible to all players." ],
+  "examples" : [ "play wolf hearts on the clicked wolf", "show mob spawner flames at the targeted block to the player" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(play|show) %visualeffects% (on|%directions%) %entities/locations% [(to %-players%|in (radius|range) of %-number%)]", "(play|show) %number% %visualeffects% (on|%directions%) %locations% [(to %-players%|in (radius|range) of %-number%)]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "effect:skript:e2ec80c0c2811b78b861c3177d6b3bdf785fad7d964320ebd354c2cb72c91280",
+  "registrationId" : "effect:skript:e2ec80c0c2811b78b861c3177d6b3bdf785fad7d964320ebd354c2cb72c91280:031c77fb3a7a736a25e80308d5a9092e49680d6279d07f173efb625a2a6a62c2:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 71,
+  "name" : "Dummy Fixture Effect",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummyEffect",
+  "superClass" : "ch.njol.skript.lang.Effect",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A basic effect with an optional expression." ],
+  "examples" : [ "run dummy fixture effect with \"metadata\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "run dummy fixture effect [with %-string%]" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "effect:skriptdummyaddon:224a969f6e9d408a3346b355ad040b4e4d82122708036cc40768e2d594725925",
+  "registrationId" : "effect:skriptdummyaddon:224a969f6e9d408a3346b355ad040b4e4d82122708036cc40768e2d594725925:b3845096cfe66e4b677f17594ff4e1c1046c24b7526fe6452fbaabb0d9007f99:0"
+}, {
+  "kind" : "effect",
+  "registrationOrder" : 72,
+  "name" : "Dummy Wrapped Effect",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$WrappedEffect",
+  "superClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummyEffect",
+  "since" : [ "1.0.0" ],
+  "description" : [ "The registration call is made by a centralized wrapper class." ],
+  "examples" : [ "dummy effect registered through wrapper" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "dummy effect registered through wrapper" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "effect:skriptdummyaddon:e5a642b47ab7df334a25242d4626e480fcf4a4ecb07bd4a4124d973d7c337d5f",
+  "registrationId" : "effect:skriptdummyaddon:e5a642b47ab7df334a25242d4626e480fcf4a4ecb07bd4a4124d973d7c337d5f:9c25d42b2baa05a39b30588bfc37b2996faba3d05060ba445e0c09893a96ccfc:0"
+} ]

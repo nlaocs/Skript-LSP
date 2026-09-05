@@ -5,6 +5,14 @@ use crate::nlaocs::skript_parser_addon::types::{
 
 const TIMESPAN: &str = "ch.njol.skript.util.Timespan";
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.timespan",
+    classes: &["ch.njol.skript.util.Timespan"],
+    parse,
+    unresolved: None,
+    all_type_options: false,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,

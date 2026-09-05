@@ -246,7 +246,7 @@ pub struct StructureDocument {
 }
 
 /// Fatal failure that prevents a trustworthy partial Structure document.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum StructureParseError {
     /// A requested range is outside the source or splits UTF-8.
     #[error("Structure range {range} is invalid for the mapped source")]
@@ -607,6 +607,9 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
         session.replace_context(initial_context.clone());
         session
             .begin_semantic_candidate()
+            .map_err(|message| StructureParseError::Environment { message })?;
+        session
+            .activate_pattern_candidate(&matched)
             .map_err(|message| StructureParseError::Environment { message })?;
         let mut candidate =
             structure_candidate(session, node.id, actual_node_type, matched, range.start, 0);

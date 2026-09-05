@@ -1,0 +1,69 @@
+{
+  "schemaVersion" : 5,
+  "snapshotId" : "3850ff00d5290ea5b9789789bf1efcb2d20286902f582fd8a021c3799d4aa940",
+  "contentDigest" : "865cae4fbffdff43f53e676255a5bd8481ffb1ddb91793ee6ff3d504af3d35c8",
+  "generatedAt" : "2026-09-05T03:15:06.522225100Z",
+  "server" : {
+    "name" : "Paper",
+    "version" : "1.21.11-132-c5eb079 (MC: 1.21.11)",
+    "bukkitVersion" : "1.21.11-R0.1-SNAPSHOT",
+    "minecraftVersion" : "1.21.11",
+    "javaVersion" : "21.0.3"
+  },
+  "language" : "english",
+  "plugins" : [ {
+    "loadOrder" : 0,
+    "name" : "SkriptSyntaxGenerator",
+    "version" : "1.0",
+    "main" : "jp.nlaocs.skriptSyntaxGenerator.SkriptSyntaxGenerator",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ ],
+    "loadBefore" : [ "Skript" ],
+    "jarSha256" : "570d39dba1b6a2e8ed70f107b05c07de6d3727acde76b5ddddc3b26d2d31af94"
+  }, {
+    "loadOrder" : 1,
+    "name" : "Skript",
+    "version" : "2.16.0",
+    "main" : "ch.njol.skript.Skript",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ "SQLibrary", "Vault", "WorldGuard", "Residence", "PreciousStones", "GriefPrevention" ],
+    "loadBefore" : [ ],
+    "jarSha256" : "eb64ba8dc658d0763d4a28428437c35b29dfea35215a91823a88765eb4418475"
+  }, {
+    "loadOrder" : 2,
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0",
+    "main" : "jp.nlaocs.skriptDummyAddon.SkriptDummyAddon",
+    "enabled" : true,
+    "depend" : [ "Skript" ],
+    "softDepend" : [ ],
+    "loadBefore" : [ ],
+    "jarSha256" : "919f605de62fd393351c1120d87ec20964d35a402264a64280df98a340a319ea"
+  } ],
+  "capabilities" : {
+    "syntaxApi" : "registry",
+    "eventValueApi" : "modern-2.16",
+    "syntaxKinds" : {
+      "conditions" : true,
+      "effects" : true,
+      "events" : true,
+      "expressions" : true,
+      "types" : true,
+      "functions" : true,
+      "sections" : true,
+      "structures" : true,
+      "properties" : true,
+      "arithmetic" : true,
+      "converters" : true,
+      "comparators" : true,
+      "eventValues" : true
+    },
+    "aliases" : {
+      "supported" : true,
+      "collected" : true
+    }
+  },
+  "files" : [ "Aliases.json", "ClassHierarchy.json", "Comparators.json", "Conditions.json", "Converters.json", "Differences.json", "Effects.json", "EventValues.json", "Events.json", "Expressions.json", "Functions.json", "Language.json", "Manifest.json", "Operations.json", "Operators.json", "PluralRules.json", "Properties.json", "Sections.json", "Structures.json", "Types.json" ]
+}

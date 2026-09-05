@@ -93,6 +93,7 @@ mod tests {
                 crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Unresolved
             },
             multiplicity: Some(DynamicMultiplicity::Multiple),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

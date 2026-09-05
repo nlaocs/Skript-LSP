@@ -1,12 +1,12 @@
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, EffectSemanticDecision, EffectSemanticRequest,
     ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest,
-    ExpressionParseContext, ExpressionParseEnvironment, FailureTrace, MappedSource,
-    MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue, PatternFailureReason,
-    PatternHookControl, PatternHookEvent, PatternHookScope, PatternHookTiming,
-    PatternMatchEnvironment, RawTreeOptions, RegisteredCaptureBinding, RegisteredSyntaxIdentity,
-    TextRange, TypeExpressionOutcome, TypeExpressionRequest, parse_effect,
-    parse_effect_with_snapshot, parse_raw_tree,
+    ExpressionLeafTiming, ExpressionParseContext, ExpressionParseEnvironment, FailureTrace,
+    MappedSource, MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue,
+    PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookScope,
+    PatternHookTiming, PatternMatchEnvironment, RawTreeOptions, RegisteredCaptureBinding,
+    RegisteredSyntaxIdentity, TextRange, TypeExpressionOutcome, TypeExpressionRequest,
+    parse_effect, parse_effect_with_snapshot, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -330,12 +330,15 @@ impl ExpressionParseEnvironment for StringLiteralEnvironment {
                     .is_some_and(|value| value.len() >= 2 && value.ends_with('"'))
             })
             .map(|end| ExpressionLeafCandidate {
+                effects: None,
                 parser_id: "test.string-literal".to_owned(),
                 kind: ExpressionLeafKind::Literal,
+                timing: ExpressionLeafTiming::AfterRegistered,
                 range: TextRange::new(request.remaining.start, end),
                 return_type: Some(ClassName("java.lang.String".to_owned())),
                 multiplicity: Some(Multiplicity::Single),
                 children: Vec::new(),
+                public_data: Vec::new(),
                 metadata: BTreeMap::new(),
             })
             .collect::<Vec<_>>()
@@ -516,12 +519,19 @@ impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
                     return None;
                 };
                 Some(ExpressionLeafCandidate {
+                    effects: None,
                     parser_id: parser_id.to_owned(),
                     kind,
+                    timing: if matches!(kind, ExpressionLeafKind::Literal) {
+                        ExpressionLeafTiming::AfterRegistered
+                    } else {
+                        ExpressionLeafTiming::BeforeRegistered
+                    },
                     range,
                     return_type: Some(ClassName(return_type.to_owned())),
                     multiplicity: Some(Multiplicity::Single),
                     children: Vec::new(),
+                    public_data: Vec::new(),
                     metadata: BTreeMap::new(),
                 })
             })

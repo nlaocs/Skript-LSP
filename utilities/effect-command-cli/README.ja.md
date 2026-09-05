@@ -53,12 +53,18 @@ EventValue件数を表示します。JSON reportは各EventValueのSSG登録、�
 
 人間向け出力では、採用Effect、addon、実装class、登録pattern、pattern AST、capture、
 期待されるSkript type、解決されたJava return type、multiplicity、再帰Expression、
-parse tag、parse mark、代替候補、最遠failureを表示します。JSON reportには
-`schemaVersion: 4`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
+public semantic data、parse tag、parse mark、代替候補、最遠failureを表示します。
+JSON reportには`schemaVersion: 5`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
 人間向け出力の`parseTime`は、1 millisecond以上なら`ms`、それ未満なら`ns`で表示します。
 JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
 RawTree解析、parserによる解析、transaction rollbackを含みます。SSG snapshotの読み込み、
 index構築、reportの構築と描画は含みません。
+
+解決された各Expressionは、`metadata`とは別にnode-localな`publicData` recordを出力します。
+recordは`schemaId`、`schemaVersion`、`json`を持ち、valid JSONはJSON stringへ二重 encodeせず
+structured raw valueとして出力するため、大きなintegerやdecimalの桁表記を保持します。
+ネストしたchildは自分のrecordだけを持ち、Grouped wrapperのlistは空のままです。
+人間向け出力にも同じschema/versionとJSON objectを表示し、表示するsourceは変更しません。
 
 人間向けのparse失敗は`miette`で表示し、最も遠くまで解析できたfailure spanを
 source上へ直接示します。人間向けの書式は可読性のため変更される可能性があります。

@@ -101,7 +101,7 @@ pub struct ConditionMatches {
 }
 
 /// Failure while validating Condition input or parsing nested Expressions.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum ConditionParseError {
     #[error("Condition range {range} is invalid for the mapped source")]
     InvalidInputRange { range: TextRange },
@@ -208,6 +208,9 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .begin_semantic_candidate()
+            .map_err(|message| ExpressionParseError::Environment { message })?;
+        session
+            .activate_pattern_candidate(&matched)
             .map_err(|message| ExpressionParseError::Environment { message })?;
         let mut candidate = condition_candidate(session, matched, trimmed)?;
         let mut accepted_semantically = true;

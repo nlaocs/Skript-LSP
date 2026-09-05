@@ -6,7 +6,8 @@
 
 use crate::{
     AliasRegistry, Class, ClassKind, ClassName, Comparator, Converter, Difference, EventValue,
-    Function, Operation, Operator, Property, Syntax, Type, TypeLiteral,
+    Function, Operation, Operator, Property, RegisteredTypeParserPattern, Syntax, Type,
+    TypeLiteral,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -14,7 +15,9 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
-use syntax_pattern_parser::syntax::PluralRules;
+use syntax_pattern_parser::syntax::{
+    ParseResult, PatternElement, PluralRules, SpannedPatternElement, parse as parse_pattern,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// One top-level JSON object retained from the source snapshot.
@@ -243,6 +246,15 @@ pub struct TypeLiteralMatch<'a> {
     pub source: TypeLiteralSource,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+/// One runtime Type registration pattern accepted by the catalog.
+pub struct RegisteredTypePatternMatch<'a> {
+    pub type_info: &'a Type,
+    pub registration: &'a RegisteredTypeParserPattern,
+    pub tags: Vec<String>,
+    pub mark: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TypeLiteralIndexEntry {
     type_position: usize,
@@ -250,6 +262,13 @@ struct TypeLiteralIndexEntry {
     canonical_value: String,
     plural: bool,
     source: TypeLiteralSource,
+}
+
+#[derive(Debug, Clone)]
+struct RegisteredTypePatternIndexEntry {
+    type_position: usize,
+    pattern_position: usize,
+    parsed: ParseResult,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -262,6 +281,7 @@ struct CatalogIndex {
     converters_by_to: HashMap<String, Vec<usize>>,
     classes_by_name: HashMap<String, usize>,
     type_literals: HashMap<String, Vec<TypeLiteralIndexEntry>>,
+    registered_type_patterns: HashMap<String, Vec<RegisteredTypePatternIndexEntry>>,
 }
 
 fn index_type_literals(
@@ -326,6 +346,30 @@ impl Catalog {
                         .types_by_code_name
                         .insert(value.code_name.as_str().to_owned(), position);
                     if value.has_parser {
+                        let mut patterns = value
+                            .registered_parser_patterns
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(pattern_position, registration)| {
+                                parse_pattern(&registration.pattern, &parts.plural_rules)
+                                    .ok()
+                                    .map(|parsed| RegisteredTypePatternIndexEntry {
+                                        type_position: position,
+                                        pattern_position,
+                                        parsed,
+                                    })
+                            })
+                            .collect::<Vec<_>>();
+                        patterns.sort_by_key(|entry| {
+                            let registration =
+                                &value.registered_parser_patterns[entry.pattern_position];
+                            (registration.registration_index, registration.pattern_index)
+                        });
+                        if !patterns.is_empty() {
+                            index
+                                .registered_type_patterns
+                                .insert(value.registration_id.as_str().to_owned(), patterns);
+                        }
                         index_type_literals(
                             &mut index.type_literals,
                             position,
@@ -621,6 +665,37 @@ impl Catalog {
                     source: entry.source,
                 }),
                 _ => None,
+            })
+    }
+
+    /// Matches one runtime Type registration pattern in Skript registration order.
+    ///
+    /// Patterns are parsed once when the catalog is built. Regex and typed placeholders are
+    /// deliberately not interpreted by this finite matcher; their Java parser behavior remains
+    /// the responsibility of a WASM Type provider.
+    pub fn registered_type_pattern_match(
+        &self,
+        registration_id: &str,
+        input: &str,
+    ) -> Option<RegisteredTypePatternMatch<'_>> {
+        self.index
+            .registered_type_patterns
+            .get(registration_id)?
+            .iter()
+            .find_map(|entry| {
+                let matched = match_static_pattern(&entry.parsed.elements, input)?;
+                let Syntax::Type(type_info) = &self.parts.syntaxes[entry.type_position] else {
+                    return None;
+                };
+                let registration = type_info
+                    .registered_parser_patterns
+                    .get(entry.pattern_position)?;
+                Some(RegisteredTypePatternMatch {
+                    type_info,
+                    registration,
+                    tags: matched.tags,
+                    mark: matched.mark,
+                })
             })
     }
 
@@ -1080,6 +1155,105 @@ fn common_class_result(class_name: &str) -> ClassName {
         }
         .to_owned(),
     )
+}
+
+#[derive(Clone, Default)]
+struct StaticPatternMatch {
+    cursor: usize,
+    tags: Vec<String>,
+    mark: i32,
+}
+
+const MAX_STATIC_PATTERN_STATES: usize = 256;
+
+fn match_static_pattern(
+    elements: &[SpannedPatternElement],
+    input: &str,
+) -> Option<StaticPatternMatch> {
+    match_static_sequence(elements, input, vec![StaticPatternMatch::default()])
+        .into_iter()
+        .find(|state| state.cursor == input.len())
+}
+
+fn match_static_sequence(
+    elements: &[SpannedPatternElement],
+    input: &str,
+    mut states: Vec<StaticPatternMatch>,
+) -> Vec<StaticPatternMatch> {
+    for element in elements {
+        let mut next = Vec::new();
+        for state in states {
+            match &element.value {
+                PatternElement::Literal(literal) => {
+                    if let Some(cursor) = match_static_literal(input, state.cursor, literal) {
+                        next.push(StaticPatternMatch { cursor, ..state });
+                    }
+                }
+                PatternElement::Choice(branches) => {
+                    for branch in branches {
+                        next.extend(match_static_sequence(branch, input, vec![state.clone()]));
+                    }
+                }
+                PatternElement::Group(children) => {
+                    next.extend(match_static_sequence(children, input, vec![state]));
+                }
+                PatternElement::Option(children) => {
+                    next.push(state.clone());
+                    next.extend(match_static_sequence(children, input, vec![state]));
+                }
+                PatternElement::ParseTag(tag) => {
+                    let mut state = state;
+                    if !tag.is_empty() {
+                        state.tags.push(tag.clone());
+                        if let Ok(mark) = tag.parse::<i32>() {
+                            state.mark ^= mark;
+                        }
+                    }
+                    next.push(state);
+                }
+                PatternElement::ParseMark(mark) => {
+                    let mut state = state;
+                    state.mark ^= mark;
+                    next.push(state);
+                }
+                PatternElement::Empty => next.push(state),
+                PatternElement::Regex(_) | PatternElement::TypeExpr(_) => {}
+            }
+            if next.len() >= MAX_STATIC_PATTERN_STATES {
+                next.truncate(MAX_STATIC_PATTERN_STATES);
+                break;
+            }
+        }
+        states = next;
+        if states.is_empty() {
+            break;
+        }
+    }
+    states
+}
+
+fn match_static_literal(input: &str, mut cursor: usize, literal: &str) -> Option<usize> {
+    for expected in literal.chars() {
+        if expected == ' ' {
+            if cursor == 0 || cursor == input.len() {
+                continue;
+            }
+            if input.as_bytes().get(cursor) == Some(&b' ') {
+                cursor += 1;
+                continue;
+            }
+            if input.as_bytes().get(cursor - 1) == Some(&b' ') {
+                continue;
+            }
+            return None;
+        }
+        let actual = input.get(cursor..)?.chars().next()?;
+        if expected != actual && !expected.to_lowercase().eq(actual.to_lowercase()) {
+            return None;
+        }
+        cursor += actual.len_utf8();
+    }
+    Some(cursor)
 }
 
 fn normalize_literal(text: &str) -> String {

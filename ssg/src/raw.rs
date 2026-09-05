@@ -373,6 +373,7 @@ pub struct Type {
     pub usage: Option<Vec<String>>,
     pub enum_values: Option<Vec<String>>,
     pub parser_patterns: Option<Vec<String>>,
+    pub registered_parser_patterns: Option<Vec<RegisteredTypeParserPattern>>,
     pub literal_values: Option<Vec<String>>,
     pub type_literals: Option<Vec<TypeLiteral>>,
     pub parser_class: Option<String>,
@@ -384,6 +385,17 @@ pub struct Type {
     pub properties: Vec<String>,
     pub before: Option<Vec<String>>,
     pub after: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisteredTypeParserPattern {
+    pub pattern: String,
+    pub registration_index: usize,
+    pub pattern_index: usize,
+    pub source_code_name: Option<String>,
+    pub data_class: String,
+    pub represented_class: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

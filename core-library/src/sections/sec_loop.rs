@@ -546,6 +546,7 @@ mod tests {
             possible_return_types: Vec::new(),
             possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
             multiplicity: None,
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

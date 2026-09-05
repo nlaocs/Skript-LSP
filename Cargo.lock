@@ -513,6 +513,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "expression-data-addon"
+version = "0.1.0"
+dependencies = [
+ "parser-wasm",
+ "wit-bindgen 0.59.0",
+]
+
+[[package]]
 name = "fancy-regex"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -986,6 +994,7 @@ dependencies = [
  "directories",
  "fancy-regex",
  "redb",
+ "serde_json",
  "sha2",
  "skript-parser",
  "ssg",
@@ -1676,6 +1685,14 @@ dependencies = [
 
 [[package]]
 name = "tree-macro-addon"
+version = "0.1.0"
+dependencies = [
+ "parser-wasm",
+ "wit-bindgen 0.59.0",
+]
+
+[[package]]
+name = "type-parser-addon"
 version = "0.1.0"
 dependencies = [
  "parser-wasm",

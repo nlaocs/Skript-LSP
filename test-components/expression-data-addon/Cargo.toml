@@ -1,0 +1,17 @@
+[package]
+name = "expression-data-addon"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+addon-b = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+parser-wasm = { path = "../../parser-wasm", default-features = false }
+wit-bindgen = "0.59.0"
+
+[package.metadata.component]
+package = "nlaocs:skript-parser-addon"

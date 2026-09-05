@@ -15,6 +15,7 @@ static REGISTERED_HANDLER_BINDINGS: LazyLock<RwLock<Vec<RegisteredHandlerBinding
     LazyLock::new(|| RwLock::new(Vec::new()));
 
 const LATEST_SUPPORTED_SKRIPT: (u64, u64) = (2, 16);
+const EARLIEST_SUPPORTED_SKRIPT: (u64, u64, u64) = (2, 6, 4);
 
 /// Replaces the profile after the host has successfully validated it.
 pub(crate) fn replace(
@@ -111,6 +112,12 @@ pub(crate) fn parse_skript_patch_version(version: &str) -> Option<(u64, u64, u64
     Some((major, minor, patch))
 }
 
+pub(crate) fn supports_skript_version(version: &str) -> bool {
+    parse_skript_patch_version(version).is_some_and(|version| {
+        version >= EARLIEST_SUPPORTED_SKRIPT && (version.0, version.1) <= LATEST_SUPPORTED_SKRIPT
+    })
+}
+
 pub(crate) fn snapshot_schema_at_least(version: u32) -> Option<bool> {
     current()?
         .snapshot_schema_version
@@ -119,7 +126,10 @@ pub(crate) fn snapshot_schema_at_least(version: u32) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{LATEST_SUPPORTED_SKRIPT, parse_skript_patch_version, parse_skript_version};
+    use super::{
+        LATEST_SUPPORTED_SKRIPT, parse_skript_patch_version, parse_skript_version,
+        supports_skript_version,
+    };
 
     #[test]
     fn parses_supported_skript_version_shapes() {
@@ -130,5 +140,15 @@ mod tests {
         assert_eq!(parse_skript_patch_version("2.9.5"), Some((2, 9, 5)));
         assert_eq!(parse_skript_patch_version("2.9"), Some((2, 9, 0)));
         assert_eq!(LATEST_SUPPORTED_SKRIPT, (2, 16));
+    }
+
+    #[test]
+    fn rejects_versions_outside_the_implemented_range() {
+        assert!(supports_skript_version("2.6.4"));
+        assert!(supports_skript_version("2.15.4"));
+        assert!(supports_skript_version("2.16.0-pre1"));
+        assert!(!supports_skript_version("2.6.3"));
+        assert!(!supports_skript_version("2.17.0"));
+        assert!(!supports_skript_version("unknown"));
     }
 }

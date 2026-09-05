@@ -14,18 +14,20 @@ const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
 ));
 
 fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4")
+    // EntityData semantics require the runtime parser patterns first exported by schema 5.
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.15.4")
 }
 
 fn expression_catalog() -> Arc<Catalog> {
-    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let snapshot = ssg::load(fixture()).expect("schema 5 fixture must load");
     let source = snapshot.catalog();
     let syntaxes = source
         .syntaxes()
         .iter()
         .filter(|syntax| match syntax {
-            Syntax::Type(value) => matches!(value.code_name.as_str(), "string" | "object"),
+            Syntax::Type(value) => {
+                matches!(value.code_name.as_str(), "string" | "number" | "object")
+            }
             Syntax::Expression(value) => value.common.patterns.iter().any(|pattern| {
                 matches!(
                     pattern.source.as_str(),
@@ -61,7 +63,7 @@ fn expression_catalog() -> Arc<Catalog> {
 fn full_catalog() -> Arc<Catalog> {
     Arc::new(
         ssg::load(fixture())
-            .expect("schema 4 fixture must load")
+            .expect("schema 5 fixture must load")
             .catalog()
             .clone(),
     )
@@ -462,6 +464,31 @@ fn any_of_all_players_collapses_a_list_to_one_player() {
 }
 
 #[test]
+fn all_entities_prefers_the_registered_set_expression_over_type_literals() {
+    let node = parse_fixture_expression_as("all entities", "java.lang.Object", true, 140);
+    assert_registered(&node);
+    assert_return(
+        &node,
+        "org.bukkit.entity.Entity",
+        syntaxes::Multiplicity::Multiple,
+    );
+    assert_eq!(node.children.len(), 1, "node={node:#?}");
+    assert_eq!(
+        node.metadata
+            .get("nlaocs.core-library/semantic-mode")
+            .map(String::as_str),
+        Some("entities-literal-type")
+    );
+    assert!(
+        matches!(
+            &node.children[0].kind,
+            ExpressionNodeKind::Literal { parser_id } if parser_id == "core.literal.entity-data"
+        ),
+        "node={node:#?}"
+    );
+}
+
+#[test]
 fn plural_type_name_parses_as_class_info_literal() {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
@@ -561,12 +588,27 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
     let mut host =
         ParserHost::new(CORE_LIBRARY, expression_host_config()).expect("CoreLibrary must load");
     let cases = [
-        ("\"hello\"", "java.lang.String", "core.literal.string"),
-        ("{message}", "java.lang.String", "core.variable"),
-        ("42", "java.lang.Number", "core.literal.number"),
+        (
+            "\"hello\"",
+            "java.lang.String",
+            "core.literal.string",
+            "core.type-candidates",
+        ),
+        (
+            "{message}",
+            "java.lang.String",
+            "core.variable",
+            "core.expression-candidates",
+        ),
+        (
+            "42",
+            "java.lang.Number",
+            "core.literal.number",
+            "core.type-candidates",
+        ),
     ];
 
-    for (index, (text, expected, parser_id)) in cases.into_iter().enumerate() {
+    for (index, (text, expected, parser_id, subscription_id)) in cases.into_iter().enumerate() {
         let revision = index as u64 + 1;
         let transaction = host
             .begin_parse(
@@ -591,8 +633,8 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
             .expect("CoreLibrary leaf must parse");
         let selected = result.matches.selected.unwrap_or_else(|| {
             panic!(
-                "{text:?} must select a leaf; failures: {:#?}",
-                result.matches.failure
+                "{text:?} must select a leaf; failures: {:#?}; calls: {:#?}; component failures: {:#?}",
+                result.matches.failure, result.calls, result.failures
             )
         });
         assert!(matches!(
@@ -602,8 +644,7 @@ fn core_library_and_registered_expressions_share_one_recursive_parser() {
                 if actual == parser_id
         ));
         assert!(result.calls.iter().any(|call| {
-            call.component_id == "nlaocs.core-library"
-                && call.subscription_id == "core.expression-candidates"
+            call.component_id == "nlaocs.core-library" && call.subscription_id == subscription_id
         }));
         transaction.cancel().unwrap();
     }
@@ -722,16 +763,21 @@ fn variable_strings_and_variable_names_parse_embedded_expressions() {
             )
         );
         assert_eq!(result.effects.parse_results.len(), 1);
+        let (subscription_id, minimum_calls) = if parser_id == "core.literal.variable-string" {
+            ("core.type-candidates", 1)
+        } else {
+            ("core.expression-candidates", 2)
+        };
         assert!(
             result
                 .calls
                 .iter()
                 .filter(|call| {
                     call.component_id == "nlaocs.core-library"
-                        && call.subscription_id == "core.expression-candidates"
+                        && call.subscription_id == subscription_id
                 })
                 .count()
-                >= 2
+                >= minimum_calls
         );
         transaction.cancel().unwrap();
     }

@@ -8,9 +8,11 @@ pub(super) fn parse(payload: &ExpressionPayload, end: u64) -> Option<ExpressionL
     if !payload.allow_literals {
         return None;
     }
+    let active = payload.active_type.as_ref()?;
     let option = payload
         .literal_options
         .iter()
+        .filter(|option| belongs_to_active_type(option, active))
         .filter(|option| option.range.start == payload.remaining.start && option.range.end == end)
         .min_by_key(|option| option.type_parse_order)?;
     Some(candidate_from_option(
@@ -19,6 +21,28 @@ pub(super) fn parse(payload: &ExpressionPayload, end: u64) -> Option<ExpressionL
         option.range.start,
         option.range.end,
     ))
+}
+
+pub(super) fn applicable(payload: &ExpressionPayload) -> bool {
+    if !payload.allow_literals {
+        return false;
+    }
+    let Some(active) = payload.active_type.as_ref() else {
+        return false;
+    };
+    payload
+        .literal_options
+        .iter()
+        .any(|option| belongs_to_active_type(option, active))
+}
+
+fn belongs_to_active_type(
+    option: &ExpressionLiteralOption,
+    active: &crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption,
+) -> bool {
+    option.code_name == active.code_name
+        && option.class_name == active.class_name
+        && option.type_parse_order == active.type_parse_order
 }
 
 pub(super) fn candidate_from_option(
@@ -104,6 +128,53 @@ pub(super) fn candidate_from_option(
         ));
     }
     candidate
+}
+
+pub(super) fn matching_option(
+    payload: &ExpressionPayload,
+    input: &str,
+    class_name: &str,
+    start: u64,
+    end: u64,
+) -> Option<ExpressionLiteralOption> {
+    payload
+        .literal_options
+        .iter()
+        .filter(|option| {
+            option.range.start == start
+                && option.range.end == end
+                && option.class_name == class_name
+        })
+        .min_by_key(|option| option.type_parse_order)
+        .cloned()
+        .or_else(|| catalog_option(input, class_name, start, end))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn catalog_option(
+    input: &str,
+    class_name: &str,
+    start: u64,
+    end: u64,
+) -> Option<ExpressionLiteralOption> {
+    let mut option = crate::nlaocs::skript_parser_addon::catalog_data::type_literal_matches(input)
+        .ok()?
+        .into_iter()
+        .filter(|option| option.class_name == class_name)
+        .min_by_key(|option| option.type_parse_order)?;
+    option.range.start = start;
+    option.range.end = end;
+    Some(option)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn catalog_option(
+    _input: &str,
+    _class_name: &str,
+    _start: u64,
+    _end: u64,
+) -> Option<ExpressionLiteralOption> {
+    None
 }
 
 fn push_optional(

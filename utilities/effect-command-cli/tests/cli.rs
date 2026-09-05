@@ -15,6 +15,11 @@ fn legacy_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ssg/tests/data/legacy-2.6.4-mc-1.12.2")
 }
 
+fn type_parser_216_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../parser-wasm/tests/data/type-parser-versions/skript-2.16.0")
+}
+
 fn arguments(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()
 }
@@ -28,7 +33,7 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let json_text = report.to_json().unwrap();
     assert!(!json_text.contains('\x1b'));
     let json: Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(json["schemaVersion"], 4);
+    assert_eq!(json["schemaVersion"], 5);
     assert!(json["context"]["event"].is_null());
     assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
@@ -109,6 +114,165 @@ fn reports_parenthesized_expression_and_its_inner_span() {
 }
 
 #[test]
+fn parses_enchanted_item_type_before_eff_change_delimiter() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    session
+        .select_event_header("on join")
+        .expect("player target needs an Event context");
+
+    let report = session
+        .analyze("give a diamond sword of sharpness to player")
+        .expect("Effect analysis must complete");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let item = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(item["expression"]["parserId"], "core.literal.item-type");
+    assert_eq!(item["source"], "a diamond sword of sharpness");
+    assert_eq!(
+        item["metadata"]["nlaocs.core-library/literal-canonical"],
+        "diamond sword"
+    );
+    assert_eq!(
+        item["metadata"]["nlaocs.core-library/literal-enchantment.0.name"],
+        "sharpness"
+    );
+}
+
+#[test]
+fn parses_composite_standard_type_literals_in_effects() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    session
+        .select_event_header("on join")
+        .expect("player expressions need an Event context");
+
+    for source in [
+        "give 10 xp to player",
+        "draw 3 flame particle at location(1,2,3)",
+        "send 12:00",
+        "send day",
+        "send 1 if {_a} is a number",
+    ] {
+        let report = session
+            .analyze(source)
+            .unwrap_or_else(|error| panic!("Effect analysis failed for {source:?}: {error}"));
+        assert!(
+            report.matched(),
+            "{source:?} must match:\n{}",
+            report.to_json().unwrap()
+        );
+    }
+}
+
+#[test]
+fn reports_node_local_public_data_as_structured_json() {
+    let snapshot = modern_fixture();
+    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let report = session
+        .analyze("send ({_money})")
+        .expect("grouped variable Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let grouped = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(grouped["source"], "({_money})");
+    assert_eq!(grouped["publicData"], serde_json::json!([]));
+
+    let variable = &grouped["inner"];
+    assert_eq!(variable["source"], "{_money}");
+    let public_data = &variable["publicData"][0];
+    assert_eq!(public_data["schemaId"], "nlaocs.skript.variable");
+    assert_eq!(public_data["schemaVersion"], 1);
+    assert_eq!(
+        public_data["json"],
+        serde_json::json!({
+            "scope": "local",
+            "name": [{"kind": "text", "text": "money"}],
+        })
+    );
+
+    let escaped = session
+        .analyze("send {_literal%%percent}")
+        .expect("escaped percent variable Expression must parse");
+    let escaped_json: Value = serde_json::from_str(&escaped.to_json().unwrap()).unwrap();
+    let escaped_variable = &escaped_json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(escaped_variable["source"], "{_literal%%percent}");
+    assert_eq!(
+        escaped_variable["publicData"][0]["json"]["name"][0]["text"],
+        "literal%%percent"
+    );
+
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            snapshot.to_str().unwrap(),
+            "--json",
+            "send {_money}",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let cli_json: Value = serde_json::from_slice(&output).unwrap();
+    let cli_public_data = &cli_json["result"]["effect"]["elements"][0]["resolved"]["publicData"][0];
+    assert!(cli_public_data["json"].is_object());
+    assert_eq!(cli_public_data["schemaId"], "nlaocs.skript.variable");
+
+    output.clear();
+    error.clear();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "send {_money}"]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let human = String::from_utf8(output).unwrap();
+    assert!(human.contains("source: send {_money}"));
+    assert!(human.contains("publicData:"));
+    assert!(human.contains("schemaId: nlaocs.skript.variable"));
+    assert!(human.contains("schemaVersion: 1"));
+    assert!(human.contains("json: {"));
+    assert!(human.contains("\"money\""));
+}
+
+#[test]
+fn reports_interpolated_variable_public_data_and_embedded_children() {
+    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze("send {_price::%{_key}%}")
+        .expect("interpolated variable Expression must parse");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let variable = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(variable["source"], "{_price::%{_key}%}");
+    assert_eq!(
+        variable["publicData"][0]["json"]["name"],
+        serde_json::json!([
+            {"kind": "text", "text": "price::"},
+            {"kind": "expression", "childIndex": 0},
+        ])
+    );
+    assert_eq!(variable["embeddedExpressions"].as_array().unwrap().len(), 1);
+    let embedded = &variable["embeddedExpressions"][0];
+    assert_eq!(embedded["source"], "{_key}");
+    assert_eq!(
+        embedded["publicData"][0]["schemaId"],
+        "nlaocs.skript.variable"
+    );
+}
+
+#[test]
 fn reports_registered_function_identity_and_arguments() {
     let snapshot = modern_fixture();
     let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
@@ -170,7 +334,8 @@ fn reports_registered_function_identity_and_arguments() {
 
 #[test]
 fn reports_embedded_registered_expression_inside_variable_string() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze(r#"send "players: %size of all players%""#)
         .expect("variable-string Expression must parse");
@@ -355,7 +520,8 @@ fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
 
 #[test]
 fn reports_event_restrictions_and_parses_interface_expressions() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let absorbed = session
         .analyze("send absorbed blocks")
@@ -429,7 +595,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
     assert_eq!(teleport["result"]["status"], "incomplete");
     assert_eq!(
         teleport["result"]["effect"]["syntax"]["elementClass"],
-        "ch.njol.skript.effects.EffTeleport"
+        "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport"
     );
     assert_eq!(teleport["result"]["failure"]["span"]["start"], 9);
     assert!(
@@ -451,7 +617,8 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
 
 #[test]
 fn selected_event_context_enables_event_restricted_expressions() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_event_header("\"on join:\"")
         .expect("quoted Event header with a trailing colon must parse")
@@ -546,7 +713,8 @@ fn selected_event_context_enables_event_restricted_expressions() {
 
 #[test]
 fn event_headers_accept_articles_for_entity_and_item_literals() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let death = session
         .select_event_header("death of a player")
@@ -708,7 +876,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 4"));
+    assert!(output.contains("\"schemaVersion\": 5"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));

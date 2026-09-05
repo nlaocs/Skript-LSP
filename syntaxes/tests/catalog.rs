@@ -3,8 +3,8 @@ use syntax_pattern_parser::syntax::PluralRules;
 use syntaxes::{
     Addon, AliasItem, AliasRegistry, AliasTarget, Catalog, CatalogParts, CatalogSource, Class,
     ClassKind, ClassMethod, ClassName, Converter, DefinitionId, Difference, Documentation,
-    EventValue, Function, FunctionParameter, Noun, RegistrationId, Syntax, Type, TypeCodeName,
-    TypeLiteral, TypeLiteralSource,
+    EventValue, Function, FunctionParameter, Noun, RegisteredTypeParserPattern, RegistrationId,
+    Syntax, Type, TypeCodeName, TypeLiteral, TypeLiteralSource,
 };
 
 fn id(value: &str) -> RegistrationId {
@@ -123,6 +123,7 @@ fn type_syntax(code_name: &str, assignable_to: &[&str], order: usize) -> Syntax 
         usage: Vec::new(),
         enum_values: Vec::new(),
         parser_patterns: Vec::new(),
+        registered_parser_patterns: Vec::new(),
         literal_values: Vec::new(),
         type_literals: Vec::new(),
         parser_class: None,
@@ -186,6 +187,65 @@ fn language_values_preserve_exact_keys_and_deterministic_iteration() {
     assert_eq!(
         catalog.language_entries().collect::<Vec<_>>(),
         [("message.empty", ""), ("message.send", "Send")]
+    );
+}
+
+#[test]
+fn registered_type_patterns_are_preparsed_and_matched_in_registration_order() {
+    let Syntax::Type(mut entity_data) = type_syntax("entitydata", &[], 0) else {
+        unreachable!();
+    };
+    entity_data.has_parser = true;
+    entity_data.registered_parser_patterns = vec![
+        RegisteredTypeParserPattern {
+            pattern: "charged creepers".to_owned(),
+            registration_index: 3,
+            pattern_index: 0,
+            source_code_name: Some("specific charged creepers".to_owned()),
+            data_class: class_name("test.SpecificCreeperData"),
+            represented_class: class_name("test.SpecificCreeper"),
+        },
+        RegisteredTypeParserPattern {
+            pattern: "enderman [holding %-itemtype%]".to_owned(),
+            registration_index: 2,
+            pattern_index: 0,
+            source_code_name: Some("enderman".to_owned()),
+            data_class: class_name("test.EndermanData"),
+            represented_class: class_name("test.Enderman"),
+        },
+        RegisteredTypeParserPattern {
+            pattern: "(powered|charged) creeper[plural:s]".to_owned(),
+            registration_index: 1,
+            pattern_index: 0,
+            source_code_name: Some("powered creeper".to_owned()),
+            data_class: class_name("test.PoweredCreeperData"),
+            represented_class: class_name("test.Creeper"),
+        },
+    ];
+    let registration_id = entity_data.registration_id.as_str().to_owned();
+    let mut parts = parts();
+    parts.syntaxes.push(Syntax::Type(entity_data));
+    let catalog = Catalog::new(parts);
+
+    let matched = catalog
+        .registered_type_pattern_match(&registration_id, "charged creepers")
+        .expect("the finite registered pattern must match");
+    assert_eq!(matched.registration.registration_index, 1);
+    assert_eq!(
+        matched.registration.source_code_name.as_deref(),
+        Some("powered creeper")
+    );
+    assert_eq!(
+        matched.registration.represented_class.as_str(),
+        "test.Creeper"
+    );
+    assert!(matched.tags.iter().any(|tag| tag == "plural"));
+
+    assert!(
+        catalog
+            .registered_type_pattern_match(&registration_id, "enderman holding stone")
+            .is_none(),
+        "typed placeholders remain the WASM provider's responsibility"
     );
 }
 

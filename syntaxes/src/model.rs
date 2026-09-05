@@ -311,6 +311,7 @@ pub struct Type {
     pub usage: Vec<String>,
     pub enum_values: Vec<String>,
     pub parser_patterns: Vec<String>,
+    pub registered_parser_patterns: Vec<RegisteredTypeParserPattern>,
     pub literal_values: Vec<String>,
     pub type_literals: Vec<TypeLiteral>,
     pub parser_class: Option<ClassName>,
@@ -322,6 +323,17 @@ pub struct Type {
     pub properties: Vec<String>,
     pub before: Vec<TypeCodeName>,
     pub after: Vec<TypeCodeName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One runtime syntax registration used by a Type parser.
+pub struct RegisteredTypeParserPattern {
+    pub pattern: String,
+    pub registration_index: usize,
+    pub pattern_index: usize,
+    pub source_code_name: Option<String>,
+    pub data_class: ClassName,
+    pub represented_class: ClassName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,10 +1,10 @@
 use skript_parser::{
     ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest,
-    ExpressionParseContext, ExpressionParseEnvironment, MappedSource, PatternHookControl,
-    PatternHookEvent, PatternMatchEnvironment, RawTreeOptions, SectionBodyMode, SectionBodyNode,
-    SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision, SectionParseRequest,
-    SectionParserConfig, TextRange, TypeExpressionOutcome, TypeExpressionRequest, parse_raw_tree,
-    parse_section,
+    ExpressionLeafTiming, ExpressionParseContext, ExpressionParseEnvironment, MappedSource,
+    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, RawTreeOptions, SectionBodyMode,
+    SectionBodyNode, SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision,
+    SectionParseRequest, SectionParserConfig, TextRange, TypeExpressionOutcome,
+    TypeExpressionRequest, parse_raw_tree, parse_section,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -64,12 +64,15 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
                 .unwrap_or_else(|| "0".to_owned()),
         );
         Ok(vec![ExpressionLeafCandidate {
+            effects: None,
             parser_id: "test.string".to_owned(),
             kind: ExpressionLeafKind::Literal,
+            timing: ExpressionLeafTiming::AfterRegistered,
             range,
             return_type: Some(ClassName("java.lang.String".to_owned())),
             multiplicity: Some(Multiplicity::Single),
             children: Vec::new(),
+            public_data: Vec::new(),
             metadata: BTreeMap::new(),
         }]
         .into())

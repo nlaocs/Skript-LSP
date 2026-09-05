@@ -116,6 +116,7 @@ mod tests {
                 possible_return_types: vec!["org.bukkit.entity.Player".to_owned()],
                 possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
                 multiplicity: Some(multiplicity),
+                public_data: Vec::new(),
                 metadata: keyed
                     .then(|| metadata(KEY_PROVIDER, "true"))
                     .into_iter()
@@ -130,6 +131,7 @@ mod tests {
             effective_possible_return_types: Vec::new(),
             effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Unresolved,
             effective_multiplicity: None,
+            public_data: Vec::new(),
             metadata: Vec::new(),
         }
     }

@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.27.0;
+package nlaocs:skript-parser-addon@0.32.0;
 
 /// Read-only access to the complete retained SSG source and host type relations.
 interface catalog-data {
@@ -117,6 +117,18 @@ interface catalog-data {
         known: bool,
     }
 
+    /// One finite runtime Type registration pattern accepted by the host matcher.
+    record registered-type-pattern-result {
+        pattern: string,
+        registration-index: u64,
+        pattern-index: u64,
+        source-code-name: option<string>,
+        data-class: string,
+        represented-class: string,
+        tags: list<string>,
+        mark: s32,
+    }
+
     /// Describes the source snapshot retained behind the normalized Catalog.
     /// source-digest covers every retained filename and exact byte sequence.
     source: func() -> result<option<catalog-source>, catalog-error>;
@@ -230,6 +242,14 @@ interface catalog-data {
     type-literal-matches: func(
         input: string,
     ) -> result<list<expression-literal-option>, catalog-error>;
+
+    /// Returns the first matching finite runtime parser registration in registration order.
+    /// Matching runs outside the guest fuel budget.
+    /// Regex and typed placeholders are intentionally not evaluated here.
+    registered-type-pattern-match: func(
+        registration-id: string,
+        input: string,
+    ) -> result<option<registered-type-pattern-result>, catalog-error>;
 
     /// Applies the host Catalog's Java assignability graph.
     is-class-assignable: func(

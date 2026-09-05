@@ -4,6 +4,8 @@
 //! coordinates macros and dynamic syntax, and commits only accepted side effects.
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
+mod public_data;
+
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -108,6 +110,7 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionLiteralSource as WitExpressionLiteralSource,
     ExpressionPayload as WitExpressionPayload,
     ExpressionPossibleReturnTypesState as WitPossibleReturnTypesState,
+    ExpressionPublicData as WitExpressionPublicData,
     ExpressionReturnTypeState as WitReturnTypeState,
     ExpressionTypeOption as WitExpressionTypeOption, FunctionDeclaration as WitFunctionDeclaration,
     FunctionDeclarationScope as WitFunctionDeclarationScope,
@@ -168,7 +171,7 @@ pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
     RegisteredSyntaxHandlerTarget, Rejection, RelatedSpan, ReturnTypeSelector,
     SelectorTypeRelation, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
-    TreeMacroOutput,
+    TreeMacroOutput, TypeParserUnresolved,
 };
 
 /// Reserved component ID required for the first host component.
@@ -407,7 +410,7 @@ impl HostConfig {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 /// Host setup, component execution, output validation, or quota failure.
 pub enum HostError {
     #[error("CoreLibrary component is missing")]
@@ -628,7 +631,7 @@ pub struct HookCall {
     pub subscription_id: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Recoverable per-component failure retained in a pipeline result.
 pub struct ComponentFailure {
     pub component_id: String,
@@ -1298,6 +1301,29 @@ impl wit_catalog_data::Host for StoreData {
                 }
             })
             .collect())
+    }
+
+    fn registered_type_pattern_match(
+        &mut self,
+        registration_id: String,
+        input: String,
+    ) -> Result<Option<wit_catalog_data::RegisteredTypePatternResult>, wit_catalog_data::CatalogError>
+    {
+        Ok(self
+            .catalog()?
+            .registered_type_pattern_match(&registration_id, &input)
+            .map(|matched| wit_catalog_data::RegisteredTypePatternResult {
+                pattern: matched.registration.pattern.clone(),
+                registration_index: u64::try_from(matched.registration.registration_index)
+                    .unwrap_or(u64::MAX),
+                pattern_index: u64::try_from(matched.registration.pattern_index)
+                    .unwrap_or(u64::MAX),
+                source_code_name: matched.registration.source_code_name.clone(),
+                data_class: matched.registration.data_class.as_str().to_owned(),
+                represented_class: matched.registration.represented_class.as_str().to_owned(),
+                tags: matched.tags,
+                mark: matched.mark,
+            }))
     }
 
     fn is_class_assignable(
@@ -2716,40 +2742,31 @@ fn type_selector_match(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct HookEffectsCheckpoint {
-    diagnostics: usize,
-    context_updates: usize,
-    parse_requests: usize,
-    parse_results: usize,
-    calls: usize,
-    failures: usize,
+    effects: HookEffects,
+    calls: Vec<HookCall>,
+    failures: Vec<ComponentFailure>,
 }
 
 impl HookEffectsCheckpoint {
     fn capture(effects: &HookEffects, calls: &[HookCall], failures: &[ComponentFailure]) -> Self {
         Self {
-            diagnostics: effects.diagnostics.len(),
-            context_updates: effects.context_updates.len(),
-            parse_requests: effects.parse_requests.len(),
-            parse_results: effects.parse_results.len(),
-            calls: calls.len(),
-            failures: failures.len(),
+            effects: effects.clone(),
+            calls: calls.to_vec(),
+            failures: failures.to_vec(),
         }
     }
 
     fn restore(
-        self,
+        &self,
         effects: &mut HookEffects,
         calls: &mut Vec<HookCall>,
         failures: &mut Vec<ComponentFailure>,
     ) {
-        effects.diagnostics.truncate(self.diagnostics);
-        effects.context_updates.truncate(self.context_updates);
-        effects.parse_requests.truncate(self.parse_requests);
-        effects.parse_results.truncate(self.parse_results);
-        calls.truncate(self.calls);
-        failures.truncate(self.failures);
+        effects.clone_from(&self.effects);
+        calls.clone_from(&self.calls);
+        failures.clone_from(&self.failures);
     }
 }
 
@@ -2770,6 +2787,12 @@ struct PatternScopeFrame {
 }
 
 struct PatternBranchState {
+    state: StateSavepoint,
+    effects: HookEffectsCheckpoint,
+}
+
+#[derive(Debug, Clone)]
+struct SavedPatternCandidate {
     state: StateSavepoint,
     effects: HookEffectsCheckpoint,
 }
@@ -2795,6 +2818,7 @@ struct WasmPatternHooks<'a> {
     frames: Vec<PatternMatchFrame>,
     scope_frames: Vec<PatternScopeFrame>,
     branch_states: Vec<PatternBranchState>,
+    last_candidate: Option<SavedPatternCandidate>,
     effects: HookEffects,
     calls: Vec<HookCall>,
     failures: Vec<ComponentFailure>,
@@ -2847,9 +2871,6 @@ impl WasmPatternHooks<'_> {
     }
 
     fn checkpoint_branch_state(&mut self) -> Result<Option<u64>, String> {
-        if !self.matching_hooks_registered {
-            return Ok(None);
-        }
         let checkpoint = u64::try_from(self.branch_states.len())
             .map_err(|_| "matcher branch checkpoint index does not fit u64".to_owned())?;
         self.branch_states.push(PatternBranchState {
@@ -2953,6 +2974,15 @@ impl WasmPatternHooks<'_> {
             PatternHookControl::Match(range) => Some(*range) == frame.candidate_range,
             PatternHookControl::Fail(_) => false,
         };
+        if accepted {
+            self.last_candidate = Some(SavedPatternCandidate {
+                state: self
+                    .transaction
+                    .savepoint()
+                    .map_err(|error| error.to_string())?,
+                effects: HookEffectsCheckpoint::capture(&self.effects, &self.calls, &self.failures),
+            });
+        }
         if accepted && frame.selected.is_none() {
             frame.selected = Some(
                 self.transaction
@@ -2968,7 +2998,10 @@ impl WasmPatternHooks<'_> {
         }
 
         let savepoint = frame.selected.as_ref().unwrap_or(&frame.base).clone();
-        let effects = frame.selected_effects.unwrap_or(frame.base_effects);
+        let effects = frame
+            .selected_effects
+            .as_ref()
+            .unwrap_or(&frame.base_effects);
         self.transaction
             .rollback_to(&savepoint)
             .map_err(|error| error.to_string())?;
@@ -2991,11 +3024,12 @@ impl WasmPatternHooks<'_> {
     }
 
     fn prepare_definition_candidate(&mut self, range: ParserTextRange) -> Result<(), String> {
+        self.last_candidate = None;
         let frame = self
             .frames
             .last_mut()
             .ok_or_else(|| "definition hook ran outside a matcher frame".to_owned())?;
-        let effects = frame.selected_effects.unwrap_or(frame.base_effects);
+        let effects = &frame.base_effects;
         self.transaction
             .rollback_to(&frame.base)
             .map_err(|error| error.to_string())?;
@@ -3417,6 +3451,7 @@ struct WasmExpressionEnvironment<'a> {
     hooks: WasmPatternHooks<'a>,
     pending_leaf: Option<(StateSavepoint, HookEffectsCheckpoint)>,
     pending_registered: Option<(StateSavepoint, HookEffectsCheckpoint)>,
+    expression_candidates: Vec<(StateSavepoint, HookEffectsCheckpoint)>,
     semantic_candidates: Vec<(
         StateSavepoint,
         HookEffectsCheckpoint,
@@ -3426,12 +3461,86 @@ struct WasmExpressionEnvironment<'a> {
 }
 
 impl WasmExpressionEnvironment<'_> {
+    fn defer_effects(
+        &mut self,
+        state: &StateSavepoint,
+        checkpoint: &HookEffectsCheckpoint,
+    ) -> Result<skript_parser::ExpressionEffects, String> {
+        let effects = HookEffects {
+            diagnostics: self.hooks.effects.diagnostics[checkpoint.effects.diagnostics.len()..]
+                .to_vec(),
+            context_updates: self.hooks.effects.context_updates
+                [checkpoint.effects.context_updates.len()..]
+                .to_vec(),
+            parse_requests: self.hooks.effects.parse_requests
+                [checkpoint.effects.parse_requests.len()..]
+                .to_vec(),
+            parse_results: self.hooks.effects.parse_results
+                [checkpoint.effects.parse_results.len()..]
+                .to_vec(),
+        };
+        let calls = self.hooks.calls[checkpoint.calls.len()..].to_vec();
+        let failures = self.hooks.failures[checkpoint.failures.len()..].to_vec();
+        let state = self
+            .hooks
+            .transaction
+            .defer_since(state)
+            .map_err(|error| error.to_string())?;
+        checkpoint.restore(
+            &mut self.hooks.effects,
+            &mut self.hooks.calls,
+            &mut self.hooks.failures,
+        );
+        Ok(skript_parser::ExpressionEffects::new(
+            DeferredExpressionEffects {
+                state,
+                effects,
+                calls,
+                failures,
+            },
+        ))
+    }
+
     fn into_parts(self) -> (HookEffects, Vec<HookCall>, Vec<ComponentFailure>) {
         self.hooks.into_parts()
     }
 }
 
+#[derive(Debug, Clone)]
+struct DeferredExpressionEffects {
+    state: crate::state::StateDelta,
+    effects: HookEffects,
+    calls: Vec<HookCall>,
+    failures: Vec<ComponentFailure>,
+}
+
 impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
+    fn take_pattern_candidate_state(&mut self) -> Option<skript_parser::ExpressionEffects> {
+        self.hooks
+            .last_candidate
+            .take()
+            .map(skript_parser::ExpressionEffects::new)
+    }
+
+    fn restore_pattern_candidate_state(
+        &mut self,
+        state: &skript_parser::ExpressionEffects,
+    ) -> Result<(), String> {
+        let state = state
+            .downcast_ref::<SavedPatternCandidate>()
+            .ok_or_else(|| "matcher state belongs to a different environment".to_owned())?;
+        self.hooks
+            .transaction
+            .rollback_to(&state.state)
+            .map_err(|error| error.to_string())?;
+        state.effects.restore(
+            &mut self.hooks.effects,
+            &mut self.hooks.calls,
+            &mut self.hooks.failures,
+        );
+        Ok(())
+    }
+
     fn begin_pattern_match(&mut self) -> Result<(), String> {
         self.hooks.begin_match_frame()
     }
@@ -3481,6 +3590,65 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 }
 
 impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn apply_expression_effects(
+        &mut self,
+        effects: &skript_parser::ExpressionEffects,
+    ) -> Result<(), String> {
+        let effects = effects
+            .downcast_ref::<DeferredExpressionEffects>()
+            .ok_or_else(|| "Expression effects belong to a different environment".to_owned())?;
+        if self
+            .hooks
+            .transaction
+            .apply_delta(&effects.state)
+            .map_err(|error| error.to_string())?
+        {
+            merge_effects(&mut self.hooks.effects, effects.effects.clone());
+            self.hooks.calls.extend(effects.calls.clone());
+            self.hooks.failures.extend(effects.failures.clone());
+        }
+        Ok(())
+    }
+
+    fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        self.expression_candidates.push((
+            self.hooks
+                .transaction
+                .savepoint()
+                .map_err(|error| error.to_string())?,
+            HookEffectsCheckpoint::capture(
+                &self.hooks.effects,
+                &self.hooks.calls,
+                &self.hooks.failures,
+            ),
+        ));
+        Ok(())
+    }
+
+    fn defer_expression_candidate(
+        &mut self,
+        accepted: bool,
+    ) -> Result<Option<skript_parser::ExpressionEffects>, String> {
+        let (state, checkpoint) = self
+            .expression_candidates
+            .pop()
+            .ok_or_else(|| "Expression candidate was not started".to_owned())?;
+        if accepted {
+            Ok(Some(self.defer_effects(&state, &checkpoint)?))
+        } else {
+            self.hooks
+                .transaction
+                .rollback_to(&state)
+                .map_err(|error| error.to_string())?;
+            checkpoint.restore(
+                &mut self.hooks.effects,
+                &mut self.hooks.calls,
+                &mut self.hooks.failures,
+            );
+            Ok(None)
+        }
+    }
+
     fn begin_semantic_candidate(&mut self) -> Result<(), String> {
         self.semantic_candidates.push((
             self.hooks
@@ -3619,8 +3787,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             request.candidate_ends,
             request.expected_types,
         );
-        let specifically_hooked_types =
-            specifically_hooked_expression_types(self.hooks.host, request.expected_types);
+        let parser_types = if request.allow_literals {
+            expression_parser_types(self.hooks.host, request.expected_types, &literal_options)
+        } else {
+            Vec::new()
+        };
         let mut payload = WitExpressionPayload {
             input: request.input.to_owned(),
             context: parse_context_to_wit(request.context),
@@ -3635,6 +3806,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             depth,
             type_options: type_options.clone(),
             literal_options: literal_options.clone(),
+            type_parser_unresolved: Vec::new(),
+            type_parser_outcome: None,
             candidates: Vec::new(),
         };
         let expected_payload = payload.clone();
@@ -3682,51 +3855,40 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         }
         payload = output;
 
-        let expected_payload = payload.clone();
-        let mut result = self
-            .hooks
-            .host
-            .dispatch_in_parse(
-                self.hooks.transaction,
-                DispatchRequest {
-                    context: self.hooks.context.clone(),
-                    target: DispatchTarget::SyntaxKind(SyntaxKind::Type),
-                    phase: HookPhase::Expression,
-                    payload: HookPayload::Expression(payload),
-                },
-            )
-            .map_err(|error| error.to_string())?;
-        available_parse_results.append(&mut result.available_parse_results);
-        let rejection_diagnostics =
-            semantic_rejection_diagnostics(&result.decision, &result.effects)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
-        self.hooks.failures.extend(result.failures);
-        if let HookDecision::Reject(rejection) = result.decision {
-            self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
-            return Ok(ExpressionLeafParse {
-                candidates: Vec::new(),
-                failure: Some(
-                    FailureTrace::leaf(PatternFailure {
-                        span: request.span.clone(),
-                        reasons: vec![PatternFailureReason::HookRejected {
-                            reason: rejection.reason,
-                        }],
-                    })
-                    .with_semantic_diagnostics(rejection_diagnostics),
-                ),
-            });
-        }
-        let HookPayload::Expression(output) = result.payload else {
-            return Err("Type hook returned a different payload kind".to_owned());
-        };
-        if !same_expression_request(&output, &expected_payload) {
-            return Err("Type hook changed immutable Expression request fields".to_owned());
-        }
-        payload = output;
-
-        for active_type in &specifically_hooked_types {
+        // Each Type has its own candidate set. A provider cannot accidentally
+        // edit or reject a successful candidate belonging to another Type.
+        let stage_effects = self.defer_effects(&leaf_savepoint, &effects_checkpoint)?;
+        let mut candidates = std::mem::take(&mut payload.candidates)
+            .into_iter()
+            .map(|candidate| {
+                let mut candidate = wit_expression_candidate(candidate, &available_parse_results)?;
+                candidate.effects = Some(stage_effects.clone());
+                Ok(candidate)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let mut unresolved_type_reasons = Vec::new();
+        for active_type in &parser_types {
             payload.active_type = Some(active_type.clone());
+            payload.type_parser_unresolved.clear();
+            payload.type_parser_outcome = None;
+            payload.type_options = if registered_handler_requires_context(
+                &self.hooks.host.components,
+                RegisteredSyntaxIdentity {
+                    kind: CatalogSyntaxKind::Type,
+                    definition_id: &active_type.definition_id,
+                    registration_id: &active_type.registration_id,
+                    pattern_index: None,
+                    pattern_source: None,
+                    tags: None,
+                    mark: None,
+                    dynamic_handler: None,
+                },
+                REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+            ) {
+                all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
+            } else {
+                type_options.clone()
+            };
             let expected_payload = payload.clone();
             let type_savepoint = self
                 .hooks
@@ -3738,7 +3900,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 &self.hooks.calls,
                 &self.hooks.failures,
             );
-            let mut result = self
+            let result = self
                 .hooks
                 .host
                 .dispatch_in_parse(
@@ -3786,7 +3948,6 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 payload.active_type = None;
                 continue;
             }
-            available_parse_results.append(&mut result.available_parse_results);
             let HookPayload::Expression(output) = result.payload else {
                 return Err("Type hook returned a different payload kind".to_owned());
             };
@@ -3794,14 +3955,61 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 return Err("Type hook changed immutable Expression request fields".to_owned());
             }
             payload = output;
+            if payload.candidates.is_empty() {
+                if payload.type_parser_unresolved.is_empty()
+                    && payload.type_parser_outcome.is_none()
+                {
+                    payload.type_parser_unresolved.push(TypeParserUnresolved {
+                        reason: "no WASM Type parser is registered for this SSG Type".to_owned(),
+                        required_provider: Some(format!(
+                            "type-parser/{}",
+                            active_type.registration_id
+                        )),
+                    });
+                }
+                let unresolved = std::mem::take(&mut payload.type_parser_unresolved);
+                self.hooks
+                    .transaction
+                    .rollback_to(&type_savepoint)
+                    .map_err(|error| error.to_string())?;
+                type_effects_checkpoint.restore(
+                    &mut self.hooks.effects,
+                    &mut self.hooks.calls,
+                    &mut self.hooks.failures,
+                );
+                if !unresolved.is_empty() {
+                    unresolved_type_reasons.extend(unresolved.into_iter().map(|unresolved| {
+                        PatternFailureReason::TypeParserUnresolved {
+                            definition_id: active_type.definition_id.clone(),
+                            registration_id: active_type.registration_id.clone(),
+                            parser_class: active_type.parser_class.clone(),
+                            reason: unresolved.reason,
+                            required_provider: unresolved.required_provider,
+                        }
+                    }));
+                }
+                payload = expected_payload;
+            } else {
+                let effects = self.defer_effects(&type_savepoint, &type_effects_checkpoint)?;
+                for candidate in std::mem::take(&mut payload.candidates) {
+                    let mut candidate =
+                        wit_expression_candidate(candidate, &result.available_parse_results)?;
+                    candidate.effects = Some(effects.clone());
+                    candidates.push(candidate);
+                }
+            }
             payload.active_type = None;
         }
+        if !unresolved_type_reasons.is_empty() {
+            leaf_failure = skript_parser::choose_failure_trace(
+                leaf_failure,
+                Some(FailureTrace::leaf(PatternFailure {
+                    span: request.span.clone(),
+                    reasons: unresolved_type_reasons,
+                })),
+            );
+        }
 
-        let candidates = payload
-            .candidates
-            .into_iter()
-            .map(|candidate| wit_expression_candidate(candidate, &available_parse_results))
-            .collect::<Result<Vec<_>, _>>()?;
         self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
         Ok(ExpressionLeafParse {
             candidates,
@@ -3809,21 +4017,19 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         })
     }
 
-    fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
+    fn finish_expression_leaf(&mut self, _accepted: bool) -> Result<(), String> {
         let Some((savepoint, effects_checkpoint)) = self.pending_leaf.take() else {
             return Err("Expression leaf set was finalized without a pending dispatch".to_owned());
         };
-        if !accepted {
-            self.hooks
-                .transaction
-                .rollback_to(&savepoint)
-                .map_err(|error| error.to_string())?;
-            effects_checkpoint.restore(
-                &mut self.hooks.effects,
-                &mut self.hooks.calls,
-                &mut self.hooks.failures,
-            );
-        }
+        self.hooks
+            .transaction
+            .rollback_to(&savepoint)
+            .map_err(|error| error.to_string())?;
+        effects_checkpoint.restore(
+            &mut self.hooks.effects,
+            &mut self.hooks.calls,
+            &mut self.hooks.failures,
+        );
         Ok(())
     }
 
@@ -3974,6 +4180,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
             },
             effective_multiplicity: request.declared_multiplicity.map(multiplicity_to_wit),
+            public_data: Vec::new(),
             metadata: Vec::new(),
         };
         let original = payload.clone();
@@ -4022,6 +4229,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 != original.effective_possible_return_types_state
             || output.effective_multiplicity != original.effective_multiplicity
             || output.selected_property_option_indices != original.selected_property_option_indices
+            || !public_data::same(&output.public_data, &original.public_data)
             || !same_metadata_entries(&output.metadata, &original.metadata);
         if !changed && matches!(result.decision, HookDecision::ContinueProcessing) {
             if !original.regex_captures.is_empty() {
@@ -4045,6 +4253,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 WitPossibleReturnTypesState::Unresolved => PossibleReturnTypesState::Unresolved,
             },
             multiplicity: output.effective_multiplicity.map(multiplicity_from_wit),
+            public_data: public_data::from_wit(output.public_data)?,
             metadata: metadata_entries(output.metadata)?,
         })
     }
@@ -4520,47 +4729,53 @@ fn flatten_structure_entries(
 fn structure_entry_to_wit(value: &StructureEntry, parent: Option<u64>) -> WitStructureEntry {
     let (value_kind, value_summary) = match &value.value {
         StructureEntryValue::Raw(_) => (WitStructureEntryValueKind::Raw, None),
-        StructureEntryValue::Expression(node) => (
-            WitStructureEntryValueKind::Expression,
-            Some(WitParseSummary {
-                kind: "expression".to_owned(),
-                definition_id: match &node.kind {
-                    ExpressionNodeKind::Registered { definition_id, .. } => {
-                        Some(definition_id.clone())
-                    }
-                    _ => None,
-                },
-                registration_id: match &node.kind {
-                    ExpressionNodeKind::Registered {
-                        registration_id, ..
-                    } => Some(registration_id.clone()),
-                    _ => None,
-                },
-                element_class: None,
-                pattern_index: match &node.kind {
-                    ExpressionNodeKind::Registered { pattern_index, .. } => {
-                        Some(*pattern_index as u64)
-                    }
-                    _ => None,
-                },
-                return_type: node
-                    .return_type
-                    .as_ref()
-                    .map(|value| value.as_str().to_owned()),
-                possible_return_types: node
-                    .possible_return_types
-                    .iter()
-                    .map(|value| value.as_str().to_owned())
-                    .collect(),
-                possible_return_types_state: match node.possible_return_types_state {
-                    PossibleReturnTypesState::Complete => WitPossibleReturnTypesState::Complete,
-                    PossibleReturnTypesState::Partial => WitPossibleReturnTypesState::Partial,
-                    PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
-                },
-                multiplicity: node.multiplicity.map(multiplicity_to_wit),
-                metadata: metadata_to_wit(&node.metadata),
-            }),
-        ),
+        StructureEntryValue::Expression(node) => {
+            let node = unwrap_grouped_expression(node);
+            (
+                WitStructureEntryValueKind::Expression,
+                Some(WitParseSummary {
+                    kind: "expression".to_owned(),
+                    definition_id: match &node.kind {
+                        ExpressionNodeKind::Registered { definition_id, .. } => {
+                            Some(definition_id.clone())
+                        }
+                        _ => None,
+                    },
+                    registration_id: match &node.kind {
+                        ExpressionNodeKind::Registered {
+                            registration_id, ..
+                        } => Some(registration_id.clone()),
+                        _ => None,
+                    },
+                    element_class: None,
+                    pattern_index: match &node.kind {
+                        ExpressionNodeKind::Registered { pattern_index, .. } => {
+                            Some(*pattern_index as u64)
+                        }
+                        _ => None,
+                    },
+                    return_type: node
+                        .return_type
+                        .as_ref()
+                        .map(|value| value.as_str().to_owned()),
+                    possible_return_types: node
+                        .possible_return_types
+                        .iter()
+                        .map(|value| value.as_str().to_owned())
+                        .collect(),
+                    possible_return_types_state: match node.possible_return_types_state {
+                        PossibleReturnTypesState::Complete => WitPossibleReturnTypesState::Complete,
+                        PossibleReturnTypesState::Partial => WitPossibleReturnTypesState::Partial,
+                        PossibleReturnTypesState::Unresolved => {
+                            WitPossibleReturnTypesState::Unresolved
+                        }
+                    },
+                    multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                    public_data: public_data::to_wit(&node.public_data),
+                    metadata: metadata_to_wit(&node.metadata),
+                }),
+            )
+        }
         StructureEntryValue::Trigger(_) => (WitStructureEntryValueKind::Trigger, None),
         StructureEntryValue::Container(_) => (WitStructureEntryValueKind::Container, None),
         StructureEntryValue::Section(_) => (WitStructureEntryValueKind::Section, None),
@@ -4587,6 +4802,16 @@ fn structure_entry_to_wit(value: &StructureEntry, parent: Option<u64>) -> WitStr
         value_kind,
         value_summary,
     }
+}
+
+fn unwrap_grouped_expression(mut node: &ExpressionNode) -> &ExpressionNode {
+    while matches!(&node.kind, ExpressionNodeKind::Grouped) {
+        let Some(child) = node.children.first() else {
+            break;
+        };
+        node = child;
+    }
+    node
 }
 
 fn structure_child_node_ids(body: &StructureBody) -> Vec<u64> {
@@ -5289,6 +5514,7 @@ fn parsed_capture_to_wit(capture: &ParserParsedCapture, input: &str) -> WitParse
                     PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
                 },
                 multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                public_data: public_data::to_wit(&summary.public_data),
                 metadata: metadata_to_wit(&summary.metadata),
             }),
         attachments: capture
@@ -5523,6 +5749,17 @@ fn effect_failure_reason(reason: &PatternFailureReason) -> String {
             supported.join("/"),
             current.join("/")
         ),
+        PatternFailureReason::TypeParserUnresolved {
+            definition_id,
+            registration_id,
+            parser_class,
+            reason,
+            required_provider,
+        } => format!(
+            "type-parser-unresolved:definition={definition_id};registration={registration_id};parser={};provider={};reason={reason}",
+            parser_class.as_deref().unwrap_or("<unknown>"),
+            required_provider.as_deref().unwrap_or("<unspecified>")
+        ),
         PatternFailureReason::TrailingInput => "trailing-input".to_owned(),
         PatternFailureReason::HookRejected { reason } => format!("hook-rejected:{reason}"),
     }
@@ -5621,6 +5858,7 @@ fn same_registered_expression_children(
                 && left.possible_return_types == right.possible_return_types
                 && left.possible_return_types_state == right.possible_return_types_state
                 && left.multiplicity == right.multiplicity
+                && public_data::same(&left.public_data, &right.public_data)
                 && same_metadata_entries(&left.metadata, &right.metadata)
         })
 }
@@ -5830,6 +6068,9 @@ fn same_parse_summary(left: Option<&WitParseSummary>, right: Option<&WitParseSum
                 && left.pattern_index == right.pattern_index
                 && left.return_type == right.return_type
                 && left.multiplicity == right.multiplicity
+                && left.possible_return_types == right.possible_return_types
+                && left.possible_return_types_state == right.possible_return_types_state
+                && public_data::same(&left.public_data, &right.public_data)
                 && same_metadata_entries(&left.metadata, &right.metadata)
         }
         _ => false,
@@ -6092,12 +6333,19 @@ fn wit_expression_candidate(
         children.push(child.clone());
     }
     Ok(ExpressionLeafCandidate {
+        effects: None,
         parser_id: candidate.parser_id,
         kind: match candidate.kind {
             WitExpressionLeafKind::Variable => ExpressionLeafKind::Variable,
             WitExpressionLeafKind::Literal => ExpressionLeafKind::Literal,
             WitExpressionLeafKind::Function => ExpressionLeafKind::Function,
             WitExpressionLeafKind::Custom => ExpressionLeafKind::Custom,
+        },
+        timing: match candidate.timing {
+            crate::bindings::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::BeforeRegistered =>
+                skript_parser::ExpressionLeafTiming::BeforeRegistered,
+            crate::bindings::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::AfterRegistered =>
+                skript_parser::ExpressionLeafTiming::AfterRegistered,
         },
         range: ParserTextRange::new(start, end),
         return_type: candidate.return_type.map(ClassName),
@@ -6107,6 +6355,7 @@ fn wit_expression_candidate(
             WitDynamicMultiplicity::Both => Multiplicity::Both,
         }),
         children,
+        public_data: public_data::from_wit(candidate.public_data)?,
         metadata,
     })
 }
@@ -6202,9 +6451,25 @@ fn expression_type_option(
         }),
         definition_id: value.definition_id.as_str().to_owned(),
         registration_id: value.registration_id.as_str().to_owned(),
+        addon_name: value.addon.name.clone(),
+        addon_version: value.addon.version.clone(),
         code_name: value.code_name.as_str().to_owned(),
         class_name: value.original_class.as_str().to_owned(),
+        parser_class: value
+            .parser_class
+            .as_ref()
+            .map(|class| class.as_str().to_owned()),
         type_parse_order: u64::try_from(value.type_parse_order).unwrap_or(u64::MAX),
+        before: value
+            .before
+            .iter()
+            .map(|code_name| code_name.as_str().to_owned())
+            .collect(),
+        after: value
+            .after
+            .iter()
+            .map(|code_name| code_name.as_str().to_owned())
+            .collect(),
         singular: value.noun.singular.clone(),
         plural: value.noun.plural.clone(),
         user_input_patterns: value.user_input_patterns.clone(),
@@ -6214,15 +6479,32 @@ fn expression_type_option(
     }
 }
 
-fn specifically_hooked_expression_types(
+fn expression_parser_types(
     host: &ParserHost,
     expected_types: &[skript_parser::ExpressionExpectedType],
+    literal_options: &[WitExpressionLiteralOption],
 ) -> Vec<WitExpressionTypeOption> {
     let Some(catalog) = host.config.syntax_catalog.as_deref() else {
         return Vec::new();
     };
-    catalog
+    // Standard and third-party parsers use the same per-registration route.
+    // Broad Type subscriptions also see finite values from any Addon snapshot.
+    let type_handlers = host
+        .components
+        .iter()
+        .filter(|component| !component.disabled && !component.unloaded)
+        .flat_map(|component| {
+            component
+                .manifest
+                .registered_syntax_handlers
+                .iter()
+                .filter(|handler| handler.kind == SyntaxKind::Type)
+                .map(move |handler| (component, handler))
+        })
+        .collect::<Vec<_>>();
+    let mut options = catalog
         .types()
+        .filter(|value| value.has_parser)
         .filter(|value| {
             expected_types.is_empty()
                 || expected_types.iter().any(|expected| {
@@ -6238,10 +6520,42 @@ fn specifically_hooked_expression_types(
                     registration_id: value.registration_id.as_str().to_owned(),
                 },
                 HookPhase::Expression,
-            )
+            ) || literal_options.iter().any(|literal| {
+                literal.code_name == value.code_name.as_str()
+                    && literal.class_name == value.original_class.as_str()
+                    && literal.type_parse_order == value.type_parse_order as u64
+            }) || type_handlers.iter().any(|(component, handler)| {
+                registered_handler_matches(
+                    component,
+                    handler,
+                    RegisteredSyntaxIdentity {
+                        kind: CatalogSyntaxKind::Type,
+                        definition_id: value.definition_id.as_str(),
+                        registration_id: value.registration_id.as_str(),
+                        pattern_index: None,
+                        pattern_source: None,
+                        tags: None,
+                        mark: None,
+                        dynamic_handler: None,
+                    },
+                )
+            }) || expected_types
+                .iter()
+                .any(|expected| expected.class_name.as_str() == value.original_class.as_str())
         })
         .map(|value| expression_type_option(Some(catalog), value))
-        .collect()
+        .collect::<Vec<_>>();
+    // Classes.parse tries parseSimple before conversion. Never allow a Type
+    // needing conversion to displace an otherwise directly assignable parser.
+    // https://github.com/SkriptLang/Skript/blob/2.16.0/src/main/java/ch/njol/skript/registrations/Classes.java
+    options.sort_by_key(|option| {
+        let needs_conversion = !expected_types.is_empty()
+            && !expected_types.iter().any(|expected| {
+                catalog.is_class_assignable(&option.class_name, expected.class_name.as_str())
+            });
+        (needs_conversion, option.type_parse_order)
+    });
+    options
 }
 
 fn expression_literal_options(
@@ -6780,6 +7094,7 @@ fn expression_child_to_wit(
             PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
         },
         multiplicity: child.multiplicity.map(multiplicity_to_wit),
+        public_data: public_data::to_wit(&child.public_data),
         metadata: metadata_to_wit(&child.metadata),
     }
 }
@@ -6843,9 +7158,14 @@ fn same_expression_type_option(
     same_catalog_record_ref(&left.source_record, &right.source_record)
         && left.definition_id == right.definition_id
         && left.registration_id == right.registration_id
+        && left.addon_name == right.addon_name
+        && left.addon_version == right.addon_version
         && left.code_name == right.code_name
         && left.class_name == right.class_name
+        && left.parser_class == right.parser_class
         && left.type_parse_order == right.type_parse_order
+        && left.before == right.before
+        && left.after == right.after
         && left.singular == right.singular
         && left.plural == right.plural
         && left.user_input_patterns == right.user_input_patterns
@@ -6974,25 +7294,7 @@ fn same_registered_expression_identity(
             .zip(&right.tags)
             .all(|(left, right)| left.value == right.value && left.implicit == right.implicit)
         && left.mark == right.mark
-        && left.children.len() == right.children.len()
-        && left
-            .children
-            .iter()
-            .zip(&right.children)
-            .all(|(left, right)| {
-                left.text == right.text
-                    && left.kind == right.kind
-                    && left.parser_id == right.parser_id
-                    && left.definition_id == right.definition_id
-                    && left.registration_id == right.registration_id
-                    && left.pattern_index == right.pattern_index
-                    && left.element_class == right.element_class
-                    && left.return_type == right.return_type
-                    && left.possible_return_types == right.possible_return_types
-                    && left.possible_return_types_state == right.possible_return_types_state
-                    && left.multiplicity == right.multiplicity
-                    && same_metadata_entries(&left.metadata, &right.metadata)
-            })
+        && same_registered_expression_children(&left.children, &right.children)
         && same_parsed_captures(&left.parsed_captures, &right.parsed_captures)
         && left.common_child_return_type == right.common_child_return_type
         && same_expression_type_options(&left.type_options, &right.type_options)
@@ -7292,6 +7594,7 @@ fn registered_handler_matches(
                 .any(|id| id == syntax.definition_id)
         }),
         RegisteredSyntaxHandlerTarget::Registration(_)
+        | RegisteredSyntaxHandlerTarget::ParserClass(_)
         | RegisteredSyntaxHandlerTarget::ClassSuffix(_)
         | RegisteredSyntaxHandlerTarget::SuperClass(_) => binding.is_some_and(|binding| {
             binding
@@ -7638,6 +7941,7 @@ impl ParserHost {
             frames: Vec::new(),
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
+            last_candidate: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -7711,6 +8015,7 @@ impl ParserHost {
             frames: Vec::new(),
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
+            last_candidate: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -7719,6 +8024,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
         };
@@ -7811,6 +8117,7 @@ impl ParserHost {
             frames: Vec::new(),
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
+            last_candidate: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -7819,6 +8126,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
         };
@@ -7909,6 +8217,7 @@ impl ParserHost {
             frames: Vec::new(),
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
+            last_candidate: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -7917,6 +8226,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
         };
@@ -8009,6 +8319,7 @@ impl ParserHost {
             frames: Vec::new(),
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
+            last_candidate: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8017,6 +8328,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: Some(&mut function_registry),
         };
@@ -8202,6 +8514,7 @@ impl ParserHost {
             frames: Vec::new(),
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
+            last_candidate: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8210,6 +8523,7 @@ impl ParserHost {
             hooks,
             pending_leaf: None,
             pending_registered: None,
+            expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
         };
@@ -10475,6 +10789,19 @@ fn resolve_registered_handler_target(
                     );
                 }
             }
+            RegisteredSyntaxHandlerTarget::ParserClass(parser_class) => {
+                if let Some(catalog) = catalog {
+                    for syntax in catalog.syntaxes().iter().filter(|syntax| {
+                        (!skript_owned_only || syntax_is_owned_by_skript(syntax))
+                            && syntax.kind() == catalog_syntax_kind(handler.kind)
+                            && syntax_parser_class(syntax)
+                                .is_some_and(|class| class.as_str() == parser_class)
+                    }) {
+                        definition_ids.insert(syntax.definition_id().as_str().to_owned());
+                        registration_ids.insert(syntax.registration_id().as_str().to_owned());
+                    }
+                }
+            }
             RegisteredSyntaxHandlerTarget::ClassSuffix(suffix) => {
                 if let Some(catalog) = catalog {
                     for syntax in catalog.syntaxes().iter().filter(|syntax| {
@@ -10831,6 +11158,19 @@ fn validate_manifest(
                 RegisteredSyntaxHandlerTarget::Registration(value) => {
                     ("registration", value.as_str())
                 }
+                RegisteredSyntaxHandlerTarget::ParserClass(_)
+                    if handler.kind != SyntaxKind::Type =>
+                {
+                    return Err(HostError::InvalidManifest {
+                        message: format!(
+                            "{} handler {} uses a parser-class target for a non-Type syntax",
+                            manifest.component_id, handler.handler_id
+                        ),
+                    });
+                }
+                RegisteredSyntaxHandlerTarget::ParserClass(value) => {
+                    ("parser class", value.as_str())
+                }
                 RegisteredSyntaxHandlerTarget::ClassSuffix(value) => {
                     ("class suffix", value.as_str())
                 }
@@ -10987,7 +11327,7 @@ fn validate_manifest(
             .subscriptions
             .iter()
             .any(|subscription| match kind {
-                CatalogSyntaxKind::Expression => {
+                CatalogSyntaxKind::Expression | CatalogSyntaxKind::Type => {
                     subscription.capability_id == CAPABILITY_EXPRESSION_PARSER
                         && subscription.phase == HookPhase::Expression
                         && matches!(subscription.mode, HookMode::Transform)
@@ -11174,6 +11514,7 @@ fn validate_manifest_catalog_bindings(
                 }
                 RegisteredSyntaxHandlerTarget::Definition(_)
                 | RegisteredSyntaxHandlerTarget::DynamicHandler(_)
+                | RegisteredSyntaxHandlerTarget::ParserClass(_)
                 | RegisteredSyntaxHandlerTarget::Registration(_)
                 | RegisteredSyntaxHandlerTarget::SuperClass(_) => {}
             }
@@ -11192,6 +11533,13 @@ fn syntax_element_class(syntax: &syntaxes::Syntax) -> Option<&ClassName> {
         syntaxes::Syntax::Function(_) => None,
         syntaxes::Syntax::Section(value) => Some(&value.common.element_class),
         syntaxes::Syntax::Structure(value) => Some(&value.common.element_class),
+    }
+}
+
+fn syntax_parser_class(syntax: &syntaxes::Syntax) -> Option<&ClassName> {
+    match syntax {
+        syntaxes::Syntax::Type(value) => value.parser_class.as_ref(),
+        _ => None,
     }
 }
 
@@ -11391,10 +11739,12 @@ fn normalize_hook_metadata(
                 );
             }
             validate_selected_property_options(replacement)?;
+            public_data::validate(&replacement.public_data)?;
             merge_owned_metadata(&original.metadata, &mut replacement.metadata, component_id)
         }
         (HookPayload::Expression(original), HookPayload::Expression(replacement)) => {
             for candidate in &mut replacement.candidates {
+                public_data::validate(&candidate.public_data)?;
                 let previous = original.candidates.iter().find(|previous| {
                     previous.parser_id == candidate.parser_id
                         && previous.range.start == candidate.range.start
@@ -12558,6 +12908,7 @@ impl<'a> ParseResultArena<'a> {
                     PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
                 },
                 multiplicity: node.multiplicity.map(multiplicity_to_wit),
+                public_data: public_data::to_wit(&node.public_data),
                 metadata: metadata_to_wit(&node.metadata),
             }),
             children,
@@ -12611,6 +12962,7 @@ impl<'a> ParseResultArena<'a> {
                 possible_return_types: Vec::new(),
                 possible_return_types_state: WitPossibleReturnTypesState::Complete,
                 multiplicity: None,
+                public_data: Vec::new(),
                 metadata: metadata_to_wit(&node.metadata),
             }),
             children,
@@ -12689,6 +13041,7 @@ impl<'a> ParseResultArena<'a> {
                     PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
                 },
                 multiplicity: summary.multiplicity.map(multiplicity_to_wit),
+                public_data: public_data::to_wit(&summary.public_data),
                 metadata: metadata_to_wit(&summary.metadata),
             });
         self.push_node(ParseResultNode {
@@ -12799,6 +13152,9 @@ fn validate_parse_result(request: &ParseRequest, result: &ParseResult) -> Result
     }
     let mut nodes = HashMap::with_capacity(result.nodes.len());
     for (index, node) in result.nodes.iter().enumerate() {
+        if let Some(summary) = &node.summary {
+            public_data::validate(&summary.public_data).map_err(&invalid)?;
+        }
         if nodes.insert(node.node_id, index).is_some() {
             return Err(invalid(format!("duplicate node ID {}", node.node_id)));
         }
@@ -12940,7 +13296,12 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                     .candidate
                     .children
                     .iter()
-                    .map(|child| child.text.len())
+                    .map(|child| {
+                        child
+                            .text
+                            .len()
+                            .saturating_add(public_data::size(&child.public_data))
+                    })
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(metadata_entries_size(&value.candidate.metadata)),
@@ -13028,6 +13389,12 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .len()
                             .saturating_add(entry.entry_data_class.len())
                             .saturating_add(entry.source.len())
+                            .saturating_add(
+                                entry
+                                    .value_summary
+                                    .as_ref()
+                                    .map_or(0, |summary| public_data::size(&summary.public_data)),
+                            )
                     })
                     .fold(0usize, usize::saturating_add),
             )
@@ -13058,6 +13425,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .parser_id
                             .len()
                             .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(public_data::size(&candidate.public_data))
                             .saturating_add(metadata_entries_size(&candidate.metadata))
                     })
                     .fold(0usize, usize::saturating_add),
@@ -13065,6 +13433,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
         HookPayload::RegisteredExpression(value) => value
             .input
             .len()
+            .saturating_add(public_data::size(&value.public_data))
             .saturating_add(parse_context_size(&value.context))
             .saturating_add(value.definition_id.len())
             .saturating_add(value.registration_id.len())
@@ -13114,6 +13483,7 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .saturating_add(child.registration_id.as_ref().map_or(0, String::len))
                             .saturating_add(child.element_class.as_ref().map_or(0, String::len))
                             .saturating_add(child.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(public_data::size(&child.public_data))
                             .saturating_add(metadata_entries_size(&child.metadata))
                     })
                     .fold(0usize, usize::saturating_add),
@@ -13400,6 +13770,7 @@ fn parsed_capture_size(capture: &WitParsedCapture) -> usize {
                 .saturating_add(summary.registration_id.as_ref().map_or(0, String::len))
                 .saturating_add(summary.element_class.as_ref().map_or(0, String::len))
                 .saturating_add(summary.return_type.as_ref().map_or(0, String::len))
+                .saturating_add(public_data::size(&summary.public_data))
                 .saturating_add(metadata_entries_size(&summary.metadata))
         }))
         .saturating_add(
@@ -13564,6 +13935,11 @@ fn parse_result_size(result: &ParseResult) -> usize {
 fn parse_result_node_size(node: &ParseResultNode) -> usize {
     node.parser_id
         .len()
+        .saturating_add(
+            node.summary
+                .as_ref()
+                .map_or(0, |summary| public_data::size(&summary.public_data)),
+        )
         .saturating_add(node.kind.len())
         .saturating_add(node.text.len())
         .saturating_add(metadata_entries_size(&node.metadata))
@@ -13997,12 +14373,278 @@ mod tests {
             effective_possible_return_types: vec!["java.lang.String".to_owned()],
             effective_possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             effective_multiplicity: Some(WitDynamicMultiplicity::Single),
+            public_data: Vec::new(),
             metadata: vec![WitMetadataEntry {
                 owner_component_id: None,
                 key: "phase".to_owned(),
                 value: "resolved".to_owned(),
             }],
         })
+    }
+
+    fn public_data_entry(json: &str) -> WitExpressionPublicData {
+        WitExpressionPublicData {
+            schema_id: "example.semantic".to_owned(),
+            schema_version: 1,
+            json: json.to_owned(),
+        }
+    }
+
+    fn registered_expression_child(
+        public_data: Vec<WitExpressionPublicData>,
+    ) -> WitRegisteredExpressionChild {
+        WitRegisteredExpressionChild {
+            text: "child".to_owned(),
+            kind: "expression".to_owned(),
+            parser_id: Some("parser:test".to_owned()),
+            definition_id: Some("expression:test:definition".to_owned()),
+            registration_id: Some("expression:test:registration".to_owned()),
+            pattern_index: Some(0),
+            element_class: Some("example.ExprTest".to_owned()),
+            return_type: Some("java.lang.String".to_owned()),
+            possible_return_types: vec!["java.lang.String".to_owned()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+            multiplicity: Some(WitDynamicMultiplicity::Single),
+            public_data,
+            metadata: Vec::new(),
+        }
+    }
+
+    fn empty_mapped_span() -> MappedSpan {
+        MappedSpan {
+            virtual_range: WitTextRange { start: 0, end: 0 },
+            origins: Vec::new(),
+        }
+    }
+
+    fn condition_with_children(children: Vec<WitRegisteredExpressionChild>) -> HookPayload {
+        HookPayload::Condition(WitConditionPayload {
+            input: "example".to_owned(),
+            context: WitParseContext {
+                syntax_context: 0,
+                event_classes: Vec::new(),
+                values: Vec::new(),
+            },
+            candidate: WitConditionCandidate {
+                definition_id: "condition:test:definition".to_owned(),
+                registration_id: "condition:test:registration".to_owned(),
+                element_class: None,
+                priority: 0,
+                registration_order: 0,
+                pattern_index: 0,
+                pattern: "example".to_owned(),
+                span: empty_mapped_span(),
+                captures: Vec::new(),
+                tags: Vec::new(),
+                mark: 0,
+                marks: Vec::new(),
+                handler: None,
+                metadata: Vec::new(),
+                children,
+            },
+        })
+    }
+
+    fn structure_with_value_summary(public_data: Vec<WitExpressionPublicData>) -> HookPayload {
+        HookPayload::Structure(WitStructurePayload {
+            input: "example".to_owned(),
+            body_tree: RawTree {
+                roots: Vec::new(),
+                nodes: Vec::new(),
+                diagnostics: Vec::new(),
+                indentation: None,
+            },
+            context: WitParseContext {
+                syntax_context: 0,
+                event_classes: Vec::new(),
+                values: Vec::new(),
+            },
+            timing: WitStructureTiming::EnterBody,
+            type_options: Vec::new(),
+            candidate: WitStructureCandidate {
+                raw_node_id: 0,
+                definition_id: "structure:test:definition".to_owned(),
+                registration_id: "structure:test:registration".to_owned(),
+                element_class: None,
+                priority: 0,
+                registration_order: 0,
+                pattern_index: 0,
+                pattern: "example".to_owned(),
+                span: empty_mapped_span(),
+                declared_node_type: WitStructureNodeType::Simple,
+                actual_node_type: WitStructureNodeType::Simple,
+                regex_captures: Vec::new(),
+                tags: Vec::new(),
+                mark: 0,
+                marks: Vec::new(),
+                parsed_captures: Vec::new(),
+                body_mode: WitStructureBodyMode::None,
+                child_node_ids: Vec::new(),
+                entries: vec![WitStructureEntry {
+                    raw_node_id: None,
+                    parent_entry: None,
+                    key: "value".to_owned(),
+                    entry_data_class: "example.EntryData".to_owned(),
+                    kind: WitStructureEntryKind::Expression,
+                    source: "source".to_owned(),
+                    span: empty_mapped_span(),
+                    defaulted: false,
+                    value_kind: WitStructureEntryValueKind::Expression,
+                    value_summary: Some(WitParseSummary {
+                        kind: "grouped".to_owned(),
+                        definition_id: None,
+                        registration_id: None,
+                        element_class: None,
+                        pattern_index: None,
+                        return_type: None,
+                        possible_return_types: Vec::new(),
+                        possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+                        multiplicity: None,
+                        public_data,
+                        metadata: Vec::new(),
+                    }),
+                }],
+                handler: None,
+                metadata: Vec::new(),
+                declarations: Vec::new(),
+            },
+        })
+    }
+
+    #[test]
+    fn registered_expression_child_public_data_mutation_is_rejected() {
+        let mut original = registered_expression();
+        let HookPayload::RegisteredExpression(value) = &mut original else {
+            unreachable!();
+        };
+        value
+            .children
+            .push(registered_expression_child(vec![public_data_entry(
+                r#"{"name":"before"}"#,
+            )]));
+
+        let mut replacement = original.clone();
+        let HookPayload::RegisteredExpression(value) = &mut replacement else {
+            unreachable!();
+        };
+        value.children[0].public_data[0].json = r#"{"name":"after"}"#.to_owned();
+
+        assert!(normalize_hook_metadata(&original, &mut replacement, "another.addon").is_err());
+    }
+
+    #[test]
+    fn condition_child_public_data_counts_toward_hook_size() {
+        let public_data = vec![public_data_entry(r#"{"name":"value"}"#)];
+        let without = condition_with_children(vec![registered_expression_child(Vec::new())]);
+        let with = condition_with_children(vec![registered_expression_child(public_data.clone())]);
+
+        assert_eq!(
+            hook_payload_size(&with),
+            hook_payload_size(&without).saturating_add(public_data::size(&public_data))
+        );
+    }
+
+    #[test]
+    fn structure_value_summary_public_data_counts_toward_hook_size() {
+        let public_data = vec![public_data_entry(r#"{"name":"value"}"#)];
+        let without = structure_with_value_summary(Vec::new());
+        let with = structure_with_value_summary(public_data.clone());
+
+        assert_eq!(
+            hook_payload_size(&with),
+            hook_payload_size(&without).saturating_add(public_data::size(&public_data))
+        );
+    }
+
+    #[test]
+    fn structure_entry_summary_unwraps_grouped_expression_public_data() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig {
+                syntax_catalog: Some(Arc::new(
+                    ssg::load(fixture)
+                        .expect("schema 3 fixture must load")
+                        .into_catalog(),
+                )),
+                ..core_test_config()
+            },
+        )
+        .expect("core fixture must initialize");
+        let transaction = host
+            .begin_parse(
+                "file:///workspace",
+                "file:///workspace/structure-entry.sk",
+                1,
+            )
+            .expect("parse transaction must initialize");
+        let text = "({_balances::*})";
+        let source = MappedSource::identity(text);
+        let result = host
+            .parse_expression_in_parse(
+                &transaction,
+                InvocationContext {
+                    invocation_id: 1,
+                    subscription_id: String::new(),
+                    document_id: "file:///workspace/structure-entry.sk".to_owned(),
+                    document_revision: 1,
+                    expansion: None,
+                    syntax_context: 7,
+                },
+                ExpressionParseRequest {
+                    source: &source,
+                    range: ParserTextRange::new(0, text.len()),
+                    expected_types: vec![skript_parser::ExpressionExpectedType {
+                        class_name: ClassName("java.lang.Object".to_owned()),
+                        plural: true,
+                    }],
+                    context: ExpressionParseContext {
+                        syntax_context: 7,
+                        ..ExpressionParseContext::default()
+                    },
+                },
+                ExpressionParserConfig::default(),
+            )
+            .expect("grouped expression must parse");
+        let mut node = result
+            .matches
+            .selected
+            .expect("grouped expression must select a candidate")
+            .node;
+        assert!(matches!(&node.kind, ExpressionNodeKind::Grouped));
+        assert_eq!(node.children.len(), 1);
+        let child_public_data = vec![skript_parser::ExpressionPublicData {
+            schema_id: "example.semantic".to_owned(),
+            schema_version: 1,
+            json: r#"{"name":"value"}"#.to_owned(),
+        }];
+        node.children[0].public_data = child_public_data.clone();
+        assert!(node.public_data.is_empty());
+        assert_eq!(node.children[0].public_data, child_public_data);
+
+        let entry = StructureEntry {
+            raw_node_id: None,
+            key: "value".to_owned(),
+            entry_data_class: ClassName("example.EntryData".to_owned()),
+            kind: EntryKind::Expression,
+            source: text.to_owned(),
+            span: node.span.clone(),
+            defaulted: false,
+            value: StructureEntryValue::Expression(Box::new(node)),
+        };
+        let projected = structure_entry_to_wit(&entry, None);
+        let summary = projected
+            .value_summary
+            .expect("expression entries expose a value summary");
+        assert_eq!(summary.public_data.len(), 1);
+        assert_eq!(summary.public_data[0].schema_id, "example.semantic");
+        assert_eq!(summary.public_data[0].json, r#"{"name":"value"}"#);
+
+        transaction.cancel().expect("parse transaction must close");
     }
 
     #[test]
@@ -14014,6 +14656,40 @@ mod tests {
         changed.time = -1;
 
         assert!(!same_registered_expression_identity(&changed, &original));
+    }
+
+    #[test]
+    fn public_expression_data_can_be_changed_or_removed_without_forging_metadata() {
+        let mut original = registered_expression();
+        let HookPayload::RegisteredExpression(value) = &mut original else {
+            unreachable!()
+        };
+        value.public_data.push(WitExpressionPublicData {
+            schema_id: "example.semantic".to_owned(),
+            schema_version: 1,
+            json: r#"{"name":"before"}"#.to_owned(),
+        });
+        let mut replacement = original.clone();
+        let HookPayload::RegisteredExpression(value) = &mut replacement else {
+            unreachable!()
+        };
+        value.public_data[0].json = r#"{"name":"after"}"#.to_owned();
+        value.effective_return_type = Some("java.lang.Long".to_owned());
+        normalize_hook_metadata(&original, &mut replacement, "another.addon").unwrap();
+        let HookPayload::RegisteredExpression(value) = &mut replacement else {
+            unreachable!()
+        };
+        value.public_data.clear();
+        normalize_hook_metadata(&original, &mut replacement, "another.addon").unwrap();
+        let HookPayload::RegisteredExpression(value) = replacement else {
+            unreachable!()
+        };
+        assert!(value.public_data.is_empty());
+        assert_eq!(
+            value.effective_return_type.as_deref(),
+            Some("java.lang.Long")
+        );
+        assert_eq!(value.metadata[0].key, "phase");
     }
 
     fn output(decision: HookDecision, replacement: Option<HookPayload>) -> HookOutput {
@@ -14292,6 +14968,14 @@ mod tests {
             .find(|value| value.code_name == expected.code_name.as_str())
             .expect("supplier-backed type must be exposed")
             .has_supplier = false;
+        assert!(!same_expression_type_options(&options, &changed));
+
+        let mut changed = options.clone();
+        changed
+            .iter_mut()
+            .find(|value| value.code_name == expected.code_name.as_str())
+            .expect("supplier-backed type must be exposed")
+            .parser_class = Some("fixture.RewrittenParser".to_owned());
         assert!(!same_expression_type_options(&options, &changed));
     }
 
@@ -15023,6 +15707,95 @@ mod tests {
     }
 
     #[test]
+    fn parser_class_handlers_resolve_type_registrations() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler;
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let snapshot = ssg::load(path).expect("multi-addon fixture must load");
+        let source = snapshot.catalog();
+        let mut syntaxes = source.syntaxes().to_vec();
+        let type_info = syntaxes
+            .iter_mut()
+            .find_map(|syntax| match syntax {
+                Syntax::Type(value) => Some(value),
+                _ => None,
+            })
+            .expect("fixture must contain a Type");
+        type_info.parser_class = Some(ClassName("fixture.NumberParser".to_owned()));
+        let catalog = Catalog::new(syntaxes::CatalogParts {
+            syntaxes,
+            converters: source.converters().to_vec(),
+            comparators: source.comparators().to_vec(),
+            event_values: source.event_values().to_vec(),
+            properties: source.properties().to_vec(),
+            operators: source.operators().to_vec(),
+            operations: source.operations().clone(),
+            differences: source.differences().to_vec(),
+            classes: source.classes().to_vec(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+            language: source
+                .language_entries()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+        });
+        let type_info = catalog
+            .types()
+            .find(|value| value.parser_class.is_some())
+            .expect("fixture must contain a Type parser class");
+        let parser_class = type_info.parser_class.as_ref().unwrap().as_str().to_owned();
+        let handler = RegisteredSyntaxHandler {
+            handler_id: "fixture.parser-class".to_owned(),
+            kind: SyntaxKind::Type,
+            targets: vec![RegisteredSyntaxHandlerTarget::ParserClass(
+                parser_class.clone(),
+            )],
+            pattern_indices: Vec::new(),
+            pattern_sources: Vec::new(),
+            required_tags: Vec::new(),
+            forbidden_tags: Vec::new(),
+            marks: Vec::new(),
+            capture_parsers: Vec::new(),
+            context_requirements: Vec::new(),
+        };
+
+        let (definition_ids, registration_ids) =
+            resolve_registered_handler_target(&handler, Some(&catalog), false);
+        assert!(
+            definition_ids
+                .iter()
+                .any(|id| id == type_info.definition_id.as_str())
+        );
+        assert!(
+            registration_ids
+                .iter()
+                .any(|id| id == type_info.registration_id.as_str())
+        );
+
+        let option = expression_type_option(Some(&catalog), type_info);
+        assert_eq!(option.addon_name, type_info.addon.name);
+        assert_eq!(option.addon_version, type_info.addon.version);
+        assert_eq!(option.parser_class.as_deref(), Some(parser_class.as_str()));
+        assert_eq!(
+            option.before,
+            type_info
+                .before
+                .iter()
+                .map(|value| value.as_str().to_owned())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            option.after,
+            type_info
+                .after
+                .iter()
+                .map(|value| value.as_str().to_owned())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn superclass_handlers_resolve_every_matching_fixture_registration() {
         use crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler;
 
@@ -15267,6 +16040,15 @@ mod tests {
             )];
         validate_manifest(&dynamic_target, &host_capabilities())
             .expect("dynamic handler targets use the normal parser subscription");
+
+        let mut parser_class_target = manifest(vec![handler("fixture.parser-class")]);
+        parser_class_target.registered_syntax_handlers[0].targets =
+            vec![RegisteredSyntaxHandlerTarget::ParserClass(
+                "fixture.Parser".to_owned(),
+            )];
+        let parser_class_error = validate_manifest(&parser_class_target, &host_capabilities())
+            .expect_err("parser-class targets are Type-specific");
+        assert!(parser_class_error.to_string().contains("non-Type syntax"));
     }
 
     #[test]

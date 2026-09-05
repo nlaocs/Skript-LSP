@@ -1,7 +1,8 @@
 use parser_wasm::host::{HostConfig, InvocationContext, ParserHost};
 use skript_parser::{
-    ConditionNodeKind, ConditionParseRequest, ConditionParserConfig, ExpressionParseContext,
-    ExpressionParseRequest, ExpressionParserConfig, MappedSource, TextRange,
+    ConditionNodeKind, ConditionParseRequest, ConditionParserConfig, ExpressionNodeKind,
+    ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig, MappedSource,
+    TextRange,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -78,9 +79,17 @@ fn condition_pipeline_uses_core_expression_candidates() {
         ConditionNodeKind::Registered { .. }
     ));
     assert_eq!(selected.node.expressions.len(), 1);
+    let expression = &selected.node.expressions[0];
+    assert!(matches!(
+        &expression.kind,
+        ExpressionNodeKind::Literal { parser_id } if parser_id == "core.literal.string"
+    ));
+    assert_eq!(
+        expression.return_type.as_ref().map(ClassName::as_str),
+        Some("java.lang.String")
+    );
     assert!(result.calls.iter().any(|call| {
-        call.component_id == "nlaocs.core-library"
-            && call.subscription_id == "core.expression-candidates"
+        call.component_id == "nlaocs.core-library" && call.subscription_id == "core.type-candidates"
     }));
     assert!(result.calls.iter().any(|call| {
         call.component_id == "nlaocs.core-library"

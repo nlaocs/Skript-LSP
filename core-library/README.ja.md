@@ -11,6 +11,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
+- WIT package `nlaocs:skript-parser-addon@0.32.0`とABI `14.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -38,10 +39,58 @@ expected type/plural contractを維持し、
 再帰native parserへ型付きleaf候補を返します。登録Expressionの照合、再帰、順位付けはRust hostの
 責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
+Type hookは、標準Type parserをすべて`kind: Type`の登録として処理し、third-party addonと
+同じregistration単位のdispatchを使います。現在のmoduleはstring、number、boolean、ItemType、ItemStack、
+EntityData、EntityType、EnchantmentType、Timespan、Time、TimePeriod、Experience、Color、Particle、
+ClassInfo、Snapshot由来の有限literalを扱います。
+各handlerは登録を所有し、active Typeのsource record、addon identity、parser class、parse order、
+`before`/`after`関係を受け取ります。`types/entity_type.rs`は数量付き`EntityType`の解析を所有します。
+`3 creepers`は`ch.njol.skript.entity.EntityType`を返す1個のLiteralで、多重度は`Single`です。
+metadataには実効数量`entity-type-amount`、元の数量`entity-type-raw-amount`（省略時は`-1`）、
+Typeのdefinition/registration ID、および内包するEntityData metadataを保持した
+`entity-data` JSONを記録します。種類名と複数形はSnapshotから解決します。有限supplier値は既定の
+entity表記を扱い、SSGの順序付き`registeredParserPatterns`は年齢や帯電状態などのruntime EntityData
+variantをversion固有のhardcodeなしで保持します。型captureやregex captureを含むpatternは、
+それらを評価できるproviderが実装されるまで未解決として後段へ委ねます。hostはmetadataキーに
+`nlaocs.core-library/`を付けますが、
+内部の`entity-data` JSONのキー名は変更しません。Type由来literalは既定で登録Expressionの後に
+評価されます。quoted/interpolated stringだけは、SkriptのVariableString parserと同じ早い段階を
+明示的に要求します。省略引数の補完やlive Minecraft registryへ依存するparserまで実装したことは意味しません。
+`registeredParserPatterns`追加前のSnapshotからは、supplierにないEntityData variantを復元できません。
+その他にも有限なSnapshot情報だけでは確定できない場合、Type parserは入力を推測または不正扱いせず、
+不足するproviderを含む構造化unresolved結果を返します。
+
 `%expression%`を含むquoted stringとvariableは、汎用`host.expression` parse requestを返します。
 hostは対象rangeをtransaction内で解析し、result graph付きでCoreLibraryを再度呼び出します。CoreLibraryは
 hostが発行したresult tokenをleaf候補から参照するため、選択されたrootはopaque metadataではなく、
 外側へspanを再配置したnative child ASTになります。
+
+標準variable parserはowner-protectedな`metadata`とは別に`public_data`を公開します。
+schemaは`nlaocs.skript.variable` version `1`です。
+
+```json
+{"scope":"local","name":[{"kind":"text","text":"money"},{"kind":"expression","childIndex":0}]}
+```
+
+`scope`は`local`または`global`です。`name`はsource-name templateで、text partは
+escaped `%%`を含むsource spellingを保持します。expression partの`childIndex`は
+元になったsemantic Expression node自身の既存childを参照し、childのreturn typeや
+multiplicityを重複して持ちません。dataはnode-localなので、`Grouped` wrapperはchildの
+recordをcopyしません。このsource-nameを編集することはsemantic変更ですが、original
+source textは書き換えません。
+
+hostが検証するのはpublic-data envelopeだけです。list内のschema IDは一意で、schema
+versionは`1`以上、`json`はJSON objectでなければなりません。VariableDataのsemantic
+consistencyは検証せず、JSONからreturn typeやmultiplicityを導出もしません。editorとaddonは
+name template、child index、nodeのreturn type、multiplicityを整合させる必要があります。
+list shapeを変更する場合は標準のmultiplicity fieldも更新してください。現在のcandidateに
+対して許可されたTransform/Override hookはpublic dataを置換・削除でき、caller orderに
+従って後続hookが先行hookの変更を受け取ります。
+
+これはparse時のsemantic dataであり、runtime variable valueでもshared `StateStore`の
+entryでもありません。variable type trackingとserver側のvariable value mutationは実装
+されていません。変更はsource/spanや他nodeを遡及して書き換えず、whole ASTの編集にも
+なりません。variableは登録Type parserを装うのではなく、意図的にParseStage Expression providerとして残します。
 
 EffectとSection hookは、`EffChange`、`EffDoIf`、`EffSort`、`EffTransform`、`EffSecShoot`、`EffSecSpawn`、
 `SecConditional`、`SecFilter`、`SecLoop`、`SecWhile`、`SecCatchErrors`などのclass固有の意味処理を提供し、

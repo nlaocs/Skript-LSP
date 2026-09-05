@@ -462,6 +462,7 @@ mod tests {
             possible_return_types: vec!["java.lang.String".to_owned()],
             possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
             multiplicity: None,
+            public_data: Vec::new(),
             metadata: Vec::new(),
         };
         assert_eq!(

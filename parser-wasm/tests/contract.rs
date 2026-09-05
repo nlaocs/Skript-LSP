@@ -17,7 +17,10 @@ mod guest {
 
 #[test]
 fn wit_package_resolves_with_the_expected_world_and_exports() {
-    assert_eq!(parser_wasm::ABI_VERSION, parser_wasm::AbiVersion::new(9, 0));
+    assert_eq!(
+        parser_wasm::ABI_VERSION,
+        parser_wasm::AbiVersion::new(14, 0)
+    );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
@@ -33,7 +36,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.27.0")
+        Some("0.32.0")
     );
 
     let world = package
@@ -111,6 +114,7 @@ fn catalog_data_import_exposes_the_complete_source_query_surface() {
         "is-class-assignable",
         "common-assignable-class",
         "can-convert",
+        "registered-type-pattern-match",
     ] {
         assert!(
             catalog_interface.functions.contains_key(function),
@@ -169,9 +173,14 @@ fn host_bindings_expose_typed_hook_contract() {
         source_record: None,
         definition_id: "type:weather".to_owned(),
         registration_id: "type:weather:0".to_owned(),
+        addon_name: "fixture".to_owned(),
+        addon_version: "1.0.0".to_owned(),
         code_name: "weather type".to_owned(),
         class_name: "ch.njol.skript.util.weather.WeatherType".to_owned(),
+        parser_class: Some("fixture.WeatherParser".to_owned()),
         type_parse_order: 0,
+        before: Vec::new(),
+        after: Vec::new(),
         singular: "weather type".to_owned(),
         plural: "weather types".to_owned(),
         user_input_patterns: vec!["weather types?".to_owned()],

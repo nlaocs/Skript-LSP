@@ -1,0 +1,297 @@
+[ {
+  "kind" : "section",
+  "registrationOrder" : 0,
+  "name" : "Catch Runtime Errors",
+  "elementClass" : "ch.njol.skript.sections.SecCatchErrors",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "2.12" ],
+  "description" : [ "Catch any runtime errors produced by code within the section. This is an in progress feature." ],
+  "examples" : [ "catch runtime errors:\n\tset worldborder center of {_border} to location(0, 0, NaN value)\nif last caught runtime errors contains \"Your location can't have a NaN value as one of its components\":\n\tset worldborder center of {_border} to location(0, 0, 0)\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "catch [run[ ]time] error[s]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:5815970872e377676b8245a0b76c8e264defb21c94744c59b38a98d29506ca4f",
+  "registrationId" : "section:skript:5815970872e377676b8245a0b76c8e264defb21c94744c59b38a98d29506ca4f:e14fda7bb1e3ba1b964e58163f3d21c59960e367d24f54f036bfe7b84ea7f45d:0",
+  "experimentalSyntaxState" : "unresolved",
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 1,
+  "name" : "Dummy Return Handler Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReturnSection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "Implements ReturnHandler and reports a single Object return value." ],
+  "examples" : [ "dummy return handler section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy return handler section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:f2d8daceb0db68bab3b88c9a32c479a0fa493334871da55b31d8ab6e93dcfdd8",
+  "registrationId" : "section:skriptdummyaddon:f2d8daceb0db68bab3b88c9a32c479a0fa493334871da55b31d8ab6e93dcfdd8:9ec911e7a864a23ad97c1eda0569c316de04ccf704e91c43aa9aa4d0e23cf911:0",
+  "returnHandler" : {
+    "returnValueType" : "java.lang.Object",
+    "singleReturnValue" : true
+  },
+  "returnHandlerState" : "resolved",
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 2,
+  "name" : "Dummy Fixture Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A classic Section registration available before the Structure registry." ],
+  "examples" : [ "dummy fixture section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy fixture section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
+  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 3,
+  "name" : "Filter",
+  "elementClass" : "ch.njol.skript.sections.SecFilter",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "2.10" ],
+  "description" : [ "Filters a variable list based on the supplied conditions. Unlike the filter expression, this effect maintains the indices of the filtered list.", "It also supports filtering based on meeting any of the given criteria, rather than all, like multi-line if statements." ],
+  "examples" : [ "set {_a::*} to integers between -10 and 10", "filter {_a::*} to match:\n\tinput is a number\n\tmod(input, 2) = 0\n\tinput > 0\nsend {_a::*} # sends 2, 4, 6, 8, and 10\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "filter %~objects% to match [:any|all]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93",
+  "registrationId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93:33d8916301533c7860b3236c7171834ed23891fbef00d9717ea11a5d10311e98:0",
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 4,
+  "name" : "Loop",
+  "elementClass" : "ch.njol.skript.sections.SecLoop",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "since" : [ "1.0" ],
+  "description" : [ "Loop sections repeat their code with multiple values.", "", "A loop will loop through all elements of the given expression, e.g. all players, worlds, items, etc. The conditions & effects inside the loop will be executed for every of those elements, which can be accessed with ‘loop-<what>’, e.g. <code>send \"hello\" to loop-player</code>. When a condition inside a loop is not fulfilled the loop will start over with the next element of the loop. You can however use <code>stop loop</code> to exit the loop completely and resume code execution after the end of the loop.", "", "<b>Loopable Values</b>", "All expressions that represent more than one value, e.g. ‘all players’, ‘worlds’, etc., as well as list variables, can be looped. You can also use a list of expressions, e.g. <code>loop the victim and the attacker</code>, to execute the same code for only a few values.", "", "<b>List Variables</b>", "When looping list variables, you can also use <code>loop-index</code> in addition to <code>loop-value</code> inside the loop. <code>loop-value</code> is the value of the currently looped variable, and <code>loop-index</code> is the last part of the variable's name (the part where the list variable has its asterisk *)." ],
+  "examples" : [ "loop all players:\n\tsend \"Hello %loop-player%!\" to loop-player\n", "loop items in player's inventory:\n\tif loop-item is dirt:\n\t\tset loop-item to air\n", "loop 10 times:\n\tsend title \"%11 - loop-value%\" and subtitle \"seconds left until the game begins\" to player for 1 second # 10, 9, 8 etc.\n\twait 1 second\n", "loop {Coins::*}:\n\tset {Coins::%loop-index%} to loop-value + 5 # Same as \"add 5 to {Coins::%loop-index%}\" where loop-index is the uuid of \" +\n\t\"the player and loop-value is the number of coins for the player\n", "loop shuffled (integers between 0 and 8):\n\tif all:\n\t\tprevious loop-value = 1\n\t\tloop-value = 4\n\t\tnext loop-value = 8\n\tthen:\n\t\tkill all players\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "loop %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2",
+  "registrationId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2:4f7dc12c0b43146e488a0e33cc6cb8410652a73db5e23378084b54bde115fa06:0",
+  "effectSection" : false,
+  "loopSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 5,
+  "name" : "For Each Loop",
+  "elementClass" : "ch.njol.skript.sections.SecFor",
+  "superClass" : "ch.njol.skript.sections.SecLoop",
+  "since" : [ "2.10, 2.14 (stable release)" ],
+  "description" : [ "A specialised loop section run for each element in a list.\nUnlike the basic loop, this is designed for extracting the key & value from pairs.\nThe loop element's key/index and value can be stored in a variable for convenience.\n\nWhen looping a simple (non-indexed) set of values, e.g. all players, the index will be the loop counter number." ],
+  "examples" : [ "for each {_player} in players:\n\tsend \"Hello %{_player}%!\" to {_player}\n", "loop {_item} in {list of items::*}:\n\tbroadcast {_item}'s name\n", "for each key {_index} in {list of items::*}:\n\tbroadcast {_index}\n", "loop key {_index} and value {_value} in {list of items::*}:\n\tbroadcast \"%{_index}% = %{_value}%\"\n", "for each {_index}, {_value} in {my list::*}:\n\tbroadcast \"%{_index}% = %{_value}%\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "(for [each]|loop) [value] %~object% in %objects%", "(for [each]|loop) (key|index) %~object% in %objects%", "(for [each]|loop) [key|index] %~object%(,| and) [value] %~object% in %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:e9c58bfd27f9837b4a4f8b26a4e95c4f7eb6e501650d9f5f3909fd439f8abea0",
+  "registrationId" : "section:skript:e9c58bfd27f9837b4a4f8b26a4e95c4f7eb6e501650d9f5f3909fd439f8abea0:dc0624f1816e194274f95d7ab0fdd45a0168c4d070a34a60bbde8bc9aa901e27:0",
+  "effectSection" : false,
+  "loopSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 6,
+  "name" : "Shoot",
+  "elementClass" : "ch.njol.skript.sections.EffSecShoot",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "since" : [ "2.10" ],
+  "description" : [ "Shoots a projectile (or any other entity) from a given entity or location." ],
+  "examples" : [ "shoot arrow from all players at speed 2", "shoot a pig from all players:\n\tadd event-entity to {_projectiles::*}\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "shoot %entitydatas% [from %livingentities/locations%] [(at|with) (speed|velocity) %-number%] [%-direction%]", "(make|let) %livingentities/locations% shoot %entitydatas% [(at|with) (speed|velocity) %-number%] [%-direction%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:31f3b9f5761196862cee2e768f0c20b5f70074188ef28c4c2920018f393fb481",
+  "registrationId" : "section:skript:31f3b9f5761196862cee2e768f0c20b5f70074188ef28c4c2920018f393fb481:22a6e568d93bca034cd11508513f89acc3947b4cbeb8388529bf4c0f73e316a4:0",
+  "effectSection" : true,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 7,
+  "name" : "While Loop",
+  "elementClass" : "ch.njol.skript.sections.SecWhile",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "since" : [ "2.0, 2.6 (do while)" ],
+  "description" : [ "While Loop sections are loops that will just keep repeating as long as a condition is met." ],
+  "examples" : [ "while size of all players < 5:\n\tsend \"More players are needed to begin the adventure\" to all players\n\twait 5 seconds\n", "set {_counter} to 1\ndo while {_counter} > 1: # false but will increase {_counter} by 1 then get out\n\tadd 1 to {_counter}\n", "# Be careful when using while loops with conditions that are almost\n# always true for a long time without using 'wait %timespan%' inside it,\n# otherwise it will probably hang and crash your server.\nwhile player is online:\n\tgive player 1 dirt\n\twait 1 second # without using a delay effect the server will crash\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:do] while <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b",
+  "registrationId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b:79f586e2f8236fbee6a6346e06f46dede2cd69e4f866924a98c2208ee6e2af97:0",
+  "effectSection" : false,
+  "loopSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 8,
+  "name" : "Conditionals",
+  "elementClass" : "ch.njol.skript.sections.SecConditional",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0" ],
+  "description" : [ "Conditional sections", "if: executed when its condition is true", "else if: executed if all previous chained conditionals weren't executed, and its condition is true", "else: executed if all previous chained conditionals weren't executed", "", "parse if: a special case of 'if' condition that its code will not be parsed if the condition is not true", "else parse if: another special case of 'else if' condition that its code will not be parsed if all previous chained conditionals weren't executed, and its condition is true" ],
+  "examples" : [ "if player's health is greater than or equal to 4:\n\tsend \"Your health is okay so far but be careful!\"\nelse if player's health is greater than 2:\n\tsend \"You need to heal ASAP, your health is very low!\"\nelse: # Less than 2 hearts\n\tsend \"You are about to DIE if you don't heal NOW. You have only %player's health% heart(s)!\"\n", "parse if plugin \"SomePluginName\" is enabled: # parse if %condition%\n\t# This code will only be executed if the condition used is met otherwise Skript will not parse this section therefore will not give any errors/info about this section\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "else", "else [:parse] if <.+>", "else [:parse] if (:any|any:at least one [of])", "else [:parse] if [all]", "[:parse] if (:any|any:at least one [of])", "[:parse] if [all]", "[:parse] if <.+>", "then [run]", "implicit:<.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa",
+  "registrationId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa:d8ea5b6b1c41f086057801ab505002e1b82221956a9330bc7a47ba79df0bea06:0",
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 9,
+  "name" : "Spawn",
+  "elementClass" : "ch.njol.skript.sections.EffSecSpawn",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "since" : [ "1.0, 2.6.1 (with section), 2.8.6 (dropped items), 2.10 (entity snapshots)" ],
+  "description" : [ "Spawns entities. This can be used as an effect and as a section.", "", "If it is used as a section, the section is run before the entity is added to the world.", "You can modify the entity in this section, using for example 'event-entity' or 'cow'. ", "Do note that other event values, such as 'player', won't work in this section.", "", "If you're spawning a display and want it to be empty on initialization, like not having a block display be stone, set hidden config node 'spawn empty displays' to true.", "", "Note that when spawning an entity via entity snapshots, the code within the section will not run instantaneously as compared to spawning normally (via 'a zombie')." ],
+  "examples" : [ "spawn 3 creepers at the targeted block", "spawn a ghast 5 meters above the player", "spawn a zombie at the player:\n\tset name of the zombie to \"\"\n", "spawn a block display of a ladder[waterlogged=true] at location above player:\n\tset billboard of event-display to center # allows the display to rotate around the center axis\n" ],
+  "requires" : [ "Minecraft 1.20.2+ (entity snapshots)" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "(spawn|summon) %entitytypes/entitysnapshots% [%directions% %locations%]", "(spawn|summon) %number% of %entitytypes/entitysnapshots% [%directions% %locations%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba",
+  "registrationId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba:127e7e5530239704cddf5f21d3a98814ec0f7ce55acef0432c6dd041542f438c:0",
+  "effectSection" : true,
+  "loopSection" : false
+} ]

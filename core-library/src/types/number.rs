@@ -3,6 +3,22 @@ use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
 };
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.number",
+    classes: &[
+        "java.lang.Number",
+        "java.lang.Long",
+        "java.lang.Integer",
+        "java.lang.Double",
+        "java.lang.Float",
+        "java.lang.Short",
+        "java.lang.Byte",
+    ],
+    parse,
+    unresolved: None,
+    all_type_options: false,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,
@@ -21,9 +37,9 @@ pub(super) fn parse(
     let return_type = number_class(
         shape,
         payload
-            .expected_types
+            .active_type
             .iter()
-            .map(|expected| expected.class_name.as_str()),
+            .map(|active| active.class_name.as_str()),
     )?;
     Some(candidate(
         "core.literal.number",

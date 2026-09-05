@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use syntaxes::{
     Catalog, CatalogParts, ClassName, FunctionParameter, Multiplicity, PossibleReturnTypesState,
-    RegistrationId, ReturnTypeState, Syntax,
+    RegistrationId, ReturnTypeState, Syntax, TypeLiteral,
 };
 
 const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
@@ -87,7 +87,24 @@ fn full_dynamic_catalog() -> Arc<Catalog> {
             && value.code_name.as_str() == "entitydata"
         {
             // A freshly generated SSG snapshot obtains this finite value from ClassInfo.supplier.
-            value.literal_values.push("zombie".to_owned());
+            value.type_literals.push(TypeLiteral {
+                text: "zombie".to_owned(),
+                plural_text: Some("zombies".to_owned()),
+                variable_name: Some("entitydata:zombie".to_owned()),
+                debug_text: None,
+                value_class: ClassName("ch.njol.skript.entity.SimpleEntityData".to_owned()),
+                represented_class: Some(ClassName("org.bukkit.entity.Zombie".to_owned())),
+                enum_constant: None,
+            });
+            value.type_literals.push(TypeLiteral {
+                text: "player".to_owned(),
+                plural_text: Some("players".to_owned()),
+                variable_name: Some("entitydata:player".to_owned()),
+                debug_text: None,
+                value_class: ClassName("ch.njol.skript.entity.SimpleEntityData".to_owned()),
+                represented_class: Some(ClassName("org.bukkit.entity.Player".to_owned())),
+                enum_constant: None,
+            });
         }
         let Syntax::Expression(expression) = syntax else {
             continue;

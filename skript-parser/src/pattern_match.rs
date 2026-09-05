@@ -293,6 +293,26 @@ pub trait PatternMatchHooks {
 /// hook host. This is particularly important for WASM-backed expression
 /// parsing, where both operations share one transactional parse session.
 pub trait PatternMatchEnvironment {
+    /// Detaches the latest successful match's state for later semantic selection.
+    fn take_pattern_candidate_state(&mut self) -> Option<crate::ExpressionEffects> {
+        None
+    }
+
+    /// Restores the selected match before running its semantic handlers.
+    fn restore_pattern_candidate_state(
+        &mut self,
+        _state: &crate::ExpressionEffects,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Activates only the deferred work owned by this typed branch.
+    fn select_type_resolution(
+        &mut self,
+        _resolution: &TypeExpressionResolution,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Starts one matcher invocation, including recursive re-entry.
     fn begin_pattern_match(&mut self) -> Result<(), String> {
         Ok(())
@@ -511,6 +531,13 @@ pub enum PatternFailureReason {
         supported: Vec<String>,
         current: Vec<String>,
     },
+    TypeParserUnresolved {
+        definition_id: String,
+        registration_id: String,
+        parser_class: Option<String>,
+        reason: String,
+        required_provider: Option<String>,
+    },
     TrailingInput,
     HookRejected {
         reason: String,
@@ -614,6 +641,8 @@ pub struct PatternMatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Successful syntax candidate with identity, ranking, and captures.
 pub struct CandidateMatch {
+    /// Opaque matcher state, including typed-child effects, for semantic fallback.
+    pub extension_state: Option<crate::ExpressionEffects>,
     pub kind: MatchSyntaxKind,
     pub definition_id: String,
     pub registration_id: String,
@@ -1150,7 +1179,8 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
             candidate_failures.push(value);
         }
         aggregate_failure.merge(candidate_failure);
-        if let Some(value) = matched {
+        if let Some(mut value) = matched {
+            value.extension_state = engine.environment.take_pattern_candidate_state();
             if value.matched.recovered_failures.is_empty() {
                 matches.push(value);
             } else {
@@ -1420,6 +1450,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         .map_err(|message| PatternMatchError::Hook { message })?;
                 }
                 let value = CandidateMatch {
+                    extension_state: None,
                     kind: candidate.kind,
                     definition_id: candidate.definition_id.to_owned(),
                     registration_id: candidate.registration_id.to_owned(),
@@ -1541,6 +1572,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         pattern: &MatchPattern<'_>,
     ) -> Result<CandidateMatch, PatternMatchError> {
         Ok(CandidateMatch {
+            extension_state: None,
             kind: candidate.kind,
             definition_id: candidate.definition_id.to_owned(),
             registration_id: candidate.registration_id.to_owned(),
@@ -2156,9 +2188,18 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 return Err(PatternMatchError::InvalidTypeResolution { range });
             }
             let mut next = state.clone();
-            if resolution_checkpoint.is_some() {
-                next.extension_checkpoint = resolution_checkpoint;
+            if let Some(checkpoint) = resolution_checkpoint {
+                self.environment
+                    .restore_pattern_branch(checkpoint)
+                    .map_err(|message| PatternMatchError::Hook { message })?;
             }
+            self.environment
+                .select_type_resolution(&resolution)
+                .map_err(|message| PatternMatchError::Hook { message })?;
+            next.extension_checkpoint = self
+                .environment
+                .checkpoint_pattern_branch()
+                .map_err(|message| PatternMatchError::Hook { message })?;
             next.cursor = range.end;
             next.captures.push(PatternCapture::TypeExpression {
                 capture_index,
@@ -2173,6 +2214,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 resolution_id: resolution.resolution_id,
             });
             matches.push(next);
+        }
+
+        if let Some(checkpoint) = resolution_checkpoint {
+            self.environment
+                .restore_pattern_branch(checkpoint)
+                .map_err(|message| PatternMatchError::Hook { message })?;
         }
 
         if matches.is_empty() || cause.is_some() {
@@ -2190,7 +2237,8 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         .reasons
                         .iter()
                         .any(|reason| match reason {
-                            PatternFailureReason::EventRestricted { .. } => true,
+                            PatternFailureReason::EventRestricted { .. }
+                            | PatternFailureReason::TypeParserUnresolved { .. } => true,
                             PatternFailureReason::HookRejected { .. } => has_semantic_diagnostics,
                             _ => false,
                         });

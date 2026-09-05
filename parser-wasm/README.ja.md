@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.27.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.32.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -70,8 +70,12 @@ EntryValidator結果、Structure scoped context、body RawTree、SSGの完全な
 host側の型関係queryの追加で0.19.0、Skript互換のJava共通型query追加で0.20.0、typed dynamic Structure登録の追加で0.21.0へ変わりました。
 登録semantic handlerの複数targetとdynamic handler照合の追加で0.22.0へ変わりました。
 汎用semantic payloadとSSG由来contractの拡張で0.24.0まで進み、host側の継承距離query追加で0.25.0、
-正規化済みexperiment catalogへの直接アクセス追加で0.27.0へ変わりました。
-manifestの現在の`abi`値は9.0で、
+正規化済みexperiment catalogへの直接アクセス追加で0.27.0へ、schema version付きpublic
+Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、providerが指定するExpression leaf timing、
+完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
+unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加で0.31.0へ、
+host側で索引化するruntime Type pattern照合の追加で0.32.0へ変わりました。
+manifestの現在の`abi`値は14.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -103,6 +107,7 @@ capture parserは閉じたenumではなく文字列IDを使います。標準rou
 `host.condition`、`host.effect`で、addon manifestは独自の`parser(...)` targetへsubscribeできます。
 hookが`parse-request`を返すと、hostは解析完了後、対応する`parse-result` graph付きで同じhookを再度呼びます。
 graph nodeは意味summary、child、mapped span、diagnostic、metadata、version付きopaque addon attachmentを保持します。
+Expression summaryにはschema version付きのpublic dataも含められ、各nodeが自分のlistだけを保持します。
 完了したresultにはhost所有のtokenが付きます。Expression leaf候補はtokenとroot IDを参照し、再解析や
 metadata keyへの依存なしに、そのExpressionをnative child ASTとして所有できます。
 continuationにはそれ以前の全roundで得たresultを累積して渡すため、後続requestは複数の先行parseへ依存できます。
@@ -127,13 +132,44 @@ Expressionと型付きの子Expressionが一致した後、hostはparse tag、�
 適用可能なproperty情報と対応component axisを含む2段目のpayloadを送ります。
 CoreLibraryまたはaddonは実効Java返値型と
 Multiplicityを確定するか、候補をrejectできます。componentはsemantic handlerごとに安定したhandler IDを付け、
-`registered-syntax-handlers`へ1つ以上のtargetを宣言します。targetは`definition`、`registration`、`class-suffix`、
-`dynamic-handler`のいずれかで、複数targetはORとして扱われます。そのため1つのhandlerで複数のstatic登録とdynamic
+`registered-syntax-handlers`へ1つ以上のtargetを宣言します。targetは`definition`、`registration`、`parser-class`、
+`class-suffix`、`super-class`、`dynamic-handler`のいずれかです。`parser-class`は`kind: Type`だけで使用でき、
+SSGが出力した完全一致のparser classへ照合します。複数targetはORとして扱われるため、1つのhandlerで複数のstatic登録とdynamic
 definitionを処理できます。hostはstatic targetを読み込み時に一度だけcatalogへ照合し、解決したdefinitionIdと
 registrationIdを`HostProfile`でcomponentへ渡します。`dynamic-handler`はparse時にdynamic syntax definitionが宣言した
 opaqueなhandler IDへ照合され、catalog lookupは行いません。このtargetでもcapture parserと名前付きcontext requirementを
-提供できます。実行時のsemantic選択はJava class suffixへ依存しません。handlerは名前付きhost contextも要求でき、
-handlerは`pattern-indices`、完全一致する`pattern-sources`、必須・禁止parse tag、集約ParseMarkでtargetを
+提供できます。実行時のsemantic選択はJava class suffixへ依存しません。
+
+handlerには`kind: Type`も指定できます。解決済みのDefinition、Registration、parser-class、class-suffix、
+super-class bindingは、型単位の`Expression` phase呼び出しの対象になります。Snapshotの有限literalも、component
+handlerを要求せず所有Typeを候補へ加えます。hostは要求返値型との互換性で候補を絞り、直接assign可能なTypeを
+converter経由のTypeより先に置いた上で、各groupを`typeParseOrder`順に並べます。payloadの`active-type`は
+対象SSG Typeのsource record、addon、parser class、parse order、`before`/`after`関係を示します。componentはType
+targetへsubscribeし、自身が担当するactive registrationだけを処理します。Type parserが文字列を解釈し、その値を
+Literalとして返す構造です。Typeごとに候補listは分離され、stateとeffectsはnative側での採用まで保留します。
+別Typeが生成済みの候補は失われません。
+runtimeやregistryの情報がないためTypeを確定できない場合、componentは理由と任意のprovider IDを持つ
+構造化unresolved結果を返せます。parserを持つTypeに適用可能なproviderから応答がなければ、hostは
+そのTypeのregistration IDを含む同形式のunresolved結果を生成します。担当parserが入力を拒否した場合は
+`type-parser-outcome: no-match`、候補または明示的unresolvedを返した場合は`handled`を指定します。
+対象外のhookは`NotApplicable`を返します。handler宣言の有無ではなく実際の応答で判別するため、
+`registered-syntax-handlers`を使わない直接のType subscriptionにも同じ規則が適用されます。
+複合Typeが内部で使用するEntityDataのsupplier値などを必要とする場合は、既存の
+`expression.type-options.all` context requirementを指定できます。runtime登録Type patternはcatalog読込時に
+一度だけparse・索引化されます。componentはType registration IDと入力を
+`catalog-data.registered-type-pattern-match`へ渡し、最初に一致した登録のregistration/pattern index、
+元code name、値class、表現対象class、tag、markだけを受け取ります。これにより、Type固有の意味付けを
+component側に保ったまま、数百件のpatternをleaf hookごとに複製・再parseする処理を避けます。
+Javaのparser自体を実行したり、`usage`から文法を推測したりする機能ではありません。
+このparser経路へ入るのは、SSGで`hasParser: true`と記録されたType登録だけです。
+runtime parserを持たないTypeを`usage`や表示名から推測して受理することはありません。
+
+各leaf候補は`before-registered`または`after-registered`のtimingを宣言します。native parserはCoreLibrary固有の
+parser IDを識別せず、このfieldだけで登録Expressionとの前後関係を決めます。third-party parserもVariableStringの
+ような早期parserを再現でき、通常のType literalは登録Expressionの後に維持できます。
+
+handlerは名前付きhost contextも要求できます。また、`pattern-indices`、完全一致する`pattern-sources`、
+必須・禁止parse tag、集約ParseMarkでtargetを
 さらに絞れます。各list内はOR、空でないpredicate group同士はANDです。これにより特定構文をhostへ
 hard-codeせず、Javaの`init`内の分岐をaddonから表現できます。capture parser optionの
 `context.event-classes`（`;`区切りのJava class）と`context.value.<key>`はnested host parserのcontextだけを
@@ -150,10 +186,151 @@ context値を導出できます。`host.expression`は`parse.mode`（`all`、`ex
 型探索へ混ぜません。hostはnative
 parserでstatic/dynamic登録Expressionと順位付けする前に、変更不可request field、UTF-8 range、
 parser ID、return type/Multiplicity、metadataを検証します。nativeのrange、type、Multiplicity
-検証で全leafが除外された場合、そのdispatchのstateとeffectsをsavepointへ戻します。再帰matcher
+検証後も各leaf dispatchのState/effectsは候補へ保留し、savepointへ戻します。同じ入力を複数Typeが
+認識しても、採用されたExpression部分木の分だけを反映します。拒否、型不適合、非採用候補の
+書き込みや診断は残しません。同じ処理は枝ごとに一度だけ適用し、backtrackingでは適用記録も
+Stateと一緒に復元します。再帰matcher
 呼び出しはそれぞれcandidate frameを持つため、子候補の選択が親のselected stateを上書きしません。
 no-matchとparser failureでは開始時のStateStore savepointへ戻します。parse overlay revisionは
 native memo keyに含まれ、candidate rollback時にはrevision自体も復元されます。
+
+### Public semantic data
+
+Expression semantic payloadの`public-data`（native Rustでは`public_data`）は、
+owner-protectedな`metadata`とは別の公開dataです。各recordは一意な`schema-id`、
+`1`以上の`schema-version`、およびJSON objectでなければならない`json` stringを
+持ちます。hostが検証するのはこのenvelopeだけで、object内部のaddon固有fieldは検証
+しません。schemaを定義したaddonがその意味を解釈します。特にhostはVariableDataの
+semantic consistencyを検証しません。editorまたはaddonはname template、そこからの
+`childIndex`参照、nodeのreturn typeとmultiplicityを整合させる必要があります。
+list shapeを変更する場合は標準のmultiplicity fieldも変更してください。hostがJSONから
+multiplicityを推測することはありません。
+
+public dataはnode-localです。listは元になったExpression node自身に属し、schema内の
+`childIndex`はそのnode自身の`children`を参照します。外側のEffect capture listや
+`Grouped` wrapperのchild listを参照するものではありません。nativeのGrouped wrapperは
+`public_data`を空のままにし、元のchildがrecordを保持します。reportとCLI outputも
+nodeごとのlistだけを表示し、node identityをまたいでflattenしません。variable nameの
+textはescaped `%%`を含むsource spellingを保持し、評価済みruntime keyではありません。
+このsource-name dataを変更することはsemantic interpretationの変更ですが、元のsource
+textを書き換えません。
+
+`observe` hookはrecordを読めます。現在のcandidateに対して実行を許可された任意の
+`Transform`または`Override` hookはrecordを置換・削除できます。caller orderが
+適用されるため、後続hookは先行hookが採用したreplacementを見ます。schema IDはpublic
+contractでありowner markerではありません。public dataはparse時のsemantic情報であり、
+runtime variable valueでもshared `StateStore`のentryでもありません。variable typeの
+trackingとserver側のvariable value mutationは実装されていません。変更してもinput
+sourceやspanは変わらず、sibling/parent/child nodeを遡及編集せず、whole ASTを一括編集
+することもありません。
+
+既存の`hooks::Guest::invoke`では、crateがすでに公開しているWIT fieldを使って
+CoreLibraryのvariable leafをExpression payload内で変換できます。次の例はpublic dataと
+leafのreturn type/multiplicityを同じhookで変更します。
+
+```rust,ignore
+use exports::nlaocs::skript_parser_addon::hooks;
+use nlaocs::skript_parser_addon::types::{
+    AddonError, DynamicMultiplicity, HookDecision, HookEffects, HookInvocation,
+    HookOutput, HookPayload,
+};
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum VariableScope {
+    Local,
+    Global,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum VariableNamePart {
+    Text { text: String },
+    Expression {
+        #[serde(rename = "childIndex")]
+        child_index: u32,
+    },
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct VariableData {
+    scope: VariableScope,
+    name: Vec<VariableNamePart>,
+}
+
+impl hooks::Guest for MyAddon {
+    fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        let not_applicable = || HookOutput {
+            decision: HookDecision::NotApplicable,
+            replacement: None,
+            effects: HookEffects {
+                diagnostics: Vec::new(),
+                context_updates: Vec::new(),
+                parse_requests: Vec::new(),
+                parse_results: Vec::new(),
+            },
+        };
+        let HookPayload::Expression(mut payload) = input.payload else {
+            return Ok(not_applicable());
+        };
+        let Some(candidate) = payload.candidates.iter_mut().find(|candidate| {
+            candidate.public_data.iter().any(|record| {
+                record.schema_id == "nlaocs.skript.variable" && record.schema_version == 1
+            }) && candidate.multiplicity == Some(DynamicMultiplicity::Single)
+        }) else {
+            return Ok(not_applicable());
+        };
+
+        {
+            let Some(record) = candidate.public_data.iter_mut().find(|record| {
+                record.schema_id == "nlaocs.skript.variable" && record.schema_version == 1
+            }) else {
+                return Ok(not_applicable());
+            };
+            let Ok(mut data) = serde_json::from_str::<VariableData>(&record.json) else {
+                return Ok(not_applicable());
+            };
+            for part in &mut data.name {
+                if let VariableNamePart::Text { text } = part {
+                    *text = text.replace("price", "money");
+                }
+            }
+            let Ok(json) = serde_json::to_string(&data) else {
+                return Ok(not_applicable());
+            };
+            record.json = json;
+        }
+        candidate.return_type = Some("java.lang.String".to_owned());
+        candidate.multiplicity = Some(DynamicMultiplicity::Single);
+
+        Ok(HookOutput {
+            decision: HookDecision::ContinueProcessing,
+            replacement: Some(HookPayload::Expression(payload)),
+            effects: HookEffects {
+                diagnostics: Vec::new(),
+                context_updates: Vec::new(),
+                parse_requests: Vec::new(),
+                parse_results: Vec::new(),
+            },
+        })
+    }
+}
+```
+
+この例は`Expression` leaf candidateを対象にしています。leafが持つ可変な型fieldは
+`return_type`と`multiplicity`です。`possible_return_types`はleaf candidateのfieldではなく、
+後段のregistered-Expression semantic payloadに属します。
+
+CoreLibraryが提供するvariable schemaは`nlaocs.skript.variable` version `1`です。
+JSON shapeは次のとおりです。
+
+```json
+{"scope":"local","name":[{"kind":"text","text":"money"},{"kind":"expression","childIndex":0}]}
+```
+
+`scope`は`local`または`global`です。`name`はsource-name templateであり、
+expression partは同じsemantic nodeの既存childを指します。childのreturn typeや
+multiplicityを重複して格納しません。
 
 ## Effect解析
 
@@ -306,8 +483,9 @@ handled overrideは`matched`または`failed`を返す必要があります。ma
 あります。hook replacementでidentityとprovenance fieldは変更できません。
 
 各syntax候補は同じparse StateStore savepointから開始します。失敗候補と非採用alternativeの
-書き込みはrollbackされ、採用候補のStateStore書き込みとHookEffectsだけがparse結果へ残ります。hook callと
-component failureはdiagnostic/tracing用に保持します。
+書き込みはrollbackされ、採用候補のStateStore書き込みとHookEffectsだけがparse結果へ残ります。診断と
+call traceもその候補に対応する内容を復元し、非採用alternativeの分は合算しません。候補が
+選べなかった場合には、最終failure traceから拒否理由の診断を取り出して返します。
 ## Hook rule
 
 subscriptionはtarget、phase、signed priority、modeを指定します。
@@ -552,3 +730,6 @@ cargo test -p parser-wasm --locked
 
 workspace全体のcheckでは、host専用dependencyがguest componentへ誤って必要になっていない
 ことも確認します。
+`1`以上の`schema-version`、およびJSON objectでなければならない`json` stringを
+持ちます。hostが検証するのはこのenvelopeだけで、object内部のaddon固有fieldは検証
+しません。schemaを定義したaddonがその意味を解釈します。

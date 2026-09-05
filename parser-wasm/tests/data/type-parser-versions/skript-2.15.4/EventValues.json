@@ -1,0 +1,5132 @@
+[ {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerArmorChangeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 0,
+  "registrationOrder" : 18,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3b9a7634d1ef93a0debef945a57b9129926a27a2503bd91b2b94586c7ee2751a"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerTeleportEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 1,
+  "registrationOrder" : 21,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.Location" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a7b1ee43b5622180f333d38dbf5890e6df35c01ca096aac0e649f89a04e584a1"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityTeleportEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 2,
+  "registrationOrder" : 23,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.Location" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3995794c1860ee11c0660480508e26e56234cd8a1e230f2d99c76cd50d8b542d"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 3,
+  "registrationOrder" : 42,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:58f5df8b1c23ed7e291e28d8825ac5e8de4097c8eb03cdb797a2a92cff54172c"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 4,
+  "registrationOrder" : 45,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:00448193dedd432bdb15642000ffac1932587fa186a208d5332de1f965ed1b01"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFadeEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 5,
+  "registrationOrder" : 47,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7b3974169bc96d0fe866ff25fb0ccd8e222c8d76fae58a5c917fa9c3df4b260b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 6,
+  "registrationOrder" : 51,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6a146db9ac0054629fad8c510826d99fea589a46458f05c409b6a9b43b59eb74"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 7,
+  "registrationOrder" : 54,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a45d751f51392934fe08b951f3780314096816c2bbff33b9d900b6cf497933ac"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockCanBuildEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 8,
+  "registrationOrder" : 60,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7c75103eb0bc3889d9a1baa1dba55e7c2b3269afbd6cd89fb59d3e038e696361"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityChangeBlockEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 9,
+  "registrationOrder" : 84,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7c5c3a2c9b67d201ebbec6ee2614a2c1f9cc06e09ae44834c497c3e650d4b800"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEmptyEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 10,
+  "registrationOrder" : 99,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:46a00a56a1841da28c5d278544d8a04443c0033fa9a9c6b16717a1a7e7f30343"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerMoveEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 11,
+  "registrationOrder" : 123,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b7f266ac1c2d4b19bdf06a324912e292c2ae0ad8ab5d542a7884e78a702dc406"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerMoveEvent",
+  "valueClass" : "org.bukkit.Chunk",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 12,
+  "registrationOrder" : 125,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:91e64c754638cea9588c1a67d4187d15432dd42539db1bd7f2fd5cfbdac25abc"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 13,
+  "registrationOrder" : 160,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f97592d6fc62b8e65fef0199129a9c4623be6753c1c14041c41a5cbdd9462740"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEditBookEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 14,
+  "registrationOrder" : 185,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a72f7e2a03fbeaa93926b2c8e41211882c21aae23f06b6384a31a5013ac09659"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEditBookEvent",
+  "valueClass" : "net.kyori.adventure.text.Component[]",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 15,
+  "registrationOrder" : 187,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:aaadd30e47c26813a86ace0ce7982e6459b6790d110fbc75d72ec319a805e9d9"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerInventorySlotChangeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 16,
+  "registrationOrder" : 204,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cef25fb1fe72df2fb1e7f184e2392b02b99e02df029fa5ac9a37931759fa95a7"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerChangedWorldEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 17,
+  "registrationOrder" : 215,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6999fa3a6ae1ed0abf0803a56e9cc0a1abbc78de2cd9b24bbce65a1c0f442385"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemHeldEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 18,
+  "registrationOrder" : 221,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9055c4975b9ec3ce9b81ab0636c39180fa110d6ac4ef03a9d0dce8dda8e11764"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDropItemEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 19,
+  "registrationOrder" : 239,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:aab6225152f9fff72ded1e4e4411988a269c278eab6dc108c694ff5403d07a08"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent",
+  "valueClass" : "ch.njol.skript.util.Timespan",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 20,
+  "registrationOrder" : 245,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:836f672bd3b48424fb04af05bb1bc2ce41648b48163dd363a01c1b54bd0a0572"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleMoveEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 21,
+  "registrationOrder" : 247,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a6aa51cd9686e6fb9800cfd123f16c50be96e4b522ff472ec6f7c72b4076bb6c"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderBoundsChangeEvent",
+  "valueClass" : "java.lang.Number",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 22,
+  "registrationOrder" : 255,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9b634ec053fffc18959fe9b0228e26c7edd0bca8ace6ece9eaf03e8fcba7a2f0"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderBoundsChangeFinishEvent",
+  "valueClass" : "java.lang.Number",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 23,
+  "registrationOrder" : 258,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:963fa989dbbdfc0e26f87664ffaaa1b3081ca8ba14f9b389a13e9ac70cdcbd4c"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderCenterChangeEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 24,
+  "registrationOrder" : 261,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b839560a2d5ad798bab8ef96e26528b5220ede6b8bd4b9bbf9f8bfb1990c07d8"
+}, {
+  "eventClass" : "org.bukkit.event.entity.VillagerCareerChangeEvent",
+  "valueClass" : "org.bukkit.entity.Villager$Profession",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 25,
+  "registrationOrder" : 265,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:53f8cb9fa6de7c5a48476d908a8c6cef3dbffa8ccc288ab009bf560961ad9929"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerPickItemEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 26,
+  "registrationOrder" : 271,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "ch.njol.skript.util.slot.Slot" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:db03e8b436aa8786311f44f8065223b6924763dd0060e15c1442dd6a1149c048"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInputEvent",
+  "valueClass" : "org.skriptlang.skript.bukkit.input.InputKey[]",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 27,
+  "registrationOrder" : 281,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:4097772307da3b22a084530a8430443600089f4f5a856719ed3fdea2f1330f70"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPotionEffectEvent",
+  "valueClass" : "org.bukkit.potion.PotionEffect",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 28,
+  "registrationOrder" : 288,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d3c37e65bb4ab9022e217de660c1d3fcd28546fce7bf87624a3b0762b673fedd"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.eventvalue.ModernEventValueFixtures$ModernFixtureEvent",
+  "valueClass" : "java.lang.String",
+  "time" : -1,
+  "excludes" : [ ],
+  "resolutionOrder" : 29,
+  "registrationOrder" : 299,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "patterns" : [ "dummy previous label" ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skriptdummyaddon:f16612c5b4333b7fff6bba13f566501b6cfeefa14d698be99389ac8f183505af"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDamageEvent",
+  "valueClass" : "org.bukkit.damage.DamageSource",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 30,
+  "registrationOrder" : 0,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6b1b17eb8998643530e1978a71dfda71d3e2931daeb5e63fe3ba25bafd1c82ef"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDeathEvent",
+  "valueClass" : "org.bukkit.damage.DamageSource",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 31,
+  "registrationOrder" : 1,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:4286c632592b47a608f9918d8571a4410dc39de70c3eeffffcfe5b26225a80ce"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ScheduledEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludeErrorMessage" : "There's no world in a periodic event if no world is given in the event (e.g. like 'every hour in \"world\"')",
+  "excludes" : [ "ch.njol.skript.events.bukkit.ScheduledNoWorldEvent" ],
+  "resolutionOrder" : 32,
+  "registrationOrder" : 2,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:95f888cc5ab77b3cc4cac9e738cb3101a71db4d6f60e235a402ba53ab34d10a9"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityShootBowEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 33,
+  "registrationOrder" : 3,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bd362a4d073828f39ec94ec23e546256ac278a942d666e989fba2d279596264f"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityShootBowEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 34,
+  "registrationOrder" : 4,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.entity.Entity" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8bae5b139470f79bd890cbe188a398bf8ae6fe6faafe3dcf447759e7ead04bdb"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityShootBowEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 35,
+  "registrationOrder" : 5,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:08aef5982302c3651952ce9665239b83901c2cab6d83db5c53e351496ef680cc"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerExpChangeEvent",
+  "valueClass" : "ch.njol.skript.util.Experience",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 36,
+  "registrationOrder" : 6,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f80c55b3017175a4eefcd5ff0f027bdd5cede353cca7e61ca6e67f07a966892d"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ExperienceSpawnEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 37,
+  "registrationOrder" : 7,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:63d72ef77d563f30cc16809a78ef4c9f00b74bfabbba08d4ef1772bc5217419e"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ExperienceSpawnEvent",
+  "valueClass" : "ch.njol.skript.util.Experience",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 38,
+  "registrationOrder" : 8,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:df6a503db74eecc8448e564b1c91290fc79f43db8b768e84e392dc6b74385fd8"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerHarvestBlockEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 39,
+  "registrationOrder" : 9,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d4446256a2b74a6ce05ca896ad332d938370ab6790acbe913d3bf68e00b8fb91"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerHarvestBlockEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 40,
+  "registrationOrder" : 10,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:906d436cf4f25569f81e00d8ffd11693b782638d00d51c5131fd020f80a8cff7"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerHarvestBlockEvent",
+  "valueClass" : "org.bukkit.inventory.EquipmentSlot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 41,
+  "registrationOrder" : 11,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e8e314b14b07dcf724c67cd59d9b88a8a02e579645a55bd6ea509bfad5e92abf"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerHarvestBlockEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 42,
+  "registrationOrder" : 12,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:11f01ecf9dfb417bfdede3d7fbf7284328c6d2068c8a75fe130cd8184dc5a681"
+}, {
+  "eventClass" : "org.bukkit.event.entity.PlayerLeashEntityEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 43,
+  "registrationOrder" : 13,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:26d610a5bce6abb97b21e35af178093e08576991f40a0bec764a79235cc6d83b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.PlayerLeashEntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 44,
+  "registrationOrder" : 14,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c4109e0bac2661a29bef6b6cf1f7bcc0910d52c4674188ee8d52e67252407a11"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityUnleashEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityUnleashEvent$UnleashReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 45,
+  "registrationOrder" : 15,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:dea7cdc1b0de6930cd7837573503dcbd44bf455025d4a7c1eeb1810e3fe831cf"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerUnleashEntityEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 46,
+  "registrationOrder" : 16,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2a4df182fb41e8966d845ae6362ad7997d2334f3c2b6a54fcc6cab5682d82a0b"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerArmorChangeEvent",
+  "valueClass" : "org.bukkit.inventory.EquipmentSlot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 47,
+  "registrationOrder" : 17,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8c8c229d9e65bd5bdc4f3765b39c756e42ba9381509e0a2fe5a0c2ee8532afe8"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerArmorChangeEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 48,
+  "registrationOrder" : 20,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:813dcad9a8ea932f6806ac36044596ea24d04803c09b3cb22c310e0bf721f539"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerTeleportEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 49,
+  "registrationOrder" : 22,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.Location" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:aa1ded901c61e9008d2c5fe62e800058f639cb740e0119a5780013121d335342"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityTeleportEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 50,
+  "registrationOrder" : 24,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.Location" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8f173d2e7c02f39a5688a02b37dff3576069d3612fb342d7f9bce3e101cc5344"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleBlockCollisionEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 51,
+  "registrationOrder" : 25,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6319dec40051bb8557917603d865c84fa6a2529cb881e86dfc068890ee585f82"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEntityCollisionEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 52,
+  "registrationOrder" : 26,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8d8e29a790a61c28c86245bf439f51ea57511df027b5724665fa595ce6823fe6"
+}, {
+  "eventClass" : "ch.njol.skript.sections.EffSecShoot$ShootEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 53,
+  "registrationOrder" : 27,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5fb1b7779a194353dc11eaace8770ebc84309dd854ec207864960dfee639e32c"
+}, {
+  "eventClass" : "ch.njol.skript.sections.EffSecShoot$ShootEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 54,
+  "registrationOrder" : 28,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a183577b95118cca82be49434758b763098b7e710f900c4afc7ca74af1a94b49"
+}, {
+  "eventClass" : "ch.njol.skript.sections.EffSecSpawn$SpawnEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 55,
+  "registrationOrder" : 29,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f25d1c6d0f76ee9e0598b794ed3a62714ab2d47b73e794a7015a25ca0fc021c5"
+}, {
+  "eventClass" : "ch.njol.skript.sections.ExprSecCreateWorldBorder$CreateWorldborderEvent",
+  "valueClass" : "org.bukkit.WorldBorder",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 56,
+  "registrationOrder" : 30,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:fa6875871e63fd7ee957ffab24cf24f6c424bf8ff73a252c88cc0e6596ee9bbf"
+}, {
+  "eventClass" : "org.bukkit.event.world.WorldEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 57,
+  "registrationOrder" : 31,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:22e6bf2d1a85d9d48657cc8d51c0fb9c325d5fb7df23ef1892ef9f68e69c46c7"
+}, {
+  "eventClass" : "org.bukkit.event.world.StructureGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 58,
+  "registrationOrder" : 32,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c57c70ced6f9a03668e40016a828a4d7ab9ae4f90ab671c606efab3c178af219"
+}, {
+  "eventClass" : "org.bukkit.event.world.StructureGrowEvent",
+  "valueClass" : "org.bukkit.block.Block[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 59,
+  "registrationOrder" : 33,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:399e77e5010c994a799110971e8c47e1c6e0874fc267f189cf899e192b5798c5"
+}, {
+  "eventClass" : "org.bukkit.event.weather.WeatherEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 60,
+  "registrationOrder" : 36,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:558f08198d0f18901869e2e69cbcc35cf06a02463bf532754d3e3e58d56ebcbf"
+}, {
+  "eventClass" : "org.bukkit.event.world.ChunkEvent",
+  "valueClass" : "org.bukkit.Chunk",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 61,
+  "registrationOrder" : 37,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:4f1cf3e88d1894a38ee458b8a3ed0def63fcd24923dea175a174808ad6c0fa76"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 62,
+  "registrationOrder" : 38,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bc2ec3fc4292f3efadddeb322f5c119b1a53309a90ca556918803db1f6408de6"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 63,
+  "registrationOrder" : 39,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ae5f581bc78f403ea409fb2eea7d7a5f028e780a1aa26f787127368c95fbd827"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 64,
+  "registrationOrder" : 40,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:861bf17fa2721417d5ec737f593ffa7db07bea137a2b08f5447e9a43bf1d8b14"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 65,
+  "registrationOrder" : 41,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b141f432743df447777f3d7515da25ab263cdc9916849a93475d835c56a9db9a"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 66,
+  "registrationOrder" : 43,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3d5e1bfda9abea73f81c55fc2d500fefb7bcfe4eccaa023d82d5e785fcbe40cc"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 67,
+  "registrationOrder" : 46,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1d1f2f9c4c3b00ae4a8880378d089c8dbd10311a60cf489c8b642c9ab6d7255d"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFadeEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 68,
+  "registrationOrder" : 48,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9ada5f3fe0e31dfc83609e39c5b21826100544802fcdd99b257948bea040e1e9"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 69,
+  "registrationOrder" : 50,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:aeabe7e5978f79acae800814d188295557fb6387d8a490c281b0e156241e70a0"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDamageEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 70,
+  "registrationOrder" : 52,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7cd989956d3280cbb6405a794fec20cec3e6d8591ee76ca6b9d872ae319cf41b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 71,
+  "registrationOrder" : 53,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b87b01af7d1ca4d687a4c1e390632a5c3ed7209f9100fc7265bb42ee1efe7821"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockBreakEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 72,
+  "registrationOrder" : 55,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b40d74d7573a62a74719975711ddb3af02449879e41b2ba07503c6c844bd7e8b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockIgniteEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 73,
+  "registrationOrder" : 57,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:079d5bd56dd55bf4e53a885c522a675e5a6878a9cb9e2ef1b918c45c6926a7ac"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockIgniteEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 74,
+  "registrationOrder" : 58,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a86c9e75184f289e37749f2621a245e5840395e09f8f4bd704678e72a4fc643d"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDispenseEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 75,
+  "registrationOrder" : 59,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d007482d3f2433f22ba09051363ca90d039c394745ba7715170fb26a3fa8c9a7"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockCanBuildEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 76,
+  "registrationOrder" : 61,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7662be6bf63ef57035ac7146c131b3342bd08ea66560baf198b4849407ccd659"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockCanBuildEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 77,
+  "registrationOrder" : 62,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:56afce6b62464ea4c183d9dcdf956b00acbd4f033aced092de55fbedb333f96b"
+}, {
+  "eventClass" : "org.bukkit.event.block.SignChangeEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 78,
+  "registrationOrder" : 63,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:96266b637e86147bd2fb827a1a03f83449ef68cbbaff6a1a71c6486011a81c97"
+}, {
+  "eventClass" : "org.bukkit.event.block.SignChangeEvent",
+  "valueClass" : "net.kyori.adventure.text.Component[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 79,
+  "registrationOrder" : 64,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:eb56e09956738a36d7336b10c1b1963889f825a3349e6e559b34d9272e4b0f94"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'attacker' and/or 'victim' in damage/death events",
+  "excludes" : [ "org.bukkit.event.entity.EntityDamageEvent", "org.bukkit.event.entity.EntityDeathEvent" ],
+  "resolutionOrder" : 80,
+  "registrationOrder" : 65,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1aaec359872e09505b37dbf38097438d8f4fc0fb40ba0d0115916fed99f280e3"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'attacker' and/or 'victim' in damage/death events",
+  "excludes" : [ "org.bukkit.event.entity.EntityDamageEvent", "org.bukkit.event.entity.EntityDeathEvent" ],
+  "resolutionOrder" : 81,
+  "registrationOrder" : 66,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bc583e8fd9d22b5916400ddb15359c2042bbacc419648e8a04711748e9d0a1c7"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 82,
+  "registrationOrder" : 67,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:16adc3c679822f3263660094153d44b455b3b896fa8d093210f2f6a307f3b55e"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 83,
+  "registrationOrder" : 68,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6046211676d3e7ed9639b8987537e5d6a85bc8d22b8de25191642c23ce65d14a"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEvent",
+  "valueClass" : "ch.njol.skript.entity.EntityData",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'type of attacker/victim' in damage/death events.",
+  "excludes" : [ "org.bukkit.event.entity.EntityDamageEvent", "org.bukkit.event.entity.EntityDeathEvent" ],
+  "resolutionOrder" : 84,
+  "registrationOrder" : 69,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:df3748e51db381fdb0df96eee58246f3415f9a6afdc7eab3471cd8850ee2edd3"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDamageEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 85,
+  "registrationOrder" : 70,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d1709cc870de5f753472f87167c123c5bbacd28b1c94b9a8638d93d2a607f3e0"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDamageByEntityEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 86,
+  "registrationOrder" : 71,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:de275adca9e0e8ff8557334a885e486574fbda3efb880aae6254d54fd39df773"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDeathEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 87,
+  "registrationOrder" : 72,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:89718210938bb8dbc731afefa886eb01ddbb4028c6be765481c940df0f89d202"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDeathEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 88,
+  "registrationOrder" : 73,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:809a29027cc4613dab4895622f2189b98709130b448029388581c2e5b84f156e"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDeathEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 89,
+  "registrationOrder" : 74,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7ba2eced0ccde485567179a1056b9c86277d97e1009901d6c6b360d01d67da92"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 90,
+  "registrationOrder" : 75,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:05084679ab801cca05a4fce47b35880af7f2c1ad8cdf4fbda6bb8df0f7599022"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'projectile' and/or 'shooter' in projectile hit events",
+  "excludes" : [ "org.bukkit.event.entity.ProjectileHitEvent" ],
+  "resolutionOrder" : 91,
+  "registrationOrder" : 76,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6c52314861b9ca894a72e7f592ae4380ca98d0bdfe775d3aab40d77b7708a499"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 92,
+  "registrationOrder" : 77,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b2e838b9df47ebfd323cfc581f586c3fc08fa0dff98be03b2138360dc12b09d8"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileHitEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 93,
+  "registrationOrder" : 78,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b271c6e1a85bb11739b9bf6ffa6a3805e07e546053370a63175cfab63efd7563"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileLaunchEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'projectile' and/or 'shooter' in shoot events",
+  "excludes" : [ "org.bukkit.event.entity.ProjectileLaunchEvent" ],
+  "resolutionOrder" : 94,
+  "registrationOrder" : 79,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2daa2e5448b4719ffd740a88982e4a17fa08a8b195c0c35b3b7a9c315df8e10d"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.entity.ProjectileCollideEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 95,
+  "registrationOrder" : 80,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a781be78daacc7365898eb11270f6c52e0410ae99285c08e6f32826e99e6495a"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.entity.ProjectileCollideEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 96,
+  "registrationOrder" : 81,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9da6c6ebd167919468d1ee84d85260be5e95c55064edf5f2ceda8795f8997eaa"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ProjectileLaunchEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 97,
+  "registrationOrder" : 82,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:80b5edc3dda48cf8191f44c1b9479c39913f7675207a2353dea3b59b6a96047e"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityTameEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 98,
+  "registrationOrder" : 83,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:0d34373cfa6b9bb427f79c1eada360225e86e8b888ac27df760cb63374444e05"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityChangeBlockEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 99,
+  "registrationOrder" : 85,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:0039b831c935351fe8d0b35565809006875452dea4eb089efb2c75c3bc7278b5"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityChangeBlockEvent",
+  "valueClass" : "org.bukkit.block.data.BlockData",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 100,
+  "registrationOrder" : 86,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3a9569981f513d22e217b8b1f793427080a13df46f78bede4f9e7481ec90703b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.AreaEffectCloudApplyEvent",
+  "valueClass" : "org.bukkit.entity.LivingEntity[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 101,
+  "registrationOrder" : 88,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:749f49c86f895c7d9dbd1e0c2269cff703bb139576f763185a57f099057b3010"
+}, {
+  "eventClass" : "org.bukkit.event.entity.AreaEffectCloudApplyEvent",
+  "valueClass" : "org.bukkit.potion.PotionEffectType",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 102,
+  "registrationOrder" : 89,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:90fa9573cab44468c139d9b39ad74c38e9e6555b6414a5c589624f845eb9599b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemSpawnEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 103,
+  "registrationOrder" : 90,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b2085571b062d0b4c812fe77695ddcb49f2b2f7ded765870b815af15f33fb65c"
+}, {
+  "eventClass" : "org.bukkit.event.weather.LightningStrikeEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 104,
+  "registrationOrder" : 91,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6f93c25ba03b1f3ccfa5d39d01462ab7350d3aca9d24d8d3c36d21d4bfbd2528"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.entity.EndermanAttackPlayerEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 105,
+  "registrationOrder" : 92,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:96ca74f89c97f063208ea122fb9b10b7bb45d91faefe9fb2fa057c0dce614abb"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 106,
+  "registrationOrder" : 93,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:4eb60a69010805b80052e7f6f09cd821b1637ce10ac968adc78c3cadea068c09"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 107,
+  "registrationOrder" : 94,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9829ba99da89a50d473ff652239652c34849d93867717a64b5ca54f8b2730982"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBedEnterEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 108,
+  "registrationOrder" : 95,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:68996897eae08dbbf0530130c1675db0d2121b05659ddbc70d082239a12df94c"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBedLeaveEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 109,
+  "registrationOrder" : 96,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:39e0e1d68823c0fcaed98857ff5eeadc4b7ca659bca0636c792c929a60adaddd"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketFillEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 110,
+  "registrationOrder" : 97,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3e0fe263bd572548484d96a0880f8c960beef06cfe73367fe93c3f015671f73f"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEmptyEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 111,
+  "registrationOrder" : 100,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b54c5ad41781b6fe177dc286d5e9904fbcb0371cb015cb3e7762b119aa32a015"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 112,
+  "registrationOrder" : 101,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:94b3bf74ca99127c78f1122137ad991d246a0da5dee1e03e2ef607881f4ca7af"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 113,
+  "registrationOrder" : 102,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2b7dfd706dbbb9021489fc69c381716d66eed1dfd06d89da1d20a57bb0373086"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 114,
+  "registrationOrder" : 103,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:02da0ca6ae0ced0c1cb7b2e589397352fe3dc6fdfcdbe061889ab6fdbf2a492e"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 115,
+  "registrationOrder" : 104,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:899503b7d46e6f2615eda71e13da4a920c153dd603a81f099593958a3a0be0ac"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 116,
+  "registrationOrder" : 105,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6923dcdfdc4293c2d9a05c01305b8bd5d89d363405573433fbd63a4251d1647a"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityDropItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 117,
+  "registrationOrder" : 106,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cfc39846a9f2a93c6a40f5e281a8fc10aace2205ad5358b8695b45269cfe67ea"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 118,
+  "registrationOrder" : 107,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c30f52be77d19e9f061f89ae72e8d7e267583486b52974ab2499cca4aa00c1fd"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 119,
+  "registrationOrder" : 108,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2b574e4dfcd86be9ef7bc1308e7935af90e7c9e7ee4f99573f5cf76fef25a159"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 120,
+  "registrationOrder" : 109,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7e31dcdc7a686bc4981d867725ab6d7de3112983b7f6fc6490abcce861c57223"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 121,
+  "registrationOrder" : 110,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:eb4c41cd92235ee789859445a1cadfcbcb72bef105c5fbdb68c3f378ae3e40b0"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 122,
+  "registrationOrder" : 111,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8dda94f90c28a564373c5b1a570cba61b95105c8482b6f2e0e9692a3adaa592b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 123,
+  "registrationOrder" : 112,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ef0d8b71e183b8edb5d343217c3d8203a123557a88efbab2e9927099c417e82e"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPickupItemEvent",
+  "valueClass" : "ch.njol.skript.aliases.ItemType",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 124,
+  "registrationOrder" : 113,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3fa902c2b2d8f1ced42c1559819e7d7ae3b610f61dafd325d61a851677bccd94"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemConsumeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 125,
+  "registrationOrder" : 114,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.inventory.ItemStack" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:28c7d9670d1458124b21ed822668faf6c6a26b8a9877e7a4a172a41abff0df44"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemBreakEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 126,
+  "registrationOrder" : 115,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6346b5a2b632b154a48c13f45b08dedf351a5f468b40aae4f52c7ee9086d5aa2"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 127,
+  "registrationOrder" : 116,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e8d8b1fd00b5cc0450f99a01b8b6241f8216ab3aff3645e9d332e3f9fca4300b"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEntityEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 128,
+  "registrationOrder" : 117,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c50efdcc5a708e4084e8e0dc5deb1013acf9150530873b53d9c1a4e278070683"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 129,
+  "registrationOrder" : 118,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e937c8a85a821a680678d624fb16f7c8fa1b75ee12d7a98973aa48c10aa4538d"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 130,
+  "registrationOrder" : 119,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d7b60892169e94599aa46dbfc511a4a3b0531c231e253fbbbffa18ba55f97bf5"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInteractEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 131,
+  "registrationOrder" : 120,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f2e4030cdeafbed8849c1b037dac8c8e07ccfd10a9cedf747406ec720f0ea27c"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerShearEntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 132,
+  "registrationOrder" : 121,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bd1d6c3e03bb2453af672e97fedd929897da57d1933a225ca417a2366e5e0e83"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerMoveEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 133,
+  "registrationOrder" : 122,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7da5196d8246575a0bd239da4e6e0f91453ff8b980e6a35ca112147c8c22f3b5"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerMoveEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 134,
+  "registrationOrder" : 124,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f95eaa779a9db5b2091dcc0a9452d444e7bb1d2c20c5ca734d179d1ac0a13cd0"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerMoveEvent",
+  "valueClass" : "org.bukkit.Chunk",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 135,
+  "registrationOrder" : 126,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bcf89ba193acb637d85b278fcf4011fa6fb18f4c94cc4bf3ded6ef7001ce176f"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemDamageEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 136,
+  "registrationOrder" : 127,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5ff1dff57934bade8ee8f78a6c879e04a965f0643b5d4c1b240a8c509f9f1a8a"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemMendEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 137,
+  "registrationOrder" : 128,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:136969db157969615792aa6484f456866310940d289e475518bbe229c79c69fd"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemMendEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 138,
+  "registrationOrder" : 129,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:536f04a0c5f4444099c72d248d3d00ab083a7265f989c7c29d17248dfa6cf0f1"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemMendEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 139,
+  "registrationOrder" : 130,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2b468d1b95664f3ff3a38237212e02ffccc8820a61335c9f85847c45df8d3682"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingEvent",
+  "valueClass" : "org.bukkit.entity.Hanging",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 140,
+  "registrationOrder" : 131,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c27c770f69da4c1424c3576a472f1e5c522ca9137b84651ce1586da89d6b8653"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 141,
+  "registrationOrder" : 132,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:61d50c51a7699b05353028a180b48a2507a0ed304737fd799f11ea03f4abf5a1"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 142,
+  "registrationOrder" : 133,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ec3be7fcb61ecd20ec0cd0fb9f5ccb3e37372fb395773087ae59248c07d5e58f"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingBreakEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 143,
+  "registrationOrder" : 134,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6fe08ca77935e628a570691c016bb42b158f79673bb4920f116db283a303632d"
+}, {
+  "eventClass" : "org.bukkit.event.hanging.HangingPlaceEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 144,
+  "registrationOrder" : 135,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cdfba9238953fc9496fe402937445ab55e3915cb5bbc1d2556f0839c1dc9b47c"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEvent",
+  "valueClass" : "org.bukkit.entity.Vehicle",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 145,
+  "registrationOrder" : 136,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5c75283a620e93060c5832c53ed0e297087badc11ccc675ed78e2d357bdea03c"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 146,
+  "registrationOrder" : 137,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cccdf11c5460e102111d42ce1f324bd9695138ed5e06a6c9e2359ca2ce38e10e"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleExitEvent",
+  "valueClass" : "org.bukkit.entity.LivingEntity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 147,
+  "registrationOrder" : 138,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:741d1e656828981df2a73d4b8db53f1e6c66544a3132de91492574cfc323087c"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEnterEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 148,
+  "registrationOrder" : 139,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d497cf1e9f980894de5133fd463961353b82a165a3d16a5421e3ee7cd4acc180"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleDamageEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 149,
+  "registrationOrder" : 140,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7fdef04f8ea57e3da9dfe79ed243935415542d3e92bfc75d3269b0287bb12104"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleDestroyEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 150,
+  "registrationOrder" : 141,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ed7b60cf144233dbd61b9e6e016e5937ac382c8baa5528b377a09f1e1974a8cd"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 151,
+  "registrationOrder" : 142,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1c618a521f9cbbee9d4f4a32ae049f8020094740c492dd99821fa125c5c7547a"
+}, {
+  "eventClass" : "org.bukkit.event.server.ServerCommandEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 152,
+  "registrationOrder" : 143,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6770ce12cc481ccbaac0f154ceb5d634dc6e2401127b352e05a8a89c4e6535e9"
+}, {
+  "eventClass" : "ch.njol.skript.command.CommandEvent",
+  "valueClass" : "java.lang.String[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 153,
+  "registrationOrder" : 144,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6029f6914de85dc8f8d23f45c2aeff0fe0553dcc802fae38c93467df79ebd7c8"
+}, {
+  "eventClass" : "ch.njol.skript.command.CommandEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 154,
+  "registrationOrder" : 145,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:95caac0ed6b1524ab89d753220ee5c09c5a96b1554fdd846181397d000580905"
+}, {
+  "eventClass" : "ch.njol.skript.command.CommandEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 155,
+  "registrationOrder" : 146,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f88fe81ed3a33446e0b7acdc8920ca44576854c17b9a6f469af7e9e13afe0c10"
+}, {
+  "eventClass" : "ch.njol.skript.command.CommandEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 156,
+  "registrationOrder" : 147,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d7d60970f2c8ea847ca15e52a438e52df9dc707f1ce8839bbe1fdb241b74a080"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.ScriptEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 157,
+  "registrationOrder" : 148,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:de38bf81763c065e1dc2f6df677b2707705aba1d43d54f8ee0b3b93e4ebbea19"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.SkriptStartEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 158,
+  "registrationOrder" : 149,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ba0d5bd724ba68ed56103f286a1fb184f70840b4aa6c154298a818aaf120345c"
+}, {
+  "eventClass" : "ch.njol.skript.events.bukkit.SkriptStopEvent",
+  "valueClass" : "org.bukkit.command.CommandSender",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 159,
+  "registrationOrder" : 150,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9864257f139aceac324f59f61769e79965e398a8079904c6e4de7f3d2937e025"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 160,
+  "registrationOrder" : 151,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:80337792b697714a17ab046189318002e5b1334944267a98781612a902034875"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 161,
+  "registrationOrder" : 152,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7d32e214223b269182afd5544d6e04cda23b0fe229c42fbcfb8b035e0c6a3703"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 162,
+  "registrationOrder" : 153,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3de56cbabbd23641baabbd5ad0a9780d55cf3d3372d46e2cd1a2b7aa2c36d147"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 163,
+  "registrationOrder" : 154,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:664d04f38cc2ac5786533a00f9a3723a71530552e1d6c10a76938be504d375b4"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.event.inventory.InventoryAction",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 164,
+  "registrationOrder" : 155,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:84d18f73a335e9ac847bdd545d10d016a62c3656b2fcfaf9b8b49c7ae9dff822"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.event.inventory.ClickType",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 165,
+  "registrationOrder" : 156,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6b0e11a37aac60f52551136aa9f5431cf43d63da6fc43cab7e36b4e356eb98f3"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryClickEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 166,
+  "registrationOrder" : 157,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:51f1e2a5690774580c935587270aa27764a556708917ee005832d6c8dcc27553"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 167,
+  "registrationOrder" : 158,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e612fb1a17b265585ac23e1acb9d1c5b503827b184ee76caeaaad56579cb8c23"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 168,
+  "registrationOrder" : 159,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ca79cb7f862b6bc88eb4985f9f45e58b7943d8d53f656a76d339e9365a62204c"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 169,
+  "registrationOrder" : 161,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:758236cec99666933021ac724bd2817feac78e4d000c9b2f7d2491b825cbc8ce"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 170,
+  "registrationOrder" : 162,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c98342454e643a32a1c029fd83f7b0c6d1926468c45d5eae92dbfd702730cabc"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 171,
+  "registrationOrder" : 163,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:769393bb6e59008b7e9a1561386f0aec20b96b1228b9cd946a146ed099dbcb49"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.event.inventory.ClickType",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 172,
+  "registrationOrder" : 164,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:15a04f3a19d870dfc2a09b4aaadeffafd109a3bbe5958713dfd6beb2ef7cf201"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryDragEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 173,
+  "registrationOrder" : 165,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e8abc0996d77e37d51ab1999ec823ce0e8f9051ccd2e884dd01c7bfc86181b6e"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareAnvilEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 174,
+  "registrationOrder" : 166,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:f03b88c363630203188180494e40949d47eb538a2b8fb0322bc49d3fc5615a60"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFertilizeEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 175,
+  "registrationOrder" : 167,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:02bfefbe5ff67ad4455c5114184dfd2fed6cc90a1878dc8fdff855bd274feced"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFertilizeEvent",
+  "valueClass" : "org.bukkit.block.Block[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 176,
+  "registrationOrder" : 168,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a5ef51d8529074c4a52e43b96562af2a7240b1387d9846c8f4a0d6a72550cacc"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 177,
+  "registrationOrder" : 169,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:adbf5ac43100482e4d52700c873f839db0dedda9f422bf54218fc66c2c2a7867"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 178,
+  "registrationOrder" : 170,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a80de60318f1063e91a0f963922132f31b47857c7017a6099fa63316698605e4"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 179,
+  "registrationOrder" : 171,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ea93e86045a1171045b71327c6514a9dc66cd9ff035caea3ab2cc3a2abc34e69"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.CraftItemEvent",
+  "valueClass" : "java.lang.String",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 180,
+  "registrationOrder" : 172,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:0e87bb5506d540aba4aa922752c0781a429c6042f9711e805992fff9fe055722"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.PrepareItemCraftEvent",
+  "valueClass" : "java.lang.String",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 181,
+  "registrationOrder" : 173,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:12e66a558b668c4a57252608f400493f1284328294bbccc56693ecb9f127d70d"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.CraftItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 182,
+  "registrationOrder" : 174,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:23ed963846ee0da322f857316779ce069ca30f7b995694b0b1730b8fc59202dd"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 183,
+  "registrationOrder" : 175,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a828c93b08ca564d792c1575002037d9ed8e9347fff9e8c678d7842ad9243c60"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryOpenEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 184,
+  "registrationOrder" : 176,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9f65f92a623bb98d9d2e6d3794c24d6ba8915b55da4e85bdadc7a317e9e01666"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryCloseEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 185,
+  "registrationOrder" : 177,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:46aa20b8ee524da13659941cd4f228e7a8a2ff9ca87a5517b9054325df027fbb"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryCloseEvent",
+  "valueClass" : "org.bukkit.event.inventory.InventoryCloseEvent$Reason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 186,
+  "registrationOrder" : 178,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5e23513f96f7cc3be6e7dfbba10ef3336dc0f4783b0b633bb41cc7f1437ec667"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryPickupItemEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 187,
+  "registrationOrder" : 179,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c5bb5ede69cedb41aed0186f3f484fc28f304cfc192ed65930aa7523c564b913"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryPickupItemEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 188,
+  "registrationOrder" : 180,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1166b38699db92e51b899dbab0be8f6a0ed4b25e120edd3cfc681e06eba5d069"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryPickupItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 189,
+  "registrationOrder" : 181,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:58bc9bc6bdc0fa51e2580e6476332ec1894f59cfdb5536e5db24a4b58f6b7a84"
+}, {
+  "eventClass" : "org.bukkit.event.world.PortalCreateEvent",
+  "valueClass" : "org.bukkit.World",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 190,
+  "registrationOrder" : 182,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:67773d1c55c2ec574795fe6f5d02ab20c91fbdfce9448b3b8ce9e34e892e4883"
+}, {
+  "eventClass" : "org.bukkit.event.world.PortalCreateEvent",
+  "valueClass" : "org.bukkit.block.Block[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 191,
+  "registrationOrder" : 183,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cc9499093a2e2f7cfb349f0c66faba53118924bc3f72f559c5014d856ba77da3"
+}, {
+  "eventClass" : "org.bukkit.event.world.PortalCreateEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 192,
+  "registrationOrder" : 184,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c2365f4f43e1eb64fed593b5fcd409f1d5e33f4089dd49c2f3eb48700f156f91"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEditBookEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 193,
+  "registrationOrder" : 186,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6e89444b712a6d30bc2d422651c899a1055915238ef71f7567681036f51a5a20"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEditBookEvent",
+  "valueClass" : "net.kyori.adventure.text.Component[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 194,
+  "registrationOrder" : 188,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6390ed8e8ee83d3582e12c218f1b508866ee292487480f937effd80fe7805fd2"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemDespawnEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 195,
+  "registrationOrder" : 189,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1f1fa70ad3ac87b2131184d7263b6959eb070491aa076eb913ed4ffe711dfc4b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemDespawnEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 196,
+  "registrationOrder" : 190,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:30363554ccf5bc8235e27acf1175bde5e713824a2fdc32db80ded970589b43e6"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemMergeEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 197,
+  "registrationOrder" : 191,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2e6870ed4bc6d0eac5c86e00143a6b0c6ce99cae5d559df5dff2544a2be11c1b"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemMergeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 198,
+  "registrationOrder" : 193,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7a551a822887f681b369503567ad1e46dd45e5f43aa0f67f7a209caedbd9e684"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerTeleportEvent",
+  "valueClass" : "org.bukkit.event.player.PlayerTeleportEvent$TeleportCause",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 199,
+  "registrationOrder" : 194,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7eb45c157b5f2ca6c9431fabd6a5806e869ebef944bbeb3440d1751d01abcbc6"
+}, {
+  "eventClass" : "io.papermc.paper.event.entity.EntityMoveEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 200,
+  "registrationOrder" : 195,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5ff71a22c6b72d4178f4d8dd321d06fdebf04a930dddc9a1b216ea31ebb3fb02"
+}, {
+  "eventClass" : "org.bukkit.event.entity.CreatureSpawnEvent",
+  "valueClass" : "org.bukkit.event.entity.CreatureSpawnEvent$SpawnReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 201,
+  "registrationOrder" : 197,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3411e85102594e6771898c8eb22c603846505913b306ea2c1b8df60bc36634b0"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerRespawnEvent",
+  "valueClass" : "org.bukkit.event.player.PlayerRespawnEvent$RespawnReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 202,
+  "registrationOrder" : 198,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7678b90015393762a7b9b0c4b36ab4de7bc3823d303c28ae6199bf8c1a350aff"
+}, {
+  "eventClass" : "org.bukkit.event.entity.FireworkExplodeEvent",
+  "valueClass" : "org.bukkit.entity.Firework",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 203,
+  "registrationOrder" : 199,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e414be018d065e372a939b8a1db07a1e1b37dd1e35326fcfcf1a8b657daddb02"
+}, {
+  "eventClass" : "org.bukkit.event.entity.FireworkExplodeEvent",
+  "valueClass" : "org.bukkit.FireworkEffect",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 204,
+  "registrationOrder" : 200,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a433fcca1201c69cf4a1e859f33eb18fc449d596de41e7670ab607311a4015eb"
+}, {
+  "eventClass" : "org.bukkit.event.entity.FireworkExplodeEvent",
+  "valueClass" : "ch.njol.skript.util.Color[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 205,
+  "registrationOrder" : 201,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:69cb450c8a8cb7d0f7682fe0c6b7ffbf8017de9457115d4d8bc8ebdd5b63ce30"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerRiptideEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 206,
+  "registrationOrder" : 202,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a4d272ed2f289528ae872e0a636df63af84c1a6481433760227fb16324d03b48"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerInventorySlotChangeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 207,
+  "registrationOrder" : 203,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c189fcda364b5f67516e1176f010a2375e8f92069bcf7ccdf5e7456968e131ff"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerInventorySlotChangeEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 208,
+  "registrationOrder" : 205,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:465b5a285735feaf2d7c520c9ce7d6337e5f3a811194e0f501a85ebc59a93f5a"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.PrepareItemEnchantEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 209,
+  "registrationOrder" : 206,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:854361ef0a70cf7347dd7b979906f688a21fecad627a675ce685929e09589091"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.PrepareItemEnchantEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 210,
+  "registrationOrder" : 207,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bb68115ad024e582b398e20bb3afafe0c5907ffe87e7c6eb1e87ad30804377a7"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.PrepareItemEnchantEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 211,
+  "registrationOrder" : 208,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bbfa993649c467221a4a580e4b585e2439ba1e3ac4d3e62ed212648ce2461b42"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 212,
+  "registrationOrder" : 209,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c5835d3f06fcda0d3f0798afa47d537b9298d5f44e52a65fae1523225d81138c"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 213,
+  "registrationOrder" : 210,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2dd55a6f83ccae14882ec25fdea1ff9187088ddbba1a66ebba2e73260cdc8207"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "ch.njol.skript.util.EnchantmentType[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 214,
+  "registrationOrder" : 211,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5f85c7389b86171095b221e5a22468dbdbbef6b11513bf610f700aa7bf4081cd"
+}, {
+  "eventClass" : "org.bukkit.event.enchantment.EnchantItemEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 215,
+  "registrationOrder" : 212,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:23c94221bd5bbe521d7c2b5d85c52f7f601201a019619408a4a9679801a95ff8"
+}, {
+  "eventClass" : "org.bukkit.event.entity.HorseJumpEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 216,
+  "registrationOrder" : 213,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:40e4def5ca15327047ef42cc66c33b1e6b13770a8c5f4d819e22b79bc7f67fad"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerTradeEvent",
+  "valueClass" : "org.bukkit.entity.AbstractVillager",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 217,
+  "registrationOrder" : 214,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3908d1c8f1ec2f8de40f85c3c941fe74e8b639737ba915a1f7ee6985046f4bcb"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerEggThrowEvent",
+  "valueClass" : "org.bukkit.entity.Egg",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 218,
+  "registrationOrder" : 216,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:888f742d2bc77a93f7de3fe61c45d1ce01f269eacb79914f46d03605192e10af"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerStopUsingItemEvent",
+  "valueClass" : "ch.njol.skript.util.Timespan",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 219,
+  "registrationOrder" : 217,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9ef1e3ffaedc3f0080e9af9a2a6c70a137fdebf8ac3bd841fb7a9f5139ae7fe6"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerStopUsingItemEvent",
+  "valueClass" : "ch.njol.skript.aliases.ItemType",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 220,
+  "registrationOrder" : 218,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:44d49eddaf7b9488c457265e0c8df5f733270f29cdd30057eda593de12bb9ab5"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityResurrectEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 221,
+  "registrationOrder" : 219,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:78c8f670679c1183ec6bbdadb811d5811a20f5731092eeb8a9d185e3f8800ac7"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerItemHeldEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 222,
+  "registrationOrder" : 220,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:414f805f40fe6bb047030c740cc778d27684bbe5560c470f16171357cf61993c"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupArrowEvent",
+  "valueClass" : "org.bukkit.entity.Projectile",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 223,
+  "registrationOrder" : 222,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2f269d7c69db7977c493c1a87b409a3c736190153a27eaea5fdb66f0006f87fb"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerPickupArrowEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 224,
+  "registrationOrder" : 223,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:63fbf2b71c793c61921d223e3cee9a4dc805f08d8c0bf9452541febe79664108"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerQuitEvent",
+  "valueClass" : "org.bukkit.event.player.PlayerQuitEvent$QuitReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 225,
+  "registrationOrder" : 224,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c0332b17004d30b8cfcf0017dbe45df197f04de9c56b595dbff29e16050b3b75"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerStonecutterRecipeSelectEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 226,
+  "registrationOrder" : 225,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:db33898553ad14beea07c472ef4735891fcc7206cc67559bb784149e2a095456"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityTransformEvent",
+  "valueClass" : "org.bukkit.entity.Entity[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 227,
+  "registrationOrder" : 226,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ec45a22d6d528e3c26a0cd00bcc45d49547032bff6035a6a5e8426dd8691145d"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityTransformEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityTransformEvent$TransformReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 228,
+  "registrationOrder" : 227,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ef8239a822f1fa5c013fdd34c07f7ec72b98e8ecfae9d92b9439f27d2b73ae2c"
+}, {
+  "eventClass" : "org.bukkit.event.block.BellRingEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 229,
+  "registrationOrder" : 228,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:9e8a41943c23baa315bdb6f981b97e6df2606bdd44d0c1b9e31ecebca4dec354"
+}, {
+  "eventClass" : "org.bukkit.event.block.BellRingEvent",
+  "valueClass" : "ch.njol.skript.util.Direction",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 230,
+  "registrationOrder" : 229,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:01c1a51fd90effa2813bb9dbb40c0eca1efe79eeec9c0e5adc8b8aafca4a46d8"
+}, {
+  "eventClass" : "org.bukkit.event.block.BellResonateEvent",
+  "valueClass" : "org.bukkit.entity.Entity[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 231,
+  "registrationOrder" : 230,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:4e53f717a95eabdec3814f0f25f9c9aaff70fd82673d20e326aff816392f302e"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryMoveItemEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 232,
+  "registrationOrder" : 231,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:52e6fbb2eb72807434982f262f5a92e699f4761429a4b304ff932fc86861d1d1"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryMoveItemEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 233,
+  "registrationOrder" : 233,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:de0baec4c76c68bdec058df0a5cb45f0df2a2088b19729bbe8281244f2e17150"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryMoveItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 234,
+  "registrationOrder" : 235,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:5316e274c3c006ae6c6c9a06c5138e4a24c956ef1bb7202742cbefbe8a46816a"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityRegainHealthEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityRegainHealthEvent$RegainReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 235,
+  "registrationOrder" : 236,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c49426654f0a0039253dcdc80fe9b222075a621c94590906b44f172874abfb97"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.FurnaceExtractEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 236,
+  "registrationOrder" : 237,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d43f34fd237582a956cbd53dbaa476bd93a4323ab81027278a97a42318796935"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.FurnaceExtractEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 237,
+  "registrationOrder" : 238,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c1b96738e48dc5a6970ddbc38e17fddeff4ffa953d94da9d8387046259b13488"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 238,
+  "registrationOrder" : 240,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:86239933d50c3686e91f9a762e0fe4631d29f03eeb6652288a65f805f79c88c2"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDropItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 239,
+  "registrationOrder" : 241,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:016a5db3a59ff5720608ee7d47c63c0cd853114b3a5f81b7464c39c74937a5e5"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockDropItemEvent",
+  "valueClass" : "org.bukkit.entity.Entity[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 240,
+  "registrationOrder" : 242,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2e94a0e3bb9ab2e08b727a0a473720343bdeb97d0829f51db51d5fc1cae8d7f8"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent",
+  "valueClass" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent$ChangeReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 241,
+  "registrationOrder" : 243,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:91859c830b0f9ce3dd88319ffbe25311086e558bd0108d627897746cc5aaf249"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent",
+  "valueClass" : "ch.njol.skript.util.Timespan",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 242,
+  "registrationOrder" : 244,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cb7f35aa642d66b499b622981074df2a2bb892fee1f34bdfdfbd10d7dbeb62f1"
+}, {
+  "eventClass" : "org.bukkit.event.vehicle.VehicleMoveEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 243,
+  "registrationOrder" : 246,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b9224fab56a7a5f79c2bcb19cac924b79a95c01902864a828b96dead208755c2"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.block.BeaconEffectEvent",
+  "valueClass" : "org.bukkit.potion.PotionEffectType",
+  "time" : 0,
+  "excludeErrorMessage" : "Use 'applied effect' in beacon effect events.",
+  "excludes" : [ "com.destroystokyo.paper.event.block.BeaconEffectEvent" ],
+  "resolutionOrder" : 244,
+  "registrationOrder" : 248,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1c8f009b0f9111acfa2224f217f5d432ba2a44aaebb7d539d0e6624e40ee3f70"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.block.BeaconEffectEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 245,
+  "registrationOrder" : 249,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:46769d92064b24d8c4c9e7c2eb97fc0cb6952916fa1c279929daef3ad739b74e"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerChangeBeaconEffectEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 246,
+  "registrationOrder" : 250,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:621eb369c60d87b213be28c3f148e54fafffbfe29e5a7fd2fa68df3b16af65a2"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerElytraBoostEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 247,
+  "registrationOrder" : 251,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3ef9789db55fe86b6c4f3aa12f4e43f53984f3b0688bd1b06b84b5c59d0d5936"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerElytraBoostEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 248,
+  "registrationOrder" : 252,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:68246529024ac87786ac051f78a2be5b21a08a46f6d808d5c45a70f72b350934"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderEvent",
+  "valueClass" : "org.bukkit.WorldBorder",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 249,
+  "registrationOrder" : 253,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:51d0825111f2ad69c696107e4b7dfe059ac44b88806566bdd7d5e76a4cfedc35"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderBoundsChangeEvent",
+  "valueClass" : "java.lang.Number",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 250,
+  "registrationOrder" : 254,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:bef9b7ad8b0b750db27e5f45a0f6960b40fbacd55414f170ae3ec131c5aa3db9"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderBoundsChangeEvent",
+  "valueClass" : "ch.njol.skript.util.Timespan",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 251,
+  "registrationOrder" : 256,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e1126517e33cef76f410b9ee8fdc2e11b479d13fa3c83143b830e6c73855a32a"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderBoundsChangeFinishEvent",
+  "valueClass" : "java.lang.Number",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 252,
+  "registrationOrder" : 257,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7deea55efd6ef461160de4a6fd42c72ae738a3daa90ed5fa43856491288417b7"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderBoundsChangeFinishEvent",
+  "valueClass" : "ch.njol.skript.util.Timespan",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 253,
+  "registrationOrder" : 259,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b8379ebc0f8d14d12ecb2f1cd05e38f6ad32f5c556cd08f7fb80c59d86614887"
+}, {
+  "eventClass" : "io.papermc.paper.event.world.border.WorldBorderCenterChangeEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 254,
+  "registrationOrder" : 260,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7db37f7c0093dde1574153ae72413366a32ec065dc100b2614326a544635233d"
+}, {
+  "eventClass" : "org.bukkit.event.block.VaultDisplayItemEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 255,
+  "registrationOrder" : 262,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.inventory.ItemStack" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3fdcac4e3d178a628babcefb587769dbb178d2883573803803cd98ab890d75fd"
+}, {
+  "eventClass" : "org.bukkit.event.entity.VillagerCareerChangeEvent",
+  "valueClass" : "org.bukkit.event.entity.VillagerCareerChangeEvent$ChangeReason",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 256,
+  "registrationOrder" : 263,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:550848aabcf7fe4ba9c5f401d113c207cb34328529d93e44e682b6716495af95"
+}, {
+  "eventClass" : "org.bukkit.event.entity.VillagerCareerChangeEvent",
+  "valueClass" : "org.bukkit.entity.Villager$Profession",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 257,
+  "registrationOrder" : 264,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "org.bukkit.entity.Villager$Profession" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ff03ec3b1369667df6add979537c71d4699d5c7bd7d33d70e8831e359cb946d7"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityBreedEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 258,
+  "registrationOrder" : 266,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:b301a06c07def00efdf6ed2ba7971208ff53fdab1f70617546bde5dee027e10f"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEnterLoveModeEvent",
+  "valueClass" : "org.bukkit.entity.LivingEntity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 259,
+  "registrationOrder" : 267,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a7eb342fbdfae2c67afaae0a0c40d2db7eec49ce147c5a0fc032a9a97c94bc96"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityEnterLoveModeEvent",
+  "valueClass" : "org.bukkit.entity.HumanEntity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 260,
+  "registrationOrder" : 268,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:eeaeb839c3d1760ea4111e3406dca858f2024114b532d0d8cf899b459e71907d"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.BrewingStandFuelEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 261,
+  "registrationOrder" : 269,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:13a967b4392b9a8691e36dc85996f7f8f9ed7eca349792e3e040ee82516b1364"
+}, {
+  "eventClass" : "org.skriptlang.skript.bukkit.damagesource.elements.expressions.ExprSecDamageSource$DamageSourceSectionEvent",
+  "valueClass" : "org.bukkit.damage.DamageSource",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 262,
+  "registrationOrder" : 270,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c93cbdd2af4c9837a95bb2269fcc780b7bf5f78fbba8c7c5113e744e29a5fa94"
+}, {
+  "eventClass" : "io.papermc.paper.event.player.PlayerPickItemEvent",
+  "valueClass" : "ch.njol.skript.util.slot.Slot",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 263,
+  "registrationOrder" : 272,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : {
+    "SET" : [ "ch.njol.skript.util.slot.Slot" ]
+  },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:282a0b6d5daafcb8db3050a5809c2a26a20850a71e63395edb569a52ea8bd4a0"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEntityEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 264,
+  "registrationOrder" : 273,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:eaef73a2fbb689ae2fdb09e473dbe7c886c57e03b58de03a126e0f1989fd4435"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEntityEvent",
+  "valueClass" : "org.bukkit.entity.Player",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 265,
+  "registrationOrder" : 275,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:0aeccf70f48c9ed22eff9c7317e86226165a5c572bf4d4f6ac670efcc05dd8a6"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEntityEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 266,
+  "registrationOrder" : 276,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:544c7a62e3297a3640539f3dd0a05469922fa6d1da1096712da282442e7c3a49"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerFishEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 267,
+  "registrationOrder" : 277,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:3c53714c7af55c6f5cc521707bb6116c89000c21590f598861649a5dfae0a244"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerFishEvent",
+  "valueClass" : "org.bukkit.event.player.PlayerFishEvent$State",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 268,
+  "registrationOrder" : 278,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d766dd79bb9966992f8c82429ad20c818dd08cf5e23c8fc3afa59c8617a23e97"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerFishEvent",
+  "valueClass" : "org.bukkit.entity.FishHook",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 269,
+  "registrationOrder" : 279,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8a4308ef790e30d496684c88a0212562fbe6822d616f91284c428090e6718af3"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerInputEvent",
+  "valueClass" : "org.skriptlang.skript.bukkit.input.InputKey[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 270,
+  "registrationOrder" : 280,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:c1388c663aa4880906e9c03bd4470c1a2ed432fed0fca97bb135771d4429c1f9"
+}, {
+  "eventClass" : "org.skriptlang.skript.bukkit.itemcomponents.equippable.elements.expressions.ExprSecBlankEquipComp$BlankEquippableSectionEvent",
+  "valueClass" : "org.skriptlang.skript.bukkit.itemcomponents.equippable.EquippableWrapper",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 271,
+  "registrationOrder" : 282,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:444f85bfc4b596ab71400fcdcfbeefacbeb156579f8326ba986ee2b0f0d9a495"
+}, {
+  "eventClass" : "org.skriptlang.skript.bukkit.loottables.LootContextCreateEvent",
+  "valueClass" : "org.bukkit.loot.LootContext",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 272,
+  "registrationOrder" : 283,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:2d3db7fb82142cfaee544c4b96140890767ba09842e0fb5c87bbf378133d0749"
+}, {
+  "eventClass" : "org.bukkit.event.world.LootGenerateEvent",
+  "valueClass" : "org.bukkit.entity.Entity",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 273,
+  "registrationOrder" : 284,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:88c3491f62953eb26cdc2b33f5a3d80b4a239e187891f3f958750ef87638e060"
+}, {
+  "eventClass" : "org.bukkit.event.world.LootGenerateEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 274,
+  "registrationOrder" : 285,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8e16b4a3af0641df5d5bf80f30e3d467cd350a4715b61d53b487eb089ece619e"
+}, {
+  "eventClass" : "org.bukkit.event.world.LootGenerateEvent",
+  "valueClass" : "org.bukkit.loot.LootTable",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 275,
+  "registrationOrder" : 286,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:106e72511e2d39bf0e0a34ae9156b858d10c98c4199fd5ec0c44e5731c31547b"
+}, {
+  "eventClass" : "org.bukkit.event.world.LootGenerateEvent",
+  "valueClass" : "org.bukkit.loot.LootContext",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 276,
+  "registrationOrder" : 287,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:aa7275534f718547e1dbdbb00143b857da2086addde6bf3af982b31c97045d34"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPotionEffectEvent",
+  "valueClass" : "org.bukkit.potion.PotionEffect",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 277,
+  "registrationOrder" : 289,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:0c1b1d7c60393ebdb31541d36fd8d2a28b4d5b85a30a5360f5c40cd6395b3d16"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPotionEffectEvent",
+  "valueClass" : "org.bukkit.potion.PotionEffectType",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 278,
+  "registrationOrder" : 290,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:499e973313af5a916196fee88fb18444175d051c2dab9ddbc46f18379749e365"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPotionEffectEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityPotionEffectEvent$Cause",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 279,
+  "registrationOrder" : 291,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:a551959971b04c0c71241d848c8dca34b7c6f6438bce46dca122a5243f3e3cd4"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityPotionEffectEvent",
+  "valueClass" : "org.bukkit.event.entity.EntityPotionEffectEvent$Action",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 280,
+  "registrationOrder" : 292,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d146a0a3ebe183111c065aef490b52b74ed96309c0b23b414f3b9aae293f0e2b"
+}, {
+  "eventClass" : "org.skriptlang.skript.bukkit.potion.elements.expressions.ExprSecPotionEffect$PotionEffectSectionEvent",
+  "valueClass" : "org.skriptlang.skript.bukkit.potion.util.SkriptPotionEffect",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 281,
+  "registrationOrder" : 293,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:6422340881484f8a315cbeacfdf2b9be93d5a03f0903225fab1b426e76160f25"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 282,
+  "registrationOrder" : 294,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skriptdummyaddon:a1c1cd7611386a82eaa9a4942660ea9b90a9151a3510d417faaaad605fb7a7d2"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "java.lang.String",
+  "time" : 0,
+  "excludeErrorMessage" : "The child fixture event deliberately excludes this value.",
+  "excludes" : [ "jp.nlaocs.skriptDummyAddon.fixture.model.DummyChildEvent" ],
+  "resolutionOrder" : 283,
+  "registrationOrder" : 296,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skriptdummyaddon:dd12ddfb2e9152fc728e3f796f010c26fa8ebbcddd137899b34f6f03f3d8b152"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue[]",
+  "time" : 0,
+  "excludes" : [ ],
+  "resolutionOrder" : 284,
+  "registrationOrder" : 297,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skriptdummyaddon:f5059653dd5f2e4fecebfbe2bdd47649886701d05e7cedbe0b97bcea707f77d9"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.eventvalue.ModernEventValueFixtures$ModernFixtureEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "time" : 0,
+  "excludeErrorMessage" : "The excluded modern fixture event has no mutable dummy value.",
+  "excludes" : [ "jp.nlaocs.skriptDummyAddon.fixture.eventvalue.ModernEventValueFixtures$ExcludedModernFixtureEvent" ],
+  "resolutionOrder" : 285,
+  "registrationOrder" : 298,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "patterns" : [ "dummy modern value", "dummy contextual value" ],
+  "acceptedChangers" : {
+    "SET" : [ "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue" ]
+  },
+  "contextDependent" : true,
+  "hasCustomInputValidator" : true,
+  "hasCustomEventValidator" : true,
+  "registrationId" : "event-value:skriptdummyaddon:28379d7bdcb677331525d4f3ad69f8d8281318f295e3487d5338a2f809d120e0"
+}, {
+  "eventClass" : "com.destroystokyo.paper.event.player.PlayerArmorChangeEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 286,
+  "registrationOrder" : 19,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d1bef6a1f3759dbe2f1644c1680cfbe7b5dd1c60e6e3b333db8399b79e073516"
+}, {
+  "eventClass" : "org.bukkit.event.world.StructureGrowEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 287,
+  "registrationOrder" : 34,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:7d5ea5d142f9d7b1954a3d1c09d79b7d7653f0eaec75e3f133e364ef5c706716"
+}, {
+  "eventClass" : "org.bukkit.event.world.StructureGrowEvent",
+  "valueClass" : "org.bukkit.block.Block[]",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 288,
+  "registrationOrder" : 35,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:41a414c65ea85c80a707c0d75084a1d60cbf4f03788402f9ce480dd7e4acaafa"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockPlaceEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 289,
+  "registrationOrder" : 44,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:1d2b5111cd1a11d8a8e6d98a4eb5d827d756fd5d653bb2847dcf7293c671f80c"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFadeEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 290,
+  "registrationOrder" : 49,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:896780e840bb9017220c2bc775ad30af7ba80435df584a94fb224e677479e99b"
+}, {
+  "eventClass" : "org.bukkit.event.block.BlockFromToEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 291,
+  "registrationOrder" : 56,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:35cdbf3806171d6323b378c356b5b7133c39cc7cefe9efefe8ff767a2822e2d7"
+}, {
+  "eventClass" : "org.bukkit.event.entity.EntityChangeBlockEvent",
+  "valueClass" : "org.bukkit.block.data.BlockData",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 292,
+  "registrationOrder" : 87,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:e69155a433c8f08b893731752fba8accd389e2edfdba2452df829820c39a4912"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketFillEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 293,
+  "registrationOrder" : 98,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:fb88739e48b43a8c44d7160a6f85284d954e0d527629a314a1197ea251657aa6"
+}, {
+  "eventClass" : "org.bukkit.event.entity.ItemMergeEvent",
+  "valueClass" : "org.bukkit.entity.Item",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 294,
+  "registrationOrder" : 192,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:cdb9b36c3d42d184a64566036286ab7c933170a8d0e64de41bf1aa6fc6880703"
+}, {
+  "eventClass" : "io.papermc.paper.event.entity.EntityMoveEvent",
+  "valueClass" : "org.bukkit.Location",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 295,
+  "registrationOrder" : 196,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:ca4b8fb49a345ec6de0661319392bb0c547e294c8572006c717d1d397e2bedd9"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryMoveItemEvent",
+  "valueClass" : "org.bukkit.inventory.Inventory",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 296,
+  "registrationOrder" : 232,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:d5a351fd74b34b7ec578c53a75746c15d771ddb6018ce83036249c5f5055a509"
+}, {
+  "eventClass" : "org.bukkit.event.inventory.InventoryMoveItemEvent",
+  "valueClass" : "org.bukkit.block.Block",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 297,
+  "registrationOrder" : 234,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:0cacc5bd532d9e1093d19cb7a2a73df98607564db3b2c57e663df45953b5b118"
+}, {
+  "eventClass" : "org.bukkit.event.player.PlayerBucketEntityEvent",
+  "valueClass" : "org.bukkit.inventory.ItemStack",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 298,
+  "registrationOrder" : 274,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skript:8fd074bf6809a72d5953fbffe96ceb3258498efd049794a18f806a5e4376709c"
+}, {
+  "eventClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyEvent",
+  "valueClass" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "time" : 1,
+  "excludes" : [ ],
+  "resolutionOrder" : 299,
+  "registrationOrder" : 295,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "patterns" : [ ],
+  "acceptedChangers" : { },
+  "contextDependent" : false,
+  "hasCustomInputValidator" : false,
+  "hasCustomEventValidator" : false,
+  "registrationId" : "event-value:skriptdummyaddon:deaf89cccaab89067c94a2e45d4fc1b247ddb764c36ee6c32aff276e0b8b904d"
+} ]

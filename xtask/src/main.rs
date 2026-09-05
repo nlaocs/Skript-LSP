@@ -19,6 +19,7 @@ struct ComponentSpec {
     module_name: &'static str,
     artifact_name: &'static str,
     display_name: &'static str,
+    feature: Option<&'static str>,
 }
 
 const CORE_LIBRARY: ComponentSpec = ComponentSpec {
@@ -26,6 +27,7 @@ const CORE_LIBRARY: ComponentSpec = ComponentSpec {
     module_name: "core_library.wasm",
     artifact_name: "core-library.wasm",
     display_name: "CoreLibrary",
+    feature: None,
 };
 
 const DYNAMIC_SYNTAX_ADDON: ComponentSpec = ComponentSpec {
@@ -33,6 +35,7 @@ const DYNAMIC_SYNTAX_ADDON: ComponentSpec = ComponentSpec {
     module_name: "dynamic_syntax_addon.wasm",
     artifact_name: "dynamic-syntax-addon.wasm",
     display_name: "dynamic syntax test addon",
+    feature: None,
 };
 
 const CATALOG_DATA_ADDON: ComponentSpec = ComponentSpec {
@@ -40,6 +43,7 @@ const CATALOG_DATA_ADDON: ComponentSpec = ComponentSpec {
     module_name: "catalog_data_addon.wasm",
     artifact_name: "catalog-data-addon.wasm",
     display_name: "Catalog Data test addon",
+    feature: None,
 };
 
 const EFFECT_ADDON: ComponentSpec = ComponentSpec {
@@ -47,12 +51,14 @@ const EFFECT_ADDON: ComponentSpec = ComponentSpec {
     module_name: "effect_addon.wasm",
     artifact_name: "effect-addon.wasm",
     display_name: "Effect hook test addon",
+    feature: None,
 };
 const MATCHING_ADDON: ComponentSpec = ComponentSpec {
     package: "matching-addon",
     module_name: "matching_addon.wasm",
     artifact_name: "matching-addon.wasm",
     display_name: "matching hook test addon",
+    feature: None,
 };
 
 const TEXT_MACRO_ADDON: ComponentSpec = ComponentSpec {
@@ -60,12 +66,38 @@ const TEXT_MACRO_ADDON: ComponentSpec = ComponentSpec {
     module_name: "text_macro_addon.wasm",
     artifact_name: "text-macro-addon.wasm",
     display_name: "text macro test addon",
+    feature: None,
 };
 const TREE_MACRO_ADDON: ComponentSpec = ComponentSpec {
     package: "tree-macro-addon",
     module_name: "tree_macro_addon.wasm",
     artifact_name: "tree-macro-addon.wasm",
     display_name: "tree macro test addon",
+    feature: None,
+};
+
+const TYPE_PARSER_ADDON: ComponentSpec = ComponentSpec {
+    package: "type-parser-addon",
+    module_name: "type_parser_addon.wasm",
+    artifact_name: "type-parser-addon.wasm",
+    display_name: "Type parser test addon",
+    feature: None,
+};
+
+const EXPRESSION_DATA_ADDON_A: ComponentSpec = ComponentSpec {
+    package: "expression-data-addon",
+    module_name: "expression_data_addon.wasm",
+    artifact_name: "expression-data-addon-a.wasm",
+    display_name: "expression data test addon A",
+    feature: None,
+};
+
+const EXPRESSION_DATA_ADDON_B: ComponentSpec = ComponentSpec {
+    package: "expression-data-addon",
+    module_name: "expression_data_addon.wasm",
+    artifact_name: "expression-data-addon-b.wasm",
+    display_name: "expression data test addon B",
+    feature: Some("addon-b"),
 };
 
 fn main() -> Result<()> {
@@ -89,7 +121,10 @@ fn build_test_components() -> Result<()> {
         &MATCHING_ADDON,
         &TEXT_MACRO_ADDON,
         &TREE_MACRO_ADDON,
-    ])
+        &TYPE_PARSER_ADDON,
+    ])?;
+    build_components(&[&EXPRESSION_DATA_ADDON_A])?;
+    build_components(&[&EXPRESSION_DATA_ADDON_B])
 }
 
 fn build_components(specs: &[&ComponentSpec]) -> Result<()> {
@@ -110,6 +145,11 @@ fn build_components(specs: &[&ComponentSpec]) -> Result<()> {
     command.current_dir(&root).args(["build", "--locked"]);
     for spec in specs {
         command.args(["--package", spec.package]);
+    }
+    if specs.len() == 1
+        && let Some(feature) = first.feature
+    {
+        command.args(["--no-default-features", "--features", feature]);
     }
     let status = command
         .args(["--target", TARGET, "--profile", PROFILE, "--target-dir"])

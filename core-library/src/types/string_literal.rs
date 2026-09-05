@@ -3,6 +3,14 @@ use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
 };
 
+pub(super) const PARSER: super::TypeParser = super::TypeParser {
+    id: "core.type.string",
+    classes: &["java.lang.String"],
+    parse,
+    unresolved: None,
+    all_type_options: false,
+};
+
 pub(super) fn parse(
     payload: &ExpressionPayload,
     text: &str,
@@ -11,14 +19,17 @@ pub(super) fn parse(
     if !payload.allow_literals || !is_quoted_correctly(text) || !has_balanced_percent_signs(text) {
         return None;
     }
-    Some(candidate(
+    let mut parsed = candidate(
         "core.literal.string",
         ExpressionLeafKind::Literal,
         payload.remaining.start,
         end,
         "java.lang.String",
         DynamicMultiplicity::Single,
-    ))
+    );
+    parsed.timing =
+        crate::nlaocs::skript_parser_addon::types::ExpressionLeafTiming::BeforeRegistered;
+    Some(parsed)
 }
 
 /// Mirrors `VariableString.isQuotedCorrectly(string, true)`. Quotes inside an

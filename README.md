@@ -92,6 +92,7 @@ Skript/addon syntax; addon-specific semantics may also require a WASM addon.
 | [`catalog-data-addon`](./test-components/catalog-data-addon/) | test WASM component | Exercises complete source-document and record access, catalog queries, and response limits through WIT. |
 | [effect-addon](./test-components/effect-addon/) | test WASM component | Exercises Effect lifecycle replacement, rejection diagnostics, dynamic handlers, and selected-state rollback. |
 | [matching-addon](./test-components/matching-addon/) | test WASM component | Exercises typed matching overrides and selected-candidate StateStore rollback. |
+| [`expression-data-addon`](./test-components/expression-data-addon/) | test WASM component | Exercises node-local schema-versioned Expression public data, Transform/Override replacement and removal, and lossless raw JSON across two feature variants. |
 | [`effect-command-cli`](./utilities/effect-command-cli/) | analysis utility | Builds `effectcommandcli`, a standalone one-shot and REPL inspector for Effect patterns, Event contexts, captures, recursive Expressions, and resolved types from an SSG snapshot. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |
 | [`xtask`](./xtask/) | build utility | Builds core Wasm modules, converts them to Components, validates exports, and publishes local artifacts. |
@@ -159,6 +160,7 @@ keeping test assertions and overflow checks; normal release settings are separat
 
 `xtask` writes `artifacts/core-library.wasm` and
 `artifacts/catalog-data-addon.wasm`, `artifacts/dynamic-syntax-addon.wasm`, `artifacts/effect-addon.wasm`,
+`artifacts/expression-data-addon-a.wasm`, `artifacts/expression-data-addon-b.wasm`,
 `artifacts/matching-addon.wasm`,
 `artifacts/text-macro-addon.wasm`, and `artifacts/tree-macro-addon.wasm`.
 Generated artifacts are not committed.

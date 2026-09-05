@@ -1,0 +1,1079 @@
+[ {
+  "registrationOrder" : 0,
+  "firstType" : "org.bukkit.event.inventory.InventoryAction",
+  "secondType" : "org.bukkit.event.inventory.InventoryAction",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:cb28b493dc98cba064a0ca3c5e10a6e9f0809bbb2df7f7fbba365f551c301746"
+}, {
+  "registrationOrder" : 1,
+  "firstType" : "org.bukkit.event.inventory.ClickType",
+  "secondType" : "org.bukkit.event.inventory.ClickType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:1bb40b6af0db4fe3ef0d538e3dddab180a3583adce8ba6c23eaaaa02cf4c089b"
+}, {
+  "registrationOrder" : 2,
+  "firstType" : "org.bukkit.event.inventory.InventoryType",
+  "secondType" : "org.bukkit.event.inventory.InventoryType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:7d6370f57f0b392d277e63f84c5e7af8fc9931f86d2813839e022eb4acb497b2"
+}, {
+  "registrationOrder" : 3,
+  "firstType" : "org.bukkit.GameMode",
+  "secondType" : "org.bukkit.GameMode",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:807aeb4c0d963f5ab3baba8da5723d528f9ed0a501daafc0db8278a53ee1ebb4"
+}, {
+  "registrationOrder" : 4,
+  "firstType" : "org.bukkit.block.Biome",
+  "secondType" : "org.bukkit.block.Biome",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:bbb44fa7a4179fa53e3d7e12b1e48ea23231fa116f1db5175a4f212c905ca0b9"
+}, {
+  "registrationOrder" : 5,
+  "firstType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "secondType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:fed0091fe099f742cb5b4bf3404dda1d7e147e0e3028f78a5f36a85857cf225c"
+}, {
+  "registrationOrder" : 6,
+  "firstType" : "org.bukkit.enchantments.Enchantment",
+  "secondType" : "org.bukkit.enchantments.Enchantment",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:4c91a84ac01da73bba389a296b1346c106d74b7f876e6633b2e9ad48c4140fd6"
+}, {
+  "registrationOrder" : 7,
+  "firstType" : "org.bukkit.event.player.PlayerTeleportEvent$TeleportCause",
+  "secondType" : "org.bukkit.event.player.PlayerTeleportEvent$TeleportCause",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e8f8388f504832c2259c77160ce4c929e2b7ebbab7566ff3a88ad9f40bc07645"
+}, {
+  "registrationOrder" : 8,
+  "firstType" : "org.bukkit.event.entity.CreatureSpawnEvent$SpawnReason",
+  "secondType" : "org.bukkit.event.entity.CreatureSpawnEvent$SpawnReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:dea7eab017786101f963e7ae0a3a8027d1d0d79d09a5ca537a48b1ac72f44e72"
+}, {
+  "registrationOrder" : 9,
+  "firstType" : "org.bukkit.event.player.PlayerRespawnEvent$RespawnReason",
+  "secondType" : "org.bukkit.event.player.PlayerRespawnEvent$RespawnReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:9c66764903acc270cc07528361b3949100696d141884ecae765038c5929986ff"
+}, {
+  "registrationOrder" : 10,
+  "firstType" : "org.bukkit.FireworkEffect$Type",
+  "secondType" : "org.bukkit.FireworkEffect$Type",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:75e782cc5b140355f998f8fe850b21607e74488397213121a601a355b3a4fc03"
+}, {
+  "registrationOrder" : 11,
+  "firstType" : "org.bukkit.Difficulty",
+  "secondType" : "org.bukkit.Difficulty",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:3f43fadaaa415ab874196865b54d8e5c246ff14d15bd79083cd3faac07575b4e"
+}, {
+  "registrationOrder" : 12,
+  "firstType" : "org.bukkit.event.player.PlayerResourcePackStatusEvent$Status",
+  "secondType" : "org.bukkit.event.player.PlayerResourcePackStatusEvent$Status",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:8bd360d34d586f953dfccef479716c883b3c47c6873203ce5805b4be199ba003"
+}, {
+  "registrationOrder" : 13,
+  "firstType" : "org.bukkit.SoundCategory",
+  "secondType" : "org.bukkit.SoundCategory",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:72d25d8fa53dd855fd82a6410d9ab77b540b3a1441680d27d3058b52ef679bb1"
+}, {
+  "registrationOrder" : 14,
+  "firstType" : "org.bukkit.event.entity.EntityRegainHealthEvent$RegainReason",
+  "secondType" : "org.bukkit.event.entity.EntityRegainHealthEvent$RegainReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:53c0f77f6d4a96406f5847362a6f75b6cae51b474e55243408d744c1e20134de"
+}, {
+  "registrationOrder" : 15,
+  "firstType" : "org.bukkit.attribute.Attribute",
+  "secondType" : "org.bukkit.attribute.Attribute",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:40b44ff56661ed01acfbd7bce1a28c0c5a65e8ffa5a42b0bbbd2b816357cf76f"
+}, {
+  "registrationOrder" : 16,
+  "firstType" : "org.bukkit.World$Environment",
+  "secondType" : "org.bukkit.World$Environment",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:44252597d247164f767fb8a5ca23a87a8805d2bbb0c75c16f84c390356cfa542"
+}, {
+  "registrationOrder" : 17,
+  "firstType" : "io.papermc.paper.world.MoonPhase",
+  "secondType" : "io.papermc.paper.world.MoonPhase",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e8ec3ccbee6315043e8d19a5188ced8ee984cd6fe81b5e0b71c6bd7b58e5aecd"
+}, {
+  "registrationOrder" : 18,
+  "firstType" : "org.bukkit.event.player.PlayerQuitEvent$QuitReason",
+  "secondType" : "org.bukkit.event.player.PlayerQuitEvent$QuitReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:4e818a519d5689877fdb263a57c8c7fe15cef86b4e97b908a530b5c2f0ab3a51"
+}, {
+  "registrationOrder" : 19,
+  "firstType" : "org.bukkit.event.inventory.InventoryCloseEvent$Reason",
+  "secondType" : "org.bukkit.event.inventory.InventoryCloseEvent$Reason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e2584977f8a0fedb61e4f8840777e1a73a3e990800923f72c84bd70e1f797513"
+}, {
+  "registrationOrder" : 20,
+  "firstType" : "org.bukkit.event.entity.EntityTransformEvent$TransformReason",
+  "secondType" : "org.bukkit.event.entity.EntityTransformEvent$TransformReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:eb53b3c796b75d29297ac1c055e119529de999f8eb8f5996af2c4403a36f5e87"
+}, {
+  "registrationOrder" : 21,
+  "firstType" : "org.bukkit.event.entity.EntityUnleashEvent$UnleashReason",
+  "secondType" : "org.bukkit.event.entity.EntityUnleashEvent$UnleashReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:bc8bf83ba65b5bc0012f68328df498cf362ea53d16155c5c9b06af6b64faecef"
+}, {
+  "registrationOrder" : 22,
+  "firstType" : "org.bukkit.inventory.ItemFlag",
+  "secondType" : "org.bukkit.inventory.ItemFlag",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e6c67f320010e8aca88fb334b1f22b6e3cb45890f70b1c2242e3d2bc9c819e1e"
+}, {
+  "registrationOrder" : 23,
+  "firstType" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent$ChangeReason",
+  "secondType" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent$ChangeReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:0eeada982b8ad00f1a3c8f6c08e31b362723b2b8f74cbcc33ef85c41cc658d4f"
+}, {
+  "registrationOrder" : 24,
+  "firstType" : "org.bukkit.entity.Villager$Type",
+  "secondType" : "org.bukkit.entity.Villager$Type",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:556f30312633978172711841e90e3c100a3de53cffe6e58877076ef909f58c8d"
+}, {
+  "registrationOrder" : 25,
+  "firstType" : "org.bukkit.entity.Villager$Profession",
+  "secondType" : "org.bukkit.entity.Villager$Profession",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e379f75918990a596f71f96bafbff5809d50bd6a0c5bbfdc9138e94b02e000a4"
+}, {
+  "registrationOrder" : 26,
+  "firstType" : "org.bukkit.block.banner.PatternType",
+  "secondType" : "org.bukkit.block.banner.PatternType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:1b6111c49ab2adfbf6e95e2948fbae0d3fa0b893299b3beda44ab93dcdb21772"
+}, {
+  "registrationOrder" : 27,
+  "firstType" : "ch.njol.skript.bukkitutil.SkriptTeleportFlag",
+  "secondType" : "ch.njol.skript.bukkitutil.SkriptTeleportFlag",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:0ed2dccdd7647c7d853f5f5d78b6064bbeeafd83f55de6c5cd097a7f59e05444"
+}, {
+  "registrationOrder" : 28,
+  "firstType" : "org.bukkit.inventory.EquipmentSlot",
+  "secondType" : "org.bukkit.inventory.EquipmentSlot",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:7b272140ef7a9f3ab7f80daa451e6e125ddd096b88f16fd338390fe78dc33c11"
+}, {
+  "registrationOrder" : 29,
+  "firstType" : "org.bukkit.event.entity.VillagerCareerChangeEvent$ChangeReason",
+  "secondType" : "org.bukkit.event.entity.VillagerCareerChangeEvent$ChangeReason",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:6d3cccddd6c14d9af5fbe1b12a781e1fd631df76b00140a0e194ecf99587d5cd"
+}, {
+  "registrationOrder" : 30,
+  "firstType" : "java.lang.Number",
+  "secondType" : "java.lang.Number",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:a4cb679ef991d6e977a68089a0521eb7b9eec03d0635ba430eb0a56af9607a18"
+}, {
+  "registrationOrder" : 31,
+  "firstType" : "ch.njol.skript.util.slot.Slot",
+  "secondType" : "ch.njol.skript.util.slot.Slot",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:6b9ee2724a718eca4188736691de0d4859bc829c8fb90a507f16bf6a053d9339"
+}, {
+  "registrationOrder" : 32,
+  "firstType" : "ch.njol.skript.util.slot.Slot",
+  "secondType" : "java.lang.Number",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:fbfcfee849b1c0ed58a28f4529eb22c497cf2f91d17dda2d7d690ea5f46edbf6"
+}, {
+  "registrationOrder" : 33,
+  "firstType" : "ch.njol.skript.util.slot.Slot",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:b5bb250dfd6b69b82a9940e975bbd844df464af004963b442d23411a3f33cfef"
+}, {
+  "registrationOrder" : 34,
+  "firstType" : "ch.njol.skript.aliases.ItemType",
+  "secondType" : "ch.njol.skript.util.slot.Slot",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:0405709215d4a8ca961796ff0f8182b647e62dd614b5b62cd42bccc76f847b0b"
+}, {
+  "registrationOrder" : 35,
+  "firstType" : "org.bukkit.inventory.ItemStack",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:91789868ee2f749d9bb9f396c8880c488ef8bcebc9d1c7ff17613e58510f2526"
+}, {
+  "registrationOrder" : 36,
+  "firstType" : "ch.njol.skript.aliases.ItemType",
+  "secondType" : "org.bukkit.inventory.ItemStack",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:704343b06bd100e98b5439302d10640b36e8620cb03989756aab7bbecfad3f27"
+}, {
+  "registrationOrder" : 37,
+  "firstType" : "org.bukkit.block.Block",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:c549c2a1572ab89ea28372bd7c361811d13ef52760d6ccdb877217bd461e16e9"
+}, {
+  "registrationOrder" : 38,
+  "firstType" : "org.bukkit.block.Block",
+  "secondType" : "org.bukkit.block.data.BlockData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:b38746162fa6de3e967b69459cd186f775e09220b1b029b808a90e5236224434"
+}, {
+  "registrationOrder" : 39,
+  "firstType" : "org.bukkit.block.data.BlockData",
+  "secondType" : "org.bukkit.block.data.BlockData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:c29376ffccce5da7116cf8aaef618563d738b230b4e055046c0b8c0ac0136867"
+}, {
+  "registrationOrder" : 40,
+  "firstType" : "ch.njol.skript.aliases.ItemType",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : false,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e0d11a4426a194669f2641603c6e2338cc5f953660d9537b12687773afc0ed2d"
+}, {
+  "registrationOrder" : 41,
+  "firstType" : "org.bukkit.block.Block",
+  "secondType" : "org.bukkit.block.Block",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:fb0d6c1b077dbb339fc32f8b162c7c15135cbfd1e290657a53bf07197deb65f5"
+}, {
+  "registrationOrder" : 42,
+  "firstType" : "org.bukkit.entity.Entity",
+  "secondType" : "ch.njol.skript.entity.EntityData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:f04581826993ca6f848e27e93f5bdf0158688b256c0d72f7601152d34d3097d1"
+}, {
+  "registrationOrder" : 43,
+  "firstType" : "ch.njol.skript.entity.EntityData",
+  "secondType" : "ch.njol.skript.entity.EntityData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:43deca9d68b5d2a3f6ea46bab2f68f950f4be17472ce548d82600ac22d60e8fc"
+}, {
+  "registrationOrder" : 44,
+  "firstType" : "ch.njol.skript.entity.EntityData",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:734032e7ac4465b1d9cbc55be5810bcc8dd5dd2e6015ef025175b3d92aef1099"
+}, {
+  "registrationOrder" : 45,
+  "firstType" : "org.bukkit.entity.Entity",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e16fda15607088f35911c2c5fa56ca79635df043372301930a8d2b2a6e60f096"
+}, {
+  "registrationOrder" : 46,
+  "firstType" : "org.bukkit.command.CommandSender",
+  "secondType" : "org.bukkit.command.CommandSender",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:3befbe0a5f252529dbf1b0b1252d8c48f98580e8052d4fed2a6bf0bfd1199f4a"
+}, {
+  "registrationOrder" : 47,
+  "firstType" : "org.bukkit.OfflinePlayer",
+  "secondType" : "org.bukkit.OfflinePlayer",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:c6576bec7f9417cdd52af643b853b325dce20a21a2d82ac0ae0d9845ff293337"
+}, {
+  "registrationOrder" : 48,
+  "firstType" : "org.bukkit.OfflinePlayer",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:862a235e03bcbe5d9ef2e6cb9c77fe6e85107e505dcdad29cd7948ee518ac1bb"
+}, {
+  "registrationOrder" : 49,
+  "firstType" : "org.bukkit.OfflinePlayer",
+  "secondType" : "java.util.UUID",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:ba664b777c459921f27de6e39b5cece6a4f593634efdc4192e35f8d576876de6"
+}, {
+  "registrationOrder" : 50,
+  "firstType" : "org.bukkit.World",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:b5c7a04f479b2f637d38fef3f16c0e56c912f2763940b3671ea1eee3b5043515"
+}, {
+  "registrationOrder" : 51,
+  "firstType" : "java.lang.String",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:71212a46801a095b6f82ab24df60551c506dc5fa97c48714be53bc48d1ec49cd"
+}, {
+  "registrationOrder" : 52,
+  "firstType" : "ch.njol.skript.util.Date",
+  "secondType" : "ch.njol.skript.util.Date",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:6e8e47813ec56885f5bc476fa841316177f990097a63c4d3cfdf7e324d7e131c"
+}, {
+  "registrationOrder" : 53,
+  "firstType" : "ch.njol.skript.util.Time",
+  "secondType" : "ch.njol.skript.util.Time",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:88d4a98c519983e90caa89c558d3d9fef2cdb0aef8e620b7515a4d162ba9df04"
+}, {
+  "registrationOrder" : 54,
+  "firstType" : "ch.njol.skript.util.Timespan",
+  "secondType" : "ch.njol.skript.util.Timespan",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:04f558dcf3e45511bfc405e36d6357f594e418a9da142ad20aa03d08a965861f"
+}, {
+  "registrationOrder" : 55,
+  "firstType" : "ch.njol.skript.util.Time",
+  "secondType" : "ch.njol.skript.util.Timeperiod",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:0d1b6dc477fccf0aec6a9f4f8b2a16a5c9877b5b5e7f173af837a2528ca6aae9"
+}, {
+  "registrationOrder" : 56,
+  "firstType" : "ch.njol.skript.util.StructureType",
+  "secondType" : "ch.njol.skript.util.StructureType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:66b5970684786d36fe7aa5626806661c3141bdb6d106830bf872054335466428"
+}, {
+  "registrationOrder" : 57,
+  "firstType" : "java.lang.Object",
+  "secondType" : "ch.njol.skript.classes.ClassInfo",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:f6a1ae8c4196ab6b7c36ac6edfb0595a6546b766a01e4f77260d86f0c90d5817"
+}, {
+  "registrationOrder" : 58,
+  "firstType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "secondType" : "ch.njol.skript.aliases.ItemType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:5983b0b953f48d7d55a2c10e9fe531eb9ded79809971e7dd6e554560abab2331"
+}, {
+  "registrationOrder" : 59,
+  "firstType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+  "secondType" : "ch.njol.skript.entity.EntityData",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:174093e3dabc890b6287788b1fc0d53daad9063f6e4260984e409acd141494e5"
+}, {
+  "registrationOrder" : 60,
+  "firstType" : "ch.njol.skript.util.GameruleValue",
+  "secondType" : "ch.njol.skript.util.GameruleValue",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:394d7a69a3d15a6c676428d5d360be2c8ba09b23e6f279d82a44263adfee3719"
+}, {
+  "registrationOrder" : 61,
+  "firstType" : "ch.njol.skript.util.GameruleValue",
+  "secondType" : "java.lang.Number",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:ab698683e7292f14a03d14cdc8f7c299f3ef352104e57fdd8603b9b0123138e3"
+}, {
+  "registrationOrder" : 62,
+  "firstType" : "ch.njol.skript.util.GameruleValue",
+  "secondType" : "java.lang.Boolean",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:619ca03bc5d3f713e990ff8abdd3e27c1450fd63e350615066beaf62c7339d84"
+}, {
+  "registrationOrder" : 63,
+  "firstType" : "org.bukkit.enchantments.EnchantmentOffer",
+  "secondType" : "ch.njol.skript.util.EnchantmentType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:dd5dfe62887c2a69edcc209ef8baae5f7b9b50fd77e41b8701261ae2864cbcee"
+}, {
+  "registrationOrder" : 64,
+  "firstType" : "org.bukkit.enchantments.EnchantmentOffer",
+  "secondType" : "ch.njol.skript.util.Experience",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:adfc3ac80c58f9e357b0c359dca889ce3522b4a756e1f004801abd8636eacc05"
+}, {
+  "registrationOrder" : 65,
+  "firstType" : "ch.njol.skript.util.EnchantmentType",
+  "secondType" : "org.bukkit.enchantments.Enchantment",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:6bf62481f1ca84d3bda06c663f2a18d55415f85cb6e5be1d502bf69e15590e4d"
+}, {
+  "registrationOrder" : 66,
+  "firstType" : "org.bukkit.inventory.Inventory",
+  "secondType" : "org.bukkit.event.inventory.InventoryType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:abb063de5798a9cf72e856141279905519d0acb3daa106f299f220c4b040716d"
+}, {
+  "registrationOrder" : 67,
+  "firstType" : "org.bukkit.World",
+  "secondType" : "ch.njol.skript.util.WeatherType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:a08a02b630881775ccf7945ae80239407845e3282d107120969166687d2360e8"
+}, {
+  "registrationOrder" : 68,
+  "firstType" : "org.bukkit.Location",
+  "secondType" : "org.bukkit.Location",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:9865a095be2f08ef053c4b4cfa7105e9d46b632958646e737d9f32531a1fbc6f"
+}, {
+  "registrationOrder" : 69,
+  "firstType" : "ch.njol.skript.util.Color",
+  "secondType" : "ch.njol.skript.util.Color",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:ce3700d0186b27ba30f43efc312b59f86f4c669184f155da12084c19ba695443"
+}, {
+  "registrationOrder" : 70,
+  "firstType" : "ch.njol.skript.util.Color",
+  "secondType" : "org.bukkit.Color",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e96aed207fa001c86e39df0decd3efd86cd09c41a692e4db3fda2dd656771176"
+}, {
+  "registrationOrder" : 71,
+  "firstType" : "org.bukkit.Color",
+  "secondType" : "org.bukkit.Color",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:ca6848e0271ca711aaf3d547b4edef44e06e965ba165e767e92852104b0b288d"
+}, {
+  "registrationOrder" : 72,
+  "firstType" : "org.bukkit.entity.EntitySnapshot",
+  "secondType" : "org.bukkit.entity.EntitySnapshot",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e9d237085cfaff6acc00eb774950a112749ba716f0f97c6821297a1a96906447"
+}, {
+  "registrationOrder" : 73,
+  "firstType" : "java.util.UUID",
+  "secondType" : "java.util.UUID",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:2d3d45dfbe6c616649763a9393e03a92b62336c4945283e9eddf54f60cb4806a"
+}, {
+  "registrationOrder" : 74,
+  "firstType" : "java.util.UUID",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:5fe5086fdeaf8d9deaa89dcd852f4af36bb7b84e73fe354492113d29cb2c51e1"
+}, {
+  "registrationOrder" : 75,
+  "firstType" : "org.bukkit.damage.DamageType",
+  "secondType" : "org.bukkit.damage.DamageType",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:3905524fb1795f9c9e23d46debb7294dd0d0be3ffb5d53941fe18fccaafa0f19"
+}, {
+  "registrationOrder" : 76,
+  "firstType" : "org.bukkit.entity.Display$Billboard",
+  "secondType" : "org.bukkit.entity.Display$Billboard",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:ec53f90d6298c5b738fa84d00b40928517f915814f5c5736b9fbddccf4abf415"
+}, {
+  "registrationOrder" : 77,
+  "firstType" : "org.bukkit.entity.TextDisplay$TextAlignment",
+  "secondType" : "org.bukkit.entity.TextDisplay$TextAlignment",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:3eb00211ec03e87e089d10c127e7307ea52e5c38423bacd957a0e87a04e4a834"
+}, {
+  "registrationOrder" : 78,
+  "firstType" : "org.bukkit.entity.ItemDisplay$ItemDisplayTransform",
+  "secondType" : "org.bukkit.entity.ItemDisplay$ItemDisplayTransform",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:981366cf1366a611858498b4cb5f2603a2100268fd16984cbe77ea47933087a5"
+}, {
+  "registrationOrder" : 79,
+  "firstType" : "org.bukkit.event.player.PlayerFishEvent$State",
+  "secondType" : "org.bukkit.event.player.PlayerFishEvent$State",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:75df20a68a4892dd26548aefabba038e28afa068a802fb29cf59d5f0cd2529a9"
+}, {
+  "registrationOrder" : 80,
+  "firstType" : "org.skriptlang.skript.bukkit.input.InputKey",
+  "secondType" : "org.skriptlang.skript.bukkit.input.InputKey",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:d43398b273f32b845246548b9fd6eb717de59b59b7579d9a1549a74caab9a0a2"
+}, {
+  "registrationOrder" : 81,
+  "firstType" : "org.bukkit.EntityEffect",
+  "secondType" : "org.bukkit.EntityEffect",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:7a8129db045ba78b469290bc1d729015ec00ee3b381406c0eba1a1c83738322a"
+}, {
+  "registrationOrder" : 82,
+  "firstType" : "org.bukkit.event.entity.EntityPotionEffectEvent$Cause",
+  "secondType" : "org.bukkit.event.entity.EntityPotionEffectEvent$Cause",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:39941e88e4582e0d3cdf849406bc0c83f6d2b11b513a467989e984232abbd88d"
+}, {
+  "registrationOrder" : 83,
+  "firstType" : "org.bukkit.event.entity.EntityPotionEffectEvent$Action",
+  "secondType" : "org.bukkit.event.entity.EntityPotionEffectEvent$Action",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:83864c7778fdb4f440fe9bc1ce87da5429a9fadfd77af355799e25f04cda2c0d"
+}, {
+  "registrationOrder" : 84,
+  "firstType" : "org.bukkit.potion.PotionEffectTypeCategory",
+  "secondType" : "org.bukkit.potion.PotionEffectTypeCategory",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:b88469a4f2cb4402991ea1ef6368d9940f914ba7c149a6b53acc48edb7d53472"
+}, {
+  "registrationOrder" : 85,
+  "firstType" : "org.bukkit.potion.PotionEffectType",
+  "secondType" : "org.bukkit.potion.PotionEffectTypeCategory",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:f72d75a4d4f7ed312c5c30d0be2e99a445761e5e3a3e56aa4906efe9c7041ac6"
+}, {
+  "registrationOrder" : 86,
+  "firstType" : "org.bukkit.Tag",
+  "secondType" : "org.bukkit.Tag",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:1e8538d128cfb69a3dd36e57343daae9de48f4b0c514005872c38aee34a38d1e"
+}, {
+  "registrationOrder" : 87,
+  "firstType" : "net.kyori.adventure.text.Component",
+  "secondType" : "java.lang.String",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:8871b303021b5e3ec4c02e6e1bdd8e27157eb24570dc8f94fc5319482d5016e8"
+}, {
+  "registrationOrder" : 88,
+  "firstType" : "net.kyori.adventure.text.Component",
+  "secondType" : "net.kyori.adventure.text.Component",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:fa307c258c1ffffbab43a72d084ca27c54c306416f1c668dce6c0e4450078bf3"
+}, {
+  "registrationOrder" : 89,
+  "firstType" : "org.bukkit.entity.Cat$Type",
+  "secondType" : "org.bukkit.entity.Cat$Type",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e7d4a0b4d2ec4470afb158e8aae8ce2e73fd44316c08fcdfd12fab75b28cbb40"
+}, {
+  "registrationOrder" : 90,
+  "firstType" : "org.bukkit.entity.Chicken$Variant",
+  "secondType" : "org.bukkit.entity.Chicken$Variant",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:ba867672adb0177184e16a2a3c5c0f735e0c897e674c7142142a0309561836af"
+}, {
+  "registrationOrder" : 91,
+  "firstType" : "org.bukkit.entity.Cow$Variant",
+  "secondType" : "org.bukkit.entity.Cow$Variant",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:3bb556b6ef37fec08051f0472921fdd322d3874438399c4bbedbca330484dcfd"
+}, {
+  "registrationOrder" : 92,
+  "firstType" : "org.bukkit.entity.Frog$Variant",
+  "secondType" : "org.bukkit.entity.Frog$Variant",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:6f82eea4f2fff449a689ca1b76bc7d2a97ff3f422be06e5a1ff0fdcaecdd4179"
+}, {
+  "registrationOrder" : 93,
+  "firstType" : "org.bukkit.entity.Panda$Gene",
+  "secondType" : "org.bukkit.entity.Panda$Gene",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:e0a8414347f15a99f44df1a10bd6b9bfa2f02b2c73dad75d3e95de6cd3aabba4"
+}, {
+  "registrationOrder" : 94,
+  "firstType" : "org.bukkit.entity.Pig$Variant",
+  "secondType" : "org.bukkit.entity.Pig$Variant",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:a829e3ad727b762a275e148d8ef649c084b63167d15781b2791f748f086dc90f"
+}, {
+  "registrationOrder" : 95,
+  "firstType" : "org.bukkit.entity.Wolf$Variant",
+  "secondType" : "org.bukkit.entity.Wolf$Variant",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:515b7c5e70f11459c276b4e5d49ddc05f4b30723605a003afec1cfb2d07bc1b9"
+}, {
+  "registrationOrder" : 96,
+  "firstType" : "org.bukkit.entity.ZombieNautilus$Variant",
+  "secondType" : "org.bukkit.entity.ZombieNautilus$Variant",
+  "supportsOrdering" : false,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "comparator:skript:f9af22458486ae3f1e69c1deb906dd44f44f392248f1ef767e2b166afb7fbd62"
+}, {
+  "registrationOrder" : 97,
+  "firstType" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "secondType" : "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+  "supportsOrdering" : true,
+  "supportsInversion" : true,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "registrationId" : "comparator:skriptdummyaddon:b29818ea783eb40890e1e4ca4cd31b13b1a8dda20ba9c5d7ebcc78bd7398e573"
+} ]

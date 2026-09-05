@@ -19,9 +19,11 @@ use crate::{
     snapshot_pattern_candidates,
 };
 use crate::{FunctionCall, FunctionDefinition, FunctionLookupRequest};
+use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{
     Catalog, ClassName, DynamicMultiplicity, DynamicSyntaxSnapshot, Multiplicity,
@@ -132,9 +134,57 @@ pub enum ExpressionNodeKind {
     },
 }
 
+/// Public, schema-versioned analysis data attached to an Expression.
+///
+/// `schema_id` identifies the public contract represented by `json`, not the
+/// component that produced or owns it. An Expression's public-data collection
+/// contains at most one entry per schema ID, and versions start at 1.
+/// `json` is a JSON object string; schema-specific meaning belongs to addons,
+/// and Transform/Override hooks may edit these values. The native parser keeps
+/// the contents opaque, while source text and spans remain immutable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpressionPublicData {
+    pub schema_id: String,
+    pub schema_version: u32,
+    pub json: String,
+}
+
+/// Opaque, candidate-owned work that an environment applies only on selection.
+///
+/// The native parser never interprets this value. Clones share its identity so
+/// an environment can avoid applying the same speculative work twice.
+#[derive(Clone)]
+pub struct ExpressionEffects(Arc<dyn Any + Send + Sync>);
+
+impl ExpressionEffects {
+    pub fn new(value: impl Any + Send + Sync) -> Self {
+        Self(Arc::new(value))
+    }
+
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.0.downcast_ref()
+    }
+}
+
+impl std::fmt::Debug for ExpressionEffects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ExpressionEffects(..)")
+    }
+}
+
+impl PartialEq for ExpressionEffects {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExpressionEffects {}
+
 /// Parsed Expression node with nested typed captures and mapped provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionNode {
+    /// Deferred effects for this entire subtree, when supplied by the environment.
+    pub effects: Option<ExpressionEffects>,
     pub kind: ExpressionNodeKind,
     pub function: Option<FunctionCall>,
     pub span: MatchSpan,
@@ -149,6 +199,8 @@ pub struct ExpressionNode {
     pub children: Vec<ExpressionNode>,
     /// Non-Expression captures resolved through open parser IDs.
     pub(crate) routed_captures: Vec<ParsedCapture>,
+    /// Public schema-versioned analysis data; the native parser keeps it opaque.
+    pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -371,6 +423,7 @@ pub struct ParsedCaptureSemanticSummary {
     pub possible_return_types: Vec<ClassName>,
     pub possible_return_types_state: PossibleReturnTypesState,
     pub multiplicity: Option<Multiplicity>,
+    pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -647,6 +700,7 @@ fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSu
         possible_return_types: node.possible_return_types.clone(),
         possible_return_types_state: node.possible_return_types_state,
         multiplicity: node.multiplicity,
+        public_data: node.public_data.clone(),
         metadata,
     }
 }
@@ -730,6 +784,7 @@ pub(crate) fn condition_parsed_capture(capture_index: usize, node: ConditionNode
                 possible_return_types: Vec::new(),
                 possible_return_types_state: PossibleReturnTypesState::Complete,
                 multiplicity: None,
+                public_data: Vec::new(),
                 metadata: node.metadata.clone(),
             }),
             ParsedCaptureValue::Condition(node),
@@ -776,6 +831,7 @@ pub(crate) fn event_parsed_capture(
         possible_return_types: Vec::new(),
         possible_return_types_state: PossibleReturnTypesState::Complete,
         multiplicity: None,
+        public_data: Vec::new(),
         metadata,
     };
     ParsedCapture {
@@ -926,6 +982,13 @@ pub enum ExpressionLeafKind {
     Custom,
 }
 
+/// Whether a leaf candidate is considered before or after registered Expressions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpressionLeafTiming {
+    BeforeRegistered,
+    AfterRegistered,
+}
+
 /// Request delivered to CoreLibrary and addon leaf-expression parsers.
 pub struct ExpressionLeafRequest<'a> {
     pub input: &'a str,
@@ -943,13 +1006,18 @@ pub struct ExpressionLeafRequest<'a> {
 /// One prefix recognized by CoreLibrary or an addon parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpressionLeafCandidate {
+    /// Speculative work to keep only if this candidate is selected.
+    pub effects: Option<ExpressionEffects>,
     pub parser_id: String,
     pub kind: ExpressionLeafKind,
+    pub timing: ExpressionLeafTiming,
     pub range: TextRange,
     pub return_type: Option<ClassName>,
     pub multiplicity: Option<Multiplicity>,
     /// Expressions parsed through host requests and owned by this leaf.
     pub children: Vec<ExpressionNode>,
+    /// Public schema-versioned analysis data to carry onto the resulting node.
+    pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -1009,6 +1077,7 @@ pub enum RegisteredExpressionDecision {
         possible_return_types: Vec<ClassName>,
         possible_return_types_state: PossibleReturnTypesState,
         multiplicity: Option<Multiplicity>,
+        public_data: Vec<ExpressionPublicData>,
         metadata: BTreeMap<String, String>,
     },
     Reject {
@@ -1019,17 +1088,36 @@ pub enum RegisteredExpressionDecision {
 
 /// Unified native/WASM environment used during recursive Expression parsing.
 pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
+    /// Applies deferred work belonging to a selected Expression subtree.
+    fn apply_expression_effects(&mut self, _effects: &ExpressionEffects) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Starts a speculative registered Expression subtree.
+    fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Detaches accepted work from the current overlay, or discards failed work.
+    fn defer_expression_candidate(
+        &mut self,
+        _accepted: bool,
+    ) -> Result<Option<ExpressionEffects>, String> {
+        Ok(None)
+    }
+
     /// Returns leaf candidates in parser priority order.
     fn parse_expression_leaf(
         &mut self,
         request: ExpressionLeafRequest<'_>,
     ) -> Result<ExpressionLeafParse, String>;
 
-    /// Finalizes state and effects staged while producing the latest leaf set.
+    /// Closes the latest leaf dispatch after native validation.
     ///
     /// `accepted` is `true` when at least one returned leaf survived native
-    /// range, kind, type, and multiplicity validation. Environments may use
-    /// this callback to retain or roll back their speculative transaction.
+    /// range, kind, type, and multiplicity validation, not that it was selected.
+    /// Candidate-owned mutations must remain deferred in `effects`; committing
+    /// all successful providers here would retain work from losing alternatives.
     fn finish_expression_leaf(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
@@ -1190,7 +1278,7 @@ impl ExpressionParseEnvironment for NoopExpressionEnvironment {
 }
 
 /// Failure while validating or recursively parsing an Expression.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum ExpressionParseError {
     #[error("invalid expression input range {range}")]
     InvalidInputRange { range: TextRange },
@@ -1370,6 +1458,9 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
         .filter(|candidate| candidate.node.span.local_range.end == request.range.end)
         .collect::<Vec<_>>();
     let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
+    if let Some(candidate) = &selected {
+        session.select_expression(&candidate.node)?;
+    }
     let failure = if selected.is_none() {
         let (kind, primary, related) =
             expression_failure_ranges(request.source.virtual_source(), request.range);
@@ -1391,6 +1482,22 @@ pub fn parse_expression_with_snapshot<E: ExpressionParseEnvironment>(
 }
 
 impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
+    pub(crate) fn select_expression(
+        &mut self,
+        node: &ExpressionNode,
+    ) -> Result<(), ExpressionParseError> {
+        if let Some(effects) = &node.effects {
+            self.environment
+                .apply_expression_effects(effects)
+                .map_err(|message| ExpressionParseError::Environment { message })?;
+        } else {
+            for child in &node.children {
+                self.select_expression(child)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn parse_complete_range(
         &mut self,
         range: TextRange,
@@ -1415,6 +1522,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             .filter(|candidate| candidate.node.span.local_range.end == range.end)
             .collect::<Vec<_>>();
         let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
+        if let Some(candidate) = &selected {
+            self.select_expression(&candidate.node)?;
+        }
         let failure = if selected.is_none() {
             let (kind, primary, related) =
                 expression_failure_ranges(self.source.virtual_source(), range);
@@ -1634,6 +1744,27 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .filter(|definition| shapes.insert(definition.shape())),
         );
         Ok(definitions)
+    }
+
+    pub(crate) fn activate_pattern_candidate(
+        &mut self,
+        candidate: &CandidateMatch,
+    ) -> Result<(), String> {
+        if let Some(state) = &candidate.extension_state {
+            self.environment.restore_pattern_candidate_state(state)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        self.environment.begin_expression_candidate()
+    }
+
+    pub(crate) fn defer_expression_candidate(
+        &mut self,
+        accepted: bool,
+    ) -> Result<Option<ExpressionEffects>, String> {
+        self.environment.defer_expression_candidate(accepted)
     }
 
     pub(crate) fn begin_semantic_candidate(&mut self) -> Result<(), String> {
@@ -1925,7 +2056,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
         let mut candidates = Vec::new();
-        let mut deferred_literals = Vec::new();
+        let mut deferred_candidates = Vec::new();
         let mut failure = None;
         let mut ordinary_candidate_ends = candidate_ends.to_vec();
         if self
@@ -1970,6 +2101,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                             let child = inner_candidate.node;
                             candidates.push(ExpressionCandidate {
                                 node: ExpressionNode {
+                                    effects: None,
                                     kind: ExpressionNodeKind::Grouped,
                                     function: None,
                                     span: group_span.clone(),
@@ -1980,6 +2112,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                                     captures: Vec::new(),
                                     tags: Vec::new(),
                                     mark: 0,
+                                    // Group wrappers change child layout; opaque schema data stays
+                                    // attached to the original child.
+                                    public_data: Vec::new(),
                                     metadata: child.metadata.clone(),
                                     children: vec![child],
                                     routed_captures: Vec::new(),
@@ -2022,12 +2157,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 ) {
                     continue;
                 }
-                let defer_literal = allow_expressions
-                    && matches!(leaf.kind, ExpressionLeafKind::Literal)
-                    && !matches!(
-                        leaf.parser_id.as_str(),
-                        "core.literal.string" | "core.literal.variable-string"
-                    );
+                let defer_candidate = allow_expressions
+                    && matches!(leaf.timing, ExpressionLeafTiming::AfterRegistered);
                 let kind = match leaf.kind {
                     ExpressionLeafKind::Variable => ExpressionNodeKind::Variable {
                         parser_id: leaf.parser_id,
@@ -2052,6 +2183,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     node: ExpressionNode {
                         kind,
                         function: None,
+                        effects: leaf.effects,
                         span: self.map_range(leaf.range)?,
                         return_type: leaf.return_type,
                         possible_return_types,
@@ -2060,23 +2192,22 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         captures: Vec::new(),
                         tags: Vec::new(),
                         mark: 0,
+                        public_data: leaf.public_data,
                         children: leaf.children,
                         routed_captures: Vec::new(),
                         metadata: leaf.metadata,
                     },
                     expected_alternative: None,
                 };
-                // Skript tries registered Expressions before ordinary literals. Quoted strings
-                // are VariableStrings and are parsed before the registry, so keep them early.
-                if defer_literal {
-                    deferred_literals.push(candidate);
+                if defer_candidate {
+                    deferred_candidates.push(candidate);
                 } else {
                     accepted_leaves.push(candidate);
                 }
             }
             self.environment
                 .finish_expression_leaf(
-                    !accepted_leaves.is_empty() || !deferred_literals.is_empty(),
+                    !accepted_leaves.is_empty() || !deferred_candidates.is_empty(),
                 )
                 .map_err(|message| ExpressionParseError::Environment { message })?;
             candidates.extend(accepted_leaves);
@@ -2113,6 +2244,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_starts.push(candidate_range.start);
                 self.frame_depths.push(depth);
                 let matcher_config = self.config.matcher.clone();
+                self.environment
+                    .begin_expression_candidate()
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
                 let matched = match_pattern_candidates_with_environment(
                     input,
                     &matcher_candidates,
@@ -2122,10 +2256,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_depths.pop();
                 self.frame_starts.pop();
                 let matched = matched?;
+                let first_candidate = candidates.len();
                 failure = choose_failure_trace(failure, matched.primary_failure().cloned());
                 for matched in matched.selected.into_iter().chain(matched.alternatives) {
                     self.environment
                         .begin_semantic_candidate()
+                        .map_err(|message| ExpressionParseError::Environment { message })?;
+                    self.activate_pattern_candidate(&matched)
                         .map_err(|message| ExpressionParseError::Environment { message })?;
                     let resolution = self.registered_node(
                         matched,
@@ -2148,9 +2285,16 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         }
                     }
                 }
+                let effects = self
+                    .environment
+                    .defer_expression_candidate(candidates.len() > first_candidate)
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
+                if let Some(candidate) = candidates.get_mut(first_candidate) {
+                    candidate.node.effects = effects;
+                }
             }
 
-            candidates.append(&mut deferred_literals);
+            candidates.append(&mut deferred_candidates);
 
             if include_leaves && allow_lists {
                 let lists = self.parse_expression_lists(
@@ -2188,6 +2332,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 continue;
             };
 
+            self.begin_expression_candidate()
+                .map_err(|message| ExpressionParseError::Environment { message })?;
             let mut children = Vec::with_capacity(raw.pieces.len());
             let mut child_starts = Vec::with_capacity(raw.pieces.len());
             let mut first = 0;
@@ -2235,10 +2381,13 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     break;
                 };
                 child_starts.push(first);
+                self.select_expression(&node)?;
                 children.push(node);
                 first = last + 1;
             }
             if !valid || children.len() < 2 {
+                self.defer_expression_candidate(false)
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
                 continue;
             }
 
@@ -2246,6 +2395,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             if conjunction == ExpressionListConjunction::And
                 && expected_types.iter().all(|expected| !expected.plural)
             {
+                self.defer_expression_candidate(false)
+                    .map_err(|message| ExpressionParseError::Environment { message })?;
                 continue;
             }
 
@@ -2289,8 +2440,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 ExpressionListConjunction::Or => Multiplicity::Multiple,
             };
             let metadata = common_child_metadata(&children);
+            let effects = self
+                .defer_expression_candidate(true)
+                .map_err(|message| ExpressionParseError::Environment { message })?;
             lists.push(ExpressionCandidate {
                 node: ExpressionNode {
+                    effects,
                     kind: ExpressionNodeKind::List { conjunction },
                     function: None,
                     span: self.map_range(list_range)?,
@@ -2303,6 +2458,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     mark: 0,
                     children,
                     routed_captures: Vec::new(),
+                    public_data: Vec::new(),
                     metadata,
                 },
                 expected_alternative: None,
@@ -2559,6 +2715,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let mut node_metadata = metadata
             .as_ref()
             .map_or_else(BTreeMap::new, |value| value.metadata.clone());
+        let mut node_public_data = Vec::new();
         let dynamic_handler = self
             .dynamic_handler_for_registration(&matched.registration_id)
             .map(str::to_owned);
@@ -2627,6 +2784,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         .filter(|candidate| candidate.node.span.local_range.end == range.end);
                     match candidates.next() {
                         Some(candidate) => {
+                            self.select_expression(&candidate.node)?;
                             let mut parsed =
                                 expression_parsed_capture(capture_index, candidate.node);
                             parsed.binding = binding.clone();
@@ -2866,12 +3024,14 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     possible_return_types: resolved_possible_return_types,
                     possible_return_types_state: resolved_possible_return_types_state,
                     multiplicity: resolved_multiplicity,
+                    public_data: resolved_public_data,
                     metadata,
                 } => {
                     return_type = resolved_return_type;
                     possible_return_types = resolved_possible_return_types;
                     possible_return_types_state = resolved_possible_return_types_state;
                     multiplicity = resolved_multiplicity;
+                    node_public_data = resolved_public_data;
                     node_metadata.extend(metadata);
                 }
                 RegisteredExpressionDecision::Reject {
@@ -2918,6 +3078,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         }
         Ok(RegisteredNodeResolution::Accepted(ExpressionCandidate {
             node: ExpressionNode {
+                effects: None,
                 kind: ExpressionNodeKind::Registered {
                     definition_id: matched.definition_id,
                     registration_id: matched.registration_id,
@@ -2934,6 +3095,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 mark: matched.matched.mark,
                 children,
                 routed_captures,
+                public_data: node_public_data,
                 metadata: node_metadata,
             },
             expected_alternative: None,
@@ -3674,6 +3836,37 @@ fn list_return_type(catalog: &Catalog, children: &[ExpressionNode]) -> Option<Cl
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
+    fn take_pattern_candidate_state(&mut self) -> Option<ExpressionEffects> {
+        self.environment.take_pattern_candidate_state()
+    }
+
+    fn restore_pattern_candidate_state(&mut self, state: &ExpressionEffects) -> Result<(), String> {
+        self.environment.restore_pattern_candidate_state(state)
+    }
+
+    fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+        self.environment.checkpoint_pattern_branch()
+    }
+
+    fn restore_pattern_branch(&mut self, checkpoint: u64) -> Result<(), String> {
+        self.environment.restore_pattern_branch(checkpoint)
+    }
+
+    fn select_type_resolution(
+        &mut self,
+        resolution: &TypeExpressionResolution,
+    ) -> Result<(), String> {
+        if let Some(node) = resolution
+            .resolution_id
+            .as_ref()
+            .and_then(|id| self.resolved_nodes.get(id))
+            .cloned()
+        {
+            self.select_expression(&node)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
     fn begin_pattern_match(&mut self) -> Result<(), String> {
         self.environment.begin_pattern_match()
     }
@@ -3907,6 +4100,7 @@ mod tests {
     fn capture_summary_exposes_the_concrete_expression_kind() {
         let source = MappedSource::identity("{value}");
         let node = ExpressionNode {
+            effects: None,
             kind: ExpressionNodeKind::Variable {
                 parser_id: "core.variable".to_owned(),
             },
@@ -3922,6 +4116,7 @@ mod tests {
             captures: Vec::new(),
             tags: Vec::new(),
             mark: 0,
+            public_data: Vec::new(),
             children: Vec::new(),
             routed_captures: Vec::new(),
             metadata: BTreeMap::new(),
@@ -3937,6 +4132,7 @@ mod tests {
     fn capture_context_can_derive_values_from_expression_children() {
         let source = MappedSource::identity("{values::*}");
         let child = ExpressionNode {
+            effects: None,
             kind: ExpressionNodeKind::Variable {
                 parser_id: "core.variable".to_owned(),
             },
@@ -3952,6 +4148,7 @@ mod tests {
             captures: Vec::new(),
             tags: Vec::new(),
             mark: 0,
+            public_data: Vec::new(),
             children: Vec::new(),
             routed_captures: Vec::new(),
             metadata: BTreeMap::from([(

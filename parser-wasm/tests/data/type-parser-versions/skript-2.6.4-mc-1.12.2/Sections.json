@@ -1,0 +1,89 @@
+[ {
+  "kind" : "section",
+  "registrationOrder" : 0,
+  "name" : "Spawn",
+  "elementClass" : "ch.njol.skript.sections.EffSecSpawn",
+  "superClass" : "ch.njol.skript.lang.EffectSection",
+  "since" : [ "1.0, 2.6.1 (with section)" ],
+  "description" : [ "Spawn a creature. This can be used as an effect and as a section.", "If it is used as a section, the section is run before the entity is added to the world.", "You can modify the entity in this section, using for example 'event-entity' or 'cow'.", "Do note that other event values, such as 'player', won't work in this section." ],
+  "examples" : [ "spawn 3 creepers at the targeted block", "spawn a ghast 5 meters above the player", "spawn a zombie at the player:", "set name of the zombie to \"\"" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "(spawn|summon) %entitytypes% [%directions% %locations%]", "(spawn|summon) %number% of %entitytypes% [%directions% %locations%]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba",
+  "registrationId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba:a41b0da5116e3b0f467e0f75aaa572a9ec9e7cf5c68497e8cfcb721898314122:0",
+  "loopSection" : false,
+  "effectSection" : true
+}, {
+  "kind" : "section",
+  "registrationOrder" : 1,
+  "elementClass" : "ch.njol.skript.sections.SecConditional",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "else", "else [(1¦parse)] if <.+>", "[(1¦parse if|2¦if)] <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa",
+  "registrationId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa:895e22e33aa70d8c52c81764f4cb3843ce9703af157b993ded68861214550d3c:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 2,
+  "elementClass" : "ch.njol.skript.sections.SecLoop",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "loop %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2",
+  "registrationId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2:4f7dc12c0b43146e488a0e33cc6cb8410652a73db5e23378084b54bde115fa06:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 3,
+  "elementClass" : "ch.njol.skript.sections.SecWhile",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "[(1¦do)] while <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  },
+  "definitionId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b",
+  "registrationId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b:1b437c5355b8047200c6614374d5c65c069ff3a67a7a5771f8e82443a353aaf6:0",
+  "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 4,
+  "name" : "Dummy Fixture Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A classic Section registration available before the Structure registry." ],
+  "examples" : [ "dummy fixture section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "patterns" : [ "dummy fixture section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
+  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
+  "loopSection" : false,
+  "effectSection" : false
+} ]

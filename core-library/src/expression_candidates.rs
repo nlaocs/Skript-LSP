@@ -1,6 +1,6 @@
 use crate::nlaocs::skript_parser_addon::types::{
-    DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload,
-    MetadataEntry, TextRange,
+    DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafTiming,
+    ExpressionPayload, MetadataEntry, TextRange, TypeParserUnresolved,
 };
 
 pub(crate) fn parse(payload: &ExpressionPayload) -> Option<ExpressionLeafCandidate> {
@@ -27,6 +27,18 @@ pub(crate) fn parse_types(payload: &ExpressionPayload) -> Option<ExpressionLeafC
     None
 }
 
+pub(crate) fn unresolved_type(payload: &ExpressionPayload) -> Option<TypeParserUnresolved> {
+    for end in payload.candidate_ends.iter().copied().rev() {
+        let Some(text) = expression_slice(payload, end) else {
+            continue;
+        };
+        if let Some(unresolved) = crate::types::unresolved(payload, text) {
+            return Some(unresolved);
+        }
+    }
+    None
+}
+
 pub(crate) fn expression_slice(payload: &ExpressionPayload, end: u64) -> Option<&str> {
     let start = usize::try_from(payload.remaining.start).ok()?;
     let end = usize::try_from(end).ok()?;
@@ -47,10 +59,16 @@ pub(crate) fn candidate(
     ExpressionLeafCandidate {
         parser_id: parser_id.to_owned(),
         kind,
+        timing: if kind == ExpressionLeafKind::Literal {
+            ExpressionLeafTiming::AfterRegistered
+        } else {
+            ExpressionLeafTiming::BeforeRegistered
+        },
         range: TextRange { start, end },
         return_type: Some(return_type.to_owned()),
         multiplicity: Some(multiplicity),
         children: Vec::new(),
+        public_data: Vec::new(),
         metadata: Vec::new(),
     }
 }
