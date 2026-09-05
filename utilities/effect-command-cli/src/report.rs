@@ -1,4 +1,4 @@
-use crate::{EventContext, OutputFormat};
+use crate::{EventContext, OutputFormat, SectionContext};
 use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, NamedSource};
 use parser_wasm::host::WasmEffectParseResult;
 use serde::Serialize;
@@ -6,8 +6,8 @@ use skript_parser::{
     CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
     ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, ExpressionPublicData,
     FailureFrameRole, FailureTrace, MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture,
-    ParsedCapture, ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason,
-    TextRange,
+    ParsedCapture, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure,
+    PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -15,9 +15,9 @@ use std::time::Duration;
 use syntax_pattern_parser::syntax::{
     PatternElement, PatternTypeExpr, Span as PatternSpan, SpannedPatternElement, parse,
 };
-use syntaxes::{Catalog, CommonSyntax, Multiplicity, Syntax};
+use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Syntax};
 
-const REPORT_SCHEMA_VERSION: u32 = 5;
+const REPORT_SCHEMA_VERSION: u32 = 6;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
 const MAX_REPORT_PATTERN_DEPTH: usize = 16;
 
@@ -41,13 +41,14 @@ pub struct AnalysisReport {
 }
 
 impl AnalysisReport {
-    pub(crate) fn from_result(
+    pub(crate) fn from_result<'a>(
         input: &str,
         snapshot: &SnapshotDescription,
         result: WasmEffectParseResult,
         catalog: &Catalog,
         parse_duration: Duration,
         event_context: Option<&EventContext>,
+        section_contexts: impl IntoIterator<Item = &'a SectionContext>,
     ) -> Self {
         let diagnostics = result
             .effects
@@ -150,6 +151,10 @@ impl AnalysisReport {
                 },
                 context: AnalysisContextReport {
                     event: event_context.map(EventContextReport::from),
+                    sections: section_contexts
+                        .into_iter()
+                        .map(SectionContextReport::from)
+                        .collect(),
                 },
                 parse_duration_ns: u64::try_from(parse_duration.as_nanos()).unwrap_or(u64::MAX),
                 result: parse_result,
@@ -222,8 +227,10 @@ impl AnalysisReport {
             "parseTime: {}",
             format_parse_duration(self.data.parse_duration_ns)
         )?;
-        if let Some(event) = &self.data.context.event {
+        if self.data.context.event.is_some() || !self.data.context.sections.is_empty() {
             writeln!(writer, "context:")?;
+        }
+        if let Some(event) = &self.data.context.event {
             writeln!(writer, "  event: {}", event.input)?;
             writeln!(
                 writer,
@@ -266,6 +273,32 @@ impl AnalysisReport {
                     failure.component_id, failure.subscription_id, failure.message
                 )?;
             }
+        }
+        for (depth, section) in self.data.context.sections.iter().enumerate() {
+            writeln!(writer, "  section[{}]: {}", depth + 1, section.input)?;
+            writeln!(writer, "    kind: {}", section.kind)?;
+            if let Some(class) = &section.element_class {
+                writeln!(writer, "    class: {class}")?;
+            }
+            if let Some(addon) = &section.addon {
+                if let Some(version) = &addon.version {
+                    writeln!(writer, "    addon: {} {version}", addon.name)?;
+                } else {
+                    writeln!(writer, "    addon: {}", addon.name)?;
+                }
+            }
+            if let Some(owner) = &section.owner_component_id {
+                writeln!(writer, "    ownerComponentId: {owner}")?;
+            }
+            writeln!(writer, "    scopeId: {}", section.scope_id)?;
+            if let Some(parent) = section.parent_scope_id {
+                writeln!(writer, "    parentScopeId: {parent}")?;
+            }
+            writeln!(writer, "    definitionId: {}", section.definition_id)?;
+            writeln!(writer, "    registrationId: {}", section.registration_id)?;
+            writeln!(writer, "    patternIndex: {}", section.pattern_index)?;
+            writeln!(writer, "    pattern: {}", section.pattern)?;
+            writeln!(writer, "    captures: {}", section.captures.len())?;
         }
         match &self.data.result {
             ParseResultReport::Matched {
@@ -414,6 +447,165 @@ struct ReportData {
 #[serde(rename_all = "camelCase")]
 struct AnalysisContextReport {
     event: Option<EventContextReport>,
+    sections: Vec<SectionContextReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SectionContextReport {
+    input: String,
+    scope_id: u64,
+    parent_scope_id: Option<u64>,
+    raw_node_id: u64,
+    kind: String,
+    definition_id: String,
+    registration_id: String,
+    element_class: Option<String>,
+    pattern_index: usize,
+    pattern: String,
+    addon: Option<SectionAddonReport>,
+    owner_component_id: Option<String>,
+    loop_section: bool,
+    effect_section: bool,
+    section_expression: bool,
+    captures: Vec<SectionContextCaptureReport>,
+    metadata: BTreeMap<String, String>,
+    diagnostics: Vec<EventContextDiagnosticReport>,
+    component_failures: Vec<EventContextComponentFailureReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SectionContextCaptureReport {
+    capture_index: usize,
+    parser_id: String,
+    status: String,
+    source: String,
+    kind: Option<String>,
+    definition_id: Option<String>,
+    registration_id: Option<String>,
+    element_class: Option<String>,
+    pattern_index: Option<usize>,
+    return_type: Option<String>,
+    possible_return_types: Vec<String>,
+    possible_return_types_state: String,
+    multiplicity: Option<MultiplicityReport>,
+    public_data: Vec<ExpressionPublicDataReport>,
+    metadata: BTreeMap<String, String>,
+}
+
+impl From<&SectionContext> for SectionContextReport {
+    fn from(section: &SectionContext) -> Self {
+        let frame = &section.frame;
+        Self {
+            input: section.input.clone(),
+            scope_id: frame.scope_id,
+            parent_scope_id: frame.parent_scope_id,
+            raw_node_id: frame.raw_node_id.get(),
+            kind: section_scope_kind(frame.kind).to_owned(),
+            definition_id: frame.definition_id.clone(),
+            registration_id: frame.registration_id.clone(),
+            element_class: frame
+                .element_class
+                .as_ref()
+                .map(|class| class.as_str().to_owned()),
+            pattern_index: frame.pattern_index,
+            pattern: frame.pattern.clone(),
+            addon: frame.addon_name.as_ref().map(|name| SectionAddonReport {
+                name: name.clone(),
+                version: frame.addon_version.clone(),
+            }),
+            owner_component_id: frame.owner_component_id.clone(),
+            loop_section: frame.loop_section,
+            effect_section: frame.effect_section,
+            section_expression: frame.section_expression,
+            captures: frame
+                .captures
+                .iter()
+                .map(|capture| SectionContextCaptureReport {
+                    capture_index: capture.capture_index,
+                    parser_id: capture.parser_id.clone(),
+                    status: parsed_capture_status(&capture.status).to_owned(),
+                    source: capture.source.clone(),
+                    kind: capture.kind.clone(),
+                    definition_id: capture.definition_id.clone(),
+                    registration_id: capture.registration_id.clone(),
+                    element_class: capture
+                        .element_class
+                        .as_ref()
+                        .map(|class| class.as_str().to_owned()),
+                    pattern_index: capture.pattern_index,
+                    return_type: capture
+                        .return_type
+                        .as_ref()
+                        .map(|class| class.as_str().to_owned()),
+                    possible_return_types: capture
+                        .possible_return_types
+                        .iter()
+                        .map(|class| class.as_str().to_owned())
+                        .collect(),
+                    possible_return_types_state: possible_return_types_state(
+                        capture.possible_return_types_state,
+                    )
+                    .to_owned(),
+                    multiplicity: capture.multiplicity.map(multiplicity),
+                    public_data: expression_public_data(&capture.public_data),
+                    metadata: capture.metadata.clone(),
+                })
+                .collect(),
+            metadata: frame.metadata.clone(),
+            diagnostics: section
+                .diagnostics
+                .iter()
+                .map(|diagnostic| EventContextDiagnosticReport {
+                    code: diagnostic.code.clone(),
+                    message: diagnostic.message.clone(),
+                    severity: diagnostic.severity.clone(),
+                })
+                .collect(),
+            component_failures: section
+                .component_failures
+                .iter()
+                .map(|failure| EventContextComponentFailureReport {
+                    component_id: failure.component_id.clone(),
+                    subscription_id: failure.subscription_id.clone(),
+                    message: failure.message.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SectionAddonReport {
+    name: String,
+    version: Option<String>,
+}
+
+fn parsed_capture_status(status: &ParsedCaptureStatus) -> &'static str {
+    match status {
+        ParsedCaptureStatus::Success => "success",
+        ParsedCaptureStatus::Partial => "partial",
+        ParsedCaptureStatus::Failed => "failed",
+    }
+}
+
+fn possible_return_types_state(state: PossibleReturnTypesState) -> &'static str {
+    match state {
+        PossibleReturnTypesState::Complete => "complete",
+        PossibleReturnTypesState::Partial => "partial",
+        PossibleReturnTypesState::Unresolved => "unresolved",
+    }
+}
+
+fn section_scope_kind(kind: skript_parser::SectionScopeKind) -> &'static str {
+    match kind {
+        skript_parser::SectionScopeKind::Section => "section",
+        skript_parser::SectionScopeKind::Loop => "loopSection",
+        skript_parser::SectionScopeKind::EffectSection => "effectSection",
+        skript_parser::SectionScopeKind::SectionExpression => "sectionExpression",
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1528,6 +1720,7 @@ fn expression_report(
             definition_id,
             registration_id,
             pattern_index,
+            ..
         } => {
             let identity = syntax_identity_from_ids(
                 definition_id,

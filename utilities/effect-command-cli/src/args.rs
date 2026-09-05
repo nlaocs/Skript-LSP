@@ -15,6 +15,7 @@ ARGS:
 OPTIONS:
     -s, --snapshot <PATH>    SSG schema 3..5 directory, or its Manifest.json
         --event <HEADER>     Parse Effects inside this Event context
+        --section <HEADER>   Push a Section context; may be repeated
         --json               Emit structured JSON
         --repl               Start the REPL explicitly
     -h, --help               Print help
@@ -30,7 +31,10 @@ REPL COMMANDS:
     :event <HEADER>          Select an Event context (`:` is optional)
     :event off               Clear the Event context
     :events                  List available Event registrations
-    :context                 Show the active Event context
+    :section <HEADER>        Push a Section context (`:` is optional)
+    :section pop             Pop the innermost Section context
+    :section off|clear       Clear all Section contexts
+    :context                 Show the active Event and Section contexts
     :json on | :json off     Toggle JSON output
     :quit | :exit            Exit the REPL"#;
 
@@ -61,6 +65,8 @@ pub struct CliOptions {
     pub output: OutputFormat,
     /// Event header applied before one-shot or REPL parsing.
     pub event: Option<String>,
+    /// Section headers pushed from outermost to innermost before parsing.
+    pub sections: Vec<String>,
     /// One-shot or interactive execution.
     pub mode: RunMode,
 }
@@ -86,6 +92,7 @@ impl CliOptions {
         let mut snapshot = default_snapshot;
         let mut output = OutputFormat::Human;
         let mut event = None;
+        let mut sections = Vec::new();
         let mut force_repl = false;
         let mut positional = Vec::new();
         let mut values = args.into_iter().map(Into::into).peekable();
@@ -121,6 +128,14 @@ impl CliOptions {
                     })?)?);
                 continue;
             }
+            if value == OsStr::new("--section") {
+                sections.push(os_to_string(
+                    values
+                        .next()
+                        .ok_or_else(|| "--section requires a Section header".to_owned())?,
+                )?);
+                continue;
+            }
             if value == OsStr::new("-s") || value == OsStr::new("--snapshot") {
                 snapshot = PathBuf::from(
                     values
@@ -149,6 +164,16 @@ impl CliOptions {
                 event = Some(encoded.to_owned());
                 continue;
             }
+            if let Some(encoded) = value
+                .to_str()
+                .and_then(|text| text.strip_prefix("--section="))
+            {
+                if encoded.is_empty() {
+                    return Err("--section requires a Section header".to_owned());
+                }
+                sections.push(encoded.to_owned());
+                continue;
+            }
             if value.to_string_lossy().starts_with('-') {
                 return Err(format!("unknown option {}", value.to_string_lossy()));
             }
@@ -167,6 +192,7 @@ impl CliOptions {
             snapshot: snapshot_directory(snapshot),
             output,
             event,
+            sections,
             mode,
         }))
     }
@@ -203,6 +229,7 @@ mod tests {
         };
         assert_eq!(options.mode, RunMode::Once("send 1 to player".to_owned()));
         assert_eq!(options.event, None);
+        assert!(options.sections.is_empty());
     }
 
     #[test]
@@ -246,5 +273,27 @@ mod tests {
         };
         assert_eq!(options.event.as_deref(), Some("join"));
         assert_eq!(options.mode, RunMode::Repl);
+    }
+
+    #[test]
+    fn preserves_repeated_section_contexts_in_outermost_order() {
+        let action = CliOptions::parse(
+            [
+                "--section",
+                "loop all players:",
+                "--section=if loop-player is online",
+                "continue",
+            ],
+            PathBuf::from("snapshot"),
+        )
+        .unwrap();
+        let CliAction::Run(options) = action else {
+            panic!("command must run");
+        };
+        assert_eq!(
+            options.sections,
+            ["loop all players:", "if loop-player is online"]
+        );
+        assert_eq!(options.mode, RunMode::Once("continue".to_owned()));
     }
 }

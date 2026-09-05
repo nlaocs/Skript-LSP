@@ -5,6 +5,7 @@ mod args;
 mod event_context;
 mod repl;
 mod report;
+mod section_context;
 mod session;
 
 pub use args::{CliAction, CliOptions, OutputFormat, RunMode};
@@ -13,6 +14,9 @@ pub use event_context::{
     EventValueContext,
 };
 pub use report::AnalysisReport;
+pub use section_context::{
+    SectionContext, SectionContextComponentFailure, SectionContextDiagnostic,
+};
 pub use session::{EffectCommandSession, EffectCommandSessionError};
 
 use std::ffi::OsString;
@@ -121,6 +125,12 @@ where
     {
         let _ = writeln!(error, "error: {event_error}");
         return EXIT_FAILURE;
+    }
+    for section in &options.sections {
+        if let Err(section_error) = session.select_section_header(section) {
+            let _ = writeln!(error, "error: {section_error}");
+            return EXIT_FAILURE;
+        }
     }
 
     match options.mode {

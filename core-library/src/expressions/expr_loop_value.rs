@@ -38,7 +38,10 @@ fn resolve_loop_value(payload: &RegisteredExpressionPayload) -> SemanticResoluti
 
     let mut candidates = Vec::new();
     let mut unresolved = false;
-    for frame in frames.iter().rev() {
+    // Skript numbers matching loops from the outermost active loop. The
+    // unnumbered form remains ambiguous when more than one loop has the same
+    // value type.
+    for frame in &frames {
         match frame_matches(name, frame, payload) {
             Ok(true) => candidates.push(frame),
             Ok(false) => {}

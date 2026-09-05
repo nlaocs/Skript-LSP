@@ -292,10 +292,26 @@ for an unmatched Effect line in `Trigger` mode.
 
 `ExpressionParseEnvironment::enter_section_children` may derive a child
 context before the body is parsed; `exit_section_children` observes that same
-context after the body finishes. The parent context is then restored. Unknown
+context after the body finishes. Hook-approved ordinary context updates may
+propagate to following siblings, while the parser-owned Section stack is
+restored to the parent scope. Unknown
 headers, unclaimed body lines, and multiple successful claims remain available
 as partial AST nodes and `SectionDiagnostic` values instead of aborting the
 whole subtree.
+
+The child `ExpressionParseContext` also contains a parser-owned
+`section_stack`, ordered outermost to innermost. Each immutable frame records a
+parse-local scope ID and parent, the Section's definition/registration/pattern
+identity, addon, implementation class, Section flags, semantic captures, and
+metadata. Effects, Conditions, Expressions, and Section lifecycle hooks all
+observe this same stack. A rejected candidate is rolled back, and leaving a
+Section restores its parent stack before parsing a sibling.
+
+`SectionParserConfig::root_lifecycle` defaults to `Complete`. Callers that need
+to analyze later statements as if they were still inside the requested root
+may select `RetainBody`; nested Sections still complete normally, but the root
+exit hook is deferred and its body context remains active. Such callers must
+restore both parser context and transactional addon state when leaving it.
 
 ## Structure Parsing
 

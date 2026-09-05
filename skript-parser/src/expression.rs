@@ -36,6 +36,8 @@ use thiserror::Error;
 pub struct ExpressionParseContext {
     pub syntax_context: u64,
     pub event_classes: Vec<ClassName>,
+    /// Active Section scopes ordered from the outermost to the innermost.
+    pub section_stack: Vec<crate::SectionScopeFrame>,
     pub values: BTreeMap<String, String>,
 }
 
@@ -114,6 +116,7 @@ pub enum ExpressionNodeKind {
     Registered {
         definition_id: String,
         registration_id: String,
+        element_class: ClassName,
         pattern_index: usize,
     },
     Variable {
@@ -142,7 +145,7 @@ pub enum ExpressionNodeKind {
 /// `json` is a JSON object string; schema-specific meaning belongs to addons,
 /// and Transform/Override hooks may edit these values. The native parser keeps
 /// the contents opaque, while source text and spans remain immutable.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExpressionPublicData {
     pub schema_id: String,
     pub schema_version: u32,
@@ -404,7 +407,7 @@ pub struct RegisteredSyntaxIdentity<'a> {
 }
 
 /// Completeness of one generic capture result.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ParsedCaptureStatus {
     Success,
     Partial,
@@ -660,24 +663,26 @@ fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSu
         delegated.metadata.extend(node.metadata.clone());
         return delegated;
     }
-    let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
-        ExpressionNodeKind::Grouped => ("grouped-expression", None, None, None),
-        ExpressionNodeKind::List { .. } => ("expression-list", None, None, None),
+    let (kind, definition_id, registration_id, element_class, pattern_index) = match &node.kind {
+        ExpressionNodeKind::Grouped => ("grouped-expression", None, None, None, None),
+        ExpressionNodeKind::List { .. } => ("expression-list", None, None, None, None),
         ExpressionNodeKind::Registered {
             definition_id,
             registration_id,
+            element_class,
             pattern_index,
         } => (
             "registered-expression",
             Some(definition_id.clone()),
             Some(registration_id.clone()),
+            Some(element_class.clone()),
             Some(*pattern_index),
         ),
-        ExpressionNodeKind::Variable { .. } => ("variable", None, None, None),
-        ExpressionNodeKind::Literal { .. } => ("literal", None, None, None),
-        ExpressionNodeKind::Function { .. } => ("function", None, None, None),
-        ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None),
-        ExpressionNodeKind::Custom { .. } => ("custom", None, None, None),
+        ExpressionNodeKind::Variable { .. } => ("variable", None, None, None, None),
+        ExpressionNodeKind::Literal { .. } => ("literal", None, None, None, None),
+        ExpressionNodeKind::Function { .. } => ("function", None, None, None, None),
+        ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None, None),
+        ExpressionNodeKind::Custom { .. } => ("custom", None, None, None, None),
     };
     let mut metadata = node.metadata.clone();
     if matches!(node.kind, ExpressionNodeKind::List { .. }) {
@@ -694,7 +699,7 @@ fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSu
         kind: kind.to_owned(),
         definition_id,
         registration_id,
-        element_class: None,
+        element_class,
         pattern_index,
         return_type: node.return_type.clone(),
         possible_return_types: node.possible_return_types.clone(),
@@ -3082,6 +3087,11 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 kind: ExpressionNodeKind::Registered {
                     definition_id: matched.definition_id,
                     registration_id: matched.registration_id,
+                    element_class: metadata
+                        .as_ref()
+                        .expect("accepted registered Expression has registration metadata")
+                        .element_class
+                        .clone(),
                     pattern_index: matched.pattern_index,
                 },
                 function: None,
@@ -3990,6 +4000,7 @@ mod tests {
         let current = ExpressionParseContext {
             syntax_context: 7,
             event_classes: vec![ClassName("fixture.OuterEvent".to_owned())],
+            section_stack: Vec::new(),
             values: BTreeMap::from([("outer".to_owned(), "kept".to_owned())]),
         };
         let binding = RegisteredCaptureBinding {
@@ -4099,7 +4110,7 @@ mod tests {
     #[test]
     fn capture_summary_exposes_the_concrete_expression_kind() {
         let source = MappedSource::identity("{value}");
-        let node = ExpressionNode {
+        let mut node = ExpressionNode {
             effects: None,
             kind: ExpressionNodeKind::Variable {
                 parser_id: "core.variable".to_owned(),
@@ -4126,6 +4137,19 @@ mod tests {
 
         assert_eq!(summary.kind, "variable");
         assert_eq!(summary.multiplicity, Some(Multiplicity::Single));
+
+        node.kind = ExpressionNodeKind::Registered {
+            definition_id: "expression:test:definition".to_owned(),
+            registration_id: "expression:test:registration:0".to_owned(),
+            element_class: ClassName("test.ExprValue".to_owned()),
+            pattern_index: 2,
+        };
+        let summary = expression_semantic_summary(&node);
+        assert_eq!(summary.kind, "registered-expression");
+        assert_eq!(
+            summary.element_class.as_ref().map(ClassName::as_str),
+            Some("test.ExprValue")
+        );
     }
 
     #[test]

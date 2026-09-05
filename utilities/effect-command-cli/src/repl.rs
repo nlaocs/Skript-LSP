@@ -7,7 +7,10 @@ const REPL_HELP: &str = r#"REPL commands:
   :event <header>       Select an Event context (`:` is optional)
   :event off            Clear the Event context
   :events               List registered Events
-  :context              Show the active Event context
+  :section <header>     Push a Section context (`:` is optional)
+  :section pop          Pop the innermost Section context
+  :section off|clear    Clear all Section contexts
+  :context              Show the active Event and Section contexts
   :json on              Use JSON reports
   :json off             Use human-readable reports
   :quit, :exit          Exit the REPL
@@ -92,6 +95,10 @@ fn repl_command(
         select_event(selector.trim(), session, output);
         return ReplControl::Continue;
     }
+    if let Some(selector) = section_selector(command) {
+        select_section(selector.trim(), session, output);
+        return ReplControl::Continue;
+    }
     match command {
         ":quit" | ":exit" => ReplControl::Exit,
         ":help" => {
@@ -109,7 +116,7 @@ fn repl_command(
             }
             ReplControl::Continue
         }
-        ":event" | ":context" => {
+        ":event" | ":section" | ":context" => {
             write_context(session, output);
             ReplControl::Continue
         }
@@ -175,8 +182,17 @@ fn event_selector(command: &str) -> Option<&str> {
         .then(|| selector.trim())
 }
 
+fn section_selector(command: &str) -> Option<&str> {
+    let selector = command.strip_prefix(":section")?;
+    selector
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+        .then(|| selector.trim())
+}
+
 fn select_event(selector: &str, session: &mut EffectCommandSession, output: &mut dyn Write) {
-    if selector.eq_ignore_ascii_case("off") {
+    if selector.eq_ignore_ascii_case("off") || selector.eq_ignore_ascii_case("clear") {
         match session.clear_event_context() {
             Ok(()) => {
                 let _ = writeln!(output, "Event context cleared");
@@ -202,19 +218,74 @@ fn select_event(selector: &str, session: &mut EffectCommandSession, output: &mut
     }
 }
 
-fn write_context(session: &EffectCommandSession, output: &mut dyn Write) {
-    let Some(event) = session.event_context() else {
-        let _ = writeln!(output, "Event context: none");
+fn select_section(selector: &str, session: &mut EffectCommandSession, output: &mut dyn Write) {
+    if selector.eq_ignore_ascii_case("off") || selector.eq_ignore_ascii_case("clear") {
+        match session.clear_section_contexts() {
+            Ok(()) => {
+                let _ = writeln!(output, "Section contexts cleared");
+            }
+            Err(error) => {
+                let _ = writeln!(output, "error: {error}");
+            }
+        }
         return;
-    };
-    let _ = writeln!(output, "Event context:");
-    let _ = writeln!(output, "  input: {}", event.input);
-    let _ = writeln!(output, "  registrationId: {}", event.registration_id);
-    if let Some(class) = &event.element_class {
-        let _ = writeln!(output, "  class: {class}");
     }
-    let _ = writeln!(output, "  referenceEvents: {:?}", event.reference_events);
-    let _ = writeln!(output, "  eventValues: {}", event.event_values.len());
+    if selector.eq_ignore_ascii_case("pop") {
+        match session.pop_section_context() {
+            Ok(Some(section)) => {
+                let _ = writeln!(output, "Section context popped: {}", section.input);
+            }
+            Ok(None) => {
+                let _ = writeln!(output, "Section context: none");
+            }
+            Err(error) => {
+                let _ = writeln!(output, "error: {error}");
+            }
+        }
+        return;
+    }
+    match session.select_section_header(selector) {
+        Ok(section) => {
+            let _ = writeln!(
+                output,
+                "Section context: {} [{}]",
+                section.input, section.frame.registration_id
+            );
+        }
+        Err(error) => {
+            let _ = writeln!(output, "error: {error}");
+        }
+    }
+}
+
+fn write_context(session: &EffectCommandSession, output: &mut dyn Write) {
+    if let Some(event) = session.event_context() {
+        let _ = writeln!(output, "Event context:");
+        let _ = writeln!(output, "  input: {}", event.input);
+        let _ = writeln!(output, "  registrationId: {}", event.registration_id);
+        if let Some(class) = &event.element_class {
+            let _ = writeln!(output, "  class: {class}");
+        }
+        let _ = writeln!(output, "  referenceEvents: {:?}", event.reference_events);
+        let _ = writeln!(output, "  eventValues: {}", event.event_values.len());
+    } else {
+        let _ = writeln!(output, "Event context: none");
+    }
+    let sections = session.section_contexts().collect::<Vec<_>>();
+    if sections.is_empty() {
+        let _ = writeln!(output, "Section contexts: none");
+        return;
+    }
+    let _ = writeln!(output, "Section contexts (outermost to innermost):");
+    for (depth, section) in sections.into_iter().enumerate() {
+        let _ = writeln!(
+            output,
+            "  {}. {} [{}]",
+            depth + 1,
+            section.input,
+            section.frame.registration_id
+        );
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +300,9 @@ mod tests {
             ":event <header>",
             ":event off",
             ":events",
+            ":section <header>",
+            ":section pop",
+            ":section off|clear",
             ":context",
             ":json on",
             ":json off",
@@ -245,5 +319,18 @@ mod tests {
         assert_eq!(event_selector(":event   on join:"), Some("on join:"));
         assert_eq!(event_selector(":event"), None);
         assert_eq!(event_selector(":events"), None);
+    }
+
+    #[test]
+    fn section_selector_accepts_any_whitespace() {
+        assert_eq!(
+            section_selector(":section loop all players"),
+            Some("loop all players")
+        );
+        assert_eq!(
+            section_selector(":section\tloop 3 times:"),
+            Some("loop 3 times:")
+        );
+        assert_eq!(section_selector(":section"), None);
     }
 }

@@ -132,14 +132,15 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     RetainedChildrenPlacement as WitRetainedChildrenPlacement,
     SectionBodyMode as WitSectionBodyMode, SectionCandidate as WitSectionCandidate,
     SectionPayload as WitSectionPayload, SectionRawNode as WitSectionRawNode,
-    SectionRawNodeKind as WitSectionRawNodeKind, SectionSibling as WitSectionSibling,
-    SectionTiming as WitSectionTiming, SourceOrigin as WitSourceOrigin,
-    StateEncoding as WitStateEncoding, StateEntry as WitStateEntry, StateError as WitStateError,
-    StateErrorKind as WitStateErrorKind, StateNamespaceVisibility as WitNamespaceVisibility,
-    StateScope as WitStateScope, StateValue as WitStateValue,
-    StructureBodyMode as WitStructureBodyMode, StructureCandidate as WitStructureCandidate,
-    StructureEntry as WitStructureEntry, StructureEntryData as WitStructureEntryData,
-    StructureEntryKind as WitStructureEntryKind,
+    SectionRawNodeKind as WitSectionRawNodeKind, SectionScopeCapture as WitSectionScopeCapture,
+    SectionScopeFrame as WitSectionScopeFrame, SectionScopeKind as WitSectionScopeKind,
+    SectionSibling as WitSectionSibling, SectionTiming as WitSectionTiming,
+    SourceOrigin as WitSourceOrigin, StateEncoding as WitStateEncoding,
+    StateEntry as WitStateEntry, StateError as WitStateError, StateErrorKind as WitStateErrorKind,
+    StateNamespaceVisibility as WitNamespaceVisibility, StateScope as WitStateScope,
+    StateValue as WitStateValue, StructureBodyMode as WitStructureBodyMode,
+    StructureCandidate as WitStructureCandidate, StructureEntry as WitStructureEntry,
+    StructureEntryData as WitStructureEntryData, StructureEntryKind as WitStructureEntryKind,
     StructureEntryValidator as WitStructureEntryValidator,
     StructureEntryValueKind as WitStructureEntryValueKind,
     StructureNodeType as WitStructureNodeType, StructurePayload as WitStructurePayload,
@@ -4948,6 +4949,11 @@ fn parse_context_to_wit(context: &ExpressionParseContext) -> WitParseContext {
             .iter()
             .map(|class| class.as_str().to_owned())
             .collect(),
+        section_stack: context
+            .section_stack
+            .iter()
+            .map(section_scope_frame_to_wit)
+            .collect(),
         values: context
             .values
             .iter()
@@ -4962,12 +4968,148 @@ fn parse_context_to_wit(context: &ExpressionParseContext) -> WitParseContext {
 fn same_parse_context(left: &WitParseContext, right: &WitParseContext) -> bool {
     left.syntax_context == right.syntax_context
         && left.event_classes == right.event_classes
+        && same_section_scope_frames(&left.section_stack, &right.section_stack)
         && left.values.len() == right.values.len()
         && left
             .values
             .iter()
             .zip(&right.values)
             .all(|(left, right)| left.key == right.key && left.value == right.value)
+}
+
+fn section_scope_frame_to_wit(frame: &skript_parser::SectionScopeFrame) -> WitSectionScopeFrame {
+    WitSectionScopeFrame {
+        scope_id: frame.scope_id,
+        parent_scope_id: frame.parent_scope_id,
+        raw_node_id: frame.raw_node_id.get(),
+        kind: match frame.kind {
+            skript_parser::SectionScopeKind::Section => WitSectionScopeKind::Section,
+            skript_parser::SectionScopeKind::Loop => WitSectionScopeKind::LoopSection,
+            skript_parser::SectionScopeKind::EffectSection => WitSectionScopeKind::EffectSection,
+            skript_parser::SectionScopeKind::SectionExpression => {
+                WitSectionScopeKind::SectionExpression
+            }
+        },
+        definition_id: frame.definition_id.clone(),
+        registration_id: frame.registration_id.clone(),
+        element_class: frame
+            .element_class
+            .as_ref()
+            .map(|class| class.as_str().to_owned()),
+        pattern_index: u64::try_from(frame.pattern_index).unwrap_or(u64::MAX),
+        pattern: frame.pattern.clone(),
+        source: frame.source.clone(),
+        addon_name: frame.addon_name.clone(),
+        addon_version: frame.addon_version.clone(),
+        owner_component_id: frame.owner_component_id.clone(),
+        loop_section: frame.loop_section,
+        effect_section: frame.effect_section,
+        section_expression: frame.section_expression,
+        captures: frame
+            .captures
+            .iter()
+            .map(section_scope_capture_to_wit)
+            .collect(),
+        metadata: metadata_to_wit(&frame.metadata),
+    }
+}
+
+fn section_scope_capture_to_wit(
+    capture: &skript_parser::SectionScopeCapture,
+) -> WitSectionScopeCapture {
+    WitSectionScopeCapture {
+        capture_index: u64::try_from(capture.capture_index).unwrap_or(u64::MAX),
+        parser_id: capture.parser_id.clone(),
+        status: match capture.status {
+            ParserParsedCaptureStatus::Success => WitParseResultStatus::Success,
+            ParserParsedCaptureStatus::Partial => WitParseResultStatus::Partial,
+            ParserParsedCaptureStatus::Failed => WitParseResultStatus::Failed,
+        },
+        source: capture.source.clone(),
+        summary: capture.kind.as_ref().map(|kind| WitParseSummary {
+            kind: kind.clone(),
+            definition_id: capture.definition_id.clone(),
+            registration_id: capture.registration_id.clone(),
+            element_class: capture
+                .element_class
+                .as_ref()
+                .map(|class| class.as_str().to_owned()),
+            pattern_index: capture
+                .pattern_index
+                .map(|index| u64::try_from(index).unwrap_or(u64::MAX)),
+            return_type: capture
+                .return_type
+                .as_ref()
+                .map(|class| class.as_str().to_owned()),
+            possible_return_types: capture
+                .possible_return_types
+                .iter()
+                .map(|class| class.as_str().to_owned())
+                .collect(),
+            possible_return_types_state: match capture.possible_return_types_state {
+                PossibleReturnTypesState::Complete => WitPossibleReturnTypesState::Complete,
+                PossibleReturnTypesState::Partial => WitPossibleReturnTypesState::Partial,
+                PossibleReturnTypesState::Unresolved => WitPossibleReturnTypesState::Unresolved,
+            },
+            multiplicity: capture.multiplicity.map(multiplicity_to_wit),
+            public_data: expression_public_data_to_wit(&capture.public_data),
+            metadata: metadata_to_wit(&capture.metadata),
+        }),
+    }
+}
+
+fn expression_public_data_to_wit(
+    entries: &[skript_parser::ExpressionPublicData],
+) -> Vec<WitExpressionPublicData> {
+    entries
+        .iter()
+        .map(|entry| WitExpressionPublicData {
+            schema_id: entry.schema_id.clone(),
+            schema_version: entry.schema_version,
+            json: entry.json.clone(),
+        })
+        .collect()
+}
+
+fn same_section_scope_frames(
+    left: &[WitSectionScopeFrame],
+    right: &[WitSectionScopeFrame],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.scope_id == right.scope_id
+                && left.parent_scope_id == right.parent_scope_id
+                && left.raw_node_id == right.raw_node_id
+                && left.kind == right.kind
+                && left.definition_id == right.definition_id
+                && left.registration_id == right.registration_id
+                && left.element_class == right.element_class
+                && left.pattern_index == right.pattern_index
+                && left.pattern == right.pattern
+                && left.source == right.source
+                && left.addon_name == right.addon_name
+                && left.addon_version == right.addon_version
+                && left.owner_component_id == right.owner_component_id
+                && left.loop_section == right.loop_section
+                && left.effect_section == right.effect_section
+                && left.section_expression == right.section_expression
+                && same_section_scope_captures(&left.captures, &right.captures)
+                && same_metadata_entries(&left.metadata, &right.metadata)
+        })
+}
+
+fn same_section_scope_captures(
+    left: &[WitSectionScopeCapture],
+    right: &[WitSectionScopeCapture],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.capture_index == right.capture_index
+                && left.parser_id == right.parser_id
+                && left.status == right.status
+                && left.source == right.source
+                && same_parse_summary(left.summary.as_ref(), right.summary.as_ref())
+        })
 }
 
 fn same_raw_tree(left: &RawTree, right: &RawTree) -> bool {
@@ -7034,6 +7176,7 @@ fn expression_node_registration(
             definition_id,
             registration_id,
             pattern_index,
+            ..
         } => (
             Some(definition_id.clone()),
             Some(registration_id.clone()),
@@ -7045,18 +7188,12 @@ fn expression_node_registration(
 
 fn expression_node_element_class(
     node: &skript_parser::ExpressionNode,
-    catalog: Option<&Catalog>,
+    _catalog: Option<&Catalog>,
 ) -> Option<String> {
-    let skript_parser::ExpressionNodeKind::Registered {
-        registration_id, ..
-    } = &node.kind
-    else {
+    let skript_parser::ExpressionNodeKind::Registered { element_class, .. } = &node.kind else {
         return None;
     };
-    catalog?
-        .expressions()
-        .find(|expression| expression.common.registration_id.as_str() == registration_id)
-        .map(|expression| expression.common.element_class.as_str().to_owned())
+    Some(element_class.as_str().to_owned())
 }
 
 fn expression_child_to_wit(
@@ -12862,6 +12999,7 @@ impl<'a> ParseResultArena<'a> {
                 definition_id,
                 registration_id,
                 pattern_index,
+                ..
             } => (
                 "registered-expression",
                 Some(definition_id.clone()),
@@ -14193,6 +14331,7 @@ mod tests {
         let mut context = WitParseContext {
             syntax_context: 7,
             event_classes: vec!["old.Event".to_owned()],
+            section_stack: Vec::new(),
             values: vec![
                 WitParseContextValue {
                     key: "zeta".to_owned(),
@@ -14338,6 +14477,7 @@ mod tests {
             context: WitParseContext {
                 syntax_context: 0,
                 event_classes: Vec::new(),
+                section_stack: Vec::new(),
                 values: Vec::new(),
             },
             definition_id: "expression:test:definition".to_owned(),
@@ -14417,12 +14557,126 @@ mod tests {
         }
     }
 
+    fn native_section_scope_capture() -> skript_parser::SectionScopeCapture {
+        skript_parser::SectionScopeCapture {
+            capture_index: 2,
+            parser_id: "fixture.expression".to_owned(),
+            status: ParserParsedCaptureStatus::Success,
+            source: "loop-player".to_owned(),
+            kind: Some("registeredExpression".to_owned()),
+            definition_id: Some("expression:fixture:definition".to_owned()),
+            registration_id: Some("expression:fixture:registration:0".to_owned()),
+            element_class: Some(ClassName("fixture.ExprLoopPlayer".to_owned())),
+            pattern_index: Some(3),
+            return_type: Some(ClassName("org.bukkit.entity.Player".to_owned())),
+            possible_return_types: vec![ClassName("org.bukkit.entity.Player".to_owned())],
+            possible_return_types_state: PossibleReturnTypesState::Complete,
+            multiplicity: Some(Multiplicity::Single),
+            public_data: vec![skript_parser::ExpressionPublicData {
+                schema_id: "example.semantic".to_owned(),
+                schema_version: 1,
+                json: r#"{"kind":"player"}"#.to_owned(),
+            }],
+            metadata: BTreeMap::from([(
+                "fixture.component/semantic-mode".to_owned(),
+                "loop-value".to_owned(),
+            )]),
+        }
+    }
+
+    #[test]
+    fn section_stack_is_part_of_immutable_parse_context_identity() {
+        let native = ExpressionParseContext {
+            syntax_context: 7,
+            event_classes: vec![ClassName(
+                "org.bukkit.event.player.PlayerJoinEvent".to_owned(),
+            )],
+            section_stack: vec![skript_parser::SectionScopeFrame {
+                scope_id: 11,
+                parent_scope_id: Some(4),
+                raw_node_id: ParserRawNodeId::new(5),
+                kind: skript_parser::SectionScopeKind::Loop,
+                definition_id: "section:fixture:definition".to_owned(),
+                registration_id: "section:fixture:registration:0".to_owned(),
+                element_class: Some(ClassName("fixture.SecLoop".to_owned())),
+                pattern_index: 1,
+                pattern: "loop %objects%".to_owned(),
+                source: "loop all players".to_owned(),
+                addon_name: Some("Fixture".to_owned()),
+                addon_version: Some("1.0.0".to_owned()),
+                owner_component_id: Some("fixture.component".to_owned()),
+                loop_section: true,
+                effect_section: false,
+                section_expression: false,
+                captures: vec![native_section_scope_capture()],
+                metadata: BTreeMap::from([(
+                    "fixture.component/scope-kind".to_owned(),
+                    "loop".to_owned(),
+                )]),
+            }],
+            values: BTreeMap::from([("fixture.value".to_owned(), "present".to_owned())]),
+        };
+        let original = parse_context_to_wit(&native);
+
+        assert!(same_parse_context(&original, &original.clone()));
+
+        let mut changed_identity = original.clone();
+        changed_identity.section_stack[0].scope_id += 1;
+        assert!(!same_parse_context(&original, &changed_identity));
+
+        let mut changed_metadata = original.clone();
+        changed_metadata.section_stack[0].metadata[0].value = "different".to_owned();
+        assert!(!same_parse_context(&original, &changed_metadata));
+
+        let mut changed_capture = original.clone();
+        changed_capture.section_stack[0].captures[0].source = "loop-world".to_owned();
+        assert!(!same_parse_context(&original, &changed_capture));
+    }
+
+    #[test]
+    fn section_scope_capture_preserves_native_identity_and_public_data() {
+        let native = native_section_scope_capture();
+        let wire = section_scope_capture_to_wit(&native);
+        let summary = wire
+            .summary
+            .expect("the native capture has a semantic summary");
+
+        assert_eq!(
+            summary.definition_id.as_deref(),
+            native.definition_id.as_deref()
+        );
+        assert_eq!(
+            summary.registration_id.as_deref(),
+            native.registration_id.as_deref()
+        );
+        assert_eq!(
+            summary.element_class.as_deref(),
+            native.element_class.as_ref().map(|class| class.as_str())
+        );
+        assert_eq!(
+            summary.pattern_index,
+            native.pattern_index.map(|index| index as u64)
+        );
+        let expected_public_data = public_data_entry(r#"{"kind":"player"}"#);
+        assert_eq!(summary.public_data.len(), 1);
+        assert_eq!(
+            summary.public_data[0].schema_id,
+            expected_public_data.schema_id
+        );
+        assert_eq!(
+            summary.public_data[0].schema_version,
+            expected_public_data.schema_version
+        );
+        assert_eq!(summary.public_data[0].json, expected_public_data.json);
+    }
+
     fn condition_with_children(children: Vec<WitRegisteredExpressionChild>) -> HookPayload {
         HookPayload::Condition(WitConditionPayload {
             input: "example".to_owned(),
             context: WitParseContext {
                 syntax_context: 0,
                 event_classes: Vec::new(),
+                section_stack: Vec::new(),
                 values: Vec::new(),
             },
             candidate: WitConditionCandidate {
@@ -14457,6 +14711,7 @@ mod tests {
             context: WitParseContext {
                 syntax_context: 0,
                 event_classes: Vec::new(),
+                section_stack: Vec::new(),
                 values: Vec::new(),
             },
             timing: WitStructureTiming::EnterBody,
@@ -16119,6 +16374,7 @@ mod tests {
         let parent = WitParseContext {
             syntax_context: 9,
             event_classes: vec!["fixture.ParentEvent".to_owned()],
+            section_stack: Vec::new(),
             values: vec![WitParseContextValue {
                 key: "fixture.mode".to_owned(),
                 value: "parent".to_owned(),

@@ -2214,6 +2214,7 @@ mod tests {
                 context: crate::nlaocs::skript_parser_addon::types::ParseContext {
                     syntax_context: 0,
                     event_classes: Vec::new(),
+                    section_stack: Vec::new(),
                     values: Vec::new(),
                 },
                 active_type: None,
@@ -2250,6 +2251,7 @@ mod tests {
             context: crate::nlaocs::skript_parser_addon::types::ParseContext {
                 syntax_context: 0,
                 event_classes: Vec::new(),
+                section_stack: Vec::new(),
                 values: Vec::new(),
             },
             input: "x".to_owned(),

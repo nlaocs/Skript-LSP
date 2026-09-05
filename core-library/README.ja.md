@@ -11,7 +11,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.32.0`とABI `14.0`
+- WIT package `nlaocs:skript-parser-addon@0.33.0`とABI `15.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -104,6 +104,11 @@ EventValueのchanger情報が欠けている場合もunresolvedです。metadata
 対象Expression identityへ結び付きます。Property候補はSSGの登録、owner、handler、type、source identityを保持し、
 先行Addon hookが候補indexを選択できます。明示選択のない複数Property登録は、無関係なAddonを合成せず拒否します。生changer lookupには
 record数・byte数上限とbounded cacheがあります。variableの型履歴は意図的に後続実装へ残しています。
+
+`EffExit`と`EffContinue`はcallerが渡したdepth数値ではなく、parser所有のSection stackを使います。
+frame identityとmetadataから全Section、loop、conditional chainを区別し、要求された個数または序数を
+検証します。周囲scopeが不足する場合もEffect候補を保持するため、diagnosticはunknownではなく
+incomplete matchとして返ります。
 
 Structure hookは`StructEvent`、`StructFunction`、`StructCommand`を実装します。登録handler IDを通じて
 意味付きcaptureを取得し、TriggerまたはEntryValidator body解析を選び、取得したSSG Event dataから

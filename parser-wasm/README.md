@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.32.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.33.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -89,10 +89,16 @@ multiple targets for each registered semantic handler, including dynamic
   and parser-class targets changed it to 0.29.0; structured unresolved Type
   parser results changed it to 0.30.0; runtime Type parser registration
   metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
-  changed it to 0.32.0. The manifest's current `abi`
-  value is 14.0 and is a
+  changed it to 0.32.0; the read-only structured Section scope stack changed it
+  to 0.33.0. The manifest's current `abi` value is 15.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
+
+Every parse context exposes a read-only Section stack from the outermost scope
+to the innermost. Frames distinguish the catalog addon from the owner WASM
+component of a dynamic registration. Capture summaries preserve syntax
+identity, return contracts, public schema data, and addon metadata; replacement
+payloads that alter the parser-owned stack are rejected.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an
@@ -448,6 +454,13 @@ EffectSection therefore follows this Section lifecycle; a one-line
 its `Section` syntax kind while using the `Effect` phase. Enter-phase context
 updates apply only to the Section body and its descendants. Unknown or
 multiply claimed body nodes remain in the partial tree with diagnostics.
+
+Every parse-context includes a read-only `section-stack`, ordered outermost to
+innermost. Frames expose parser-owned scope/parent IDs, complete syntax and
+addon identity, implementation class, Section flags, captures, and metadata.
+The host rejects a replacement payload that mutates this stack; addons may use
+normal context values or StateStore for their own data, but cannot forge native
+control-flow ancestry.
 
 CoreLibrary declares semantic handlers including Skript's conditional, filter,
 loop, while, and error-catching Sections, `ExprWhether`, `ExprTernary`,

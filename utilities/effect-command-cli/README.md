@@ -46,6 +46,8 @@ effectcommandcli.exe "send 1"
 effectcommandcli.exe --json "broadcast \"hello\""
 effectcommandcli.exe "send sin(abs(-1))"
 effectcommandcli.exe --event "on join:" "send join message"
+effectcommandcli.exe --section "loop all players:" "continue"
+effectcommandcli.exe --section "loop all players" --section "if loop-player is online:" "exit 2 sections"
 ```
 
 `--event <HEADER>` parses the Effect inside a selected Skript Event. The
@@ -56,11 +58,24 @@ human and JSON reports. Human output shows the EventValue count; JSON retains
 each EventValue's SSG registration, ordering, changer, validator, exclusion,
 pattern, and addon metadata.
 
+Repeat `--section <HEADER>` from the outermost Section to the innermost to
+analyze an Effect inside an artificial Section stack. Each header is parsed by
+the normal Section parser; it is not stored as a free-form label. A trailing
+`:` is optional. The selected registration identity, addon, flags, captures,
+return types, multiplicity, and addon metadata are available to CoreLibrary and
+other WASM hooks through a parser-owned read-only scope stack. JSON reports
+expose the same data under `context.sections`.
+Selecting a Section retains its enter-hook transaction state instead of running
+the root exit hook immediately. `pop` and `clear` restore the saved transaction,
+so stateful WASM addons observe the same scope lifetime as later Effect parses.
+Dynamic registrations report their `ownerComponentId` separately from catalog
+addon metadata.
+
 Human output identifies the selected Effect, addon, implementation class,
 registration pattern, pattern AST, captures, expected Skript types, resolved
 Java return types, multiplicity, nested Expressions, public semantic data,
 parse tags, parse marks, alternatives, and the farthest useful failure. JSON
-reports carry `schemaVersion: 5` so consumers can version their reader
+reports carry `schemaVersion: 6` so consumers can version their reader
 independently from the SSG schema. Human reports include `parseTime` in
 milliseconds for durations of
 at least one millisecond and in nanoseconds for shorter parses. JSON reports
@@ -122,8 +137,11 @@ effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
 effect> send 1
 effect> broadcast "hello"
 effect> :event on join:
+effect> :section loop all players:
 effect> send join message
 effect> :context
+effect> :section pop
+effect> :section clear
 effect> :event off
 effect> :json on
 effect> :reload
@@ -131,11 +149,14 @@ effect> :quit
 ```
 
 Available commands are `:help`, `:reload`, `:event <HEADER>`, `:event off`,
-`:events`, `:context`, `:json on`, `:json off`, `:quit`, and `:exit`. `:events`
+`:events`, `:section <HEADER>`, `:section pop`, `:section clear` (or `off`),
+`:context`, `:json on`, `:json off`, `:quit`, and `:exit`. `:events`
 lists both SSG catalog Events and Events registered dynamically by WASM addons.
 Event selection always uses a real Skript Event header so StructEvent and addon
-WASM hooks observe the same input. A no-match or malformed line is reported
-without ending the REPL.
+WASM hooks observe the same input. Section commands push, pop, or clear the
+parser-owned stack without changing the selected Event. Selecting another
+Event clears the Section stack because it starts a new root context. A no-match
+or malformed line is reported without ending the REPL.
 EOF exits cleanly; an interrupted read returns to the prompt.
 
 ## Current Boundary
@@ -165,4 +186,5 @@ cargo test -p effect-command-cli --locked
 Integration tests use both the checked-in multi-addon Skript 2.15.4 and legacy
 Skript 2.6.4/Minecraft 1.12.2 schema 3 snapshots. They cover one-shot JSON,
 unknown Effects, nested Function/Expression data, REPL continuation, output
-switching, Event-context selection and clearing, and snapshot reload.
+switching, Event-context selection, nested Section-context push/pop/clear,
+loop-scoped Effects and Expressions, and snapshot reload.
