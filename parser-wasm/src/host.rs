@@ -1303,6 +1303,29 @@ impl wit_catalog_data::Host for StoreData {
             .collect())
     }
 
+    fn registered_type_pattern_match(
+        &mut self,
+        registration_id: String,
+        input: String,
+    ) -> Result<Option<wit_catalog_data::RegisteredTypePatternResult>, wit_catalog_data::CatalogError>
+    {
+        Ok(self
+            .catalog()?
+            .registered_type_pattern_match(&registration_id, &input)
+            .map(|matched| wit_catalog_data::RegisteredTypePatternResult {
+                pattern: matched.registration.pattern.clone(),
+                registration_index: u64::try_from(matched.registration.registration_index)
+                    .unwrap_or(u64::MAX),
+                pattern_index: u64::try_from(matched.registration.pattern_index)
+                    .unwrap_or(u64::MAX),
+                source_code_name: matched.registration.source_code_name.clone(),
+                data_class: matched.registration.data_class.as_str().to_owned(),
+                represented_class: matched.registration.represented_class.as_str().to_owned(),
+                tags: matched.tags,
+                mark: matched.mark,
+            }))
+    }
+
     fn is_class_assignable(
         &mut self,
         source_class: String,

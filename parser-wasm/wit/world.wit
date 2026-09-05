@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.30.0;
+package nlaocs:skript-parser-addon@0.32.0;
 
 world parser-addon {
     import catalog-data;

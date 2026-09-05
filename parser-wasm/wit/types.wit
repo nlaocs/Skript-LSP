@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.30.0;
+package nlaocs:skript-parser-addon@0.32.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.

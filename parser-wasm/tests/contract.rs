@@ -19,7 +19,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(12, 0)
+        parser_wasm::AbiVersion::new(14, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -36,7 +36,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.30.0")
+        Some("0.32.0")
     );
 
     let world = package
@@ -114,6 +114,7 @@ fn catalog_data_import_exposes_the_complete_source_query_surface() {
         "is-class-assignable",
         "common-assignable-class",
         "can-convert",
+        "registered-type-pattern-match",
     ] {
         assert!(
             catalog_interface.functions.contains_key(function),

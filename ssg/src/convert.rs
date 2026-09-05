@@ -253,6 +253,19 @@ fn type_data(source_index: usize, value: raw::Type) -> model::Type {
         },
         enum_values,
         parser_patterns: value.parser_patterns.unwrap_or_default(),
+        registered_parser_patterns: value
+            .registered_parser_patterns
+            .unwrap_or_default()
+            .into_iter()
+            .map(|registration| model::RegisteredTypeParserPattern {
+                pattern: registration.pattern,
+                registration_index: registration.registration_index,
+                pattern_index: registration.pattern_index,
+                source_code_name: registration.source_code_name,
+                data_class: registration.data_class.into(),
+                represented_class: registration.represented_class.into(),
+            })
+            .collect(),
         literal_values: value.literal_values.unwrap_or_default(),
         type_literals: value
             .type_literals
