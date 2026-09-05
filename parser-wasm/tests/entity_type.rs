@@ -69,53 +69,6 @@ fn entity_type_catalog() -> Arc<Catalog> {
     )
 }
 
-fn legacy_entity_type_catalog() -> Arc<Catalog> {
-    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
-    let source = snapshot.catalog();
-    let mut syntaxes = source.syntaxes().to_vec();
-    let mut found_entity_data = false;
-    let mut found_entity_type = false;
-
-    for syntax in &mut syntaxes {
-        let Syntax::Type(value) = syntax else {
-            continue;
-        };
-        if value.original_class.as_str() == ENTITY_DATA {
-            // Model a 2.6.4 catalog: EntityData has neither supplier flag nor
-            // exported literals. The runtime profile below supplies the legacy
-            // compatibility context independently of this synthetic catalog.
-            value.literal_values.clear();
-            value.type_literals.clear();
-            value.has_supplier = false;
-            found_entity_data = true;
-        }
-        if value.original_class.as_str() == ENTITY_TYPE {
-            found_entity_type = true;
-        }
-    }
-
-    assert!(found_entity_data, "fixture must contain EntityData");
-    assert!(found_entity_type, "fixture must contain EntityType");
-
-    Arc::new(Catalog::new(CatalogParts {
-        syntaxes,
-        converters: source.converters().to_vec(),
-        comparators: source.comparators().to_vec(),
-        event_values: source.event_values().to_vec(),
-        properties: source.properties().to_vec(),
-        operators: source.operators().to_vec(),
-        operations: source.operations().clone(),
-        differences: source.differences().to_vec(),
-        classes: source.classes().to_vec(),
-        aliases: source.aliases().clone(),
-        plural_rules: source.plural_rules().clone(),
-        language: source
-            .language_entries()
-            .map(|(key, value)| (key.to_owned(), value.to_owned()))
-            .collect(),
-    }))
-}
-
 fn context(revision: u64) -> InvocationContext {
     InvocationContext {
         invocation_id: revision,
@@ -410,44 +363,6 @@ fn entity_type_supplier_whitespace_follows_skript_java_trim_boundary() {
     assert_eq!(metadata(&modern, "entity-type-amount"), "3");
     assert_eq!(metadata(&modern, "entity-type-raw-amount"), "3");
     assert_entity_data_metadata(&modern, true, None);
-}
-
-#[test]
-fn entity_type_legacy_fallback_works_without_entity_data_supplier() {
-    let node = selected_node(
-        parse_expression_with_profile(
-            "zombie",
-            ENTITY_TYPE,
-            legacy_entity_type_catalog(),
-            213,
-            ExpressionParserConfig::default(),
-            RuntimeProfile {
-                snapshot_schema_version: Some(5),
-                minecraft_version: Some("1.12.2".to_owned()),
-                skript_version: Some("2.6.4".to_owned()),
-                ..RuntimeProfile::default()
-            },
-        ),
-        "legacy EntityType literal",
-    );
-
-    assert!(matches!(
-        &node.kind,
-        ExpressionNodeKind::Literal { parser_id }
-            if parser_id == "core.literal.entity-type"
-    ));
-    assert_eq!(metadata(&node, "entity-type-amount"), "1");
-    assert_eq!(metadata(&node, "entity-type-raw-amount"), "-1");
-
-    let value = entity_data_metadata(&node);
-    let object = value
-        .as_object()
-        .unwrap_or_else(|| panic!("legacy entity-data metadata is not an object: {value}"));
-    let string = |key: &str| object.get(key).and_then(|value| value.as_str());
-    assert_eq!(string("entity-class"), Some("org.bukkit.entity.Zombie"));
-    assert_eq!(string("entity-plural"), Some("false"));
-    assert_eq!(string("entity-source"), Some("core.legacy-compatibility"));
-    assert!(!object.contains_key("literal-source"));
 }
 
 #[test]

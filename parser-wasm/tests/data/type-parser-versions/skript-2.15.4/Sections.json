@@ -22,36 +22,11 @@
   "definitionId" : "section:skript:5815970872e377676b8245a0b76c8e264defb21c94744c59b38a98d29506ca4f",
   "registrationId" : "section:skript:5815970872e377676b8245a0b76c8e264defb21c94744c59b38a98d29506ca4f:e14fda7bb1e3ba1b964e58163f3d21c59960e367d24f54f036bfe7b84ea7f45d:0",
   "experimentalSyntaxState" : "unresolved",
-  "loopSection" : false,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : false
 }, {
   "kind" : "section",
   "registrationOrder" : 1,
-  "name" : "Dummy Fixture Section",
-  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
-  "superClass" : "ch.njol.skript.lang.Section",
-  "since" : [ "1.0.0" ],
-  "description" : [ "A classic Section registration available before the Structure registry." ],
-  "examples" : [ "dummy fixture section:" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "dummy fixture section" ],
-  "addon" : {
-    "name" : "SkriptDummyAddon",
-    "version" : "1.1.0"
-  },
-  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
-  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
-  "loopSection" : false,
-  "effectSection" : false
-}, {
-  "kind" : "section",
-  "registrationOrder" : 2,
   "name" : "Dummy Return Handler Section",
   "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReturnSection",
   "superClass" : "ch.njol.skript.lang.Section",
@@ -77,8 +52,33 @@
     "singleReturnValue" : true
   },
   "returnHandlerState" : "resolved",
-  "loopSection" : false,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 2,
+  "name" : "Dummy Fixture Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A classic Section registration available before the Structure registry." ],
+  "examples" : [ "dummy fixture section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy fixture section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
+  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
+  "effectSection" : false,
+  "loopSection" : false
 }, {
   "kind" : "section",
   "registrationOrder" : 3,
@@ -105,8 +105,8 @@
   },
   "definitionId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93",
   "registrationId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93:33d8916301533c7860b3236c7171834ed23891fbef00d9717ea11a5d10311e98:0",
-  "loopSection" : false,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : false
 }, {
   "kind" : "section",
   "registrationOrder" : 4,
@@ -133,8 +133,8 @@
   },
   "definitionId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2",
   "registrationId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2:4f7dc12c0b43146e488a0e33cc6cb8410652a73db5e23378084b54bde115fa06:0",
-  "loopSection" : true,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : true
 }, {
   "kind" : "section",
   "registrationOrder" : 5,
@@ -161,8 +161,8 @@
   },
   "definitionId" : "section:skript:e9c58bfd27f9837b4a4f8b26a4e95c4f7eb6e501650d9f5f3909fd439f8abea0",
   "registrationId" : "section:skript:e9c58bfd27f9837b4a4f8b26a4e95c4f7eb6e501650d9f5f3909fd439f8abea0:dc0624f1816e194274f95d7ab0fdd45a0168c4d070a34a60bbde8bc9aa901e27:0",
-  "loopSection" : true,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : true
 }, {
   "kind" : "section",
   "registrationOrder" : 6,
@@ -189,8 +189,8 @@
   },
   "definitionId" : "section:skript:31f3b9f5761196862cee2e768f0c20b5f70074188ef28c4c2920018f393fb481",
   "registrationId" : "section:skript:31f3b9f5761196862cee2e768f0c20b5f70074188ef28c4c2920018f393fb481:22a6e568d93bca034cd11508513f89acc3947b4cbeb8388529bf4c0f73e316a4:0",
-  "loopSection" : false,
-  "effectSection" : true
+  "effectSection" : true,
+  "loopSection" : false
 }, {
   "kind" : "section",
   "registrationOrder" : 7,
@@ -223,8 +223,8 @@
   },
   "definitionId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b",
   "registrationId" : "section:skript:93f459d5be8b7dc0c7158064fd2fe7f7e1afd5b288d4ca72b2bae60bce7f355b:79f586e2f8236fbee6a6346e06f46dede2cd69e4f866924a98c2208ee6e2af97:0",
-  "loopSection" : true,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : true
 }, {
   "kind" : "section",
   "registrationOrder" : 8,
@@ -257,8 +257,8 @@
   },
   "definitionId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa",
   "registrationId" : "section:skript:c9539858d7f5c5e041973a2df85be006cc698805550aa0a9f343ddbdb0dd31fa:d8ea5b6b1c41f086057801ab505002e1b82221956a9330bc7a47ba79df0bea06:0",
-  "loopSection" : false,
-  "effectSection" : false
+  "effectSection" : false,
+  "loopSection" : false
 }, {
   "kind" : "section",
   "registrationOrder" : 9,
@@ -292,6 +292,6 @@
   },
   "definitionId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba",
   "registrationId" : "section:skript:dbbe17eaa29be0aa53f6ded4a55312ef59479c1d9a70a2bef99a79578670d8ba:127e7e5530239704cddf5f21d3a98814ec0f7ce55acef0432c6dd041542f438c:0",
-  "loopSection" : false,
-  "effectSection" : true
+  "effectSection" : true,
+  "loopSection" : false
 } ]

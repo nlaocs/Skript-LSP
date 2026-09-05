@@ -55204,6 +55204,52 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.ExperienceOrb",
+  "binaryName" : "org.bukkit.entity.ExperienceOrb",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "getCount",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getExperience",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getSourceEntityId",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.UUID",
+    "static" : false
+  }, {
+    "name" : "getSpawnReason",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.ExperienceOrb$SpawnReason",
+    "static" : false
+  }, {
+    "name" : "getTriggerEntityId",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.UUID",
+    "static" : false
+  }, {
+    "name" : "isFromBottle",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setCount",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setExperience",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "org.bukkit.entity.Explosive",
   "binaryName" : "org.bukkit.entity.Explosive",
   "kind" : "Interface",

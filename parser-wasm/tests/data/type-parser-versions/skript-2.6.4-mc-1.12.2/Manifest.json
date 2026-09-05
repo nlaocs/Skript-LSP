@@ -1,8 +1,8 @@
 {
   "schemaVersion" : 5,
-  "snapshotId" : "8c4b52a721c73f2ea7750da6f7da036644da7d364d4ba90bdd42e1f7fb02a510",
-  "contentDigest" : "4cbcc106b772f4a1540527690298fb49ce90a25ec522b56feabd726d4350c5be",
-  "generatedAt" : "2026-08-31T18:22:50.705Z",
+  "snapshotId" : "8f8223a8f71a5e73fba2b6f12ebd5a52989b47b41fcdf9be1dc4edbbb9fc48c1",
+  "contentDigest" : "fe701419551f649a4f7960571f967faa375b66076ce2ecf72de14d8f13cad8e9",
+  "generatedAt" : "2026-09-05T02:48:25.555Z",
   "server" : {
     "name" : "Paper",
     "version" : "git-Paper-1620 (MC: 1.12.2)",
@@ -20,7 +20,7 @@
     "depend" : [ ],
     "softDepend" : [ ],
     "loadBefore" : [ "Skript" ],
-    "jarSha256" : "bef3624798cf9f6e0970bd4e10125846fe68859336875bf97a7fd6b393069cbb"
+    "jarSha256" : "28ca893abea3a3a01c53ad4e020befa9d87c5c5be62485a6a09f7a25f356a871"
   }, {
     "loadOrder" : 1,
     "name" : "Skript",

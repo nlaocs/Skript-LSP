@@ -1683,6 +1683,1078 @@
     "genderId" : "an"
   },
   "usage" : [ "<i>Detailed usage will be added eventually</i>" ],
+  "registeredParserPatterns" : [ {
+    "pattern" : "boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 0,
+    "sourceCodeName" : "boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "any boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 1,
+    "sourceCodeName" : "any boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "oak boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 2,
+    "sourceCodeName" : "oak boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "spruce boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 3,
+    "sourceCodeName" : "spruce boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "birch boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 4,
+    "sourceCodeName" : "birch boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "jungle boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 5,
+    "sourceCodeName" : "jungle boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "acacia boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 6,
+    "sourceCodeName" : "acacia boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "dark oak boat(|1¦s)",
+    "registrationIndex" : 0,
+    "patternIndex" : 7,
+    "sourceCodeName" : "dark oak boat",
+    "dataClass" : "ch.njol.skript.entity.BoatData",
+    "representedClass" : "org.bukkit.entity.Boat"
+  }, {
+    "pattern" : "unpowered creeper(|1¦s)",
+    "registrationIndex" : 1,
+    "patternIndex" : 0,
+    "sourceCodeName" : "unpowered creeper",
+    "dataClass" : "ch.njol.skript.entity.CreeperData",
+    "representedClass" : "org.bukkit.entity.Creeper"
+  }, {
+    "pattern" : "creeper(|1¦s)",
+    "registrationIndex" : 1,
+    "patternIndex" : 1,
+    "sourceCodeName" : "creeper",
+    "dataClass" : "ch.njol.skript.entity.CreeperData",
+    "representedClass" : "org.bukkit.entity.Creeper"
+  }, {
+    "pattern" : "powered creeper(|1¦s)",
+    "registrationIndex" : 1,
+    "patternIndex" : 2,
+    "sourceCodeName" : "powered creeper",
+    "dataClass" : "ch.njol.skript.entity.CreeperData",
+    "representedClass" : "org.bukkit.entity.Creeper"
+  }, {
+    "pattern" : "dropped (item(|1¦s)|(2¦)%-itemtypes%)|item entit(y|1¦ies)",
+    "registrationIndex" : 2,
+    "patternIndex" : 0,
+    "sourceCodeName" : "dropped item",
+    "dataClass" : "ch.njol.skript.entity.DroppedItemData",
+    "representedClass" : "org.bukkit.entity.Item"
+  }, {
+    "pattern" : "enderm(a|1¦e)n [(carrying|holding) %-itemtype%]",
+    "registrationIndex" : 3,
+    "patternIndex" : 0,
+    "sourceCodeName" : "enderman",
+    "dataClass" : "ch.njol.skript.entity.EndermanData",
+    "representedClass" : "org.bukkit.entity.Enderman"
+  }, {
+    "pattern" : "falling (block(|1¦s)|(2¦)%-itemtype%)",
+    "registrationIndex" : 4,
+    "patternIndex" : 0,
+    "sourceCodeName" : "falling block",
+    "dataClass" : "ch.njol.skript.entity.FallingBlockData",
+    "representedClass" : "org.bukkit.entity.FallingBlock"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) llama(|1¦s)|(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) llama (4¦)cria(|1¦s)",
+    "registrationIndex" : 5,
+    "patternIndex" : 0,
+    "sourceCodeName" : "llama",
+    "dataClass" : "ch.njol.skript.entity.LlamaData",
+    "representedClass" : "org.bukkit.entity.Llama"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) creamy llama(|1¦s)|(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) creamy llama (4¦)cria(|1¦s)",
+    "registrationIndex" : 5,
+    "patternIndex" : 1,
+    "sourceCodeName" : "creamy llama",
+    "dataClass" : "ch.njol.skript.entity.LlamaData",
+    "representedClass" : "org.bukkit.entity.Llama"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) white llama(|1¦s)|(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) white llama (4¦)cria(|1¦s)",
+    "registrationIndex" : 5,
+    "patternIndex" : 2,
+    "sourceCodeName" : "white llama",
+    "dataClass" : "ch.njol.skript.entity.LlamaData",
+    "representedClass" : "org.bukkit.entity.Llama"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) brown llama(|1¦s)|(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) brown llama (4¦)cria(|1¦s)",
+    "registrationIndex" : 5,
+    "patternIndex" : 3,
+    "sourceCodeName" : "brown llama",
+    "dataClass" : "ch.njol.skript.entity.LlamaData",
+    "representedClass" : "org.bukkit.entity.Llama"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) gray llama(|1¦s)|(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) gray llama (4¦)cria(|1¦s)",
+    "registrationIndex" : 5,
+    "patternIndex" : 4,
+    "sourceCodeName" : "gray llama",
+    "dataClass" : "ch.njol.skript.entity.LlamaData",
+    "representedClass" : "org.bukkit.entity.Llama"
+  }, {
+    "pattern" : "[mine]cart(|1¦s)",
+    "registrationIndex" : 6,
+    "patternIndex" : 0,
+    "sourceCodeName" : "minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "regular [mine]cart(|1¦s)",
+    "registrationIndex" : 6,
+    "patternIndex" : 1,
+    "sourceCodeName" : "regular minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "storage [mine]cart(|1¦s)|[mine]cart(|1¦s) with chest[s]",
+    "registrationIndex" : 6,
+    "patternIndex" : 2,
+    "sourceCodeName" : "storage minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "powered [mine]cart(|1¦s)|[mine]cart(|1¦s) with furnace[s]",
+    "registrationIndex" : 6,
+    "patternIndex" : 3,
+    "sourceCodeName" : "powered minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "hopper [mine]cart(|1¦s)|[mine]cart(|1¦s) with hopper[s]",
+    "registrationIndex" : 6,
+    "patternIndex" : 4,
+    "sourceCodeName" : "hopper minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "explosive [mine]cart(|1¦s)|[mine]cart(|1¦s) with TNT[s]",
+    "registrationIndex" : 6,
+    "patternIndex" : 5,
+    "sourceCodeName" : "explosive minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "(monster|mob|) spawner [mine]cart(|1¦s)|[mine]cart(|1¦s) with (monster|mob|) spawner[s]",
+    "registrationIndex" : 6,
+    "patternIndex" : 6,
+    "sourceCodeName" : "spawner minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "command [mine]cart(|1¦s)|[mine]cart(|1¦s) with command block[s]",
+    "registrationIndex" : 6,
+    "patternIndex" : 7,
+    "sourceCodeName" : "command minecart",
+    "dataClass" : "ch.njol.skript.entity.MinecartData",
+    "representedClass" : "org.bukkit.entity.Minecart"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) ocelot(|1¦s)",
+    "registrationIndex" : 7,
+    "patternIndex" : 0,
+    "sourceCodeName" : "ocelot",
+    "dataClass" : "ch.njol.skript.entity.OcelotData",
+    "representedClass" : "org.bukkit.entity.Ocelot"
+  }, {
+    "pattern" : "parrot(|1¦s)",
+    "registrationIndex" : 8,
+    "patternIndex" : 0,
+    "sourceCodeName" : "parrot",
+    "dataClass" : "ch.njol.skript.entity.ParrotData",
+    "representedClass" : "org.bukkit.entity.Parrot"
+  }, {
+    "pattern" : "red parrot(|1¦s)",
+    "registrationIndex" : 8,
+    "patternIndex" : 1,
+    "sourceCodeName" : "red parrot",
+    "dataClass" : "ch.njol.skript.entity.ParrotData",
+    "representedClass" : "org.bukkit.entity.Parrot"
+  }, {
+    "pattern" : "blue parrot(|1¦s)",
+    "registrationIndex" : 8,
+    "patternIndex" : 2,
+    "sourceCodeName" : "blue parrot",
+    "dataClass" : "ch.njol.skript.entity.ParrotData",
+    "representedClass" : "org.bukkit.entity.Parrot"
+  }, {
+    "pattern" : "green parrot(|1¦s)",
+    "registrationIndex" : 8,
+    "patternIndex" : 3,
+    "sourceCodeName" : "green parrot",
+    "dataClass" : "ch.njol.skript.entity.ParrotData",
+    "representedClass" : "org.bukkit.entity.Parrot"
+  }, {
+    "pattern" : "cyan parrot(|1¦s)",
+    "registrationIndex" : 8,
+    "patternIndex" : 4,
+    "sourceCodeName" : "cyan parrot",
+    "dataClass" : "ch.njol.skript.entity.ParrotData",
+    "representedClass" : "org.bukkit.entity.Parrot"
+  }, {
+    "pattern" : "gray parrot(|1¦s)",
+    "registrationIndex" : 8,
+    "patternIndex" : 5,
+    "sourceCodeName" : "gray parrot",
+    "dataClass" : "ch.njol.skript.entity.ParrotData",
+    "representedClass" : "org.bukkit.entity.Parrot"
+  }, {
+    "pattern" : "unsaddled pig(|1¦s)",
+    "registrationIndex" : 9,
+    "patternIndex" : 0,
+    "sourceCodeName" : "unsaddled pig",
+    "dataClass" : "ch.njol.skript.entity.PigData",
+    "representedClass" : "org.bukkit.entity.Pig"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) pig(|1¦s)|(4¦)piglet(|1¦s)",
+    "registrationIndex" : 9,
+    "patternIndex" : 1,
+    "sourceCodeName" : "pig",
+    "dataClass" : "ch.njol.skript.entity.PigData",
+    "representedClass" : "org.bukkit.entity.Pig"
+  }, {
+    "pattern" : "saddled pig(|1¦s)",
+    "registrationIndex" : 9,
+    "patternIndex" : 2,
+    "sourceCodeName" : "saddled pig",
+    "dataClass" : "ch.njol.skript.entity.PigData",
+    "representedClass" : "org.bukkit.entity.Pig"
+  }, {
+    "pattern" : "non(-| |)op(|1¦s)",
+    "registrationIndex" : 10,
+    "patternIndex" : 0,
+    "sourceCodeName" : "non-op",
+    "dataClass" : "ch.njol.skript.entity.PlayerData",
+    "representedClass" : "org.bukkit.entity.Player"
+  }, {
+    "pattern" : "player(|1¦s)",
+    "registrationIndex" : 10,
+    "patternIndex" : 1,
+    "sourceCodeName" : "player",
+    "dataClass" : "ch.njol.skript.entity.PlayerData",
+    "representedClass" : "org.bukkit.entity.Player"
+  }, {
+    "pattern" : "op(|1¦s)",
+    "registrationIndex" : 10,
+    "patternIndex" : 2,
+    "sourceCodeName" : "op",
+    "dataClass" : "ch.njol.skript.entity.PlayerData",
+    "representedClass" : "org.bukkit.entity.Player"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 0,
+    "sourceCodeName" : "rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "black (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|black rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 1,
+    "sourceCodeName" : "black rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "black [and] white (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|black [and] white rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 2,
+    "sourceCodeName" : "black and white rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "brown (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|brown rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 3,
+    "sourceCodeName" : "brown rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "gold (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|gold rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 4,
+    "sourceCodeName" : "gold rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "salt [and] pepper (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|salt [and] pepper rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 5,
+    "sourceCodeName" : "salt and pepper rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "killer (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|killer rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 6,
+    "sourceCodeName" : "killer rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "white (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) rabbit(|1¦s)|white rabbit (|4¦baby|4¦young|8¦adult|8¦grown(-| )up)(|1¦s)",
+    "registrationIndex" : 11,
+    "patternIndex" : 7,
+    "sourceCodeName" : "white rabbit",
+    "dataClass" : "ch.njol.skript.entity.RabbitData",
+    "representedClass" : "org.bukkit.entity.Rabbit"
+  }, {
+    "pattern" : "unsheared [%-colors%] sheep(2¦|1¦s)",
+    "registrationIndex" : 12,
+    "patternIndex" : 0,
+    "sourceCodeName" : "unsheared sheep",
+    "dataClass" : "ch.njol.skript.entity.SheepData",
+    "representedClass" : "org.bukkit.entity.Sheep"
+  }, {
+    "pattern" : "[%-colors%] (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) sheep(2¦|1¦s)|(4¦)[%-colors%] lamb(|1¦s)",
+    "registrationIndex" : 12,
+    "patternIndex" : 1,
+    "sourceCodeName" : "sheep",
+    "dataClass" : "ch.njol.skript.entity.SheepData",
+    "representedClass" : "org.bukkit.entity.Sheep"
+  }, {
+    "pattern" : "sheared [%-colors%] sheep(2¦|1¦s)",
+    "registrationIndex" : 12,
+    "patternIndex" : 2,
+    "sourceCodeName" : "sheared sheep",
+    "dataClass" : "ch.njol.skript.entity.SheepData",
+    "representedClass" : "org.bukkit.entity.Sheep"
+  }, {
+    "pattern" : "thrown (potion(|1¦s)|(2¦)%-itemtypes%)",
+    "registrationIndex" : 13,
+    "patternIndex" : 0,
+    "sourceCodeName" : "thrown potion",
+    "dataClass" : "ch.njol.skript.entity.ThrownPotionData",
+    "representedClass" : "org.bukkit.entity.ThrownPotion"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) [unemployed] villager(|1¦s)|(4¦)[[unemployed] villager] (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 0,
+    "sourceCodeName" : "normal",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) villager(|1¦s)|(4¦)[villager] (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 1,
+    "sourceCodeName" : "villager",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) farmer(|1¦s)|(4¦)farmer (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 2,
+    "sourceCodeName" : "farmer",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) librarian(|1¦s)|(4¦)librarian (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 3,
+    "sourceCodeName" : "librarian",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) (priest|cleric)(|1¦s)|(4¦)(priest|cleric) (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 4,
+    "sourceCodeName" : "priest",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) [black]smith(|1¦s)|(4¦)[black]smith (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 5,
+    "sourceCodeName" : "blacksmith",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) butcher(|1¦s)|(4¦)butcher (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 6,
+    "sourceCodeName" : "butcher",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) nitwit(|1¦s)|(4¦)nitwit (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 14,
+    "patternIndex" : 7,
+    "sourceCodeName" : "nitwit",
+    "dataClass" : "ch.njol.skript.entity.VillagerData",
+    "representedClass" : "org.bukkit.entity.Villager"
+  }, {
+    "pattern" : "(angry|aggressive) (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) wol(f|1¦ves)",
+    "registrationIndex" : 15,
+    "patternIndex" : 0,
+    "sourceCodeName" : "angry wolf",
+    "dataClass" : "ch.njol.skript.entity.WolfData",
+    "representedClass" : "org.bukkit.entity.Wolf"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) wol(f|1¦ves)",
+    "registrationIndex" : 15,
+    "patternIndex" : 1,
+    "sourceCodeName" : "wolf",
+    "dataClass" : "ch.njol.skript.entity.WolfData",
+    "representedClass" : "org.bukkit.entity.Wolf"
+  }, {
+    "pattern" : "(peaceful|neutral|unaggressive) (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) wol(f|1¦ves)",
+    "registrationIndex" : 15,
+    "patternIndex" : 2,
+    "sourceCodeName" : "peaceful wolf",
+    "dataClass" : "ch.njol.skript.entity.WolfData",
+    "representedClass" : "org.bukkit.entity.Wolf"
+  }, {
+    "pattern" : "(wild|untamed) (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) wol(f|1¦ves)",
+    "registrationIndex" : 15,
+    "patternIndex" : 3,
+    "sourceCodeName" : "wild wolf",
+    "dataClass" : "ch.njol.skript.entity.WolfData",
+    "representedClass" : "org.bukkit.entity.Wolf"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) dog(|1¦s)|tamed (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) wol(f|1¦ves)|(4¦)pupp(y|1¦ies)",
+    "registrationIndex" : 15,
+    "patternIndex" : 4,
+    "sourceCodeName" : "tamed wolf",
+    "dataClass" : "ch.njol.skript.entity.WolfData",
+    "representedClass" : "org.bukkit.entity.Wolf"
+  }, {
+    "pattern" : "([e]xp|experience)( |-)orb(|1¦s)",
+    "registrationIndex" : 16,
+    "patternIndex" : 0,
+    "sourceCodeName" : "xp-orb",
+    "dataClass" : "ch.njol.skript.entity.XpOrbData",
+    "representedClass" : "org.bukkit.entity.ExperienceOrb"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie villager(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 0,
+    "sourceCodeName" : "zombie villager",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie farmer(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 1,
+    "sourceCodeName" : "zombie farmer",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie librarian(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 2,
+    "sourceCodeName" : "zombie librarian",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie priest(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 3,
+    "sourceCodeName" : "zombie priest",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie blacksmith(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 4,
+    "sourceCodeName" : "zombie blacksmith",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie butcher(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 5,
+    "sourceCodeName" : "zombie butcher",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie nitwit(|1¦s)",
+    "registrationIndex" : 17,
+    "patternIndex" : 6,
+    "sourceCodeName" : "zombie nitwit",
+    "dataClass" : "ch.njol.skript.entity.ZombieVillagerData",
+    "representedClass" : "org.bukkit.entity.ZombieVillager"
+  }, {
+    "pattern" : "arrow(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 0,
+    "sourceCodeName" : "arrow",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Arrow"
+  }, {
+    "pattern" : "spectral[ ]arrow(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 1,
+    "sourceCodeName" : "spectral arrow",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.SpectralArrow"
+  }, {
+    "pattern" : "tipped arrow(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 2,
+    "sourceCodeName" : "tipped arrow",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.TippedArrow"
+  }, {
+    "pattern" : "blaze(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 3,
+    "sourceCodeName" : "blaze",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Blaze"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) chicken(|1¦s)|(4¦)chick(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 4,
+    "sourceCodeName" : "chicken",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Chicken"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) mooshroom(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 5,
+    "sourceCodeName" : "mooshroom",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.MushroomCow"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) cow(|1¦s)|(4¦)cal(f|1¦ves)",
+    "registrationIndex" : 18,
+    "patternIndex" : 6,
+    "sourceCodeName" : "cow",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Cow"
+  }, {
+    "pattern" : "cave[ ]spider(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 7,
+    "sourceCodeName" : "cave spider",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.CaveSpider"
+  }, {
+    "pattern" : "dragon fire[ ]ball(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 8,
+    "sourceCodeName" : "dragon fireball",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.DragonFireball"
+  }, {
+    "pattern" : "egg(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 9,
+    "sourceCodeName" : "egg",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Egg"
+  }, {
+    "pattern" : "end[er][ ]crystal(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 10,
+    "sourceCodeName" : "ender crystal",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.EnderCrystal"
+  }, {
+    "pattern" : "ender[ ]dragon(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 11,
+    "sourceCodeName" : "ender dragon",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.EnderDragon"
+  }, {
+    "pattern" : "ender[ ]pearl(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 12,
+    "sourceCodeName" : "ender pearl",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.EnderPearl"
+  }, {
+    "pattern" : "(small|blaze) fire[ ]ball(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 13,
+    "sourceCodeName" : "small fireball",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.SmallFireball"
+  }, {
+    "pattern" : "large fire[ ]ball(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 14,
+    "sourceCodeName" : "large fireball",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.LargeFireball"
+  }, {
+    "pattern" : "[(ghast|big)] fire[ ]ball(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 15,
+    "sourceCodeName" : "fireball",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Fireball"
+  }, {
+    "pattern" : "fish[ ]hook(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 16,
+    "sourceCodeName" : "fish hook",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.FishHook"
+  }, {
+    "pattern" : "ghast(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 17,
+    "sourceCodeName" : "ghast",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Ghast"
+  }, {
+    "pattern" : "giant(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 18,
+    "sourceCodeName" : "giant",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Giant"
+  }, {
+    "pattern" : "iron golem(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 19,
+    "sourceCodeName" : "iron golem",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.IronGolem"
+  }, {
+    "pattern" : "magma (cube|slime)(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 20,
+    "sourceCodeName" : "magma cube",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.MagmaCube"
+  }, {
+    "pattern" : "slime(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 21,
+    "sourceCodeName" : "slime",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Slime"
+  }, {
+    "pattern" : "painting(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 22,
+    "sourceCodeName" : "painting",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Painting"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) (zombie pigm(an|1¦en)|zombified piglin(|1¦s))|(4¦)(zombie pigletboy(|1¦s)|zombified piglin (kid(|1¦s)|child(|1¦ren)))",
+    "registrationIndex" : 18,
+    "patternIndex" : 23,
+    "sourceCodeName" : "zombie pigman",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.PigZombie"
+  }, {
+    "pattern" : "silverfish(|1¦es)",
+    "registrationIndex" : 18,
+    "patternIndex" : 24,
+    "sourceCodeName" : "silverfish",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Silverfish"
+  }, {
+    "pattern" : "snowball(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 25,
+    "sourceCodeName" : "snowball",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Snowball"
+  }, {
+    "pattern" : "snow[ ](golem(|1¦s)|m(an|1¦en))",
+    "registrationIndex" : 18,
+    "patternIndex" : 26,
+    "sourceCodeName" : "snow golem",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Snowman"
+  }, {
+    "pattern" : "spider(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 27,
+    "sourceCodeName" : "spider",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Spider"
+  }, {
+    "pattern" : "[thrown] bottle(|1¦s) o(f|') enchanting|[e]xp[erience] bottle(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 28,
+    "sourceCodeName" : "bottle of enchanting",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ThrownExpBottle"
+  }, {
+    "pattern" : "([primed] TNT(2¦|1¦s)|TNT entit(y|1¦ies))",
+    "registrationIndex" : 18,
+    "patternIndex" : 29,
+    "sourceCodeName" : "tnt",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.TNTPrimed"
+  }, {
+    "pattern" : "leash hitch(|1¦es)",
+    "registrationIndex" : 18,
+    "patternIndex" : 30,
+    "sourceCodeName" : "leash hitch",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.LeashHitch"
+  }, {
+    "pattern" : "item[ ]frame(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 31,
+    "sourceCodeName" : "item frame",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ItemFrame"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) bat(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 32,
+    "sourceCodeName" : "bat",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Bat"
+  }, {
+    "pattern" : "witch(|1¦es)",
+    "registrationIndex" : 18,
+    "patternIndex" : 33,
+    "sourceCodeName" : "witch",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Witch"
+  }, {
+    "pattern" : "wither(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 34,
+    "sourceCodeName" : "wither",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Wither"
+  }, {
+    "pattern" : "wither skull((|1¦s)| projectile(|1¦s))",
+    "registrationIndex" : 18,
+    "patternIndex" : 35,
+    "sourceCodeName" : "wither skull",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.WitherSkull"
+  }, {
+    "pattern" : "firework(|1¦s) [rocket(|1¦s)]",
+    "registrationIndex" : 18,
+    "patternIndex" : 36,
+    "sourceCodeName" : "firework",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Firework"
+  }, {
+    "pattern" : "endermite(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 37,
+    "sourceCodeName" : "endermite",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Endermite"
+  }, {
+    "pattern" : "armor stand(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 38,
+    "sourceCodeName" : "armor stand",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ArmorStand"
+  }, {
+    "pattern" : "shulker(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 39,
+    "sourceCodeName" : "shulker",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Shulker"
+  }, {
+    "pattern" : "shulker bullet(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 40,
+    "sourceCodeName" : "shulker bullet",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ShulkerBullet"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) polar bear(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 41,
+    "sourceCodeName" : "polar bear",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.PolarBear"
+  }, {
+    "pattern" : "area effect cloud(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 42,
+    "sourceCodeName" : "area effect cloud",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.AreaEffectCloud"
+  }, {
+    "pattern" : "wither skeleton(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 43,
+    "sourceCodeName" : "wither skeleton",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.WitherSkeleton"
+  }, {
+    "pattern" : "stray(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 44,
+    "sourceCodeName" : "stray",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Stray"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) husk(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 45,
+    "sourceCodeName" : "husk",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Husk"
+  }, {
+    "pattern" : "skeleton(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 46,
+    "sourceCodeName" : "skeleton",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Skeleton"
+  }, {
+    "pattern" : "elder guardian(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 47,
+    "sourceCodeName" : "elder guardian",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ElderGuardian"
+  }, {
+    "pattern" : "normal guardian(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 48,
+    "sourceCodeName" : "normal guardian",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Guardian"
+  }, {
+    "pattern" : "guardian(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 49,
+    "sourceCodeName" : "guardian",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Guardian"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) donkey(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 50,
+    "sourceCodeName" : "donkey",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Donkey"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) mule(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 51,
+    "sourceCodeName" : "mule",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Mule"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) llama(|1¦s)|(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) llama (4¦)cria(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 52,
+    "sourceCodeName" : "llama",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Llama"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) (zombie|undead) horse(|1¦s)|(zombie|undead) (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) horse(|1¦s)|(zombie|undead) (4¦)foal(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 53,
+    "sourceCodeName" : "undead horse",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ZombieHorse"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) skeleton horse(|1¦s)|skeleton (|4¦baby|4¦young|8¦adult|8¦grown(-| )up) horse(|1¦s)|skeleton (4¦)foal(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 54,
+    "sourceCodeName" : "skeleton horse",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.SkeletonHorse"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) horse(|1¦s)|(4¦)foal(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 55,
+    "sourceCodeName" : "horse",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Horse"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) chested horse(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 56,
+    "sourceCodeName" : "chested horse",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.ChestedHorse"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) any horse(|1¦s)|(4¦)foal(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 57,
+    "sourceCodeName" : "any horse",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.AbstractHorse"
+  }, {
+    "pattern" : "llama spit(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 58,
+    "sourceCodeName" : "llama spit",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.LlamaSpit"
+  }, {
+    "pattern" : "evoker(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 59,
+    "sourceCodeName" : "evoker",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Evoker"
+  }, {
+    "pattern" : "evoker fangs",
+    "registrationIndex" : 18,
+    "patternIndex" : 60,
+    "sourceCodeName" : "evoker fangs",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.EvokerFangs"
+  }, {
+    "pattern" : "vex(|1¦es)",
+    "registrationIndex" : 18,
+    "patternIndex" : 61,
+    "sourceCodeName" : "vex",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Vex"
+  }, {
+    "pattern" : "vindicator(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 62,
+    "sourceCodeName" : "vindicator",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Vindicator"
+  }, {
+    "pattern" : "illusioner(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 63,
+    "sourceCodeName" : "illusioner",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Illusioner"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) zombie(|1¦s)|(4¦)zombie (kid(|1¦s)|child(|1¦ren))",
+    "registrationIndex" : 18,
+    "patternIndex" : 64,
+    "sourceCodeName" : "zombie",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Zombie"
+  }, {
+    "pattern" : "squid(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 65,
+    "sourceCodeName" : "squid",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Squid"
+  }, {
+    "pattern" : "human(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 66,
+    "sourceCodeName" : "human",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.HumanEntity"
+  }, {
+    "pattern" : "damageable mob(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 67,
+    "sourceCodeName" : "damageable",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Damageable"
+  }, {
+    "pattern" : "monster(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 68,
+    "sourceCodeName" : "monster",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Monster"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) creature(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 69,
+    "sourceCodeName" : "creature",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Creature"
+  }, {
+    "pattern" : "animal(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 70,
+    "sourceCodeName" : "animal",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Animals"
+  }, {
+    "pattern" : "golem(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 71,
+    "sourceCodeName" : "golem",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Golem"
+  }, {
+    "pattern" : "projectile(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 72,
+    "sourceCodeName" : "projectile",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Projectile"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) living entit(y|1¦ies)",
+    "registrationIndex" : 18,
+    "patternIndex" : 73,
+    "sourceCodeName" : "living entity",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.LivingEntity"
+  }, {
+    "pattern" : "(|4¦baby|4¦young|8¦adult|8¦grown(-| )up) entit(y|1¦ies)",
+    "registrationIndex" : 18,
+    "patternIndex" : 74,
+    "sourceCodeName" : "entity",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Entity"
+  }, {
+    "pattern" : "water mob(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 75,
+    "sourceCodeName" : "water mob",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.WaterMob"
+  }, {
+    "pattern" : "fish(|1¦es)",
+    "registrationIndex" : 18,
+    "patternIndex" : 76,
+    "sourceCodeName" : "fish",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Fish"
+  }, {
+    "pattern" : "any fire[ ]ball(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 77,
+    "sourceCodeName" : "any fireball",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Fireball"
+  }, {
+    "pattern" : "illager(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 78,
+    "sourceCodeName" : "illager",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Illager"
+  }, {
+    "pattern" : "spellcaster(|1¦s)",
+    "registrationIndex" : 18,
+    "patternIndex" : 79,
+    "sourceCodeName" : "spellcaster",
+    "dataClass" : "ch.njol.skript.entity.SimpleEntityData",
+    "representedClass" : "org.bukkit.entity.Spellcaster"
+  } ],
   "parserClass" : "ch.njol.skript.entity.EntityData$2",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "CONFIG", "SCRIPT" ],
   "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",

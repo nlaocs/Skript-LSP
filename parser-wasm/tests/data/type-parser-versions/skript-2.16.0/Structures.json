@@ -53,112 +53,6 @@
 }, {
   "kind" : "structure",
   "registrationOrder" : 1,
-  "name" : "Options",
-  "elementClass" : "ch.njol.skript.structures.StructOptions",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0" ],
-  "description" : [ "Options are used for replacing parts of a script with something else.", "For example, an option may represent a message that appears in multiple locations.", "Take a look at the example below that showcases this." ],
-  "examples" : [ "options:\n\tno_permission: You're missing the required permission to execute this command!\n\ncommand /ping:\n\tpermission: command.ping\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Pong!\"\n\ncommand /pong:\n\tpermission: command.pong\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Ping!\"\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "options" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.16.0"
-  },
-  "definitionId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663",
-  "registrationId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663:8febdc11be7e8a66254680a5e962dce7291b6acf46864eb28a5b6f39f8cf617a:0",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 2,
-  "name" : "Aliases",
-  "elementClass" : "ch.njol.skript.structures.StructAliases",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0" ],
-  "description" : [ "Used for registering custom aliases for a script." ],
-  "examples" : [ "# Example aliases for a script\naliases:\n\tblacklisted items = TNT, bedrock, obsidian, mob spawner, lava, lava bucket\n\tshiny swords = golden sword, iron sword, diamond sword\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "aliases" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.16.0"
-  },
-  "definitionId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6",
-  "registrationId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6:d27befae1833f953492fb4330f547acf9b0d4f287b9df57aa1e068a7e0802aa7:0",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 3,
-  "name" : "Variables",
-  "elementClass" : "ch.njol.skript.structures.StructVariables",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0" ],
-  "description" : [ "Used for defining variables present within a script.", "This section is not required, but it ensures that a variable has a value if it doesn't exist when the script is loaded." ],
-  "examples" : [ "variables:\n\t{joins} = 0\n\t{balance::%player%} = 0\n", "on join:\n\tadd 1 to {joins}\n\tmessage \"Your balance is %{balance::%player%}%\"\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "variables" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.16.0"
-  },
-  "definitionId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc",
-  "registrationId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc:cac23aa7e42206dbf43cf9b8bcff82371e847d4c8f47378f3673bc56d15b5b7d:0",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 4,
-  "name" : "Example",
-  "elementClass" : "ch.njol.skript.structures.StructExample",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "2.10" ],
-  "description" : [ "Examples are structures that are parsed, but will never be run.", "They are used as miniature tutorials for demonstrating code snippets in the example files.", "Scripts containing an example are seen as 'examples' by the parser and may have special safety restrictions." ],
-  "examples" : [ "example:\n\tbroadcast \"hello world\"\n\t# this is never run\n" ],
-  "noDoc" : true,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "example" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.16.0"
-  },
-  "definitionId" : "structure:skript:15456ab3b8a29d50a1916a5880078b12bd9cfc444f664b0a95b7f6f611b9ede8",
-  "registrationId" : "structure:skript:15456ab3b8a29d50a1916a5880078b12bd9cfc444f664b0a95b7f6f611b9ede8:e6bd9275a98203216eb54d044c936ca1b57fb0f0169dc40cf9b989c10306548b:0",
-  "experimentalSyntax" : {
-    "required" : [ {
-      "codeName" : "examples",
-      "phase" : "stable",
-      "known" : true
-    } ],
-    "disallowed" : [ ],
-    "errorMessage" : "This element is experimental. To use this, enable 'examples'."
-  },
-  "experimentalSyntaxState" : "resolved",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 5,
   "name" : "Auto Reload",
   "elementClass" : "ch.njol.skript.structures.StructAutoReload",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -200,6 +94,112 @@
     } ]
   },
   "nodeType" : "BOTH"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 2,
+  "name" : "Aliases",
+  "elementClass" : "ch.njol.skript.structures.StructAliases",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for registering custom aliases for a script." ],
+  "examples" : [ "# Example aliases for a script\naliases:\n\tblacklisted items = TNT, bedrock, obsidian, mob spawner, lava, lava bucket\n\tshiny swords = golden sword, iron sword, diamond sword\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "aliases" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "definitionId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6",
+  "registrationId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6:d27befae1833f953492fb4330f547acf9b0d4f287b9df57aa1e068a7e0802aa7:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 3,
+  "name" : "Options",
+  "elementClass" : "ch.njol.skript.structures.StructOptions",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Options are used for replacing parts of a script with something else.", "For example, an option may represent a message that appears in multiple locations.", "Take a look at the example below that showcases this." ],
+  "examples" : [ "options:\n\tno_permission: You're missing the required permission to execute this command!\n\ncommand /ping:\n\tpermission: command.ping\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Pong!\"\n\ncommand /pong:\n\tpermission: command.pong\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Ping!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "options" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "definitionId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663",
+  "registrationId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663:8febdc11be7e8a66254680a5e962dce7291b6acf46864eb28a5b6f39f8cf617a:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 4,
+  "name" : "Variables",
+  "elementClass" : "ch.njol.skript.structures.StructVariables",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for defining variables present within a script.", "This section is not required, but it ensures that a variable has a value if it doesn't exist when the script is loaded." ],
+  "examples" : [ "variables:\n\t{joins} = 0\n\t{balance::%player%} = 0\n", "on join:\n\tadd 1 to {joins}\n\tmessage \"Your balance is %{balance::%player%}%\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "variables" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "definitionId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc",
+  "registrationId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc:cac23aa7e42206dbf43cf9b8bcff82371e847d4c8f47378f3673bc56d15b5b7d:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 5,
+  "name" : "Example",
+  "elementClass" : "ch.njol.skript.structures.StructExample",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.10" ],
+  "description" : [ "Examples are structures that are parsed, but will never be run.", "They are used as miniature tutorials for demonstrating code snippets in the example files.", "Scripts containing an example are seen as 'examples' by the parser and may have special safety restrictions." ],
+  "examples" : [ "example:\n\tbroadcast \"hello world\"\n\t# this is never run\n" ],
+  "noDoc" : true,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "example" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "definitionId" : "structure:skript:15456ab3b8a29d50a1916a5880078b12bd9cfc444f664b0a95b7f6f611b9ede8",
+  "registrationId" : "structure:skript:15456ab3b8a29d50a1916a5880078b12bd9cfc444f664b0a95b7f6f611b9ede8:e6bd9275a98203216eb54d044c936ca1b57fb0f0169dc40cf9b989c10306548b:0",
+  "experimentalSyntax" : {
+    "required" : [ {
+      "codeName" : "examples",
+      "phase" : "stable",
+      "known" : true
+    } ],
+    "disallowed" : [ ],
+    "errorMessage" : "This element is experimental. To use this, enable 'examples'."
+  },
+  "experimentalSyntaxState" : "resolved",
+  "nodeType" : "SECTION"
 }, {
   "kind" : "structure",
   "registrationOrder" : 6,
@@ -247,6 +247,39 @@
 }, {
   "kind" : "structure",
   "registrationOrder" : 7,
+  "name" : "Function",
+  "elementClass" : "ch.njol.skript.structures.StructFunction",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.2, 2.7 (local functions)" ],
+  "description" : [ "Functions are structures that can be executed with arguments/parameters to run code.", "They can also return a value to the trigger that is executing the function.", "Note that local functions come before global functions execution" ],
+  "examples" : [ "function sayMessage(message: text):\n\tbroadcast {_message} # our message argument is available in '{_message}'\n", "local function giveApple(amount: number) :: item:\n\treturn {_amount} of apple\n", "function getPoints(p: player) returns number:\n\treturn {points::%{_p}%}\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[:local] function <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.0"
+  },
+  "definitionId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb",
+  "registrationId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb:3c31dc201f6f489cc93ace0d16708a3f6de4e0791476759c7c70843ec1cba68e:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 8,
   "name" : "Event",
   "elementClass" : "ch.njol.skript.structures.StructEvent",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -279,7 +312,7 @@
   "nodeType" : "SECTION"
 }, {
   "kind" : "structure",
-  "registrationOrder" : 8,
+  "registrationOrder" : 9,
   "name" : "Using Experimental Feature",
   "elementClass" : "ch.njol.skript.structures.StructUsing",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -312,7 +345,7 @@
   "nodeType" : "SIMPLE"
 }, {
   "kind" : "structure",
-  "registrationOrder" : 9,
+  "registrationOrder" : 10,
   "name" : "Command",
   "elementClass" : "ch.njol.skript.structures.StructCommand",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -437,38 +470,5 @@
       "kind" : "section"
     } ]
   },
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 10,
-  "name" : "Function",
-  "elementClass" : "ch.njol.skript.structures.StructFunction",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "2.2, 2.7 (local functions)" ],
-  "description" : [ "Functions are structures that can be executed with arguments/parameters to run code.", "They can also return a value to the trigger that is executing the function.", "Note that local functions come before global functions execution" ],
-  "examples" : [ "function sayMessage(message: text):\n\tbroadcast {_message} # our message argument is available in '{_message}'\n", "local function giveApple(amount: number) :: item:\n\treturn {_amount} of apple\n", "function getPoints(p: player) returns number:\n\treturn {points::%{_p}%}\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
-  "priority" : {
-    "after" : [ {
-      "after" : [ {
-        "after" : [ ],
-        "before" : [ ]
-      } ],
-      "before" : [ ]
-    }, {
-      "after" : [ ],
-      "before" : [ ]
-    } ],
-    "before" : [ ]
-  },
-  "patterns" : [ "[:local] function <.+>" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.16.0"
-  },
-  "definitionId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb",
-  "registrationId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb:3c31dc201f6f489cc93ace0d16708a3f6de4e0791476759c7c70843ec1cba68e:0",
   "nodeType" : "SECTION"
 } ]

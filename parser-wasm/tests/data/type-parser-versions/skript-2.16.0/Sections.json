@@ -27,31 +27,6 @@
 }, {
   "kind" : "section",
   "registrationOrder" : 1,
-  "name" : "Dummy Fixture Section",
-  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
-  "superClass" : "ch.njol.skript.lang.Section",
-  "since" : [ "1.0.0" ],
-  "description" : [ "A classic Section registration available before the Structure registry." ],
-  "examples" : [ "dummy fixture section:" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "dummy fixture section" ],
-  "addon" : {
-    "name" : "SkriptDummyAddon",
-    "version" : "1.1.0"
-  },
-  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
-  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
-  "effectSection" : false,
-  "loopSection" : false
-}, {
-  "kind" : "section",
-  "registrationOrder" : 2,
   "name" : "Dummy Return Handler Section",
   "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReturnSection",
   "superClass" : "ch.njol.skript.lang.Section",
@@ -77,6 +52,31 @@
     "singleReturnValue" : true
   },
   "returnHandlerState" : "resolved",
+  "effectSection" : false,
+  "loopSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 2,
+  "name" : "Dummy Fixture Section",
+  "elementClass" : "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection",
+  "superClass" : "ch.njol.skript.lang.Section",
+  "since" : [ "1.0.0" ],
+  "description" : [ "A classic Section registration available before the Structure registry." ],
+  "examples" : [ "dummy fixture section:" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "dummy fixture section" ],
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "definitionId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092",
+  "registrationId" : "section:skriptdummyaddon:a07479feb5862950b54af0ccf4e5306a91bbb7a1425d22c01757770e1591a092:b6c9afa42c4f4c73280740b98c490fae24bbe10e34a6efbeccad3bc484b518c9:0",
   "effectSection" : false,
   "loopSection" : false
 }, {

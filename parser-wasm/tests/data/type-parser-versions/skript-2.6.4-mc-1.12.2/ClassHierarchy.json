@@ -7146,6 +7146,325 @@
     "version" : "2.6.4"
   }
 }, {
+  "name" : "ch.njol.skript.entity.BoatData",
+  "binaryName" : "ch.njol.skript.entity.BoatData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Boat" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isOfItemType",
+    "parameterTypes" : [ "ch.njol.skript.aliases.ItemType" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Boat" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Boat" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.CreeperData",
+  "binaryName" : "ch.njol.skript.entity.CreeperData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Creeper" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Creeper" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Creeper" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.DroppedItemData",
+  "binaryName" : "ch.njol.skript.entity.DroppedItemData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Item" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Item" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Item" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "toString",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "java.lang.String",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.EndermanData",
+  "binaryName" : "ch.njol.skript.entity.EndermanData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Enderman" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSubhand",
+    "parameterTypes" : [ "ch.njol.skript.aliases.ItemType[]" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Enderman" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Enderman" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "toString",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "java.lang.String",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
   "name" : "ch.njol.skript.entity.EntityData",
   "binaryName" : "ch.njol.skript.entity.EntityData",
   "kind" : "Class",
@@ -7500,6 +7819,1039 @@
     "version" : "2.6.4"
   }
 }, {
+  "name" : "ch.njol.skript.entity.FallingBlockData",
+  "binaryName" : "ch.njol.skript.entity.FallingBlockData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.FallingBlock" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.FallingBlock" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.FallingBlock" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "spawn",
+    "parameterTypes" : [ "org.bukkit.Location", "org.bukkit.util.Consumer" ],
+    "returnType" : "org.bukkit.entity.Entity",
+    "static" : false
+  }, {
+    "name" : "spawn",
+    "parameterTypes" : [ "org.bukkit.Location", "org.bukkit.util.Consumer" ],
+    "returnType" : "org.bukkit.entity.FallingBlock",
+    "static" : false
+  }, {
+    "name" : "toString",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "java.lang.String",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.LlamaData",
+  "binaryName" : "ch.njol.skript.entity.LlamaData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Llama" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Llama" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Llama" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.MinecartData",
+  "binaryName" : "ch.njol.skript.entity.MinecartData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Minecart" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Minecart" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Minecart" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.OcelotData",
+  "binaryName" : "ch.njol.skript.entity.OcelotData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Ocelot" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Ocelot" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Ocelot" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.ParrotData",
+  "binaryName" : "ch.njol.skript.entity.ParrotData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Parrot" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Parrot" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Parrot" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.PigData",
+  "binaryName" : "ch.njol.skript.entity.PigData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Pig" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Pig" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Pig" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.PlayerData",
+  "binaryName" : "ch.njol.skript.entity.PlayerData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Player" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Player" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Player" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "spawn",
+    "parameterTypes" : [ "org.bukkit.Location", "org.bukkit.util.Consumer" ],
+    "returnType" : "org.bukkit.entity.Entity",
+    "static" : false
+  }, {
+    "name" : "spawn",
+    "parameterTypes" : [ "org.bukkit.Location", "org.bukkit.util.Consumer" ],
+    "returnType" : "org.bukkit.entity.Player",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.RabbitData",
+  "binaryName" : "ch.njol.skript.entity.RabbitData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Rabbit" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "intFromType",
+    "parameterTypes" : [ "org.bukkit.entity.Rabbit$Type" ],
+    "returnType" : "int",
+    "static" : true
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Rabbit" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Rabbit" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "typeFromInt",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "org.bukkit.entity.Rabbit$Type",
+    "static" : true
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.SheepData",
+  "binaryName" : "ch.njol.skript.entity.SheepData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Sheep" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "lambda$match$0",
+    "parameterTypes" : [ "org.bukkit.entity.Sheep", "ch.njol.skript.util.Color" ],
+    "returnType" : "boolean",
+    "static" : true
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Sheep" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Sheep" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "toString",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "java.lang.String",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.SimpleEntityData",
+  "binaryName" : "ch.njol.skript.entity.SimpleEntityData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "ch.njol.yggdrasil.Fields" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "serialize",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.yggdrasil.Fields",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.ThrownPotionData",
+  "binaryName" : "ch.njol.skript.entity.ThrownPotionData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.ThrownPotion" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "lambda$init$0",
+    "parameterTypes" : [ "ch.njol.skript.aliases.ItemType" ],
+    "returnType" : "ch.njol.skript.aliases.ItemType",
+    "static" : true
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.ThrownPotion" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.ThrownPotion" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "spawn",
+    "parameterTypes" : [ "org.bukkit.Location", "org.bukkit.util.Consumer" ],
+    "returnType" : "org.bukkit.entity.Entity",
+    "static" : false
+  }, {
+    "name" : "spawn",
+    "parameterTypes" : [ "org.bukkit.Location", "org.bukkit.util.Consumer" ],
+    "returnType" : "org.bukkit.entity.ThrownPotion",
+    "static" : false
+  }, {
+    "name" : "toString",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "java.lang.String",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.VillagerData",
+  "binaryName" : "ch.njol.skript.entity.VillagerData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Villager" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Villager" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Villager" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.WolfData",
+  "binaryName" : "ch.njol.skript.entity.WolfData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Wolf" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Wolf" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Wolf" ],
+    "returnType" : "void",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
   "name" : "ch.njol.skript.entity.XpOrbData",
   "binaryName" : "ch.njol.skript.entity.XpOrbData",
   "kind" : "Class",
@@ -7594,6 +8946,82 @@
     "name" : "toString",
     "parameterTypes" : [ "int" ],
     "returnType" : "java.lang.String",
+    "static" : false
+  } ],
+  "provider" : {
+    "name" : "Skript",
+    "version" : "2.6.4"
+  }
+}, {
+  "name" : "ch.njol.skript.entity.ZombieVillagerData",
+  "binaryName" : "ch.njol.skript.entity.ZombieVillagerData",
+  "kind" : "Class",
+  "superClass" : "ch.njol.skript.entity.EntityData",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "deserialize",
+    "parameterTypes" : [ "java.lang.String" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "equals_i",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getSuperType",
+    "parameterTypes" : [ ],
+    "returnType" : "ch.njol.skript.entity.EntityData",
+    "static" : false
+  }, {
+    "name" : "getType",
+    "parameterTypes" : [ ],
+    "returnType" : "java.lang.Class",
+    "static" : false
+  }, {
+    "name" : "hashCode_i",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "ch.njol.skript.lang.Literal[]", "int", "ch.njol.skript.lang.SkriptParser$ParseResult" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "init",
+    "parameterTypes" : [ "java.lang.Class", "org.bukkit.entity.ZombieVillager" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSupertypeOf",
+    "parameterTypes" : [ "ch.njol.skript.entity.EntityData" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "match",
+    "parameterTypes" : [ "org.bukkit.entity.ZombieVillager" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "set",
+    "parameterTypes" : [ "org.bukkit.entity.ZombieVillager" ],
+    "returnType" : "void",
     "static" : false
   } ],
   "provider" : {
@@ -21970,6 +23398,43 @@
     "version" : "2.6.4"
   }
 }, {
+  "name" : "com.destroystokyo.paper.entity.RangedEntity",
+  "binaryName" : "com.destroystokyo.paper.entity.RangedEntity",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC" ],
+  "methods" : [ {
+    "name" : "isChargingAttack",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "rangedAttack",
+    "parameterTypes" : [ "org.bukkit.entity.LivingEntity", "float" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setChargingAttack",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "com.destroystokyo.paper.entity.SentientNPC",
+  "binaryName" : "com.destroystokyo.paper.entity.SentientNPC",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ {
+    "name" : "getTarget",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.LivingEntity",
+    "static" : false
+  }, {
+    "name" : "setTarget",
+    "parameterTypes" : [ "org.bukkit.entity.LivingEntity" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "com.destroystokyo.paper.event.entity.EntityZapEvent",
   "binaryName" : "com.destroystokyo.paper.event.entity.EntityZapEvent",
   "kind" : "Class",
@@ -26962,6 +28427,119 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.AbstractHorse",
+  "binaryName" : "org.bukkit.entity.AbstractHorse",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals", "org.bukkit.entity.Tameable", "org.bukkit.entity.Vehicle", "org.bukkit.inventory.InventoryHolder" ],
+  "methods" : [ {
+    "name" : "getDomestication",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.AbstractHorseInventory",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.Inventory",
+    "static" : false
+  }, {
+    "name" : "getJumpStrength",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "getMaxDomestication",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getVariant",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Horse$Variant",
+    "static" : false
+  }, {
+    "name" : "setDomestication",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setJumpStrength",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setMaxDomestication",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setVariant",
+    "parameterTypes" : [ "org.bukkit.entity.Horse$Variant" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Ageable",
+  "binaryName" : "org.bukkit.entity.Ageable",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Creature" ],
+  "methods" : [ {
+    "name" : "canBreed",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getAge",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getAgeLock",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isAdult",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setAdult",
+    "parameterTypes" : [ ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setAge",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setAgeLock",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setBaby",
+    "parameterTypes" : [ ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setBreed",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Ambient",
+  "binaryName" : "org.bukkit.entity.Ambient",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC", "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ ]
+}, {
   "name" : "org.bukkit.entity.AnimalTamer",
   "binaryName" : "org.bukkit.entity.AnimalTamer",
   "kind" : "Interface",
@@ -26975,6 +28553,580 @@
     "name" : "getUniqueId",
     "parameterTypes" : [ ],
     "returnType" : "java.util.UUID",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Animals",
+  "binaryName" : "org.bukkit.entity.Animals",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Ageable" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.AreaEffectCloud",
+  "binaryName" : "org.bukkit.entity.AreaEffectCloud",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "addCustomEffect",
+    "parameterTypes" : [ "org.bukkit.potion.PotionEffect", "boolean" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "clearCustomEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "getBasePotionData",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.potion.PotionData",
+    "static" : false
+  }, {
+    "name" : "getColor",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Color",
+    "static" : false
+  }, {
+    "name" : "getCustomEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.List",
+    "static" : false
+  }, {
+    "name" : "getDuration",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getDurationOnUse",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getParticle",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Particle",
+    "static" : false
+  }, {
+    "name" : "getRadius",
+    "parameterTypes" : [ ],
+    "returnType" : "float",
+    "static" : false
+  }, {
+    "name" : "getRadiusOnUse",
+    "parameterTypes" : [ ],
+    "returnType" : "float",
+    "static" : false
+  }, {
+    "name" : "getRadiusPerTick",
+    "parameterTypes" : [ ],
+    "returnType" : "float",
+    "static" : false
+  }, {
+    "name" : "getReapplicationDelay",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getSource",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.projectiles.ProjectileSource",
+    "static" : false
+  }, {
+    "name" : "getWaitTime",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "hasCustomEffect",
+    "parameterTypes" : [ "org.bukkit.potion.PotionEffectType" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "hasCustomEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "removeCustomEffect",
+    "parameterTypes" : [ "org.bukkit.potion.PotionEffectType" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setBasePotionData",
+    "parameterTypes" : [ "org.bukkit.potion.PotionData" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setColor",
+    "parameterTypes" : [ "org.bukkit.Color" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setDuration",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setDurationOnUse",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setParticle",
+    "parameterTypes" : [ "org.bukkit.Particle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRadius",
+    "parameterTypes" : [ "float" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRadiusOnUse",
+    "parameterTypes" : [ "float" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRadiusPerTick",
+    "parameterTypes" : [ "float" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setReapplicationDelay",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setSource",
+    "parameterTypes" : [ "org.bukkit.projectiles.ProjectileSource" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setWaitTime",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.ArmorStand",
+  "binaryName" : "org.bukkit.entity.ArmorStand",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ {
+    "name" : "canMove",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "canTick",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getBodyPose",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.EulerAngle",
+    "static" : false
+  }, {
+    "name" : "getBoots",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "getChestplate",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "getHeadPose",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.EulerAngle",
+    "static" : false
+  }, {
+    "name" : "getHelmet",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "getItemInHand",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "getLeftArmPose",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.EulerAngle",
+    "static" : false
+  }, {
+    "name" : "getLeftLegPose",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.EulerAngle",
+    "static" : false
+  }, {
+    "name" : "getLeggings",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "getRightArmPose",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.EulerAngle",
+    "static" : false
+  }, {
+    "name" : "getRightLegPose",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.EulerAngle",
+    "static" : false
+  }, {
+    "name" : "hasArms",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "hasBasePlate",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isMarker",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isSmall",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isVisible",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setArms",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setBasePlate",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setBodyPose",
+    "parameterTypes" : [ "org.bukkit.util.EulerAngle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setBoots",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setCanMove",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setCanTick",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setChestplate",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setHeadPose",
+    "parameterTypes" : [ "org.bukkit.util.EulerAngle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setHelmet",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setItemInHand",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setLeftArmPose",
+    "parameterTypes" : [ "org.bukkit.util.EulerAngle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setLeftLegPose",
+    "parameterTypes" : [ "org.bukkit.util.EulerAngle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setLeggings",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setMarker",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRightArmPose",
+    "parameterTypes" : [ "org.bukkit.util.EulerAngle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRightLegPose",
+    "parameterTypes" : [ "org.bukkit.util.EulerAngle" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setSmall",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setVisible",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Arrow",
+  "binaryName" : "org.bukkit.entity.Arrow",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ {
+    "name" : "getAttachedBlock",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.block.Block",
+    "static" : false
+  }, {
+    "name" : "getKnockbackStrength",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getPickupRule",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Arrow$PickupRule",
+    "static" : false
+  }, {
+    "name" : "getPickupStatus",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Arrow$PickupStatus",
+    "static" : false
+  }, {
+    "name" : "isCritical",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isInBlock",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setCritical",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setKnockbackStrength",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setPickupRule",
+    "parameterTypes" : [ "org.bukkit.entity.Arrow$PickupRule" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setPickupStatus",
+    "parameterTypes" : [ "org.bukkit.entity.Arrow$PickupStatus" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "spigot",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.command.CommandSender$Spigot",
+    "static" : false
+  }, {
+    "name" : "spigot",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Arrow$Spigot",
+    "static" : false
+  }, {
+    "name" : "spigot",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Entity$Spigot",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Bat",
+  "binaryName" : "org.bukkit.entity.Bat",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Ambient" ],
+  "methods" : [ {
+    "name" : "isAwake",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setAwake",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Blaze",
+  "binaryName" : "org.bukkit.entity.Blaze",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Boat",
+  "binaryName" : "org.bukkit.entity.Boat",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Vehicle" ],
+  "methods" : [ {
+    "name" : "getMaxSpeed",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "getOccupiedDeceleration",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "getUnoccupiedDeceleration",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "getWoodType",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.TreeSpecies",
+    "static" : false
+  }, {
+    "name" : "getWorkOnLand",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setMaxSpeed",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setOccupiedDeceleration",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setUnoccupiedDeceleration",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setWoodType",
+    "parameterTypes" : [ "org.bukkit.TreeSpecies" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setWorkOnLand",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.CaveSpider",
+  "binaryName" : "org.bukkit.entity.CaveSpider",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Spider" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.ChestedHorse",
+  "binaryName" : "org.bukkit.entity.ChestedHorse",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.AbstractHorse" ],
+  "methods" : [ {
+    "name" : "isCarryingChest",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setCarryingChest",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Chicken",
+  "binaryName" : "org.bukkit.entity.Chicken",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.ComplexLivingEntity",
+  "binaryName" : "org.bukkit.entity.ComplexLivingEntity",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC", "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ {
+    "name" : "getParts",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.Set",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Cow",
+  "binaryName" : "org.bukkit.entity.Cow",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Creature",
+  "binaryName" : "org.bukkit.entity.Creature",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC", "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Creeper",
+  "binaryName" : "org.bukkit.entity.Creeper",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ {
+    "name" : "getExplosionRadius",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getMaxFuseTicks",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "isPowered",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setExplosionRadius",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setMaxFuseTicks",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setPowered",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
     "static" : false
   } ]
 }, {
@@ -27018,6 +29170,105 @@
     "returnType" : "void",
     "static" : false
   } ]
+}, {
+  "name" : "org.bukkit.entity.Donkey",
+  "binaryName" : "org.bukkit.entity.Donkey",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.ChestedHorse" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.DragonFireball",
+  "binaryName" : "org.bukkit.entity.DragonFireball",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Fireball" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Egg",
+  "binaryName" : "org.bukkit.entity.Egg",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.ElderGuardian",
+  "binaryName" : "org.bukkit.entity.ElderGuardian",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Guardian" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.EnderCrystal",
+  "binaryName" : "org.bukkit.entity.EnderCrystal",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "getBeamTarget",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Location",
+    "static" : false
+  }, {
+    "name" : "isShowingBottom",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setBeamTarget",
+    "parameterTypes" : [ "org.bukkit.Location" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setShowingBottom",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.EnderDragon",
+  "binaryName" : "org.bukkit.entity.EnderDragon",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.ComplexLivingEntity" ],
+  "methods" : [ {
+    "name" : "getPhase",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.EnderDragon$Phase",
+    "static" : false
+  }, {
+    "name" : "setPhase",
+    "parameterTypes" : [ "org.bukkit.entity.EnderDragon$Phase" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.EnderPearl",
+  "binaryName" : "org.bukkit.entity.EnderPearl",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Enderman",
+  "binaryName" : "org.bukkit.entity.Enderman",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ {
+    "name" : "getCarriedMaterial",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.material.MaterialData",
+    "static" : false
+  }, {
+    "name" : "setCarriedMaterial",
+    "parameterTypes" : [ "org.bukkit.material.MaterialData" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "teleportRandomly",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Endermite",
+  "binaryName" : "org.bukkit.entity.Endermite",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
 }, {
   "name" : "org.bukkit.entity.Entity",
   "binaryName" : "org.bukkit.entity.Entity",
@@ -27330,6 +29581,162 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.Evoker",
+  "binaryName" : "org.bukkit.entity.Evoker",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Spellcaster" ],
+  "methods" : [ {
+    "name" : "getCurrentSpell",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Evoker$Spell",
+    "static" : false
+  }, {
+    "name" : "setCurrentSpell",
+    "parameterTypes" : [ "org.bukkit.entity.Evoker$Spell" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.EvokerFangs",
+  "binaryName" : "org.bukkit.entity.EvokerFangs",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "getOwner",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.LivingEntity",
+    "static" : false
+  }, {
+    "name" : "setOwner",
+    "parameterTypes" : [ "org.bukkit.entity.LivingEntity" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.ExperienceOrb",
+  "binaryName" : "org.bukkit.entity.ExperienceOrb",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "getExperience",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getSourceEntityId",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.UUID",
+    "static" : false
+  }, {
+    "name" : "getSpawnReason",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.ExperienceOrb$SpawnReason",
+    "static" : false
+  }, {
+    "name" : "getTriggerEntityId",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.UUID",
+    "static" : false
+  }, {
+    "name" : "isFromBottle",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setExperience",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Explosive",
+  "binaryName" : "org.bukkit.entity.Explosive",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "getYield",
+    "parameterTypes" : [ ],
+    "returnType" : "float",
+    "static" : false
+  }, {
+    "name" : "isIncendiary",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setIsIncendiary",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setYield",
+    "parameterTypes" : [ "float" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.FallingBlock",
+  "binaryName" : "org.bukkit.entity.FallingBlock",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "canHurtEntities",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getBlockData",
+    "parameterTypes" : [ ],
+    "returnType" : "byte",
+    "static" : false
+  }, {
+    "name" : "getBlockId",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getDropItem",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "getMaterial",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Material",
+    "static" : false
+  }, {
+    "name" : "getSourceLoc",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Location",
+    "static" : false
+  }, {
+    "name" : "setDropItem",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setHurtEntities",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Fireball",
+  "binaryName" : "org.bukkit.entity.Fireball",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Explosive", "org.bukkit.entity.Projectile" ],
+  "methods" : [ {
+    "name" : "getDirection",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.Vector",
+    "static" : false
+  }, {
+    "name" : "setDirection",
+    "parameterTypes" : [ "org.bukkit.util.Vector" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "org.bukkit.entity.Firework",
   "binaryName" : "org.bukkit.entity.Firework",
   "kind" : "Interface",
@@ -27361,6 +29768,68 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.Fish",
+  "binaryName" : "org.bukkit.entity.Fish",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.FishHook" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.FishHook",
+  "binaryName" : "org.bukkit.entity.FishHook",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ {
+    "name" : "getBiteChance",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "setBiteChance",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Flying",
+  "binaryName" : "org.bukkit.entity.Flying",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC", "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Ghast",
+  "binaryName" : "org.bukkit.entity.Ghast",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Flying" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Giant",
+  "binaryName" : "org.bukkit.entity.Giant",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Golem",
+  "binaryName" : "org.bukkit.entity.Golem",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Creature" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Guardian",
+  "binaryName" : "org.bukkit.entity.Guardian",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ {
+    "name" : "isElder",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setElder",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "org.bukkit.entity.Hanging",
   "binaryName" : "org.bukkit.entity.Hanging",
   "kind" : "Interface",
@@ -27369,6 +29838,57 @@
     "name" : "setFacingDirection",
     "parameterTypes" : [ "org.bukkit.block.BlockFace", "boolean" ],
     "returnType" : "boolean",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Horse",
+  "binaryName" : "org.bukkit.entity.Horse",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.AbstractHorse" ],
+  "methods" : [ {
+    "name" : "getColor",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Horse$Color",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.AbstractHorseInventory",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.HorseInventory",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.Inventory",
+    "static" : false
+  }, {
+    "name" : "getStyle",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Horse$Style",
+    "static" : false
+  }, {
+    "name" : "isCarryingChest",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setCarryingChest",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setColor",
+    "parameterTypes" : [ "org.bukkit.entity.Horse$Color" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setStyle",
+    "parameterTypes" : [ "org.bukkit.entity.Horse$Style" ],
+    "returnType" : "void",
     "static" : false
   } ]
 }, {
@@ -27558,6 +30078,40 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.Husk",
+  "binaryName" : "org.bukkit.entity.Husk",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Zombie" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Illager",
+  "binaryName" : "org.bukkit.entity.Illager",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Illusioner",
+  "binaryName" : "org.bukkit.entity.Illusioner",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.RangedEntity", "org.bukkit.entity.Spellcaster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.IronGolem",
+  "binaryName" : "org.bukkit.entity.IronGolem",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Golem" ],
+  "methods" : [ {
+    "name" : "isPlayerCreated",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setPlayerCreated",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "org.bukkit.entity.Item",
   "binaryName" : "org.bukkit.entity.Item",
   "kind" : "Interface",
@@ -27593,6 +30147,44 @@
     "returnType" : "void",
     "static" : false
   } ]
+}, {
+  "name" : "org.bukkit.entity.ItemFrame",
+  "binaryName" : "org.bukkit.entity.ItemFrame",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Hanging" ],
+  "methods" : [ {
+    "name" : "getItem",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "getRotation",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Rotation",
+    "static" : false
+  }, {
+    "name" : "setItem",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRotation",
+    "parameterTypes" : [ "org.bukkit.Rotation" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.LargeFireball",
+  "binaryName" : "org.bukkit.entity.LargeFireball",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Fireball" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.LeashHitch",
+  "binaryName" : "org.bukkit.entity.LeashHitch",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Hanging" ],
+  "methods" : [ ]
 }, {
   "name" : "org.bukkit.entity.LivingEntity",
   "binaryName" : "org.bukkit.entity.LivingEntity",
@@ -27836,6 +30428,254 @@
   }, {
     "name" : "setShieldBlockingDelay",
     "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Llama",
+  "binaryName" : "org.bukkit.entity.Llama",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.RangedEntity", "org.bukkit.entity.ChestedHorse" ],
+  "methods" : [ {
+    "name" : "getColor",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Llama$Color",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.AbstractHorseInventory",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.Inventory",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.LlamaInventory",
+    "static" : false
+  }, {
+    "name" : "getStrength",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "setColor",
+    "parameterTypes" : [ "org.bukkit.entity.Llama$Color" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setStrength",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.LlamaSpit",
+  "binaryName" : "org.bukkit.entity.LlamaSpit",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.MagmaCube",
+  "binaryName" : "org.bukkit.entity.MagmaCube",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Slime" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Minecart",
+  "binaryName" : "org.bukkit.entity.Minecart",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Vehicle" ],
+  "methods" : [ {
+    "name" : "getDamage",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "getDerailedVelocityMod",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.Vector",
+    "static" : false
+  }, {
+    "name" : "getDisplayBlock",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.material.MaterialData",
+    "static" : false
+  }, {
+    "name" : "getDisplayBlockOffset",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getFlyingVelocityMod",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.util.Vector",
+    "static" : false
+  }, {
+    "name" : "getMaxSpeed",
+    "parameterTypes" : [ ],
+    "returnType" : "double",
+    "static" : false
+  }, {
+    "name" : "isSlowWhenEmpty",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setDamage",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setDerailedVelocityMod",
+    "parameterTypes" : [ "org.bukkit.util.Vector" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setDisplayBlock",
+    "parameterTypes" : [ "org.bukkit.material.MaterialData" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setDisplayBlockOffset",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setFlyingVelocityMod",
+    "parameterTypes" : [ "org.bukkit.util.Vector" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setMaxSpeed",
+    "parameterTypes" : [ "double" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setSlowWhenEmpty",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Monster",
+  "binaryName" : "org.bukkit.entity.Monster",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Creature" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Mule",
+  "binaryName" : "org.bukkit.entity.Mule",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.ChestedHorse" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.MushroomCow",
+  "binaryName" : "org.bukkit.entity.MushroomCow",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Cow" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.NPC",
+  "binaryName" : "org.bukkit.entity.NPC",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Creature" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Ocelot",
+  "binaryName" : "org.bukkit.entity.Ocelot",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals", "org.bukkit.entity.Sittable", "org.bukkit.entity.Tameable" ],
+  "methods" : [ {
+    "name" : "getCatType",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Ocelot$Type",
+    "static" : false
+  }, {
+    "name" : "setCatType",
+    "parameterTypes" : [ "org.bukkit.entity.Ocelot$Type" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Painting",
+  "binaryName" : "org.bukkit.entity.Painting",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Hanging" ],
+  "methods" : [ {
+    "name" : "getArt",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Art",
+    "static" : false
+  }, {
+    "name" : "setArt",
+    "parameterTypes" : [ "org.bukkit.Art" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setArt",
+    "parameterTypes" : [ "org.bukkit.Art", "boolean" ],
+    "returnType" : "boolean",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Parrot",
+  "binaryName" : "org.bukkit.entity.Parrot",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals", "org.bukkit.entity.Sittable", "org.bukkit.entity.Tameable" ],
+  "methods" : [ {
+    "name" : "getVariant",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Parrot$Variant",
+    "static" : false
+  }, {
+    "name" : "setVariant",
+    "parameterTypes" : [ "org.bukkit.entity.Parrot$Variant" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Pig",
+  "binaryName" : "org.bukkit.entity.Pig",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals", "org.bukkit.entity.Vehicle" ],
+  "methods" : [ {
+    "name" : "hasSaddle",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setSaddle",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.PigZombie",
+  "binaryName" : "org.bukkit.entity.PigZombie",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Zombie" ],
+  "methods" : [ {
+    "name" : "getAnger",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "isAngry",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setAnger",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setAngry",
+    "parameterTypes" : [ "boolean" ],
     "returnType" : "void",
     "static" : false
   } ]
@@ -28686,6 +31526,12 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.PolarBear",
+  "binaryName" : "org.bukkit.entity.PolarBear",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals" ],
+  "methods" : [ ]
+}, {
   "name" : "org.bukkit.entity.Projectile",
   "binaryName" : "org.bukkit.entity.Projectile",
   "kind" : "Interface",
@@ -28712,6 +31558,348 @@
     "static" : false
   } ]
 }, {
+  "name" : "org.bukkit.entity.Rabbit",
+  "binaryName" : "org.bukkit.entity.Rabbit",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals" ],
+  "methods" : [ {
+    "name" : "getRabbitType",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Rabbit$Type",
+    "static" : false
+  }, {
+    "name" : "setRabbitType",
+    "parameterTypes" : [ "org.bukkit.entity.Rabbit$Type" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Sheep",
+  "binaryName" : "org.bukkit.entity.Sheep",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals", "org.bukkit.material.Colorable" ],
+  "methods" : [ {
+    "name" : "isSheared",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setSheared",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Shulker",
+  "binaryName" : "org.bukkit.entity.Shulker",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Golem", "org.bukkit.material.Colorable" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.ShulkerBullet",
+  "binaryName" : "org.bukkit.entity.ShulkerBullet",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ {
+    "name" : "getTarget",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Entity",
+    "static" : false
+  }, {
+    "name" : "setTarget",
+    "parameterTypes" : [ "org.bukkit.entity.Entity" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Silverfish",
+  "binaryName" : "org.bukkit.entity.Silverfish",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Sittable",
+  "binaryName" : "org.bukkit.entity.Sittable",
+  "kind" : "Interface",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "isSitting",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setSitting",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Skeleton",
+  "binaryName" : "org.bukkit.entity.Skeleton",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.RangedEntity", "org.bukkit.entity.Monster" ],
+  "methods" : [ {
+    "name" : "getSkeletonType",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Skeleton$SkeletonType",
+    "static" : false
+  }, {
+    "name" : "setSkeletonType",
+    "parameterTypes" : [ "org.bukkit.entity.Skeleton$SkeletonType" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.SkeletonHorse",
+  "binaryName" : "org.bukkit.entity.SkeletonHorse",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.AbstractHorse" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Slime",
+  "binaryName" : "org.bukkit.entity.Slime",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC", "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ {
+    "name" : "getSize",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getTarget",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.LivingEntity",
+    "static" : false
+  }, {
+    "name" : "setSize",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setTarget",
+    "parameterTypes" : [ "org.bukkit.entity.LivingEntity" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.SmallFireball",
+  "binaryName" : "org.bukkit.entity.SmallFireball",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Fireball" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Snowball",
+  "binaryName" : "org.bukkit.entity.Snowball",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Snowman",
+  "binaryName" : "org.bukkit.entity.Snowman",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.RangedEntity", "org.bukkit.entity.Golem" ],
+  "methods" : [ {
+    "name" : "isDerp",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setDerp",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.SpectralArrow",
+  "binaryName" : "org.bukkit.entity.SpectralArrow",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Arrow" ],
+  "methods" : [ {
+    "name" : "getGlowingTicks",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "setGlowingTicks",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Spellcaster",
+  "binaryName" : "org.bukkit.entity.Spellcaster",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Illager" ],
+  "methods" : [ {
+    "name" : "getSpell",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Spellcaster$Spell",
+    "static" : false
+  }, {
+    "name" : "setSpell",
+    "parameterTypes" : [ "org.bukkit.entity.Spellcaster$Spell" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Spider",
+  "binaryName" : "org.bukkit.entity.Spider",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Squid",
+  "binaryName" : "org.bukkit.entity.Squid",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.WaterMob" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Stray",
+  "binaryName" : "org.bukkit.entity.Stray",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Skeleton" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.TNTPrimed",
+  "binaryName" : "org.bukkit.entity.TNTPrimed",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Explosive" ],
+  "methods" : [ {
+    "name" : "getFuseTicks",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getSource",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Entity",
+    "static" : false
+  }, {
+    "name" : "getSourceLoc",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Location",
+    "static" : false
+  }, {
+    "name" : "setFuseTicks",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Tameable",
+  "binaryName" : "org.bukkit.entity.Tameable",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Entity" ],
+  "methods" : [ {
+    "name" : "getOwner",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.AnimalTamer",
+    "static" : false
+  }, {
+    "name" : "getOwnerUniqueId",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.UUID",
+    "static" : false
+  }, {
+    "name" : "isTamed",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setOwner",
+    "parameterTypes" : [ "org.bukkit.entity.AnimalTamer" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setTamed",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.ThrownExpBottle",
+  "binaryName" : "org.bukkit.entity.ThrownExpBottle",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.ThrownPotion",
+  "binaryName" : "org.bukkit.entity.ThrownPotion",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Projectile" ],
+  "methods" : [ {
+    "name" : "getEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.Collection",
+    "static" : false
+  }, {
+    "name" : "getItem",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "static" : false
+  }, {
+    "name" : "setItem",
+    "parameterTypes" : [ "org.bukkit.inventory.ItemStack" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.TippedArrow",
+  "binaryName" : "org.bukkit.entity.TippedArrow",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Arrow" ],
+  "methods" : [ {
+    "name" : "addCustomEffect",
+    "parameterTypes" : [ "org.bukkit.potion.PotionEffect", "boolean" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "clearCustomEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "getBasePotionData",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.potion.PotionData",
+    "static" : false
+  }, {
+    "name" : "getColor",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.Color",
+    "static" : false
+  }, {
+    "name" : "getCustomEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.List",
+    "static" : false
+  }, {
+    "name" : "hasCustomEffect",
+    "parameterTypes" : [ "org.bukkit.potion.PotionEffectType" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "hasCustomEffects",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "removeCustomEffect",
+    "parameterTypes" : [ "org.bukkit.potion.PotionEffectType" ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setBasePotionData",
+    "parameterTypes" : [ "org.bukkit.potion.PotionData" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setColor",
+    "parameterTypes" : [ "org.bukkit.Color" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "org.bukkit.entity.Vehicle",
   "binaryName" : "org.bukkit.entity.Vehicle",
   "kind" : "Interface",
@@ -28724,6 +31912,193 @@
   }, {
     "name" : "setVelocity",
     "parameterTypes" : [ "org.bukkit.util.Vector" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Vex",
+  "binaryName" : "org.bukkit.entity.Vex",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ {
+    "name" : "getOwner",
+    "parameterTypes" : [ ],
+    "returnType" : "com.destroystokyo.paper.entity.SentientNPC",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Villager",
+  "binaryName" : "org.bukkit.entity.Villager",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Ageable", "org.bukkit.entity.NPC", "org.bukkit.inventory.InventoryHolder", "org.bukkit.inventory.Merchant" ],
+  "methods" : [ {
+    "name" : "getCareer",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Villager$Career",
+    "static" : false
+  }, {
+    "name" : "getInventory",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.inventory.Inventory",
+    "static" : false
+  }, {
+    "name" : "getProfession",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Villager$Profession",
+    "static" : false
+  }, {
+    "name" : "getRiches",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "setCareer",
+    "parameterTypes" : [ "org.bukkit.entity.Villager$Career", "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setCareer",
+    "parameterTypes" : [ "org.bukkit.entity.Villager$Career" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setProfession",
+    "parameterTypes" : [ "org.bukkit.entity.Villager$Profession" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRiches",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Vindicator",
+  "binaryName" : "org.bukkit.entity.Vindicator",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Illager" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.WaterMob",
+  "binaryName" : "org.bukkit.entity.WaterMob",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.SentientNPC", "org.bukkit.entity.LivingEntity" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Witch",
+  "binaryName" : "org.bukkit.entity.Witch",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.RangedEntity", "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.Wither",
+  "binaryName" : "org.bukkit.entity.Wither",
+  "kind" : "Interface",
+  "interfaces" : [ "com.destroystokyo.paper.entity.RangedEntity", "org.bukkit.entity.Monster" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.WitherSkeleton",
+  "binaryName" : "org.bukkit.entity.WitherSkeleton",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Skeleton" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.WitherSkull",
+  "binaryName" : "org.bukkit.entity.WitherSkull",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Fireball" ],
+  "methods" : [ {
+    "name" : "isCharged",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setCharged",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Wolf",
+  "binaryName" : "org.bukkit.entity.Wolf",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Animals", "org.bukkit.entity.Sittable", "org.bukkit.entity.Tameable" ],
+  "methods" : [ {
+    "name" : "getCollarColor",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.DyeColor",
+    "static" : false
+  }, {
+    "name" : "isAngry",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setAngry",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setCollarColor",
+    "parameterTypes" : [ "org.bukkit.DyeColor" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.Zombie",
+  "binaryName" : "org.bukkit.entity.Zombie",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Monster" ],
+  "methods" : [ {
+    "name" : "getVillagerProfession",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Villager$Profession",
+    "static" : false
+  }, {
+    "name" : "isBaby",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "isVillager",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setBaby",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setVillager",
+    "parameterTypes" : [ "boolean" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setVillagerProfession",
+    "parameterTypes" : [ "org.bukkit.entity.Villager$Profession" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.entity.ZombieHorse",
+  "binaryName" : "org.bukkit.entity.ZombieHorse",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.AbstractHorse" ],
+  "methods" : [ ]
+}, {
+  "name" : "org.bukkit.entity.ZombieVillager",
+  "binaryName" : "org.bukkit.entity.ZombieVillager",
+  "kind" : "Interface",
+  "interfaces" : [ "org.bukkit.entity.Zombie" ],
+  "methods" : [ {
+    "name" : "getVillagerProfession",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.Villager$Profession",
+    "static" : false
+  }, {
+    "name" : "setVillagerProfession",
+    "parameterTypes" : [ "org.bukkit.entity.Villager$Profession" ],
     "returnType" : "void",
     "static" : false
   } ]
@@ -34198,6 +37573,47 @@
   "componentType" : "org.bukkit.inventory.ItemStack",
   "methods" : [ ]
 }, {
+  "name" : "org.bukkit.inventory.Merchant",
+  "binaryName" : "org.bukkit.inventory.Merchant",
+  "kind" : "Interface",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "getRecipe",
+    "parameterTypes" : [ "int" ],
+    "returnType" : "org.bukkit.inventory.MerchantRecipe",
+    "static" : false
+  }, {
+    "name" : "getRecipeCount",
+    "parameterTypes" : [ ],
+    "returnType" : "int",
+    "static" : false
+  }, {
+    "name" : "getRecipes",
+    "parameterTypes" : [ ],
+    "returnType" : "java.util.List",
+    "static" : false
+  }, {
+    "name" : "getTrader",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.entity.HumanEntity",
+    "static" : false
+  }, {
+    "name" : "isTrading",
+    "parameterTypes" : [ ],
+    "returnType" : "boolean",
+    "static" : false
+  }, {
+    "name" : "setRecipe",
+    "parameterTypes" : [ "int", "org.bukkit.inventory.MerchantRecipe" ],
+    "returnType" : "void",
+    "static" : false
+  }, {
+    "name" : "setRecipes",
+    "parameterTypes" : [ "java.util.List" ],
+    "returnType" : "void",
+    "static" : false
+  } ]
+}, {
   "name" : "org.bukkit.inventory.PlayerInventory",
   "binaryName" : "org.bukkit.inventory.PlayerInventory",
   "kind" : "Interface",
@@ -34342,6 +37758,22 @@
     "name" : "getAttachedFace",
     "parameterTypes" : [ ],
     "returnType" : "org.bukkit.block.BlockFace",
+    "static" : false
+  } ]
+}, {
+  "name" : "org.bukkit.material.Colorable",
+  "binaryName" : "org.bukkit.material.Colorable",
+  "kind" : "Interface",
+  "interfaces" : [ ],
+  "methods" : [ {
+    "name" : "getColor",
+    "parameterTypes" : [ ],
+    "returnType" : "org.bukkit.DyeColor",
+    "static" : false
+  }, {
+    "name" : "setColor",
+    "parameterTypes" : [ "org.bukkit.DyeColor" ],
+    "returnType" : "void",
     "static" : false
   } ]
 }, {

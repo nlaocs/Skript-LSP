@@ -16,8 +16,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8",
-  "registrationId" : "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d"
+  "registrationId" : "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d",
+  "definitionId" : "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8"
 }, {
   "registrationOrder" : 1,
   "name" : "acos",
@@ -36,8 +36,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:3ecc0ab6e6a5fad89237f648f453f0f2e1604fec7c8a3aa2e3e1dd4a5b1871c4",
-  "registrationId" : "function:skript:b66785a347affc34cac5865d6955223e82e123cad56dc4538fdd37c0d8b30b6f"
+  "registrationId" : "function:skript:b66785a347affc34cac5865d6955223e82e123cad56dc4538fdd37c0d8b30b6f",
+  "definitionId" : "function:skript:3ecc0ab6e6a5fad89237f648f453f0f2e1604fec7c8a3aa2e3e1dd4a5b1871c4"
 }, {
   "registrationOrder" : 2,
   "name" : "asin",
@@ -56,8 +56,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:7af21aafd960efcf54a0fb9aa183d5d5cb8b99c877856e2d82f6d944262dd072",
-  "registrationId" : "function:skript:cf82e5025c770ffc1077e4b36053b0577bc27dfc2a3412f5cf19b3f85c731548"
+  "registrationId" : "function:skript:cf82e5025c770ffc1077e4b36053b0577bc27dfc2a3412f5cf19b3f85c731548",
+  "definitionId" : "function:skript:7af21aafd960efcf54a0fb9aa183d5d5cb8b99c877856e2d82f6d944262dd072"
 }, {
   "registrationOrder" : 3,
   "name" : "atan",
@@ -76,8 +76,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:4219370f632fb39e2fcac23febc229e9fe38a41501b03fc8974f7928c56afe79",
-  "registrationId" : "function:skript:a4f93ecde6171b7a321cf043c9a44b3316f703d09fde436188249a6614a2af88"
+  "registrationId" : "function:skript:a4f93ecde6171b7a321cf043c9a44b3316f703d09fde436188249a6614a2af88",
+  "definitionId" : "function:skript:4219370f632fb39e2fcac23febc229e9fe38a41501b03fc8974f7928c56afe79"
 }, {
   "registrationOrder" : 4,
   "name" : "atan2",
@@ -101,8 +101,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:924b0d018d221af98420e7d41f6357dc32921801f2238b718b401fb3f80d3e6b",
-  "registrationId" : "function:skript:51650d4eddb217874d72a79f697a3cd0eca36922ed1038b9da5f7e68e81c57d5"
+  "registrationId" : "function:skript:51650d4eddb217874d72a79f697a3cd0eca36922ed1038b9da5f7e68e81c57d5",
+  "definitionId" : "function:skript:924b0d018d221af98420e7d41f6357dc32921801f2238b718b401fb3f80d3e6b"
 }, {
   "registrationOrder" : 5,
   "name" : "axisAngle",
@@ -126,8 +126,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:ba98255ec9be7ca4c3d40859de96dae0868a19dfea9b7f81b1516eb1880747b1",
-  "registrationId" : "function:skript:58a8589b30d5aa0c7ca11a5c5d7e08b9994be2e0ef9c51db965f8b0dcc61978a"
+  "registrationId" : "function:skript:58a8589b30d5aa0c7ca11a5c5d7e08b9994be2e0ef9c51db965f8b0dcc61978a",
+  "definitionId" : "function:skript:ba98255ec9be7ca4c3d40859de96dae0868a19dfea9b7f81b1516eb1880747b1"
 }, {
   "registrationOrder" : 6,
   "name" : "calcExperience",
@@ -145,8 +145,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:158107bb26d1aa91386c79aaac8daf37d74509db18dfe3dbcc3062f07a4f93bc",
-  "registrationId" : "function:skript:517c544295d153d75b958d50fd30fee46d9d462f6e0c9ed429f72220cff8864d"
+  "registrationId" : "function:skript:517c544295d153d75b958d50fd30fee46d9d462f6e0c9ed429f72220cff8864d",
+  "definitionId" : "function:skript:158107bb26d1aa91386c79aaac8daf37d74509db18dfe3dbcc3062f07a4f93bc"
 }, {
   "registrationOrder" : 7,
   "name" : "ceil",
@@ -165,8 +165,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:3c974d85d7e4cc9dc0d66453aced14c701189975cf81e2f4d7ece7938dbe4699",
-  "registrationId" : "function:skript:e0d2b6e7ec94d7e959557fc43424ee3301592b611cfe49135763fb4ede81a828"
+  "registrationId" : "function:skript:e0d2b6e7ec94d7e959557fc43424ee3301592b611cfe49135763fb4ede81a828",
+  "definitionId" : "function:skript:3c974d85d7e4cc9dc0d66453aced14c701189975cf81e2f4d7ece7938dbe4699"
 }, {
   "registrationOrder" : 8,
   "name" : "ceiling",
@@ -185,8 +185,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:bf99651c2dda8b9c349aff1b22a2e5cf17360a20f49808b217d727e1a367145e",
-  "registrationId" : "function:skript:525c263501eabc9765658c82daea028724005bfcc04c9e70b82c7e71d2e5a0c8"
+  "registrationId" : "function:skript:525c263501eabc9765658c82daea028724005bfcc04c9e70b82c7e71d2e5a0c8",
+  "definitionId" : "function:skript:bf99651c2dda8b9c349aff1b22a2e5cf17360a20f49808b217d727e1a367145e"
 }, {
   "registrationOrder" : 9,
   "name" : "clamp",
@@ -217,8 +217,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:7390182ff37e1f445b20e90c0c1367de85474917c7f6e25114f00e09156d4ab7",
-  "registrationId" : "function:skript:79e061cd3aba6481d7885cb825cec3f483bf5d8aac1a17d8d2b786bc4ba98b18"
+  "registrationId" : "function:skript:79e061cd3aba6481d7885cb825cec3f483bf5d8aac1a17d8d2b786bc4ba98b18",
+  "definitionId" : "function:skript:7390182ff37e1f445b20e90c0c1367de85474917c7f6e25114f00e09156d4ab7"
 }, {
   "registrationOrder" : 10,
   "name" : "combinations",
@@ -242,8 +242,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:32f88dae60c6385495bd2d678bae55b5bf14adca9567ab9cc1ab38ec61606637",
-  "registrationId" : "function:skript:96dc030d1367dac3c557f2e321fcdf8fe8e30e2333cee92e6736e29ad75eec3e"
+  "registrationId" : "function:skript:96dc030d1367dac3c557f2e321fcdf8fe8e30e2333cee92e6736e29ad75eec3e",
+  "definitionId" : "function:skript:32f88dae60c6385495bd2d678bae55b5bf14adca9567ab9cc1ab38ec61606637"
 }, {
   "registrationOrder" : 11,
   "name" : "concat",
@@ -262,8 +262,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:96b4d35cb9d8c290791a0b8b467a1e49edbb2d98b294fa0a4663cc4008f6579d",
-  "registrationId" : "function:skript:ab5528e4882bb94b40c7ceaedbd66db82b3158c68a7e81a083892200e688e179"
+  "registrationId" : "function:skript:ab5528e4882bb94b40c7ceaedbd66db82b3158c68a7e81a083892200e688e179",
+  "definitionId" : "function:skript:96b4d35cb9d8c290791a0b8b467a1e49edbb2d98b294fa0a4663cc4008f6579d"
 }, {
   "registrationOrder" : 12,
   "name" : "cos",
@@ -282,8 +282,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:5b6545ffc82d0681797d66de4860753065a313c2a763ed6fe7ba869e812134a6",
-  "registrationId" : "function:skript:c75cb646c96d25080eaac9a01f45a426cc4d822ca1bb0341814df4a09e64bfa6"
+  "registrationId" : "function:skript:c75cb646c96d25080eaac9a01f45a426cc4d822ca1bb0341814df4a09e64bfa6",
+  "definitionId" : "function:skript:5b6545ffc82d0681797d66de4860753065a313c2a763ed6fe7ba869e812134a6"
 }, {
   "registrationOrder" : 13,
   "name" : "date",
@@ -354,8 +354,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:ed725a3ea42c5f4c353f0a1f47f18a5083ea8222eed6d5b0368116220817ea3f",
-  "registrationId" : "function:skript:b04e1b1429bc3af06a698e369aecdb1c8e5d9d0966f00752cb0b4bee04255a9d"
+  "registrationId" : "function:skript:b04e1b1429bc3af06a698e369aecdb1c8e5d9d0966f00752cb0b4bee04255a9d",
+  "definitionId" : "function:skript:ed725a3ea42c5f4c353f0a1f47f18a5083ea8222eed6d5b0368116220817ea3f"
 }, {
   "registrationOrder" : 14,
   "name" : "dummy_echo",
@@ -374,8 +374,8 @@
     "name" : "SkriptDummyAddon",
     "version" : "1.1.0"
   },
-  "definitionId" : "function:skriptdummyaddon:948a5b697ef5decf8a620e3e7de76611899d172278a435cd0be0dfb0eb48d5fb",
-  "registrationId" : "function:skriptdummyaddon:2b50bbbc753e113dda4e71c130fb91e0f58a5bdc6b03a2c92a66aec9c50c359e"
+  "registrationId" : "function:skriptdummyaddon:2b50bbbc753e113dda4e71c130fb91e0f58a5bdc6b03a2c92a66aec9c50c359e",
+  "definitionId" : "function:skriptdummyaddon:948a5b697ef5decf8a620e3e7de76611899d172278a435cd0be0dfb0eb48d5fb"
 }, {
   "registrationOrder" : 15,
   "name" : "dummy_no_args",
@@ -389,8 +389,8 @@
     "name" : "SkriptDummyAddon",
     "version" : "1.1.0"
   },
-  "definitionId" : "function:skriptdummyaddon:5b6ce3f1f1ce7577426ce42281eb82c1acd51b63e236c3a24f3a1696af4a7369",
-  "registrationId" : "function:skriptdummyaddon:1c4dce1c367ce34fac299af0198071b2a672b4ee4940db8e06cdf1d666364c81"
+  "registrationId" : "function:skriptdummyaddon:1c4dce1c367ce34fac299af0198071b2a672b4ee4940db8e06cdf1d666364c81",
+  "definitionId" : "function:skriptdummyaddon:5b6ce3f1f1ce7577426ce42281eb82c1acd51b63e236c3a24f3a1696af4a7369"
 }, {
   "registrationOrder" : 16,
   "name" : "exp",
@@ -409,8 +409,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:6769faa1cfd1905ed85225d3aa6ae56aa5cfc1e5968d6adb3d8d139f2313cac5",
-  "registrationId" : "function:skript:c56504ef05961b0d520e060aaeba89aa5c73d254e62aefc7667dc27a26234a34"
+  "registrationId" : "function:skript:c56504ef05961b0d520e060aaeba89aa5c73d254e62aefc7667dc27a26234a34",
+  "definitionId" : "function:skript:6769faa1cfd1905ed85225d3aa6ae56aa5cfc1e5968d6adb3d8d139f2313cac5"
 }, {
   "registrationOrder" : 17,
   "name" : "factorial",
@@ -429,8 +429,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:574edc8083a06ea2c4f5b16fdcf590cb31c13f6574b88e06de8ede122a7996d4",
-  "registrationId" : "function:skript:121b773f019230b7bc11a8dd6d7353706a61ab79c09f0ae99719a3ead17ebfcc"
+  "registrationId" : "function:skript:121b773f019230b7bc11a8dd6d7353706a61ab79c09f0ae99719a3ead17ebfcc",
+  "definitionId" : "function:skript:574edc8083a06ea2c4f5b16fdcf590cb31c13f6574b88e06de8ede122a7996d4"
 }, {
   "registrationOrder" : 18,
   "name" : "floor",
@@ -449,8 +449,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:6e108fd969edd871d3b49b56ce691344e7e805b68d63a8ecbcb13ef9d3bb2387",
-  "registrationId" : "function:skript:e1d83820522d14fdc725588f7b702ef4e5c1c8d8b6364c6555f68f49bfc915e2"
+  "registrationId" : "function:skript:e1d83820522d14fdc725588f7b702ef4e5c1c8d8b6364c6555f68f49bfc915e2",
+  "definitionId" : "function:skript:6e108fd969edd871d3b49b56ce691344e7e805b68d63a8ecbcb13ef9d3bb2387"
 }, {
   "registrationOrder" : 19,
   "name" : "formatNumber",
@@ -476,8 +476,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:4ed79d2aeb64ace0a6ee3e1738cdf50ce93ecd909d27daed9342c1caad3c2266",
-  "registrationId" : "function:skript:8dd1180aef5733e3f3f0791ec87f6c16aa0a0d415579a814704d9620d1fe378c"
+  "registrationId" : "function:skript:8dd1180aef5733e3f3f0791ec87f6c16aa0a0d415579a814704d9620d1fe378c",
+  "definitionId" : "function:skript:4ed79d2aeb64ace0a6ee3e1738cdf50ce93ecd909d27daed9342c1caad3c2266"
 }, {
   "registrationOrder" : 20,
   "name" : "fromBase",
@@ -505,8 +505,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:b10887c35c29f7c00deedb65417b6a5746ce48e15258618e8d3ed55eda706d00",
-  "registrationId" : "function:skript:4798924f6226b8e8e5b7c3858a77f091fc77704d514af004ef598b302901943a"
+  "registrationId" : "function:skript:4798924f6226b8e8e5b7c3858a77f091fc77704d514af004ef598b302901943a",
+  "definitionId" : "function:skript:b10887c35c29f7c00deedb65417b6a5746ce48e15258618e8d3ed55eda706d00"
 }, {
   "registrationOrder" : 21,
   "name" : "isNaN",
@@ -525,8 +525,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:e05c3417624bb8fee9a4eda67b1e9d48e0394ea1d8093e82bff5e239fbb863a3",
-  "registrationId" : "function:skript:5e39a892af882b4b960aa46d722e396c30d5cf925d80d3f1af1f5717cdc73b4e"
+  "registrationId" : "function:skript:5e39a892af882b4b960aa46d722e396c30d5cf925d80d3f1af1f5717cdc73b4e",
+  "definitionId" : "function:skript:e05c3417624bb8fee9a4eda67b1e9d48e0394ea1d8093e82bff5e239fbb863a3"
 }, {
   "registrationOrder" : 22,
   "name" : "ln",
@@ -545,8 +545,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:d429501c1283a20deb914f125b146c7449314d474af5b24021896af5b0a51e1c",
-  "registrationId" : "function:skript:27263ae0d2c059f04fd231ecb23d537d583cad52c1761fd191e3510331b6ba1c"
+  "registrationId" : "function:skript:27263ae0d2c059f04fd231ecb23d537d583cad52c1761fd191e3510331b6ba1c",
+  "definitionId" : "function:skript:d429501c1283a20deb914f125b146c7449314d474af5b24021896af5b0a51e1c"
 }, {
   "registrationOrder" : 23,
   "name" : "location",
@@ -596,8 +596,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:bcce62d2f1bace8261f0175932caa4b361d291af345f948f575c21f1914f2347",
-  "registrationId" : "function:skript:3815ae559ecd5055e475c36e52995c5c50db913306c13d61ef9edc7a0534f729"
+  "registrationId" : "function:skript:3815ae559ecd5055e475c36e52995c5c50db913306c13d61ef9edc7a0534f729",
+  "definitionId" : "function:skript:bcce62d2f1bace8261f0175932caa4b361d291af345f948f575c21f1914f2347"
 }, {
   "registrationOrder" : 24,
   "name" : "log",
@@ -623,8 +623,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
-  "registrationId" : "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+  "registrationId" : "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9",
+  "definitionId" : "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4"
 }, {
   "registrationOrder" : 25,
   "name" : "max",
@@ -643,8 +643,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:eb3dbdf9faacac4619b9ebdd328aa123458cea295fb8dafd18bbd0028b3e87ba",
-  "registrationId" : "function:skript:bfed23f66ab1f8cbdd35c7e07b0a828ccbca0ae222742166aa16e865411eddc7"
+  "registrationId" : "function:skript:bfed23f66ab1f8cbdd35c7e07b0a828ccbca0ae222742166aa16e865411eddc7",
+  "definitionId" : "function:skript:eb3dbdf9faacac4619b9ebdd328aa123458cea295fb8dafd18bbd0028b3e87ba"
 }, {
   "registrationOrder" : 26,
   "name" : "mean",
@@ -663,8 +663,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:d5befa6180b081cebdcae21f4d74f26adc45e55b3c25327977c04d618da8083c",
-  "registrationId" : "function:skript:6618c4497e7dd95723b7332f811caa1b27d2a03359ee1ef069bd8e8bc089f475"
+  "registrationId" : "function:skript:6618c4497e7dd95723b7332f811caa1b27d2a03359ee1ef069bd8e8bc089f475",
+  "definitionId" : "function:skript:d5befa6180b081cebdcae21f4d74f26adc45e55b3c25327977c04d618da8083c"
 }, {
   "registrationOrder" : 27,
   "name" : "median",
@@ -683,8 +683,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:ffedca92fbfe2d0feb09b710e229010bea4ec3b8af42f0ed4822da652ab46963",
-  "registrationId" : "function:skript:f8abf8b9d5b2c14ea0eee9efd51d2c3eb34a091328dd58ad478ed655af6daed2"
+  "registrationId" : "function:skript:f8abf8b9d5b2c14ea0eee9efd51d2c3eb34a091328dd58ad478ed655af6daed2",
+  "definitionId" : "function:skript:ffedca92fbfe2d0feb09b710e229010bea4ec3b8af42f0ed4822da652ab46963"
 }, {
   "registrationOrder" : 28,
   "name" : "min",
@@ -703,8 +703,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:67a7ba1d4625a81553f91102f60feaebb0f1e0fb89945591fb1044e545d4a6af",
-  "registrationId" : "function:skript:5adb4a878ad8e60748e453baea9dde404dac1daee064d7bdc238eeb863cccc91"
+  "registrationId" : "function:skript:5adb4a878ad8e60748e453baea9dde404dac1daee064d7bdc238eeb863cccc91",
+  "definitionId" : "function:skript:67a7ba1d4625a81553f91102f60feaebb0f1e0fb89945591fb1044e545d4a6af"
 }, {
   "registrationOrder" : 29,
   "name" : "mod",
@@ -728,8 +728,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:58d45d4bb937ac596c52369c41c51cabe28b1281df0dac686320e95d73c5be52",
-  "registrationId" : "function:skript:75433b03deb7adcbc9cb5ce170f1184014d08a021bbdaea6a195c49ed01bcb57"
+  "registrationId" : "function:skript:75433b03deb7adcbc9cb5ce170f1184014d08a021bbdaea6a195c49ed01bcb57",
+  "definitionId" : "function:skript:58d45d4bb937ac596c52369c41c51cabe28b1281df0dac686320e95d73c5be52"
 }, {
   "registrationOrder" : 30,
   "name" : "offlineplayer",
@@ -755,8 +755,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:1ddeea162df2cd141444acf84805321a4f38622530bebf99397bf070468293ad",
-  "registrationId" : "function:skript:fadf99b36dcfd60a150ebfd9a3ed25d5318a3fbf51de4e1bee3915d042f4ed11"
+  "registrationId" : "function:skript:fadf99b36dcfd60a150ebfd9a3ed25d5318a3fbf51de4e1bee3915d042f4ed11",
+  "definitionId" : "function:skript:1ddeea162df2cd141444acf84805321a4f38622530bebf99397bf070468293ad"
 }, {
   "registrationOrder" : 31,
   "name" : "permutations",
@@ -780,8 +780,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:e5fe809fb192ba3bba0d145dfc9bfc1182996eeeb34078b8336b25afaf20d0dc",
-  "registrationId" : "function:skript:f794ca474b293c1ef0b898ffb65f36d7934ba54ad602922242e8c1c7e97734d5"
+  "registrationId" : "function:skript:f794ca474b293c1ef0b898ffb65f36d7934ba54ad602922242e8c1c7e97734d5",
+  "definitionId" : "function:skript:e5fe809fb192ba3bba0d145dfc9bfc1182996eeeb34078b8336b25afaf20d0dc"
 }, {
   "registrationOrder" : 32,
   "name" : "player",
@@ -807,8 +807,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:4171a2ff1635cd0e0889a66a437c04ecc99802d25c522ca35c9360bcc52426c6",
-  "registrationId" : "function:skript:5096ce9cb2bf71d6f580c93085e0b5104931d5d71431b26c8e5ef1e3556516b8"
+  "registrationId" : "function:skript:5096ce9cb2bf71d6f580c93085e0b5104931d5d71431b26c8e5ef1e3556516b8",
+  "definitionId" : "function:skript:4171a2ff1635cd0e0889a66a437c04ecc99802d25c522ca35c9360bcc52426c6"
 }, {
   "registrationOrder" : 33,
   "name" : "product",
@@ -827,8 +827,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:d3d53dc93e01f3fbf541dc014fd67f426e7270d5c360a49f57c7c310b1b19020",
-  "registrationId" : "function:skript:1f6d442c434f8a32494abf53c6533639b1cc9e9cd8a7bd55a74e7c46da013a8b"
+  "registrationId" : "function:skript:1f6d442c434f8a32494abf53c6533639b1cc9e9cd8a7bd55a74e7c46da013a8b",
+  "definitionId" : "function:skript:d3d53dc93e01f3fbf541dc014fd67f426e7270d5c360a49f57c7c310b1b19020"
 }, {
   "registrationOrder" : 34,
   "name" : "quaternion",
@@ -862,8 +862,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:ff35523ba0541ddad1055cad3c79bbff66872cd58e180897485d5f827bde269c",
-  "registrationId" : "function:skript:a214bf85b9f963346265071c34467bcb2770417c08aba8d84db26d3296b29dd4"
+  "registrationId" : "function:skript:a214bf85b9f963346265071c34467bcb2770417c08aba8d84db26d3296b29dd4",
+  "definitionId" : "function:skript:ff35523ba0541ddad1055cad3c79bbff66872cd58e180897485d5f827bde269c"
 }, {
   "registrationOrder" : 35,
   "name" : "rgb",
@@ -903,11 +903,11 @@
     "name" : "alpha",
     "type" : "java.lang.Long",
     "modifiers" : [ {
+      "type" : "optional"
+    }, {
       "type" : "range",
       "min" : 0,
       "max" : 255
-    }, {
-      "type" : "optional"
     } ],
     "single" : true
   } ],
@@ -915,8 +915,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:72593c25895f90d2ba0766c4f12bc6b8b5b23da223f44fe57a91fc46c1e50225",
-  "registrationId" : "function:skript:1abb8f9ceb5dd52531525418ef6c71938a62f04174efbf510f0f1802628aed6e"
+  "registrationId" : "function:skript:8666205377bbcbb97cfa69eaeee2aa5f5ca9e7ecf46dea41fe446b970114992a",
+  "definitionId" : "function:skript:72593c25895f90d2ba0766c4f12bc6b8b5b23da223f44fe57a91fc46c1e50225"
 }, {
   "registrationOrder" : 36,
   "name" : "root",
@@ -940,8 +940,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:5e9466dbf169c5882af6dde0c35118d1516b5917a89249a2eb762c6a73669511",
-  "registrationId" : "function:skript:62f782c9bed738e46cf3d91ff47abe9ed932f38ee55ef060ef2bc13af1b163cf"
+  "registrationId" : "function:skript:62f782c9bed738e46cf3d91ff47abe9ed932f38ee55ef060ef2bc13af1b163cf",
+  "definitionId" : "function:skript:5e9466dbf169c5882af6dde0c35118d1516b5917a89249a2eb762c6a73669511"
 }, {
   "registrationOrder" : 37,
   "name" : "round",
@@ -967,8 +967,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:aaa3c353297583623c4f1e98d23bb545f19360b3d0a4c5c32ddd7d444b6b7a7e",
-  "registrationId" : "function:skript:26160b2ce4977d489f2e0148aa363c7f59a5a7af8b21a9ec07e03ef10017f138"
+  "registrationId" : "function:skript:26160b2ce4977d489f2e0148aa363c7f59a5a7af8b21a9ec07e03ef10017f138",
+  "definitionId" : "function:skript:aaa3c353297583623c4f1e98d23bb545f19360b3d0a4c5c32ddd7d444b6b7a7e"
 }, {
   "registrationOrder" : 38,
   "name" : "sin",
@@ -987,8 +987,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5",
-  "registrationId" : "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e"
+  "registrationId" : "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e",
+  "definitionId" : "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5"
 }, {
   "registrationOrder" : 39,
   "name" : "sqrt",
@@ -1007,8 +1007,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:c8ee626a8a359866ae8df0ca8b7e9630eb08cae4a81c1766c79a06ec754a4ea6",
-  "registrationId" : "function:skript:7ab949e59d82f23d5276f03a262feb03e87864a8a9fcb8f5b602f9ff0b33d34f"
+  "registrationId" : "function:skript:7ab949e59d82f23d5276f03a262feb03e87864a8a9fcb8f5b602f9ff0b33d34f",
+  "definitionId" : "function:skript:c8ee626a8a359866ae8df0ca8b7e9630eb08cae4a81c1766c79a06ec754a4ea6"
 }, {
   "registrationOrder" : 40,
   "name" : "sum",
@@ -1027,8 +1027,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:b3d3335bf53b23ed135b544f97e51fde9ff984f555f63e8e249f1b043bdc1eae",
-  "registrationId" : "function:skript:4beed31aa63f7c0f38a96b8fbeb8657545e8d512516bca063bc571283753e010"
+  "registrationId" : "function:skript:4beed31aa63f7c0f38a96b8fbeb8657545e8d512516bca063bc571283753e010",
+  "definitionId" : "function:skript:b3d3335bf53b23ed135b544f97e51fde9ff984f555f63e8e249f1b043bdc1eae"
 }, {
   "registrationOrder" : 41,
   "name" : "tan",
@@ -1047,8 +1047,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:797b95d5045bf24392e99b7300fa464c6bed26a4fa583225eeedb9eb08fefc88",
-  "registrationId" : "function:skript:9dc7b6264aad2d8e43e5c192cf4b79b7161488c6670dc234b512eea4081029e3"
+  "registrationId" : "function:skript:9dc7b6264aad2d8e43e5c192cf4b79b7161488c6670dc234b512eea4081029e3",
+  "definitionId" : "function:skript:797b95d5045bf24392e99b7300fa464c6bed26a4fa583225eeedb9eb08fefc88"
 }, {
   "registrationOrder" : 42,
   "name" : "toBase",
@@ -1076,8 +1076,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:42e5a290aa4663e3e0e3ad626257c6d5d69826dcbbf3254686e3354000fcb280",
-  "registrationId" : "function:skript:dd8dc66b0f1b4fc1ffc4714629473fc72eeb22d1abbda35e9b4b52c5038fb626"
+  "registrationId" : "function:skript:dd8dc66b0f1b4fc1ffc4714629473fc72eeb22d1abbda35e9b4b52c5038fb626",
+  "definitionId" : "function:skript:42e5a290aa4663e3e0e3ad626257c6d5d69826dcbbf3254686e3354000fcb280"
 }, {
   "registrationOrder" : 43,
   "name" : "uuid",
@@ -1096,8 +1096,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:08cefbe668689b3c2f79d682dd5a31c13b545e1886f15b0022c31bf2528974f0",
-  "registrationId" : "function:skript:2826b35410b09150ac36d3009499099d71ae3795f2c786445ae058f1d88255d8"
+  "registrationId" : "function:skript:2826b35410b09150ac36d3009499099d71ae3795f2c786445ae058f1d88255d8",
+  "definitionId" : "function:skript:08cefbe668689b3c2f79d682dd5a31c13b545e1886f15b0022c31bf2528974f0"
 }, {
   "registrationOrder" : 44,
   "name" : "vector",
@@ -1116,8 +1116,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:2515f1ba162afd255a6edc4cb9053798e79a13908b6328cdbfde334d877e8a1c",
-  "registrationId" : "function:skript:fb4abfa3a7fad4aaf81775577ff9a0745fa0ff778bc495aecb5338ff84238807"
+  "registrationId" : "function:skript:fb4abfa3a7fad4aaf81775577ff9a0745fa0ff778bc495aecb5338ff84238807",
+  "definitionId" : "function:skript:2515f1ba162afd255a6edc4cb9053798e79a13908b6328cdbfde334d877e8a1c"
 }, {
   "registrationOrder" : 45,
   "name" : "vector",
@@ -1146,8 +1146,8 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:2515f1ba162afd255a6edc4cb9053798e79a13908b6328cdbfde334d877e8a1c",
-  "registrationId" : "function:skript:2690244e4c23b288626ecf1b0cda552e8ef63a7392818b982420dd12371cc414"
+  "registrationId" : "function:skript:2690244e4c23b288626ecf1b0cda552e8ef63a7392818b982420dd12371cc414",
+  "definitionId" : "function:skript:2515f1ba162afd255a6edc4cb9053798e79a13908b6328cdbfde334d877e8a1c"
 }, {
   "registrationOrder" : 46,
   "name" : "world",
@@ -1166,6 +1166,6 @@
     "name" : "Skript",
     "version" : "2.15.4"
   },
-  "definitionId" : "function:skript:a9c2b0c90ca804b5bb2e9a4f1a27d7cfea3fb7570e152bbae3fa54a6714aeb79",
-  "registrationId" : "function:skript:72452d16824012c49f3ab7f8aa2048fb2462582b06b401386da4b3f0045b34ad"
+  "registrationId" : "function:skript:72452d16824012c49f3ab7f8aa2048fb2462582b06b401386da4b3f0045b34ad",
+  "definitionId" : "function:skript:a9c2b0c90ca804b5bb2e9a4f1a27d7cfea3fb7570e152bbae3fa54a6714aeb79"
 } ]

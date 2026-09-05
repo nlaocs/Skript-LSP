@@ -14,12 +14,12 @@ const CORE_LIBRARY: &[u8] = include_bytes!(concat!(
 ));
 
 fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4")
+    // EntityData semantics require the runtime parser patterns first exported by schema 5.
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.15.4")
 }
 
 fn expression_catalog() -> Arc<Catalog> {
-    let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
+    let snapshot = ssg::load(fixture()).expect("schema 5 fixture must load");
     let source = snapshot.catalog();
     let syntaxes = source
         .syntaxes()
@@ -63,7 +63,7 @@ fn expression_catalog() -> Arc<Catalog> {
 fn full_catalog() -> Arc<Catalog> {
     Arc::new(
         ssg::load(fixture())
-            .expect("schema 4 fixture must load")
+            .expect("schema 5 fixture must load")
             .catalog()
             .clone(),
     )

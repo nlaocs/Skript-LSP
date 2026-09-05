@@ -1,8 +1,8 @@
 {
   "schemaVersion" : 5,
-  "snapshotId" : "572c548cc2ef5e327f76688d80137a3c9ed4f74de5738b5d627b121886533ed4",
-  "contentDigest" : "102e26933d2731c05fb45a7599c28b3e9f56d1e762c5cecbe73a5f2cdab71bdf",
-  "generatedAt" : "2026-08-31T18:32:03.080097200Z",
+  "snapshotId" : "3850ff00d5290ea5b9789789bf1efcb2d20286902f582fd8a021c3799d4aa940",
+  "contentDigest" : "865cae4fbffdff43f53e676255a5bd8481ffb1ddb91793ee6ff3d504af3d35c8",
+  "generatedAt" : "2026-09-05T03:15:06.522225100Z",
   "server" : {
     "name" : "Paper",
     "version" : "1.21.11-132-c5eb079 (MC: 1.21.11)",
@@ -20,7 +20,7 @@
     "depend" : [ ],
     "softDepend" : [ ],
     "loadBefore" : [ "Skript" ],
-    "jarSha256" : "5a27cfc78b6d79cff220b9a01648950976220cac280a1c6e093616b67a810795"
+    "jarSha256" : "570d39dba1b6a2e8ed70f107b05c07de6d3727acde76b5ddddc3b26d2d31af94"
   }, {
     "loadOrder" : 1,
     "name" : "Skript",

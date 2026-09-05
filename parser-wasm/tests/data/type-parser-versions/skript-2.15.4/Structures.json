@@ -53,6 +53,78 @@
 }, {
   "kind" : "structure",
   "registrationOrder" : 1,
+  "name" : "Options",
+  "elementClass" : "ch.njol.skript.structures.StructOptions",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Options are used for replacing parts of a script with something else.", "For example, an option may represent a message that appears in multiple locations.", "Take a look at the example below that showcases this." ],
+  "examples" : [ "options:\n\tno_permission: You're missing the required permission to execute this command!\n\ncommand /ping:\n\tpermission: command.ping\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Pong!\"\n\ncommand /pong:\n\tpermission: command.pong\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Ping!\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "options" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663",
+  "registrationId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663:8febdc11be7e8a66254680a5e962dce7291b6acf46864eb28a5b6f39f8cf617a:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 2,
+  "name" : "Aliases",
+  "elementClass" : "ch.njol.skript.structures.StructAliases",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for registering custom aliases for a script." ],
+  "examples" : [ "# Example aliases for a script\naliases:\n\tblacklisted items = TNT, bedrock, obsidian, mob spawner, lava, lava bucket\n\tshiny swords = golden sword, iron sword, diamond sword\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "aliases" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6",
+  "registrationId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6:d27befae1833f953492fb4330f547acf9b0d4f287b9df57aa1e068a7e0802aa7:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 3,
+  "name" : "Variables",
+  "elementClass" : "ch.njol.skript.structures.StructVariables",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0" ],
+  "description" : [ "Used for defining variables present within a script.", "This section is not required, but it ensures that a variable has a value if it doesn't exist when the script is loaded." ],
+  "examples" : [ "variables:\n\t{joins} = 0\n\t{balance::%player%} = 0\n", "on join:\n\tadd 1 to {joins}\n\tmessage \"Your balance is %{balance::%player%}%\"\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.SIMPLE",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "patterns" : [ "variables" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc",
+  "registrationId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc:cac23aa7e42206dbf43cf9b8bcff82371e847d4c8f47378f3673bc56d15b5b7d:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 4,
   "name" : "Auto Reload",
   "elementClass" : "ch.njol.skript.structures.StructAutoReload",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -96,7 +168,7 @@
   "nodeType" : "BOTH"
 }, {
   "kind" : "structure",
-  "registrationOrder" : 2,
+  "registrationOrder" : 5,
   "name" : "Example",
   "elementClass" : "ch.njol.skript.structures.StructExample",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -127,78 +199,6 @@
     "errorMessage" : "This element is experimental. To use this, enable 'examples'."
   },
   "experimentalSyntaxState" : "resolved",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 3,
-  "name" : "Options",
-  "elementClass" : "ch.njol.skript.structures.StructOptions",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0" ],
-  "description" : [ "Options are used for replacing parts of a script with something else.", "For example, an option may represent a message that appears in multiple locations.", "Take a look at the example below that showcases this." ],
-  "examples" : [ "options:\n\tno_permission: You're missing the required permission to execute this command!\n\ncommand /ping:\n\tpermission: command.ping\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Pong!\"\n\ncommand /pong:\n\tpermission: command.pong\n\tpermission message: {@no_permission}\n\ttrigger:\n\t\tmessage \"Ping!\"\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "options" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.15.4"
-  },
-  "definitionId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663",
-  "registrationId" : "structure:skript:aed28f003bdb10f7674a9747b67e7654230b1293ff2d9c7842b617337a0f6663:8febdc11be7e8a66254680a5e962dce7291b6acf46864eb28a5b6f39f8cf617a:0",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 4,
-  "name" : "Aliases",
-  "elementClass" : "ch.njol.skript.structures.StructAliases",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0" ],
-  "description" : [ "Used for registering custom aliases for a script." ],
-  "examples" : [ "# Example aliases for a script\naliases:\n\tblacklisted items = TNT, bedrock, obsidian, mob spawner, lava, lava bucket\n\tshiny swords = golden sword, iron sword, diamond sword\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "aliases" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.15.4"
-  },
-  "definitionId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6",
-  "registrationId" : "structure:skript:beb8b35cb91904eba4e50242aee791bcdabae0fa230a30c2218183694ae23cf6:d27befae1833f953492fb4330f547acf9b0d4f287b9df57aa1e068a7e0802aa7:0",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 5,
-  "name" : "Variables",
-  "elementClass" : "ch.njol.skript.structures.StructVariables",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0" ],
-  "description" : [ "Used for defining variables present within a script.", "This section is not required, but it ensures that a variable has a value if it doesn't exist when the script is loaded." ],
-  "examples" : [ "variables:\n\t{joins} = 0\n\t{balance::%player%} = 0\n", "on join:\n\tadd 1 to {joins}\n\tmessage \"Your balance is %{balance::%player%}%\"\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.SIMPLE",
-  "priority" : {
-    "after" : [ ],
-    "before" : [ ]
-  },
-  "patterns" : [ "variables" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.15.4"
-  },
-  "definitionId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc",
-  "registrationId" : "structure:skript:21ad63e9ae567613f68675662364d3594031973d558c1426a1c34e49ea434ebc:cac23aa7e42206dbf43cf9b8bcff82371e847d4c8f47378f3673bc56d15b5b7d:0",
   "nodeType" : "SECTION"
 }, {
   "kind" : "structure",
@@ -247,6 +247,39 @@
 }, {
   "kind" : "structure",
   "registrationOrder" : 7,
+  "name" : "Event",
+  "elementClass" : "ch.njol.skript.structures.StructEvent",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "1.0", "2.6 (per-event priority)", "2.9 (listening to cancellable events)" ],
+  "description" : [ "The structure used for listening to events.\n\nOptionally allows specifying whether to listen to events that have been cancelled, and allows specifying with which priority to listen to events. Events are called in the following order of priorities.\n\n```\nlowest -> low -> normal -> high -> highest -> monitor\n```\n\nModifying event-values or cancelling events is not supported when using the 'monitor' priority. It should only be used for monitoring the outcome of an event.\n" ],
+  "examples" : [ "on load:\n\tbroadcast \"loading!\"\n", "on join:\n\tif {first-join::%player's uuid%} is not set:\n\t\tset {first-join::%player's uuid%} to now\n", "cancelled block break:\n\tsend \"<red>You can't break that here\" to player\n", "on join with priority lowest:\n\t# called first\n\non join:\n\t# called second\n\non join with priority highest:\n\t# called last\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "[on] [:uncancelled|:cancelled|any:(any|all)] <.+> [priority:with priority (:(lowest|low|normal|high|highest|monitor))]" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:3b4e047746082c6e758fb79207b7aa56b94b93eef3d4bf71203f9ee938716fa0",
+  "registrationId" : "structure:skript:3b4e047746082c6e758fb79207b7aa56b94b93eef3d4bf71203f9ee938716fa0:37abe1db154d81ebb12d511ca45d84a2dc4ba60fadcc3e1fa3ac56647639b056:0",
+  "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 8,
   "name" : "Command",
   "elementClass" : "ch.njol.skript.structures.StructCommand",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -374,73 +407,7 @@
   "nodeType" : "SECTION"
 }, {
   "kind" : "structure",
-  "registrationOrder" : 8,
-  "name" : "Event",
-  "elementClass" : "ch.njol.skript.structures.StructEvent",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "1.0", "2.6 (per-event priority)", "2.9 (listening to cancellable events)" ],
-  "description" : [ "The structure used for listening to events.\n\nOptionally allows specifying whether to listen to events that have been cancelled, and allows specifying with which priority to listen to events. Events are called in the following order of priorities.\n\n```\nlowest -> low -> normal -> high -> highest -> monitor\n```\n\nModifying event-values or cancelling events is not supported when using the 'monitor' priority. It should only be used for monitoring the outcome of an event.\n" ],
-  "examples" : [ "on load:\n\tbroadcast \"loading!\"\n", "on join:\n\tif {first-join::%player's uuid%} is not set:\n\t\tset {first-join::%player's uuid%} to now\n", "cancelled block break:\n\tsend \"<red>You can't break that here\" to player\n", "on join with priority lowest:\n\t# called first\n\non join:\n\t# called second\n\non join with priority highest:\n\t# called last\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
-  "priority" : {
-    "after" : [ {
-      "after" : [ {
-        "after" : [ ],
-        "before" : [ ]
-      } ],
-      "before" : [ ]
-    }, {
-      "after" : [ ],
-      "before" : [ ]
-    } ],
-    "before" : [ ]
-  },
-  "patterns" : [ "[on] [:uncancelled|:cancelled|any:(any|all)] <.+> [priority:with priority (:(lowest|low|normal|high|highest|monitor))]" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.15.4"
-  },
-  "definitionId" : "structure:skript:3b4e047746082c6e758fb79207b7aa56b94b93eef3d4bf71203f9ee938716fa0",
-  "registrationId" : "structure:skript:3b4e047746082c6e758fb79207b7aa56b94b93eef3d4bf71203f9ee938716fa0:37abe1db154d81ebb12d511ca45d84a2dc4ba60fadcc3e1fa3ac56647639b056:0",
-  "nodeType" : "SECTION"
-}, {
-  "kind" : "structure",
   "registrationOrder" : 9,
-  "name" : "Using Experimental Feature",
-  "elementClass" : "ch.njol.skript.structures.StructUsing",
-  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
-  "since" : [ "2.9.0" ],
-  "description" : [ "Place at the top of a script file to enable an optional experimental feature.", "Experimental features may change behavior in Skript and may contain bugs. Use at your own discretion.", "A list of the available experimental features can be found in the changelog for your version of Skript." ],
-  "examples" : [ "using 1.21", "using the experiment my-cool-addon-feature" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
-  "priority" : {
-    "after" : [ {
-      "after" : [ {
-        "after" : [ ],
-        "before" : [ ]
-      } ],
-      "before" : [ ]
-    }, {
-      "after" : [ ],
-      "before" : [ ]
-    } ],
-    "before" : [ ]
-  },
-  "patterns" : [ "using [[the] experiment] <.+>" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.15.4"
-  },
-  "definitionId" : "structure:skript:a81d438607221912e46432533531e3fbdaae34e539def1a8e0ce0451eb86ac54",
-  "registrationId" : "structure:skript:a81d438607221912e46432533531e3fbdaae34e539def1a8e0ce0451eb86ac54:bf7d9f51e7f7ed3b0de2a3fc169dbfc8aa5bbf86c98c037f8bfb571ede5426b0:0",
-  "nodeType" : "SIMPLE"
-}, {
-  "kind" : "structure",
-  "registrationOrder" : 10,
   "name" : "Function",
   "elementClass" : "ch.njol.skript.structures.StructFunction",
   "superClass" : "org.skriptlang.skript.lang.structure.Structure",
@@ -471,4 +438,37 @@
   "definitionId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb",
   "registrationId" : "structure:skript:d8e4c092e47661c93f7f6967c30e72c43a6245fd4697ce4638d0749ef98a04fb:3c31dc201f6f489cc93ace0d16708a3f6de4e0791476759c7c70843ec1cba68e:0",
   "nodeType" : "SECTION"
+}, {
+  "kind" : "structure",
+  "registrationOrder" : 10,
+  "name" : "Using Experimental Feature",
+  "elementClass" : "ch.njol.skript.structures.StructUsing",
+  "superClass" : "org.skriptlang.skript.lang.structure.Structure",
+  "since" : [ "2.9.0" ],
+  "description" : [ "Place at the top of a script file to enable an optional experimental feature.", "Experimental features may change behavior in Skript and may contain bugs. Use at your own discretion.", "A list of the available experimental features can be found in the changelog for your version of Skript." ],
+  "examples" : [ "using 1.21", "using the experiment my-cool-addon-feature" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.PATTERN_MATCHES_EVERYTHING",
+  "priority" : {
+    "after" : [ {
+      "after" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "using [[the] experiment] <.+>" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "definitionId" : "structure:skript:a81d438607221912e46432533531e3fbdaae34e539def1a8e0ce0451eb86ac54",
+  "registrationId" : "structure:skript:a81d438607221912e46432533531e3fbdaae34e539def1a8e0ce0451eb86ac54:bf7d9f51e7f7ed3b0de2a3fc169dbfc8aa5bbf86c98c037f8bfb571ede5426b0:0",
+  "nodeType" : "SIMPLE"
 } ]

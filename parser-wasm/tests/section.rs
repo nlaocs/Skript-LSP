@@ -18,8 +18,8 @@ const EFFECT_ADDON: &[u8] = include_bytes!(concat!(
 ));
 
 fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4")
+    // EffectSections with EntityData captures require the schema 5 runtime parser patterns.
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.15.4")
 }
 
 fn catalog() -> Arc<Catalog> {

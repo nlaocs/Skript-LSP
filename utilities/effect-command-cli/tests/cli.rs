@@ -15,6 +15,11 @@ fn legacy_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ssg/tests/data/legacy-2.6.4-mc-1.12.2")
 }
 
+fn type_parser_216_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../parser-wasm/tests/data/type-parser-versions/skript-2.16.0")
+}
+
 fn arguments(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()
 }
@@ -106,6 +111,59 @@ fn reports_parenthesized_expression_and_its_inner_span() {
     let human = String::from_utf8(output).unwrap();
     assert!(human.contains("resolved: groupedExpression"));
     assert!(human.contains("inner:"));
+}
+
+#[test]
+fn parses_enchanted_item_type_before_eff_change_delimiter() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    session
+        .select_event_header("on join")
+        .expect("player target needs an Event context");
+
+    let report = session
+        .analyze("give a diamond sword of sharpness to player")
+        .expect("Effect analysis must complete");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let item = &json["result"]["effect"]["elements"][0]["resolved"];
+    assert_eq!(item["expression"]["parserId"], "core.literal.item-type");
+    assert_eq!(item["source"], "a diamond sword of sharpness");
+    assert_eq!(
+        item["metadata"]["nlaocs.core-library/literal-canonical"],
+        "diamond sword"
+    );
+    assert_eq!(
+        item["metadata"]["nlaocs.core-library/literal-enchantment.0.name"],
+        "sharpness"
+    );
+}
+
+#[test]
+fn parses_composite_standard_type_literals_in_effects() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    session
+        .select_event_header("on join")
+        .expect("player expressions need an Event context");
+
+    for source in [
+        "give 10 xp to player",
+        "draw 3 flame particle at location(1,2,3)",
+        "send 12:00",
+        "send day",
+        "send 1 if {_a} is a number",
+    ] {
+        let report = session
+            .analyze(source)
+            .unwrap_or_else(|error| panic!("Effect analysis failed for {source:?}: {error}"));
+        assert!(
+            report.matched(),
+            "{source:?} must match:\n{}",
+            report.to_json().unwrap()
+        );
+    }
 }
 
 #[test]
@@ -276,7 +334,8 @@ fn reports_registered_function_identity_and_arguments() {
 
 #[test]
 fn reports_embedded_registered_expression_inside_variable_string() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze(r#"send "players: %size of all players%""#)
         .expect("variable-string Expression must parse");
@@ -461,7 +520,8 @@ fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
 
 #[test]
 fn reports_event_restrictions_and_parses_interface_expressions() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let absorbed = session
         .analyze("send absorbed blocks")
@@ -535,7 +595,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
     assert_eq!(teleport["result"]["status"], "incomplete");
     assert_eq!(
         teleport["result"]["effect"]["syntax"]["elementClass"],
-        "ch.njol.skript.effects.EffTeleport"
+        "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport"
     );
     assert_eq!(teleport["result"]["failure"]["span"]["start"], 9);
     assert!(
@@ -557,7 +617,8 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
 
 #[test]
 fn selected_event_context_enables_event_restricted_expressions() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_event_header("\"on join:\"")
         .expect("quoted Event header with a trailing colon must parse")
@@ -652,7 +713,8 @@ fn selected_event_context_enables_event_restricted_expressions() {
 
 #[test]
 fn event_headers_accept_articles_for_entity_and_item_literals() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let death = session
         .select_event_header("death of a player")
