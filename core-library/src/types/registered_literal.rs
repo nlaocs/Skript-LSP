@@ -130,6 +130,53 @@ pub(super) fn candidate_from_option(
     candidate
 }
 
+pub(super) fn matching_option(
+    payload: &ExpressionPayload,
+    input: &str,
+    class_name: &str,
+    start: u64,
+    end: u64,
+) -> Option<ExpressionLiteralOption> {
+    payload
+        .literal_options
+        .iter()
+        .filter(|option| {
+            option.range.start == start
+                && option.range.end == end
+                && option.class_name == class_name
+        })
+        .min_by_key(|option| option.type_parse_order)
+        .cloned()
+        .or_else(|| catalog_option(input, class_name, start, end))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn catalog_option(
+    input: &str,
+    class_name: &str,
+    start: u64,
+    end: u64,
+) -> Option<ExpressionLiteralOption> {
+    let mut option = crate::nlaocs::skript_parser_addon::catalog_data::type_literal_matches(input)
+        .ok()?
+        .into_iter()
+        .filter(|option| option.class_name == class_name)
+        .min_by_key(|option| option.type_parse_order)?;
+    option.range.start = start;
+    option.range.end = end;
+    Some(option)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn catalog_option(
+    _input: &str,
+    _class_name: &str,
+    _start: u64,
+    _end: u64,
+) -> Option<ExpressionLiteralOption> {
+    None
+}
+
 fn push_optional(
     metadata_entries: &mut Vec<crate::nlaocs::skript_parser_addon::types::MetadataEntry>,
     key: &str,

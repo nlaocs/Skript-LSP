@@ -1,12 +1,18 @@
 mod boolean;
 mod class_info;
+mod color;
 mod enchantment_type;
 mod entity_data;
 mod entity_type;
+mod experience;
+mod item_stack;
 mod item_type;
 mod number;
+mod particle;
 mod registered_literal;
 mod string_literal;
+mod time;
+mod time_period;
 mod timespan;
 
 use crate::nlaocs::skript_parser_addon::types::{
@@ -26,10 +32,16 @@ const PARSERS: &[TypeParser] = &[
     string_literal::PARSER,
     number::PARSER,
     boolean::PARSER,
+    time::PARSER,
+    time_period::PARSER,
+    color::PARSER,
+    experience::PARSER,
     item_type::PARSER,
+    item_stack::PARSER,
     entity_data::PARSER,
     entity_type::PARSER,
     enchantment_type::PARSER,
+    particle::PARSER,
     timespan::PARSER,
     class_info::PARSER,
 ];
@@ -77,6 +89,8 @@ pub(crate) fn match_user_type_option(
     crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption,
     bool,
 )> {
+    // ClassInfo's runtime parser strips the article before matching user patterns.
+    let name = crate::language::strip_indefinite_article(name.trim());
     #[cfg(target_arch = "wasm32")]
     {
         return crate::nlaocs::skript_parser_addon::catalog_data::type_for_user_input(name)
@@ -132,18 +146,11 @@ pub(crate) fn unresolved(payload: &ExpressionPayload, text: &str) -> Option<Type
 fn standard_parser(payload: &ExpressionPayload) -> Option<&'static TypeParser> {
     let active = payload.active_type.as_ref()?;
     PARSERS.iter().find(|parser| {
-        if !parser.classes.contains(&active.class_name.as_str()) {
-            return false;
-        }
-        // Direct unit fixtures bypass component initialization, never production IDs.
-        #[cfg(test)]
-        if active.registration_id.starts_with("type:test:") {
-            return true;
-        }
-        if !active.addon_name.eq_ignore_ascii_case("Skript") {
-            return false;
-        }
-        crate::runtime::handler_matches(parser.id, &active.registration_id)
+        // The host already routes each Type registration through the declared handler targets.
+        // Keep the guest boundary ownership-based so third-party Types sharing a Java class
+        // remain available to their own providers without a second registration-ID gate.
+        active.addon_name.eq_ignore_ascii_case("Skript")
+            && parser.classes.contains(&active.class_name.as_str())
     })
 }
 

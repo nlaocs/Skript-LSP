@@ -39,16 +39,10 @@ pub(super) fn parse(
     if let Some(candidate) = script_alias(payload, text, end) {
         return Some(candidate);
     }
-    if !payload
-        .literal_options
-        .iter()
-        .any(|option| option.class_name == ITEM_TYPE && option.range.end <= end)
-    {
-        return None;
-    }
     // Aliases.parseItemType accepts both a bare alias (`stone`) and the same alias
     // behind an amount/article prefix (`2 stone`, `a stone`). The host publishes
-    // literal options for both ranges, so absence of a prefix means a zero-byte prefix.
+    // literal options for complete candidate ranges. Enchanted item types also query
+    // their shorter base alias because a following pattern literal can hide that range.
     let prefix = parse_prefix(text).unwrap_or(ItemPrefix {
         bytes: 0,
         amount: None,
@@ -56,12 +50,12 @@ pub(super) fn parse(
     });
     let literal_start = payload.remaining.start.checked_add(prefix.bytes)?;
     let direct = item_alias_option(payload, literal_start, end);
-    let (option, enchantments) = direct.map_or_else(
+    let (option, enchantments) = direct.cloned().map_or_else(
         || item_alias_with_enchantments(payload, text, prefix.bytes, literal_start),
         |option| Some((option, Vec::new())),
     )?;
     let mut candidate = candidate_from_option(
-        option,
+        &option,
         "core.literal.item-type",
         payload.remaining.start,
         end,
@@ -169,7 +163,7 @@ fn item_alias_with_enchantments<'a>(
     prefix_bytes: u64,
     literal_start: u64,
 ) -> Option<(
-    &'a crate::nlaocs::skript_parser_addon::types::ExpressionLiteralOption,
+    crate::nlaocs::skript_parser_addon::types::ExpressionLiteralOption,
     Vec<ParsedEnchantment<'a>>,
 )> {
     let prefix = usize::try_from(prefix_bytes).ok()?;
@@ -183,7 +177,10 @@ fn item_alias_with_enchantments<'a>(
         let separator_start = search_from + relative;
         let base = remaining.get(..separator_start)?.trim_end();
         let base_end = literal_start.checked_add(u64::try_from(base.len()).ok()?)?;
-        let Some(option) = item_alias_option(payload, literal_start, base_end) else {
+        let Some(option) = item_alias_option(payload, literal_start, base_end)
+            .cloned()
+            .or_else(|| catalog_item_alias(base, literal_start, base_end))
+        else {
             search_from = separator_start + 1;
             continue;
         };
@@ -193,6 +190,34 @@ fn item_alias_with_enchantments<'a>(
         }
         search_from = separator_start + 1;
     }
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+fn catalog_item_alias(
+    name: &str,
+    start: u64,
+    end: u64,
+) -> Option<crate::nlaocs::skript_parser_addon::types::ExpressionLiteralOption> {
+    let mut option = crate::nlaocs::skript_parser_addon::catalog_data::type_literal_matches(name)
+        .ok()?
+        .into_iter()
+        .filter(|option| {
+            option.class_name == ITEM_TYPE
+                && matches!(option.source, ExpressionLiteralSource::Alias)
+        })
+        .min_by_key(|option| option.type_parse_order)?;
+    option.range.start = start;
+    option.range.end = end;
+    Some(option)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn catalog_item_alias(
+    _name: &str,
+    _start: u64,
+    _end: u64,
+) -> Option<crate::nlaocs::skript_parser_addon::types::ExpressionLiteralOption> {
     None
 }
 

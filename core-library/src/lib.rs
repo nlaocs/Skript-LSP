@@ -787,7 +787,7 @@ mod tests {
         assert_eq!(manifest.state_namespaces.len(), 2);
         assert_eq!(manifest.state_namespaces[0].name, "commands");
         assert_eq!(manifest.state_namespaces[1].name, "aliases");
-        assert_eq!(manifest.registered_syntax_handlers.len(), 128);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 134);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",
@@ -1089,7 +1089,7 @@ mod tests {
                 source_record: None,
                 definition_id: "type:boolean".to_owned(),
                 registration_id: "type:boolean:0".to_owned(),
-                addon_name: "fixture".to_owned(),
+                addon_name: "Skript".to_owned(),
                 addon_version: "1.0.0".to_owned(),
                 code_name: "boolean".to_owned(),
                 class_name: "java.lang.Boolean".to_owned(),
@@ -1314,7 +1314,7 @@ mod tests {
             source_record: None,
             definition_id: "type:number".to_owned(),
             registration_id: "type:number:0".to_owned(),
-            addon_name: "fixture".to_owned(),
+            addon_name: "Skript".to_owned(),
             addon_version: "1.0.0".to_owned(),
             code_name: "number".to_owned(),
             class_name: "java.lang.Number".to_owned(),
@@ -1374,7 +1374,7 @@ mod tests {
             source_record: None,
             definition_id: "type:classinfo".to_owned(),
             registration_id: "type:classinfo:0".to_owned(),
-            addon_name: "fixture".to_owned(),
+            addon_name: "Skript".to_owned(),
             addon_version: "1.0.0".to_owned(),
             code_name: "classinfo".to_owned(),
             class_name: "ch.njol.skript.classes.ClassInfo".to_owned(),
@@ -2088,8 +2088,8 @@ mod tests {
                         source_record: None,
                         definition_id: format!("type:test:{}", literal.code_name),
                         registration_id: format!("type:test:{}", literal.code_name),
-                        addon_name: "fixture".to_owned(),
-                        addon_version: "1.0.0".to_owned(),
+                        addon_name: literal.addon_name.clone(),
+                        addon_version: literal.addon_version.clone(),
                         code_name: literal.code_name.clone(),
                         class_name: literal.class_name.clone(),
                         parser_class: literal.parser_class.clone(),
@@ -2173,7 +2173,7 @@ mod tests {
                 source_record: None,
                 definition_id: format!("type:test:{code_name}"),
                 registration_id: format!("type:test:{code_name}"),
-                addon_name: "fixture".to_owned(),
+                addon_name: "Skript".to_owned(),
                 addon_version: "1.0.0".to_owned(),
                 code_name: code_name.to_owned(),
                 class_name: class_name.to_owned(),
