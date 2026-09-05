@@ -784,6 +784,7 @@ mod tests {
         ParseContext {
             syntax_context: 9,
             event_classes: vec!["fixture.OuterEvent".to_owned()],
+            section_stack: Vec::new(),
             values: vec![ParseContextValue {
                 key: "outer-value".to_owned(),
                 value: "kept".to_owned(),

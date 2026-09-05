@@ -14,6 +14,7 @@ const HANDLER_ID: &str = "core.section.sec-loop";
 const EXPRESSION_PARSER_ID: &str = "host.expression";
 const KEY_PROVIDER_CAPABILITY: &str = "expression.capability.key-provider";
 const LOOP_PEEKING_CAPABILITY: &str = "expression.capability.loop-peeking";
+const KEYED_ITERABLE_EXPRESSION: &str = "ch.njol.skript.lang.KeyedIterableExpression";
 const SKRIPT_DEFINITION_PREFIX: &str = "section:skript:";
 const LATEST_SUPPORTED_VERSION: (u64, u64) = (2, 16);
 
@@ -139,7 +140,7 @@ pub(super) fn resolve(context: InvocationContext, payload: SectionPayload) -> Ho
         );
     };
     let source_is_variable = summary.kind.eq_ignore_ascii_case("variable");
-    let source_has_indices = capability_value(&summary.metadata, KEY_PROVIDER_CAPABILITY);
+    let source_has_indices = key_provider_capability(summary);
     let source_supports_peeking = capability_value(&summary.metadata, LOOP_PEEKING_CAPABILITY)
         .or_else(|| supports_loop_peeking(summary));
     if !source_is_variable && let Some(return_type) = effective_type.clone() {
@@ -438,6 +439,24 @@ fn capability_value(metadata: &[MetadataEntry], key: &str) -> Option<bool> {
             "false" => Some(false),
             _ => None,
         })
+}
+
+fn key_provider_capability(summary: &ParseSummary) -> Option<bool> {
+    if let Some(value) = capability_value(&summary.metadata, KEY_PROVIDER_CAPABILITY) {
+        return Some(value);
+    }
+    if matches!(
+        summary.kind.as_str(),
+        "expression-list" | "literal" | "arithmetic"
+    ) {
+        return Some(false);
+    }
+    let element_class = summary.element_class.as_deref()?;
+    match crate::catalog::is_class_assignable(element_class, KEYED_ITERABLE_EXPRESSION) {
+        Ok(crate::catalog::TypeRelation::Incompatible) => Some(false),
+        Ok(crate::catalog::TypeRelation::Compatible | crate::catalog::TypeRelation::Unknown)
+        | Err(_) => None,
+    }
 }
 
 fn capability_state(value: Option<bool>) -> &'static str {

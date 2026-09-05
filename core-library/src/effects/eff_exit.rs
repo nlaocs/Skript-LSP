@@ -15,20 +15,30 @@ enum ExitTarget {
 }
 
 impl ExitTarget {
-    fn context_key(self) -> &'static str {
-        match self {
-            Self::Sections => "core.section.depth",
-            Self::Loops => "core.section.loop-depth",
-            Self::Conditionals => "core.section.conditional-depth",
-        }
-    }
-
     fn name(self) -> &'static str {
         match self {
             Self::Sections => "sections",
             Self::Loops => "loops",
             Self::Conditionals => "conditionals",
         }
+    }
+
+    fn depth(self, context: &crate::nlaocs::skript_parser_addon::types::ParseContext) -> u64 {
+        let count = context.section_stack.iter().filter(|frame| match self {
+            Self::Sections => true,
+            Self::Loops => super::controls_loop(frame),
+            Self::Conditionals => {
+                frame
+                    .element_class
+                    .as_deref()
+                    .is_some_and(|class| class.ends_with(".SecConditional"))
+                    || frame
+                        .metadata
+                        .iter()
+                        .any(|entry| entry.key == "semantic-mode" && entry.value == "conditional")
+            }
+        });
+        u64::try_from(count.count()).unwrap_or(u64::MAX)
     }
 }
 
@@ -68,7 +78,7 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         2 => ExitTarget::Conditionals,
         _ => return Some(reject("exit Effect has an invalid target mark")),
     };
-    let available = super::context_depth(&payload.context, target.context_key());
+    let available = target.depth(&payload.context);
     let requested = match candidate.pattern_index {
         1 => 1,
         2 => match first_regex_value(candidate).and_then(|value| value.parse::<u64>().ok()) {

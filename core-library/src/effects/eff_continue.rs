@@ -30,7 +30,15 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         return None;
     }
 
-    let loop_depth = super::context_depth(&payload.context, "core.section.loop-depth");
+    let loop_depth = u64::try_from(
+        payload
+            .context
+            .section_stack
+            .iter()
+            .filter(|frame| super::controls_loop(frame))
+            .count(),
+    )
+    .unwrap_or(u64::MAX);
     if loop_depth == 0 {
         return Some(reject("the continue Effect may only be used in loops"));
     }

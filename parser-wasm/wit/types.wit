@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.32.0;
+package nlaocs:skript-parser-addon@0.33.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -717,9 +717,51 @@ interface types {
         value: string,
     }
 
+    /// Primary role of a parser-owned Section scope.
+    enum section-scope-kind {
+        section,
+        loop-section,
+        effect-section,
+        section-expression,
+    }
+
+    /// Read-only semantic summary of one Section pattern capture.
+    record section-scope-capture {
+        capture-index: u64,
+        parser-id: string,
+        status: parse-result-status,
+        source: string,
+        summary: option<parse-summary>,
+    }
+
+    /// One active Section body, ordered outermost to innermost in parse-context.
+    record section-scope-frame {
+        scope-id: u64,
+        parent-scope-id: option<u64>,
+        raw-node-id: node-id,
+        kind: section-scope-kind,
+        definition-id: string,
+        registration-id: string,
+        element-class: option<string>,
+        pattern-index: u64,
+        pattern: string,
+        source: string,
+        addon-name: option<string>,
+        addon-version: option<string>,
+        /// Parser WASM component that owns a dynamic Section registration.
+        owner-component-id: option<string>,
+        loop-section: bool,
+        effect-section: bool,
+        section-expression: bool,
+        captures: list<section-scope-capture>,
+        metadata: list<metadata-entry>,
+    }
+
     record parse-context {
         syntax-context: syntax-context-id,
         event-classes: list<string>,
+        /// Parser-owned scope stack. Addons may inspect but cannot replace it.
+        section-stack: list<section-scope-frame>,
         values: list<parse-context-value>,
     }
 
