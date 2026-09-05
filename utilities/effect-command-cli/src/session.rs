@@ -4,15 +4,20 @@ use crate::event_context::{
     event_summaries, normalize_event_header,
 };
 use crate::report::{AnalysisReport, SnapshotDescription};
+use crate::section_context::{
+    SectionContext, SectionContextComponentFailure, SectionContextDiagnostic,
+    normalize_section_header,
+};
 use parser_wasm::ParseTransaction;
 use parser_wasm::host::{
     HostConfig, InvocationContext, ParserHost, RuntimePlugin, RuntimeProfile,
     apply_parser_context_updates,
 };
+use parser_wasm::state::StateSavepoint;
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionParseContext, MappedSource,
-    PatternFailureReason, RawNodeKind, RawTreeOptions, StructureDocumentNode,
-    StructureParseRequest, StructureParserConfig, parse_raw_tree,
+    PatternFailureReason, RawNodeKind, RawTreeOptions, SectionParseRequest, SectionParserConfig,
+    StructureDocumentNode, StructureParseRequest, StructureParserConfig, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::io;
@@ -23,7 +28,7 @@ use thiserror::Error;
 
 const PROJECT_URI: &str = "file:///effectcommandcli";
 const DOCUMENT_URI: &str = "file:///effectcommandcli/input.sk";
-const EVENT_CONTEXT_DOCUMENTS: [&str; 2] = [
+const CONTEXT_DOCUMENTS: [&str; 2] = [
     "file:///effectcommandcli/event-context-0.sk",
     "file:///effectcommandcli/event-context-1.sk",
 ];
@@ -51,6 +56,9 @@ pub enum EffectCommandSessionError {
     /// An Event header could not establish an Event context.
     #[error("invalid Event context: {message}")]
     InvalidEventContext { message: String },
+    /// A Section header could not establish a Section body context.
+    #[error("invalid Section context: {message}")]
+    InvalidSectionContext { message: String },
     /// The parser worker could not be created with its bounded stack.
     #[error("failed to start Effect parser worker: {source}")]
     ParserThread {
@@ -71,11 +79,11 @@ pub enum EffectCommandSessionError {
 /// Reusable SSG catalog and WASM parser host for Effect command analysis.
 ///
 /// Loading performs full schema and digest validation once. Successive calls to
-/// [`Self::analyze`] reuse the catalog and CoreLibrary host. Without an Event
-/// context, each analysis uses a new document revision and cancels its speculative
-/// transaction. With an Event context, it restores a savepoint in the retained
-/// Event transaction. Both paths discard analysis state before constructing the
-/// report and never execute an Effect.
+/// [`Self::analyze`] reuse the catalog and CoreLibrary host. Without a retained
+/// Event or Section context, each analysis uses a new document revision and
+/// cancels its speculative transaction. With a context, it restores a savepoint
+/// in the retained transaction. Both paths discard analysis state before
+/// constructing the report and never execute an Effect.
 pub struct EffectCommandSession {
     snapshot_path: PathBuf,
     snapshot: SnapshotDescription,
@@ -84,7 +92,13 @@ pub struct EffectCommandSession {
     host: ParserHost,
     next_revision: u64,
     event_context: Option<EventContext>,
-    event_transaction: Option<ParseTransaction>,
+    section_contexts: Vec<SelectedSection>,
+    context_transaction: Option<ParseTransaction>,
+}
+
+struct SelectedSection {
+    context: SectionContext,
+    baseline: StateSavepoint,
 }
 
 impl EffectCommandSession {
@@ -148,14 +162,15 @@ impl EffectCommandSession {
             host,
             next_revision: 1,
             event_context: None,
-            event_transaction: None,
+            section_contexts: Vec::new(),
+            context_transaction: None,
         })
     }
 
     /// Reloads the configured snapshot and rebuilds the catalog and parser host.
     pub fn reload(&mut self) -> Result<(), EffectCommandSessionError> {
         let replacement = Self::load(self.snapshot_path.clone())?;
-        if let Some(transaction) = &self.event_transaction {
+        if let Some(transaction) = &self.context_transaction {
             transaction.cancel()?;
         }
         *self = replacement;
@@ -172,19 +187,66 @@ impl EffectCommandSession {
         self.event_context.as_ref()
     }
 
+    /// Returns active Section contexts from the outermost to the innermost.
+    pub fn section_contexts(&self) -> impl ExactSizeIterator<Item = &SectionContext> {
+        self.section_contexts
+            .iter()
+            .map(|selected| &selected.context)
+    }
+
     /// Clears the current Event context.
     pub fn clear_event_context(&mut self) -> Result<(), EffectCommandSessionError> {
-        if let Some(transaction) = &self.event_transaction {
+        if let Some(transaction) = &self.context_transaction {
             transaction.cancel()?;
         }
-        self.event_transaction = None;
+        self.context_transaction = None;
         self.event_context = None;
+        self.section_contexts.clear();
+        Ok(())
+    }
+
+    /// Removes the innermost Section context and rolls back its addon state.
+    pub fn pop_section_context(
+        &mut self,
+    ) -> Result<Option<SectionContext>, EffectCommandSessionError> {
+        let Some(selected) = self.section_contexts.last() else {
+            return Ok(None);
+        };
+        let transaction = self
+            .context_transaction
+            .as_ref()
+            .expect("selected Sections always retain their parse transaction")
+            .clone();
+        transaction.rollback_to(&selected.baseline)?;
+        if self.section_contexts.len() == 1 && self.event_context.is_none() {
+            transaction.cancel()?;
+            self.context_transaction = None;
+        }
+        Ok(self.section_contexts.pop().map(|selected| selected.context))
+    }
+
+    /// Clears every active Section while retaining the selected Event context.
+    pub fn clear_section_contexts(&mut self) -> Result<(), EffectCommandSessionError> {
+        let Some(first) = self.section_contexts.first() else {
+            return Ok(());
+        };
+        let transaction = self
+            .context_transaction
+            .as_ref()
+            .expect("selected Sections always retain their parse transaction");
+        if self.event_context.is_some() {
+            transaction.rollback_to(&first.baseline)?;
+        } else {
+            transaction.cancel()?;
+            self.context_transaction = None;
+        }
+        self.section_contexts.clear();
         Ok(())
     }
 
     /// Lists static catalog and dynamically registered Events in parser order.
     pub fn events(&mut self) -> Result<Vec<EventSummary>, EffectCommandSessionError> {
-        let (transaction, temporary) = if let Some(transaction) = &self.event_transaction {
+        let (transaction, temporary) = if let Some(transaction) = &self.context_transaction {
             (transaction.clone(), false)
         } else {
             let revision = self.next_revision;
@@ -220,18 +282,52 @@ impl EffectCommandSession {
                 .join()
                 .map_err(|_| EffectCommandSessionError::ParserThreadPanicked)?
         })?;
-        if let Some(previous) = &self.event_transaction
+        if let Some(previous) = &self.context_transaction
             && let Err(error) = previous.cancel()
         {
             let _ = transaction.cancel();
             return Err(error.into());
         }
         self.event_context = Some(selected);
-        self.event_transaction = Some(transaction);
+        self.section_contexts.clear();
+        self.context_transaction = Some(transaction);
         Ok(self
             .event_context
             .as_ref()
             .expect("the selected Event context was just stored"))
+    }
+
+    /// Parses a Section header and pushes its body context.
+    ///
+    /// A trailing colon is accepted but optional because the CLI synthesizes
+    /// the physical Section line before invoking the normal Section parser.
+    pub fn select_section_header(
+        &mut self,
+        input: &str,
+    ) -> Result<&SectionContext, EffectCommandSessionError> {
+        let input = normalize_section_header(input).map_err(invalid_section)?;
+        let (selected, baseline, transaction) = std::thread::scope(|scope| {
+            let worker = std::thread::Builder::new()
+                .name("effectcommandcli-section-parser".to_owned())
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(scope, || self.select_section_header_inner(input))
+                .map_err(|source| EffectCommandSessionError::ParserThread { source })?;
+            worker
+                .join()
+                .map_err(|_| EffectCommandSessionError::ParserThreadPanicked)?
+        })?;
+        if self.context_transaction.is_none() {
+            self.context_transaction = Some(transaction);
+        }
+        self.section_contexts.push(SelectedSection {
+            context: selected,
+            baseline,
+        });
+        Ok(&self
+            .section_contexts
+            .last()
+            .expect("the selected Section context was just stored")
+            .context)
     }
 
     /// Parses one complete simple line as an Effect and returns a display report.
@@ -291,7 +387,7 @@ impl EffectCommandSession {
 
         let invocation_id = self.next_revision;
         self.next_revision = self.next_revision.saturating_add(1);
-        let (transaction, baseline) = if let Some(transaction) = &self.event_transaction {
+        let (transaction, baseline) = if let Some(transaction) = &self.context_transaction {
             let transaction = transaction.clone();
             let baseline = transaction.savepoint()?;
             (transaction, Some(baseline))
@@ -310,12 +406,7 @@ impl EffectCommandSession {
             EffectParseRequest {
                 source: &source,
                 node,
-                context: self
-                    .event_context
-                    .as_ref()
-                    .map_or_else(ExpressionParseContext::default, |event| {
-                        event.parser_context.clone()
-                    }),
+                context: self.active_parser_context(),
             },
             EffectParserConfig::default(),
         );
@@ -333,7 +424,140 @@ impl EffectCommandSession {
             self.catalog.as_ref(),
             parse_duration,
             self.event_context.as_ref(),
+            self.section_contexts(),
         ))
+    }
+
+    fn active_parser_context(&self) -> ExpressionParseContext {
+        self.section_contexts
+            .last()
+            .map(|selected| selected.context.parser_context.clone())
+            .or_else(|| {
+                self.event_context
+                    .as_ref()
+                    .map(|event| event.parser_context.clone())
+            })
+            .unwrap_or_default()
+    }
+
+    fn select_section_header_inner(
+        &mut self,
+        input: String,
+    ) -> Result<(SectionContext, StateSavepoint, ParseTransaction), EffectCommandSessionError> {
+        let source = MappedSource::identity(format!("{input}:\n"));
+        let tree = parse_raw_tree(
+            &source,
+            RawTreeOptions::for_skript_version(self.skript_version.0, self.skript_version.1),
+        );
+        if tree.roots.len() != 1 {
+            return Err(invalid_section(format!(
+                "expected one Section header, found {} root nodes",
+                tree.roots.len()
+            )));
+        }
+        let node = tree
+            .get(tree.roots[0])
+            .expect("RawTree roots always refer to arena nodes");
+        if node.kind != RawNodeKind::Section {
+            return Err(invalid_section("Section header did not form a Section"));
+        }
+
+        let invocation_id = self.next_revision;
+        self.next_revision = self.next_revision.saturating_add(1);
+        let created = self.context_transaction.is_none();
+        let transaction = if let Some(transaction) = &self.context_transaction {
+            transaction.clone()
+        } else {
+            self.host
+                .begin_parse(PROJECT_URI, CONTEXT_DOCUMENTS[0], invocation_id)?
+        };
+        let baseline = transaction.savepoint()?;
+        let document_id = transaction.document_id()?;
+        let document_revision = transaction.document_revision()?;
+        let parsed = self.host.parse_section_in_parse(
+            &transaction,
+            invocation_context(invocation_id, &document_id, document_revision),
+            SectionParseRequest {
+                source: &source,
+                tree: &tree,
+                node,
+                context: self.active_parser_context(),
+            },
+            SectionParserConfig {
+                root_lifecycle: skript_parser::SectionRootLifecycle::RetainBody,
+                ..SectionParserConfig::default()
+            },
+        );
+        let result = match parsed {
+            Ok(result) => result,
+            Err(error) => {
+                transaction.rollback_to(&baseline)?;
+                if created {
+                    transaction.cancel()?;
+                }
+                return Err(error.into());
+            }
+        };
+        let diagnostics = result
+            .effects
+            .diagnostics
+            .iter()
+            .map(|diagnostic| SectionContextDiagnostic {
+                code: diagnostic.code.clone(),
+                message: diagnostic.message.clone(),
+                severity: format!("{:?}", diagnostic.severity).to_ascii_lowercase(),
+            })
+            .collect::<Vec<_>>();
+        let component_failures = result
+            .failures
+            .iter()
+            .map(|failure| SectionContextComponentFailure {
+                component_id: failure.component_id.clone(),
+                subscription_id: failure.subscription_id.clone(),
+                message: failure.error.to_string(),
+            })
+            .collect::<Vec<_>>();
+        let candidate = match result.matches.selected {
+            Some(candidate) => candidate,
+            None => {
+                let rejection = result
+                    .matches
+                    .unknown
+                    .as_ref()
+                    .and_then(|unknown| unknown.failure.as_ref())
+                    .and_then(|failure| {
+                        failure.root_cause().failure.reasons.iter().find_map(
+                            |reason| match reason {
+                                PatternFailureReason::HookRejected { reason } => {
+                                    Some(reason.as_str())
+                                }
+                                _ => None,
+                            },
+                        )
+                    });
+                transaction.rollback_to(&baseline)?;
+                if created {
+                    transaction.cancel()?;
+                }
+                return Err(invalid_section(rejection.map_or_else(
+                    || format!("{input:?} does not match a registered Section"),
+                    |reason| format!("{input:?} matched a Section but was rejected: {reason}"),
+                )));
+            }
+        };
+        let selected =
+            match SectionContext::from_candidate(input, candidate, diagnostics, component_failures)
+            {
+                Ok(selected) => selected,
+                Err(message) => {
+                    transaction.rollback_to(&baseline)?;
+                    if created {
+                        transaction.cancel()?;
+                    }
+                    return Err(invalid_section(message));
+                }
+            };
+        Ok((selected, baseline, transaction))
     }
 
     fn select_event_header_inner(
@@ -361,14 +585,14 @@ impl EffectCommandSession {
         let revision = self.next_revision;
         self.next_revision = self.next_revision.saturating_add(1);
         let active_document_id = self
-            .event_transaction
+            .context_transaction
             .as_ref()
             .map(ParseTransaction::document_id)
             .transpose()?;
-        let document_id = if active_document_id.as_deref() == Some(EVENT_CONTEXT_DOCUMENTS[0]) {
-            EVENT_CONTEXT_DOCUMENTS[1]
+        let document_id = if active_document_id.as_deref() == Some(CONTEXT_DOCUMENTS[0]) {
+            CONTEXT_DOCUMENTS[1]
         } else {
-            EVENT_CONTEXT_DOCUMENTS[0]
+            CONTEXT_DOCUMENTS[0]
         };
         let transaction = self.host.begin_parse(PROJECT_URI, document_id, revision)?;
         let selected = (|| -> Result<EventContext, EffectCommandSessionError> {
@@ -531,6 +755,12 @@ fn invocation_context(
 
 fn invalid_event(message: impl Into<String>) -> EffectCommandSessionError {
     EffectCommandSessionError::InvalidEventContext {
+        message: message.into(),
+    }
+}
+
+fn invalid_section(message: impl Into<String>) -> EffectCommandSessionError {
+    EffectCommandSessionError::InvalidSectionContext {
         message: message.into(),
     }
 }

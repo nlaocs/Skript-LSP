@@ -33,7 +33,7 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let json_text = report.to_json().unwrap();
     assert!(!json_text.contains('\x1b'));
     let json: Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(json["schemaVersion"], 5);
+    assert_eq!(json["schemaVersion"], 6);
     assert!(json["context"]["event"].is_null());
     assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
@@ -783,6 +783,335 @@ fn legacy_snapshot_uses_the_synthetic_struct_event_path() {
 }
 
 #[test]
+fn section_headers_enable_loop_scoped_effects_and_expressions() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+
+    let without_colon = session
+        .select_section_header("loop all players")
+        .expect("a Section header without its trailing colon must parse")
+        .clone();
+    assert_eq!(without_colon.input, "loop all players");
+    assert!(without_colon.frame.loop_section);
+
+    session
+        .clear_section_contexts()
+        .expect("the first loop context must clear");
+    let with_colon = session
+        .select_section_header("loop all players:")
+        .expect("a physical Section header with its trailing colon must parse")
+        .clone();
+    assert_eq!(with_colon.input, "loop all players");
+    assert_eq!(
+        with_colon.frame.registration_id,
+        without_colon.frame.registration_id
+    );
+    assert_eq!(
+        with_colon
+            .frame
+            .metadata
+            .get("nlaocs.core-library/loop-keyed")
+            .map(String::as_str),
+        Some("false")
+    );
+
+    assert!(
+        session
+            .analyze("continue")
+            .expect("continue must inherit the selected loop")
+            .matched()
+    );
+    assert!(
+        session
+            .analyze("send loop-player")
+            .expect("loop-value Expressions must inherit the selected loop source")
+            .matched()
+    );
+    let loop_index = session
+        .analyze("send loop-index")
+        .expect("a non-keyed loop index must be a recoverable parse failure");
+    assert!(
+        !loop_index.matched(),
+        "ordinary Expression loops must not expose loop-index:\n{}",
+        loop_index.to_json().unwrap()
+    );
+
+    session
+        .clear_section_contexts()
+        .expect("the ordinary loop context must clear");
+    let keyed = session
+        .select_section_header("loop {values::*}")
+        .expect("a list variable loop must parse");
+    assert_eq!(
+        keyed
+            .frame
+            .metadata
+            .get("nlaocs.core-library/loop-keyed")
+            .map(String::as_str),
+        Some("true")
+    );
+    assert!(
+        session
+            .analyze("send loop-index")
+            .expect("list variable loops must expose loop-index")
+            .matched()
+    );
+}
+
+#[test]
+fn legacy_sec_while_provides_loop_control_without_loop_section_flag() {
+    let mut session = EffectCommandSession::load(legacy_fixture()).expect("fixture must load");
+    session
+        .select_section_header("while 1 is 1")
+        .expect("Skript 2.6.4 SecWhile must establish a Section context");
+
+    let report = session
+        .analyze("continue")
+        .expect("continue must inherit the legacy while loop context");
+    assert!(
+        report.matched(),
+        "continue must match after selecting a 2.6.4 while Section:\n{}",
+        report.to_json().unwrap()
+    );
+}
+
+#[test]
+fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    session
+        .select_section_header("loop all players")
+        .expect("outer loop must parse");
+    session
+        .select_section_header("loop all worlds:")
+        .expect("inner loop must parse");
+
+    let sections = session.section_contexts().collect::<Vec<_>>();
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[0].input, "loop all players");
+    assert_eq!(sections[1].input, "loop all worlds");
+    assert_eq!(sections[0].frame.parent_scope_id, None);
+    assert_eq!(
+        sections[1].frame.parent_scope_id,
+        Some(sections[0].frame.scope_id)
+    );
+    let inner_registration = sections[1].frame.registration_id.clone();
+    assert!(
+        session
+            .analyze("exit 2 sections")
+            .expect("two active Sections must satisfy EffExit")
+            .matched()
+    );
+    for input in ["exit loop", "exit 2 loops", "exit all loops"] {
+        assert!(
+            session
+                .analyze(input)
+                .expect("the loop exit form must parse")
+                .matched(),
+            "{input}"
+        );
+    }
+    let missing_loop = session
+        .analyze("continue 3rd loop")
+        .expect("an unavailable loop ordinal is a recoverable incomplete candidate");
+    assert!(!missing_loop.matched());
+    assert!(
+        missing_loop
+            .to_json()
+            .unwrap()
+            .contains("only 2 loop(s) are present")
+    );
+
+    let error = session
+        .select_section_header("definitely not a section")
+        .expect_err("an unknown Section selector must be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("does not match a registered Section")
+    );
+    let sections = session.section_contexts().collect::<Vec<_>>();
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[1].frame.registration_id, inner_registration);
+    assert!(
+        session
+            .analyze("continue 1st loop")
+            .expect("a rejected selector must not damage the retained loop stack")
+            .matched()
+    );
+
+    let popped = session
+        .pop_section_context()
+        .expect("the inner loop must pop")
+        .expect("an inner loop is active");
+    assert_eq!(popped.input, "loop all worlds");
+    assert_eq!(session.section_contexts().len(), 1);
+    assert_eq!(
+        session.section_contexts().next().unwrap().input,
+        "loop all players"
+    );
+    let missing_section = session
+        .analyze("exit 2 sections")
+        .expect("an unavailable Section depth is a recoverable incomplete candidate");
+    assert!(!missing_section.matched());
+    assert!(
+        missing_section
+            .to_json()
+            .unwrap()
+            .contains("only 1 are present")
+    );
+
+    session
+        .clear_section_contexts()
+        .expect("all remaining Section contexts must clear");
+    assert_eq!(session.section_contexts().len(), 0);
+    assert!(
+        !session
+            .analyze("continue")
+            .expect("continue without a loop is a recoverable incomplete candidate")
+            .matched()
+    );
+    assert!(
+        session
+            .analyze("stop trigger")
+            .expect("stopping the trigger does not require a Section")
+            .matched()
+    );
+}
+
+#[test]
+fn conditional_exit_uses_the_registered_section_frame() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let section = session
+        .select_section_header("if true is true:")
+        .expect("a SecConditional header must establish a Section context");
+    assert_eq!(
+        section
+            .frame
+            .element_class
+            .as_ref()
+            .map(|class| class.as_str()),
+        Some("ch.njol.skript.sections.SecConditional")
+    );
+    assert!(
+        session
+            .analyze("exit conditional")
+            .expect("EffExit must recognize the conditional frame")
+            .matched()
+    );
+
+    session.clear_section_contexts().unwrap();
+    let report = session
+        .analyze("exit conditional")
+        .expect("missing conditional context must remain recoverable");
+    assert!(!report.matched());
+    assert_eq!(
+        serde_json::from_str::<Value>(&report.to_json().unwrap()).unwrap()["result"]["status"],
+        "incomplete"
+    );
+}
+
+#[test]
+fn json_report_preserves_registered_section_identity() {
+    let mut session =
+        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let selected = session
+        .select_section_header("loop all players:")
+        .expect("loop Section must parse")
+        .clone();
+    let report = session
+        .analyze("send loop-player")
+        .expect("loop-player must parse in the selected loop");
+    assert!(report.matched());
+
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let sections = json["context"]["sections"]
+        .as_array()
+        .expect("the report must expose its Section stack");
+    assert_eq!(sections.len(), 1);
+    let section = &sections[0];
+    assert_eq!(section["input"], "loop all players");
+    assert_eq!(section["definitionId"], selected.frame.definition_id);
+    assert_eq!(section["registrationId"], selected.frame.registration_id);
+    assert_eq!(section["elementClass"], "ch.njol.skript.sections.SecLoop");
+    assert_eq!(section["kind"], "loopSection");
+    assert_eq!(section["pattern"], "loop %objects%");
+    assert_eq!(section["addon"]["name"], "Skript");
+    assert_eq!(section["addon"]["version"], "2.16.0");
+    assert_eq!(section["loopSection"], true);
+    assert!(section["scopeId"].is_u64());
+    let capture = section["captures"]
+        .as_array()
+        .expect("section captures must be an array")
+        .first()
+        .expect("loop Section must expose its first capture");
+    assert!(capture["definitionId"].is_string());
+    assert!(capture["registrationId"].is_string());
+    assert_eq!(
+        capture["elementClass"],
+        "ch.njol.skript.expressions.ExprEntities"
+    );
+    assert!(capture["patternIndex"].is_number());
+    assert!(capture["publicData"].is_array());
+}
+
+#[test]
+fn one_shot_and_repl_section_commands_manage_nested_contexts() {
+    let snapshot = type_parser_216_fixture();
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            snapshot.to_str().unwrap(),
+            "--json",
+            "--section",
+            "loop all players:",
+            "--section",
+            "loop all worlds",
+            "continue 1st loop",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let json: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["result"]["status"], "matched");
+    assert_eq!(json["context"]["sections"][0]["input"], "loop all players");
+    assert_eq!(json["context"]["sections"][1]["input"], "loop all worlds");
+
+    let input = Cursor::new(
+        b":section loop all players:\n:section loop all worlds\n:context\ncontinue 1st loop\n:section pop\n:context\n:section clear\n:context\n:quit\n"
+            .to_vec(),
+    );
+    output.clear();
+    error.clear();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "--repl"]),
+        PathBuf::from("unused"),
+        input,
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Section context: loop all players ["));
+    assert!(output.contains("Section context: loop all worlds ["));
+    assert!(output.contains("Section contexts (outermost to innermost):"));
+    assert!(output.contains("1. loop all players ["));
+    assert!(output.contains("2. loop all worlds ["));
+    assert!(output.contains("EffContinue"));
+    assert!(output.contains("Section context popped: loop all worlds"));
+    assert!(output.contains("Section contexts cleared"));
+    assert!(output.contains("Section contexts: none"));
+}
+
+#[test]
 fn one_shot_and_repl_event_commands_apply_and_clear_context() {
     let snapshot = modern_fixture();
     let mut output = Vec::new();
@@ -876,7 +1205,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 5"));
+    assert!(output.contains("\"schemaVersion\": 6"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));
