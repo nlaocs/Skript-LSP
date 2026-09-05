@@ -43,6 +43,8 @@ effectcommandcli.exe "send 1"
 effectcommandcli.exe --json "broadcast \"hello\""
 effectcommandcli.exe "send sin(abs(-1))"
 effectcommandcli.exe --event "on join:" "send join message"
+effectcommandcli.exe --section "loop all players:" "continue"
+effectcommandcli.exe --section "loop all players" --section "if loop-player is online:" "exit 2 sections"
 ```
 
 `--event <HEADER>`を指定すると、選択したSkript Eventの内部としてEffectを解析します。
@@ -51,10 +53,20 @@ Event headerはStructEventとsnapshotのEvent catalogを通して照合します
 EventValue件数を表示します。JSON reportは各EventValueのSSG登録、順序、changer、validator、
 除外条件、pattern、addon metadataを保持します。
 
+`--section <HEADER>`を外側から内側の順に繰り返すと、人工的なSection stack内でEffectを解析できます。
+各headerは自由形式のlabelとして保存せず、通常のSection parserで解析します。末尾の`:`は任意です。
+選択したregistration identity、addon、flag、capture、return type、multiplicity、addon metadataは、
+parser所有のread-only scope stackを通してCoreLibraryと他のWASM hookから参照できます。JSON reportでは
+同じ情報を`context.sections`に出力します。
+Section選択時はrootのexit hookをすぐ実行せず、enter hook後のtransaction stateを保持します。
+`pop`と`clear`は保存したtransactionへ戻すため、stateを持つWASM addonから見ても後続Effect解析と
+同じscope lifetimeになります。dynamic registrationの`ownerComponentId`はcatalog addon metadataと
+分離して出力します。
+
 人間向け出力では、採用Effect、addon、実装class、登録pattern、pattern AST、capture、
 期待されるSkript type、解決されたJava return type、multiplicity、再帰Expression、
 public semantic data、parse tag、parse mark、代替候補、最遠failureを表示します。
-JSON reportには`schemaVersion: 5`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
+JSON reportには`schemaVersion: 6`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
 人間向け出力の`parseTime`は、1 millisecond以上なら`ms`、それ未満なら`ns`で表示します。
 JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
 RawTree解析、parserによる解析、transaction rollbackを含みます。SSG snapshotの読み込み、
@@ -111,8 +123,11 @@ effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
 effect> send 1
 effect> broadcast "hello"
 effect> :event on join:
+effect> :section loop all players:
 effect> send join message
 effect> :context
+effect> :section pop
+effect> :section clear
 effect> :event off
 effect> :json on
 effect> :reload
@@ -120,11 +135,13 @@ effect> :quit
 ```
 
 利用可能なcommandは`:help`、`:reload`、`:event <HEADER>`、`:event off`、`:events`、
-`:context`、`:json on`、`:json off`、`:quit`、`:exit`です。`:events`はSSG catalog Eventと
+`:section <HEADER>`、`:section pop`、`:section clear`（または`off`）、`:context`、`:json on`、
+`:json off`、`:quit`、`:exit`です。`:events`はSSG catalog Eventと
 WASM addonが動的登録したEventの両方を表示します。Event選択は常に実際のSkript Event headerを
-使うため、StructEventとaddon WASM hookへ同じ入力が渡ります。
-構文不一致や不正な1行があってもREPLは終了しません。EOFでは正常終了し、
-入力のinterrupt後はpromptへ戻ります。
+使うため、StructEventとaddon WASM hookへ同じ入力が渡ります。Section commandは選択中Eventを
+変えずにparser所有stackをpush、pop、clearします。別のEventを選択した場合は新しいroot contextに
+なるためSection stackをclearします。構文不一致や不正な1行があってもREPLは終了しません。
+EOFでは正常終了し、入力のinterrupt後はpromptへ戻ります。
 
 ## 現在の境界
 
@@ -150,5 +167,5 @@ cargo test -p effect-command-cli --locked
 
 integration testでは、repositoryに含まれるSkript 2.15.4のmulti-addon snapshotと、
 Skript 2.6.4/Minecraft 1.12.2のlegacy schema 3 snapshotを使用します。単発JSON、
-不明Effect、再帰Function/Expression、REPL継続、Event文脈の選択と解除、表示切替、
-snapshot reloadを検証します。
+不明Effect、再帰Function/Expression、REPL継続、表示切替、Event文脈の選択、
+入れ子Section文脈のpush/pop/clear、loop内Effect/Expression、snapshot reloadを検証します。

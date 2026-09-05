@@ -11,7 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.32.0` and ABI `14.0`
+- WIT package `nlaocs:skript-parser-addon@0.33.0` and ABI `15.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -129,6 +129,12 @@ addon hook may select candidate indexes; CoreLibrary refuses an ambiguity with
 no explicit selection instead of merging unrelated addons. Raw changer lookups
 are bounded by record/byte limits and a bounded cache. Variable type history
 remains intentionally deferred.
+
+`EffExit` and `EffContinue` use the parser-owned Section stack rather than a
+caller-provided depth counter. They distinguish every Section, loops, and
+conditional chains from frame identity and metadata, validate requested counts
+or ordinals, and retain the selected Effect candidate when the surrounding
+scope is missing so diagnostics remain an incomplete match instead of unknown.
 
 The Structure hook implements `StructEvent`, `StructFunction`, and
 `StructCommand`. It claims semantic captures through registered handler IDs,

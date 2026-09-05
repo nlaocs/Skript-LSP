@@ -244,9 +244,21 @@ body modeは`Trigger`（nested SectionとEffect行）、または`Conditions`（
 `Trigger`内でEffectとして一致しなかった行を、汎用的にCondition statementへ再解釈するfallbackはありません。
 
 `ExpressionParseEnvironment::enter_section_children`はbody解析前にchild contextを派生でき、
-`exit_section_children`はbody完了後に同じcontextを参照します。その後parent contextへ戻ります。
+`exit_section_children`はbody完了後に同じcontextを参照します。hookが承認した通常のcontext更新は
+後続siblingへ伝播できますが、parserが所有するSection stackだけはparent scopeへ復元されます。
 unknown header、未取得body line、複数候補に取得されたnodeはsubtree全体を中断せず、partial ASTと
 `SectionDiagnostic`として保持されます。
+
+child `ExpressionParseContext`には、parser所有の`section_stack`も外側から内側の順で格納します。
+各immutable frameはparse内で安定したscope IDとparent、Sectionのdefinition/registration/pattern
+identity、addon、実装class、Section flag、意味付きcapture、metadataを保持します。Effect、Condition、
+Expression、Section lifecycle hookはすべて同じstackを参照します。rejectされた候補はrollbackし、
+Sectionを出ると兄弟nodeを解析する前にparent stackへ戻します。
+
+`SectionParserConfig::root_lifecycle`のdefaultは`Complete`です。要求したroot Sectionの内部として
+後続行を解析するcallerは`RetainBody`を選べます。nested Sectionは通常どおり完了しますが、rootの
+exit hookは実行せずbody contextをactiveのまま返します。callerはscopeを出る際にparser contextと
+transactional addon stateの両方を復元する責任を持ちます。
 
 ## Structure解析
 

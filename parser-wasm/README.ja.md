@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.32.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.33.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -74,9 +74,14 @@ host側の型関係queryの追加で0.19.0、Skript互換のJava共通型query�
 Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、providerが指定するExpression leaf timing、
 完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
 unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加で0.31.0へ、
-host側で索引化するruntime Type pattern照合の追加で0.32.0へ変わりました。
-manifestの現在の`abi`値は14.0で、
+host側で索引化するruntime Type pattern照合の追加で0.32.0へ、read-onlyな構造化Section scope stackの
+追加で0.33.0へ変わりました。manifestの現在の`abi`値は15.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
+
+各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
+dynamic registrationを所有するWASM componentを区別します。capture summaryはsyntax identity、
+return contract、public schema data、addon metadataを保持し、parser所有stackを書き換えたreplacement
+payloadは拒否されます。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。
@@ -369,6 +374,11 @@ Section、EffectSection、SectionExpression、frozen dynamic Sectionをまとめ
 一方、one-lineの`RawNodeKind::Simple` EffectSectionは上記のEffect pathを使い、`Section` syntax kindを保ったまま
 `Effect` phaseで処理されます。enter phaseのcontext updateはそのSection bodyと子孫だけへ適用されます。
 未取得または複数取得されたbody nodeも、diagnostic付きpartial treeとして保持します。
+
+各parse-contextには、外側から内側の順にread-onlyな`section-stack`を含めます。frameはparser所有の
+scope/parent ID、完全なsyntax/addon identity、実装class、Section flag、capture、metadataを公開します。
+このstackを変更したreplacement payloadはhostがrejectします。addon固有データには通常のcontext valueや
+StateStoreを利用できますが、native control-flowの親子関係を偽装することはできません。
 
 CoreLibraryはSkript標準のconditional、filter、loop、while、error-catching Section、`ExprWhether`、`ExprTernary`、
 `EffChange`、`EffDoIf`、`EffSecShoot`、`EffSecSpawn`などのsemantic handlerを宣言します。addonも同じmanifest
