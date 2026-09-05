@@ -54,7 +54,7 @@ pub enum ReturnTypeState {
     Unresolved,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Completeness of the known runtime return-type alternatives.
 pub enum PossibleReturnTypesState {
     Complete,
@@ -62,7 +62,7 @@ pub enum PossibleReturnTypesState {
     Unresolved,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Whether an expression returns one value, many values, or supports both.
 pub enum Multiplicity {
     Single,

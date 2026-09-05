@@ -13,7 +13,8 @@ use crate::{
 };
 use std::collections::BTreeMap;
 use syntaxes::{
-    Catalog, ClassName, DynamicSyntaxSnapshot, Syntax, SyntaxCandidateSource, SyntaxKind,
+    Catalog, ClassName, DynamicSyntaxSnapshot, Multiplicity, PossibleReturnTypesState, Syntax,
+    SyntaxCandidateSource, SyntaxKind,
 };
 use thiserror::Error;
 
@@ -24,9 +25,77 @@ pub struct SectionParseRequest<'a> {
     pub context: ExpressionParseContext,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SectionRootLifecycle {
+    /// Parse the body and run both enter and exit hooks.
+    #[default]
+    Complete,
+    /// Keep the requested root Section's enter state active after parsing.
+    ///
+    /// Nested Sections still complete their normal lifecycle. Callers are
+    /// responsible for restoring the transaction and parser context later.
+    RetainBody,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SectionParserConfig {
     pub expression: ExpressionParserConfig,
+    pub root_lifecycle: SectionRootLifecycle,
+}
+
+/// Primary role of an active Section scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SectionScopeKind {
+    Section,
+    Loop,
+    EffectSection,
+    SectionExpression,
+}
+
+/// Semantic summary of one parsed Section pattern capture.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SectionScopeCapture {
+    pub capture_index: usize,
+    pub parser_id: String,
+    pub status: ParsedCaptureStatus,
+    pub source: String,
+    pub kind: Option<String>,
+    pub definition_id: Option<String>,
+    pub registration_id: Option<String>,
+    pub element_class: Option<ClassName>,
+    pub pattern_index: Option<usize>,
+    pub return_type: Option<ClassName>,
+    pub possible_return_types: Vec<ClassName>,
+    pub possible_return_types_state: PossibleReturnTypesState,
+    pub multiplicity: Option<Multiplicity>,
+    pub public_data: Vec<crate::ExpressionPublicData>,
+    pub metadata: BTreeMap<String, String>,
+}
+
+/// Immutable identity and semantics of one active Section body.
+///
+/// The parser owns this stack. Addon hooks can inspect it through their parse
+/// context, but context updates cannot add, remove, or reorder frames.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SectionScopeFrame {
+    pub scope_id: u64,
+    pub parent_scope_id: Option<u64>,
+    pub raw_node_id: RawNodeId,
+    pub kind: SectionScopeKind,
+    pub definition_id: String,
+    pub registration_id: String,
+    pub element_class: Option<ClassName>,
+    pub pattern_index: usize,
+    pub pattern: String,
+    pub source: String,
+    pub addon_name: Option<String>,
+    pub addon_version: Option<String>,
+    pub owner_component_id: Option<String>,
+    pub loop_section: bool,
+    pub effect_section: bool,
+    pub section_expression: bool,
+    pub captures: Vec<SectionScopeCapture>,
+    pub metadata: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +103,9 @@ pub struct SectionCandidate {
     pub raw_node_id: RawNodeId,
     pub matched: CandidateMatch,
     pub element_class: Option<ClassName>,
+    pub addon_name: Option<String>,
+    pub addon_version: Option<String>,
+    pub owner_component_id: Option<String>,
     /// All recursively parsed captures in pattern order.
     pub parsed_captures: Vec<ParsedCapture>,
     pub loop_section: bool,
@@ -43,6 +115,8 @@ pub struct SectionCandidate {
     pub body: Vec<SectionBodyNode>,
     pub handler: Option<String>,
     pub metadata: BTreeMap<String, String>,
+    /// Context inherited by statements inside this Section body.
+    pub body_context: ExpressionParseContext,
 }
 
 impl SectionCandidate {
@@ -147,15 +221,27 @@ pub fn parse_section_with_snapshot<E: ExpressionParseEnvironment>(
     config: SectionParserConfig,
 ) -> Result<SectionMatches, SectionParseError> {
     validate_section_node(request.node, &request.context)?;
+    let SectionParserConfig {
+        expression,
+        root_lifecycle,
+    } = config;
     let mut session = ExpressionSession::new(
         catalog,
         dynamic_snapshot,
         request.source,
         environment,
         request.context,
-        config.expression,
+        expression,
     );
-    parse_section_with_session(&mut session, request.tree, request.node, 0, &[], None)
+    parse_section_with_session(
+        &mut session,
+        request.tree,
+        request.node,
+        0,
+        &[],
+        None,
+        root_lifecycle,
+    )
 }
 
 fn validate_section_node(
@@ -182,6 +268,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     depth: usize,
     preceding_siblings: &[SectionSiblingSummary],
     next_sibling: Option<&SectionRawNodeSummary>,
+    lifecycle: SectionRootLifecycle,
 ) -> Result<SectionMatches, SectionParseError> {
     session.ensure_depth(depth)?;
     let range = section_header_range(session.source(), node)?;
@@ -234,7 +321,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
                 .environment_mut()
                 .enter_section_children(request)
                 .map_err(|message| SectionParseError::Environment { message })?;
-            let (child_context, body_mode, metadata) = match decision {
+            let (mut child_context, body_mode, metadata) = match decision {
                 SectionChildrenDecision::Accept {
                     context,
                     body_mode,
@@ -253,10 +340,27 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             };
             candidate.body_mode = body_mode;
             candidate.metadata = metadata;
+            child_context.section_stack = parent_context.section_stack.clone();
+            let header_source = range
+                .slice(session.source().virtual_source())
+                .ok_or(SectionParseError::InvalidRange { range })?;
+            child_context.section_stack.push(section_scope_frame(
+                &candidate,
+                &parent_context,
+                header_source,
+                session.source().virtual_source(),
+            ));
+            candidate.body_context = child_context.clone();
             let saved_context = session.replace_context(child_context);
             let body = parse_section_body(session, tree, node, body_mode, depth + 1);
             let child_context = session.replace_context(saved_context);
             let (body, child_diagnostics) = body?;
+            candidate.body = body;
+            if lifecycle == SectionRootLifecycle::RetainBody {
+                candidate.body_context = child_context.clone();
+                session.replace_context(child_context);
+                return Ok(Some(Ok((candidate, child_diagnostics))));
+            }
             let request = section_children_request(
                 session.source().virtual_source(),
                 &candidate,
@@ -270,10 +374,15 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
                 .exit_section_children(request)
                 .map_err(|message| SectionParseError::Environment { message })?
             {
-                SectionExitDecision::Accept { context, metadata } => {
+                SectionExitDecision::Accept {
+                    mut context,
+                    metadata,
+                } => {
+                    // Exit hooks may publish ordinary context updates to siblings,
+                    // but only the native parser owns control-flow ancestry.
+                    context.section_stack = parent_context.section_stack;
                     session.replace_context(context);
                     candidate.metadata = metadata;
-                    candidate.body = body;
                     Ok(Some(Ok((candidate, child_diagnostics))))
                 }
                 SectionExitDecision::Reject {
@@ -379,6 +488,9 @@ fn section_candidate<E: ExpressionParseEnvironment>(
     let element_class = section
         .map(|section| section.common.element_class.clone())
         .or_else(|| section_expression.map(|expression| expression.common.element_class.clone()));
+    let addon = section
+        .map(|section| section.common.addon.clone())
+        .or_else(|| section_expression.map(|expression| expression.common.addon.clone()));
     let dynamic_handler = session.dynamic_handler_for_registration(&matched.registration_id);
     let capture_bindings = session
         .environment()
@@ -512,10 +624,16 @@ fn section_candidate<E: ExpressionParseEnvironment>(
     let loop_section = section.is_some_and(|section| section.loop_section);
     let effect_section = section.is_some_and(|section| section.effect_section);
     let section_expression = section_expression.is_some();
+    let addon_name = addon.as_ref().map(|addon| addon.name.clone());
+    let addon_version = addon.map(|addon| addon.version);
+    let owner_component_id = dynamic.map(|definition| definition.id.component_id.clone());
     Ok(Some(SectionCandidate {
         raw_node_id,
         matched,
         element_class,
+        addon_name,
+        addon_version,
+        owner_component_id,
         parsed_captures,
         loop_section,
         effect_section,
@@ -524,7 +642,98 @@ fn section_candidate<E: ExpressionParseEnvironment>(
         body: Vec::new(),
         handler: dynamic.map(|definition| definition.handler.clone()),
         metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
+        body_context: session.context().clone(),
     }))
+}
+
+fn section_scope_frame(
+    candidate: &SectionCandidate,
+    parent_context: &ExpressionParseContext,
+    source: &str,
+    complete_source: &str,
+) -> SectionScopeFrame {
+    let raw_scope_id = candidate.raw_node_id.get();
+    let scope_id = if parent_context
+        .section_stack
+        .iter()
+        .any(|frame| frame.scope_id == raw_scope_id)
+    {
+        parent_context
+            .section_stack
+            .iter()
+            .map(|frame| frame.scope_id)
+            .max()
+            .unwrap_or(raw_scope_id)
+            .saturating_add(1)
+    } else {
+        raw_scope_id
+    };
+    SectionScopeFrame {
+        scope_id,
+        parent_scope_id: parent_context
+            .section_stack
+            .last()
+            .map(|frame| frame.scope_id),
+        raw_node_id: candidate.raw_node_id,
+        kind: if candidate.section_expression {
+            SectionScopeKind::SectionExpression
+        } else if candidate.loop_section {
+            SectionScopeKind::Loop
+        } else if candidate.effect_section {
+            SectionScopeKind::EffectSection
+        } else {
+            SectionScopeKind::Section
+        },
+        definition_id: candidate.matched.definition_id.clone(),
+        registration_id: candidate.matched.registration_id.clone(),
+        element_class: candidate.element_class.clone(),
+        pattern_index: candidate.matched.pattern_index,
+        pattern: candidate.matched.pattern.clone(),
+        source: source.to_owned(),
+        addon_name: candidate.addon_name.clone(),
+        addon_version: candidate.addon_version.clone(),
+        owner_component_id: candidate.owner_component_id.clone(),
+        loop_section: candidate.loop_section,
+        effect_section: candidate.effect_section,
+        section_expression: candidate.section_expression,
+        captures: candidate
+            .parsed_captures
+            .iter()
+            .map(|capture| section_scope_capture(capture, complete_source))
+            .collect(),
+        metadata: candidate.metadata.clone(),
+    }
+}
+
+fn section_scope_capture(capture: &ParsedCapture, source: &str) -> SectionScopeCapture {
+    let summary = capture.result.summary.as_ref();
+    let local = capture.result.span.local_range;
+    SectionScopeCapture {
+        capture_index: capture.capture_index,
+        parser_id: capture.result.parser_id.clone(),
+        status: capture.result.status.clone(),
+        source: local.slice(source).unwrap_or_default().to_owned(),
+        kind: summary.map(|summary| summary.kind.clone()),
+        definition_id: summary.and_then(|summary| summary.definition_id.clone()),
+        registration_id: summary.and_then(|summary| summary.registration_id.clone()),
+        element_class: summary.and_then(|summary| summary.element_class.clone()),
+        pattern_index: summary.and_then(|summary| summary.pattern_index),
+        return_type: summary.and_then(|summary| summary.return_type.clone()),
+        possible_return_types: summary
+            .map(|summary| summary.possible_return_types.clone())
+            .unwrap_or_default(),
+        possible_return_types_state: summary
+            .map_or(PossibleReturnTypesState::Unresolved, |summary| {
+                summary.possible_return_types_state
+            }),
+        multiplicity: summary.and_then(|summary| summary.multiplicity),
+        public_data: summary
+            .map(|summary| summary.public_data.clone())
+            .unwrap_or_default(),
+        metadata: summary
+            .map(|summary| summary.metadata.clone())
+            .unwrap_or_default(),
+    }
 }
 
 fn section_pattern_candidates<'a, E: ExpressionParseEnvironment>(
@@ -698,6 +907,7 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                     depth,
                     &preceding_sections,
                     next_sibling.as_ref(),
+                    SectionRootLifecycle::Complete,
                 )?;
                 diagnostics.extend(matches.diagnostics.iter().cloned());
                 if let Some(selected) = matches.selected.as_ref() {

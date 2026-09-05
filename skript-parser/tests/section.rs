@@ -1,10 +1,11 @@
 use skript_parser::{
-    ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest,
-    ExpressionLeafTiming, ExpressionParseContext, ExpressionParseEnvironment, MappedSource,
-    PatternHookControl, PatternHookEvent, PatternMatchEnvironment, RawTreeOptions, SectionBodyMode,
-    SectionBodyNode, SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision,
-    SectionParseRequest, SectionParserConfig, TextRange, TypeExpressionOutcome,
-    TypeExpressionRequest, parse_raw_tree, parse_section,
+    EffectSemanticDecision, EffectSemanticRequest, ExpressionLeafCandidate, ExpressionLeafKind,
+    ExpressionLeafParse, ExpressionLeafRequest, ExpressionLeafTiming, ExpressionParseContext,
+    ExpressionParseEnvironment, MappedSource, PatternHookControl, PatternHookEvent,
+    PatternMatchEnvironment, RawTreeOptions, SectionBodyMode, SectionBodyNode,
+    SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision, SectionParseRequest,
+    SectionParserConfig, SectionRootLifecycle, SectionScopeFrame, SectionScopeKind, TextRange,
+    TypeExpressionOutcome, TypeExpressionRequest, parse_raw_tree, parse_section,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,9 +21,15 @@ fn fixture() -> PathBuf {
 #[derive(Default)]
 struct ScopedEnvironment {
     literal_depths: BTreeMap<String, String>,
+    expression_stack_depths: BTreeMap<String, usize>,
+    expression_frames: BTreeMap<String, Vec<SectionScopeFrame>>,
+    effect_stack_depths: Vec<(String, usize)>,
+    entered_stack_depths: Vec<usize>,
     exit_depths: Vec<String>,
+    exit_stack_depths: Vec<usize>,
     condition_body: bool,
     reject_exit: bool,
+    reject_next_exit: bool,
     reject_exit_registration: Option<String>,
 }
 
@@ -55,7 +62,7 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
             return Ok(ExpressionLeafParse::default());
         };
         self.literal_depths.insert(
-            value,
+            value.clone(),
             request
                 .context
                 .values
@@ -63,6 +70,10 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
                 .cloned()
                 .unwrap_or_else(|| "0".to_owned()),
         );
+        self.expression_stack_depths
+            .insert(value.clone(), request.context.section_stack.len());
+        self.expression_frames
+            .insert(value, request.context.section_stack.clone());
         Ok(vec![ExpressionLeafCandidate {
             effects: None,
             parser_id: "test.string".to_owned(),
@@ -82,6 +93,8 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
         &mut self,
         request: SectionChildrenRequest<'_>,
     ) -> Result<SectionChildrenDecision, String> {
+        self.entered_stack_depths
+            .push(request.context.section_stack.len());
         let mut context = request.context.clone();
         let depth = context
             .values
@@ -109,8 +122,13 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
         &mut self,
         request: SectionChildrenRequest<'_>,
     ) -> Result<SectionExitDecision, String> {
+        self.exit_stack_depths
+            .push(request.context.section_stack.len());
+        let reject_next_exit = self.reject_next_exit;
+        self.reject_next_exit = false;
         if self.reject_exit
             || self.reject_exit_registration.as_deref() == Some(request.registration_id)
+            || reject_next_exit
         {
             return Ok(SectionExitDecision::Reject {
                 reason: "rejected after parsing the body".to_owned(),
@@ -139,6 +157,17 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
             context,
             metadata: request.metadata.clone(),
         })
+    }
+
+    fn resolve_effect_candidate(
+        &mut self,
+        request: EffectSemanticRequest<'_>,
+    ) -> Result<EffectSemanticDecision, String> {
+        self.effect_stack_depths.push((
+            request.input.to_owned(),
+            request.context.section_stack.len(),
+        ));
+        Ok(EffectSemanticDecision::UseCandidate)
     }
 
     fn state_revision(&self) -> Result<u64, String> {
@@ -209,6 +238,12 @@ fn alternative_section_catalog() -> Catalog {
             .collect(),
     })
     .with_unchecked_source(source_view)
+}
+
+fn observed_depth(observations: &[(String, usize)], needle: &str) -> Option<usize> {
+    observations
+        .iter()
+        .find_map(|(source, depth)| source.contains(needle).then_some(*depth))
 }
 
 #[test]
@@ -285,6 +320,8 @@ fn section_exit_rejection_retries_a_later_candidate() {
         .expect("the fallback Section must be selected");
     assert_eq!(selected.matched.registration_id, "section:test:fallback:0");
     assert!(result.unknown.is_none());
+    assert_eq!(environment.entered_stack_depths, [0, 0]);
+    assert_eq!(environment.exit_stack_depths, [1, 1]);
 }
 
 #[test]
@@ -364,5 +401,179 @@ fn nested_section_context_is_pushed_for_children_and_popped_for_siblings() {
             .map(String::as_str),
         Some("1")
     );
+    assert_eq!(
+        environment.expression_stack_depths.get("\"nested\""),
+        Some(&2)
+    );
+    assert_eq!(
+        environment.expression_stack_depths.get("\"outer\""),
+        Some(&1)
+    );
+    assert_eq!(
+        observed_depth(&environment.effect_stack_depths, "\"nested\""),
+        Some(2)
+    );
+    assert_eq!(
+        observed_depth(&environment.effect_stack_depths, "\"outer\""),
+        Some(1)
+    );
+    assert_eq!(environment.entered_stack_depths, [0, 1]);
     assert_eq!(environment.exit_depths, ["2", "1"]);
+    assert_eq!(environment.exit_stack_depths, [2, 1]);
+
+    let nested = selected
+        .body
+        .iter()
+        .find_map(|body| match body {
+            SectionBodyNode::Section(matches) => matches.selected.as_ref(),
+            _ => None,
+        })
+        .expect("nested Section must be selected");
+    assert_eq!(selected.body_context.section_stack.len(), 1);
+    assert_eq!(nested.body_context.section_stack.len(), 2);
+
+    let frames = environment
+        .expression_frames
+        .get("\"nested\"")
+        .expect("nested Expression must see Section frames");
+    assert_eq!(frames, &nested.body_context.section_stack);
+    let outer_frame = &frames[0];
+    let nested_frame = &frames[1];
+
+    assert_eq!(outer_frame.parent_scope_id, None);
+    assert_eq!(outer_frame.raw_node_id, node.id);
+    assert_eq!(outer_frame.kind, SectionScopeKind::Section);
+    assert_eq!(outer_frame.definition_id, selected.matched.definition_id);
+    assert_eq!(
+        outer_frame.registration_id,
+        selected.matched.registration_id
+    );
+    assert_eq!(outer_frame.element_class, selected.element_class);
+    assert_eq!(outer_frame.pattern_index, selected.matched.pattern_index);
+    assert_eq!(outer_frame.pattern, selected.matched.pattern);
+    assert_eq!(outer_frame.source, "dummy fixture section");
+    assert_eq!(outer_frame.addon_name, selected.addon_name);
+    assert_eq!(outer_frame.addon_version, selected.addon_version);
+    assert!(outer_frame.captures.is_empty());
+    assert_eq!(
+        outer_frame
+            .metadata
+            .get("test.enter-depth")
+            .map(String::as_str),
+        Some("1")
+    );
+
+    assert_eq!(nested_frame.parent_scope_id, Some(outer_frame.scope_id));
+    assert_eq!(nested_frame.raw_node_id, nested.raw_node_id);
+    assert_eq!(nested_frame.kind, SectionScopeKind::Section);
+    assert_eq!(nested_frame.definition_id, nested.matched.definition_id);
+    assert_eq!(nested_frame.registration_id, nested.matched.registration_id);
+    assert_eq!(nested_frame.element_class, nested.element_class);
+    assert_eq!(nested_frame.pattern_index, nested.matched.pattern_index);
+    assert_eq!(nested_frame.pattern, nested.matched.pattern);
+    assert_eq!(nested_frame.source, "dummy fixture section");
+    assert_eq!(nested_frame.addon_name, nested.addon_name);
+    assert_eq!(nested_frame.addon_version, nested.addon_version);
+    assert!(nested_frame.captures.is_empty());
+    assert_eq!(
+        nested_frame
+            .metadata
+            .get("test.enter-depth")
+            .map(String::as_str),
+        Some("2")
+    );
+}
+
+#[test]
+fn retaining_root_section_keeps_body_context_without_running_exit_hook() {
+    let snapshot = ssg::load(fixture()).unwrap();
+    let input = "dummy fixture section:\n    run dummy fixture effect with \"retained\"\n";
+    let source = MappedSource::identity(input);
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+    let node = tree.get(tree.roots[0]).unwrap();
+    let mut environment = ScopedEnvironment::default();
+    let result = parse_section(
+        snapshot.catalog(),
+        SectionParseRequest {
+            source: &source,
+            tree: &tree,
+            node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        SectionParserConfig {
+            root_lifecycle: SectionRootLifecycle::RetainBody,
+            ..SectionParserConfig::default()
+        },
+    )
+    .expect("root Section body must parse while retaining its lifecycle");
+
+    let selected = result.selected.as_ref().expect("root Section must match");
+    assert_eq!(selected.body_context.section_stack.len(), 1);
+    assert_eq!(
+        selected
+            .body_context
+            .values
+            .get("scope-depth")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(selected.body_context.section_stack[0].raw_node_id, node.id);
+    assert_eq!(environment.exit_depths, Vec::<String>::new());
+
+    // The child Effect receives the same retained values as the returned body context.
+    assert_eq!(
+        environment
+            .literal_depths
+            .get("\"retained\"")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        environment.expression_stack_depths.get("\"retained\""),
+        Some(&1)
+    );
+}
+
+#[test]
+fn rejected_nested_section_does_not_leak_its_frame_to_siblings() {
+    let snapshot = ssg::load(fixture()).unwrap();
+    let input = "dummy fixture section:\n    dummy fixture section:\n        run dummy fixture effect with \"rejected\"\n    run dummy fixture effect with \"sibling\"\n";
+    let source = MappedSource::identity(input);
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+    let node = tree.roots[0];
+    let node = tree.get(node).unwrap();
+    let mut environment = ScopedEnvironment {
+        reject_next_exit: true,
+        ..ScopedEnvironment::default()
+    };
+    let result = parse_section(
+        snapshot.catalog(),
+        SectionParseRequest {
+            source: &source,
+            tree: &tree,
+            node,
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        SectionParserConfig::default(),
+    )
+    .expect("a rejected nested Section must remain recoverable");
+
+    assert!(result.selected.is_some());
+    assert_eq!(
+        environment.expression_stack_depths.get("\"sibling\""),
+        Some(&1)
+    );
+    assert_eq!(
+        environment
+            .expression_frames
+            .get("\"sibling\"")
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        observed_depth(&environment.effect_stack_depths, "\"sibling\""),
+        Some(1)
+    );
 }
