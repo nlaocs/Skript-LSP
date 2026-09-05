@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.30.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.32.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -73,7 +73,9 @@ host側の型関係queryの追加で0.19.0、Skript互換のJava共通型query�
 正規化済みexperiment catalogへの直接アクセス追加で0.27.0へ、schema version付きpublic
 Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、providerが指定するExpression leaf timing、
 完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
-unresolved結果追加で0.30.0へ変わりました。manifestの現在の`abi`値は12.0で、
+unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加で0.31.0へ、
+host側で索引化するruntime Type pattern照合の追加で0.32.0へ変わりました。
+manifestの現在の`abi`値は14.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
@@ -152,9 +154,12 @@ runtimeやregistryの情報がないためTypeを確定できない場合、comp
 `type-parser-outcome: no-match`、候補または明示的unresolvedを返した場合は`handled`を指定します。
 対象外のhookは`NotApplicable`を返します。handler宣言の有無ではなく実際の応答で判別するため、
 `registered-syntax-handlers`を使わない直接のType subscriptionにも同じ規則が適用されます。
-複合Typeが内部で使用するEntityDataのsupplier情報などを必要とする場合は、既存の
-`expression.type-options.all` context requirementを指定できます。hostは該当する呼び出しにだけ
-全Type optionを渡します。
+複合Typeが内部で使用するEntityDataのsupplier値などを必要とする場合は、既存の
+`expression.type-options.all` context requirementを指定できます。runtime登録Type patternはcatalog読込時に
+一度だけparse・索引化されます。componentはType registration IDと入力を
+`catalog-data.registered-type-pattern-match`へ渡し、最初に一致した登録のregistration/pattern index、
+元code name、値class、表現対象class、tag、markだけを受け取ります。これにより、Type固有の意味付けを
+component側に保ったまま、数百件のpatternをleaf hookごとに複製・再parseする処理を避けます。
 Javaのparser自体を実行したり、`usage`から文法を推測したりする機能ではありません。
 このparser経路へ入るのは、SSGで`hasParser: true`と記録されたType登録だけです。
 runtime parserを持たないTypeを`usage`や表示名から推測して受理することはありません。

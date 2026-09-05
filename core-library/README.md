@@ -11,7 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.30.0` and ABI `12.0`
+- WIT package `nlaocs:skript-parser-addon@0.32.0` and ABI `14.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -51,9 +51,10 @@ semantics that cannot be recovered from SSG registration data alone.
 
 The Type hook handles every built-in Type parser through registrations declared
 with `kind: Type`, using the same per-registration dispatch available to third-party
-addons. The current modules cover string, number, boolean, ItemType, EntityData,
-EntityType, EnchantmentType, Timespan, ClassInfo, and snapshot-backed finite
-literals. Each handler owns its registration and receives the active Type's source
+addons. The current modules cover string, number, boolean, ItemType, ItemStack,
+EntityData, EntityType, EnchantmentType, Timespan, Time, TimePeriod, Experience,
+Color, Particle, ClassInfo, and snapshot-backed finite literals. Each handler owns
+its registration and receives the active Type's source
 record, addon identity, parser class, parse order, and `before`/`after` relations.
 `types/entity_type.rs` implements Skript's amount-bearing `EntityType` literal.
 `3 creepers` is one
@@ -61,15 +62,19 @@ Literal with return class `ch.njol.skript.entity.EntityType` and `Single`
 multiplicity, not three Expression nodes. Its metadata records the effective
 `entity-type-amount`, the original `entity-type-raw-amount` (`-1` when omitted),
 the Type definition/registration IDs, and an `entity-data` JSON object retaining
-the nested EntityData supplier metadata. Entity names and plural forms come from
-the snapshot; old snapshots retain the existing version-gated compatibility path.
+the nested EntityData metadata. Entity names and plural forms come from the
+snapshot. Finite supplier values cover default entity forms, while SSG's ordered
+`registeredParserPatterns` preserve runtime EntityData variants such as age or
+powered state without a version-specific hardcoded name table. Patterns containing
+typed or regex captures are deferred until a provider can evaluate those captures.
 The host namespaces these metadata keys with `nlaocs.core-library/`; keys inside
 the nested `entity-data` JSON retain their original names. Type-produced literals
 are considered after registered Expressions by default. Quoted and interpolated
 strings explicitly request the earlier phase used by Skript's VariableString parser.
 This does not implement default argument resolution or environment-backed parsers
 such as live Minecraft registries.
-When finite snapshot data is insufficient, a Type parser reports a structured
+Snapshots generated before `registeredParserPatterns` cannot recover non-supplier
+EntityData variants. When snapshot data is otherwise insufficient, a Type parser reports a structured
 unresolved result with the missing provider instead of guessing or rejecting
 the input as invalid.
 

@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.30.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.32.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -87,8 +87,10 @@ multiple targets for each registered semantic handler, including dynamic
   Expression data and editable semantic envelopes changed it to 0.28.0;
   provider-controlled Expression leaf timing, complete active-Type metadata,
   and parser-class targets changed it to 0.29.0; structured unresolved Type
-  parser results changed it to 0.30.0. The manifest's current `abi`
-  value is 12.0 and is a
+  parser results changed it to 0.30.0; runtime Type parser registration
+  metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
+  changed it to 0.32.0. The manifest's current `abi`
+  value is 14.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
 
@@ -198,8 +200,13 @@ supplies candidates or an explicit unresolved result. Unrelated hooks return
 `NotApplicable`. This distinction uses the executed response, not the presence of
 `registered-syntax-handlers`, so direct Type subscriptions work identically.
 Type handlers can request the existing `expression.type-options.all` context requirement
-when a composite Type needs metadata from other Types, such as an EntityData
-supplier. The host provides that wider view only for the matching invocation.
+when a composite Type needs metadata from other Types, such as EntityData supplier
+values. Runtime registered Type patterns are parsed and indexed once when the
+catalog is loaded. A component queries `catalog-data.registered-type-pattern-match`
+with a Type registration ID and input, and receives only the first matching
+registration's indexes, source code name, value class, represented class, tags,
+and mark. This avoids copying and reparsing hundreds of patterns for every leaf
+hook while leaving the Type-specific interpretation in the component.
 This routing does not execute the Java parser or derive a grammar from `usage`.
 Only SSG Type registrations with `hasParser: true` enter this parser route.
 Types without a runtime parser are not accepted by guessing from their usage or

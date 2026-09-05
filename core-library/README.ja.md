@@ -11,7 +11,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.30.0`とABI `12.0`
+- WIT package `nlaocs:skript-parser-addon@0.32.0`とABI `14.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -40,19 +40,24 @@ expected type/plural contractを維持し、
 責務です。CoreLibraryはSSGの登録dataだけから復元できない標準の意味処理だけを所有します。
 
 Type hookは、標準Type parserをすべて`kind: Type`の登録として処理し、third-party addonと
-同じregistration単位のdispatchを使います。現在のmoduleはstring、number、boolean、ItemType、
-EntityData、EntityType、EnchantmentType、Timespan、ClassInfo、Snapshot由来の有限literalを扱います。
+同じregistration単位のdispatchを使います。現在のmoduleはstring、number、boolean、ItemType、ItemStack、
+EntityData、EntityType、EnchantmentType、Timespan、Time、TimePeriod、Experience、Color、Particle、
+ClassInfo、Snapshot由来の有限literalを扱います。
 各handlerは登録を所有し、active Typeのsource record、addon identity、parser class、parse order、
 `before`/`after`関係を受け取ります。`types/entity_type.rs`は数量付き`EntityType`の解析を所有します。
 `3 creepers`は`ch.njol.skript.entity.EntityType`を返す1個のLiteralで、多重度は`Single`です。
 metadataには実効数量`entity-type-amount`、元の数量`entity-type-raw-amount`（省略時は`-1`）、
-Typeのdefinition/registration ID、および内包するEntityDataのsupplier metadataを保持した
-`entity-data` JSONを記録します。種類名と複数形はSnapshotから解決し、古いSnapshotでは既存の
-version-gatedな互換経路を使用します。hostはmetadataキーに`nlaocs.core-library/`を付けますが、
+Typeのdefinition/registration ID、および内包するEntityData metadataを保持した
+`entity-data` JSONを記録します。種類名と複数形はSnapshotから解決します。有限supplier値は既定の
+entity表記を扱い、SSGの順序付き`registeredParserPatterns`は年齢や帯電状態などのruntime EntityData
+variantをversion固有のhardcodeなしで保持します。型captureやregex captureを含むpatternは、
+それらを評価できるproviderが実装されるまで未解決として後段へ委ねます。hostはmetadataキーに
+`nlaocs.core-library/`を付けますが、
 内部の`entity-data` JSONのキー名は変更しません。Type由来literalは既定で登録Expressionの後に
 評価されます。quoted/interpolated stringだけは、SkriptのVariableString parserと同じ早い段階を
 明示的に要求します。省略引数の補完やlive Minecraft registryへ依存するparserまで実装したことは意味しません。
-有限なSnapshot情報だけでは確定できない場合、Type parserは入力を推測または不正扱いせず、
+`registeredParserPatterns`追加前のSnapshotからは、supplierにないEntityData variantを復元できません。
+その他にも有限なSnapshot情報だけでは確定できない場合、Type parserは入力を推測または不正扱いせず、
 不足するproviderを含む構造化unresolved結果を返します。
 
 `%expression%`を含むquoted stringとvariableは、汎用`host.expression` parse requestを返します。
