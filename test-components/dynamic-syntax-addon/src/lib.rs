@@ -104,6 +104,7 @@ impl addon::Guest for DynamicSyntaxAddon {
             registered_syntax_handlers: vec![RegisteredSyntaxHandler {
                 handler_id: SCOPED_EFFECT_HANDLER_ID.to_owned(),
                 kind: SyntaxKind::Effect,
+                phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Effect,
                 targets: vec![RegisteredSyntaxHandlerTarget::DynamicHandler(
                     SCOPED_EFFECT_HANDLER_ID.to_owned(),
                 )],
@@ -113,7 +114,7 @@ impl addon::Guest for DynamicSyntaxAddon {
                 forbidden_tags: Vec::new(),
                 marks: Vec::new(),
                 capture_parsers: vec![CaptureParserBinding {
-                    // `%string%` is capture 0; the `<.+>` mapping is capture 1.
+                    // Nullable `%-string%` is capture 0; `<.+>` remains capture 1.
                     capture_index: 1,
                     parser_id: "host.expression".to_owned(),
                     required: true,
@@ -163,7 +164,7 @@ impl addon::Guest for DynamicSyntaxAddon {
         dynamic_syntax_registry::register(&DynamicSyntaxDefinition {
             local_id: "scoped-effect".to_owned(),
             kind: SyntaxKind::Effect,
-            patterns: vec!["dummy scoped [%string% ]using <.+>".to_owned()],
+            patterns: vec!["dummy scoped [%-string% ]using <.+>".to_owned()],
             priority: -15,
             before: Vec::new(),
             after: Vec::new(),

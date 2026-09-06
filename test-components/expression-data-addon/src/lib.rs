@@ -1,6 +1,8 @@
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #![allow(missing_docs)]
 
+mod default_expression;
+
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
     world: "parser-addon",
@@ -218,7 +220,7 @@ fn parser_requirements() -> Vec<ParserCapabilityRequirement> {
 
 impl addon::Guest for ExpressionDataAddon {
     fn manifest() -> ComponentManifest {
-        ComponentManifest {
+        let mut manifest = ComponentManifest {
             component_id: COMPONENT_ID.to_owned(),
             component_version: env!("CARGO_PKG_VERSION").to_owned(),
             abi: AbiVersion {
@@ -230,7 +232,9 @@ impl addon::Guest for ExpressionDataAddon {
             registered_syntax_handlers: Vec::new(),
             catalog_annotations: Vec::new(),
             state_namespaces: manifest_state_namespaces(),
-        }
+        };
+        default_expression::register(&mut manifest);
+        manifest
     }
 
     fn initialize(profile: HostProfile) -> Result<(), CompatibilityError> {
@@ -255,6 +259,9 @@ impl addon::Guest for ExpressionDataAddon {
 
 impl hooks::Guest for ExpressionDataAddon {
     fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        if input.context.subscription_id.starts_with("default-test.") {
+            return default_expression::invoke(input);
+        }
         let subscription_id = input.context.subscription_id;
         match input.payload {
             HookPayload::Expression(payload) => invoke_expression(&subscription_id, payload),
@@ -433,6 +440,7 @@ fn invalid_summary_result(request: &ParseRequest) -> ParseResult {
             span: request.span.clone(),
             expected_types: request.expected_types.clone(),
             summary: Some(ParseSummary {
+                default_expression: None,
                 kind: "fixture-summary".to_owned(),
                 definition_id: None,
                 registration_id: None,

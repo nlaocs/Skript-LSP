@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.33.0;
+package nlaocs:skript-parser-addon@0.35.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -176,6 +176,7 @@ interface types {
         node,
         matching,
         expression,
+        default-expression,
         condition,
         effect,
         section,
@@ -266,6 +267,9 @@ interface types {
     record registered-syntax-handler {
         handler-id: string,
         kind: syntax-kind,
+        /// Semantic purpose. Type handlers use expression for explicit input or
+        /// default-expression for omissions; one registration can have both.
+        phase: hook-phase,
         /// At least one target is required.
         targets: list<registered-syntax-handler-target>,
         /// Empty accepts every pattern; otherwise the matched index must occur here.
@@ -494,6 +498,15 @@ interface types {
         metadata: list<metadata-entry>,
     }
 
+    /// Static facts collected from a Type's registered default Expression.
+    /// Older snapshots may know only the implementation class.
+    record type-default-expression {
+        implementation-class: string,
+        literal: option<bool>,
+        return-type: option<string>,
+        single: option<bool>,
+    }
+
     record expression-type-option {
         source-record: option<catalog-record-ref>,
         definition-id: string,
@@ -512,6 +525,7 @@ interface types {
         has-parser: bool,
         parse-contexts: list<string>,
         has-supplier: bool,
+        default-expression: option<type-default-expression>,
     }
 
     enum expression-literal-source {
@@ -578,6 +592,95 @@ interface types {
         candidates: list<expression-leaf-candidate>,
     }
 
+    /// Small, stable references to Catalog evidence; never copied source documents.
+    record default-expression-catalog-reference {
+        role: string,
+        definition-id: option<string>,
+        registration-id: option<string>,
+        source-digest: option<string>,
+        snapshot-id: option<string>,
+        document: option<string>,
+        index: option<u64>,
+    }
+
+    /// Provider output. The host stamps component-id and owns metadata namespaces.
+    /// A new provider result leaves component-id unset; subsequent hooks may
+    /// preserve the stamped identity while adding their own metadata.
+    record default-expression-resolution {
+        provider-id: string,
+        component-id: option<string>,
+        return-type: string,
+        multiplicity: dynamic-multiplicity,
+        is-literal: bool,
+        time: s32,
+        reason: string,
+        catalog-references: list<default-expression-catalog-reference>,
+        public-data: list<expression-public-data>,
+    }
+
+    /// Unresolved is an incomplete result, never a verified successful parse.
+    /// Context rejection uses the ordinary hook-decision rejection and diagnostics.
+    variant default-expression-outcome {
+        unresolved(string),
+        resolved(default-expression-resolution),
+    }
+
+    /// One omitted non-nullable typed capture, dispatched against its active Type
+    /// definition/registration. All fields except outcome and metadata are immutable.
+    /// expression is display text; providers use the typed restrictions below.
+    record default-expression-payload {
+        context: parse-context,
+        skript-version: option<string>,
+        syntax-kind: syntax-kind,
+        definition-id: string,
+        registration-id: string,
+        pattern-index: option<u64>,
+        pattern: option<string>,
+        tags: list<string>,
+        mark: option<s32>,
+        capture-index: u64,
+        pattern-span: text-range,
+        expression: string,
+        expected-type: expression-expected-type,
+        active-type: expression-type-option,
+        allow-literals: bool,
+        allow-expressions: bool,
+        time: s32,
+        span: mapped-span,
+        outcome: default-expression-outcome,
+        /// Catalog annotations and addon-owned metadata use the normal namespace rules.
+        metadata: list<metadata-entry>,
+    }
+
+    /// Immutable provenance of an implicit child. Its source span is a zero-width
+    /// anchor, not generated input. Context is referenced without recursively
+    /// copying Section captures into each child summary.
+    record default-expression-info {
+        capture-index: u64,
+        pattern-span: text-range,
+        expression: string,
+        requested-type: expression-expected-type,
+        type-definition-id: string,
+        type-registration-id: string,
+        provider-id: string,
+        component-id: string,
+        reason: string,
+        event-classes: list<string>,
+        section-scope-ids: list<u64>,
+        catalog-references: list<default-expression-catalog-reference>,
+        is-literal: bool,
+        time: s32,
+        span: mapped-span,
+    }
+
+    /// Capture presence is independent from whether the captured parser succeeded.
+    enum type-capture-state {
+        explicit,
+        omitted,
+        null,
+        %default,
+    }
+
     enum expression-return-type-state {
         %static,
         dynamic,
@@ -602,6 +705,7 @@ interface types {
         possible-return-types: list<string>,
         possible-return-types-state: expression-possible-return-types-state,
         multiplicity: option<dynamic-multiplicity>,
+        default-expression: option<default-expression-info>,
         public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }
@@ -670,6 +774,7 @@ interface types {
         possible-return-types: list<string>,
         possible-return-types-state: expression-possible-return-types-state,
         multiplicity: option<dynamic-multiplicity>,
+        default-expression: option<default-expression-info>,
         public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }
@@ -813,6 +918,7 @@ interface types {
     }
 
     record effect-expression-capture {
+        state: type-capture-state,
         pattern-span: text-range,
         expression: string,
         value: string,
@@ -896,6 +1002,7 @@ interface types {
     }
 
     record condition-expression-capture {
+        state: type-capture-state,
         pattern-span: text-range,
         expression: string,
         value: string,
@@ -1446,6 +1553,7 @@ interface types {
         node(node-payload),
         matching(matching-payload),
         expression(expression-payload),
+        default-expression(default-expression-payload),
         registered-expression(registered-expression-payload),
         condition(condition-payload),
         effect(effect-payload),

@@ -1,8 +1,11 @@
-package nlaocs:skript-parser-addon@0.33.0;
+package nlaocs:skript-parser-addon@0.35.0;
 
 /// Read-only access to the complete retained SSG source and host type relations.
 interface catalog-data {
     use types.{accepted-change-mode, catalog-record-ref, expression-literal-option, expression-type-option};
+
+    /// Indexed lookup of the first registered Type for an exact Java class.
+    type-for-class: func(class-name: string) -> result<option<expression-type-option>, catalog-error>;
 
     enum catalog-error-kind {
         unavailable,
@@ -86,6 +89,7 @@ interface catalog-data {
 
     /// One EventValues registration visible from an exact event class.
     record event-value-option {
+        source-record: option<catalog-record-ref>,
         event-class: string,
         value-class: string,
         time: s32,
@@ -190,7 +194,10 @@ interface catalog-data {
         class-name: string,
     ) -> result<option<string>, catalog-error>;
 
-    /// Returns inherited EventValues registrations after exclusion filtering.
+    /// Returns inherited EventValue candidates before context exclusion checks.
+    ///
+    /// Providers apply exclusions so they can preserve Skript's registered
+    /// rejection diagnostics instead of silently discarding a candidate.
     event-values-for: func(
         event-class: string,
     ) -> result<list<event-value-option>, catalog-error>;
