@@ -17,7 +17,7 @@ use syntax_pattern_parser::syntax::{
 };
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Syntax};
 
-const REPORT_SCHEMA_VERSION: u32 = 6;
+const REPORT_SCHEMA_VERSION: u32 = 7;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
 const MAX_REPORT_PATTERN_DEPTH: usize = 16;
 
@@ -925,6 +925,8 @@ enum ResolvedElementReport {
         groups: Vec<RegexGroupReport>,
     },
     Expression {
+        capture_index: usize,
+        state: &'static str,
         pattern_span: SpanReport,
         span: SpanReport,
         source: String,
@@ -946,6 +948,8 @@ struct RegexGroupReport {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExpressionReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_expression: Option<serde_json::Value>,
     source: String,
     span: SpanReport,
     expression: ExpressionIdentityReport,
@@ -998,6 +1002,10 @@ struct FunctionArgumentReport {
     rename_all_fields = "camelCase"
 )]
 enum ExpressionIdentityReport {
+    Default {
+        provider_id: String,
+        component_id: String,
+    },
     Grouped,
     List {
         conjunction: ExpressionListConjunctionReport,
@@ -1124,6 +1132,12 @@ struct FailureInterpretationReport {
     rename_all_fields = "camelCase"
 )]
 enum FailureReasonReport {
+    DefaultExpression {
+        capture_index: usize,
+        state: &'static str,
+        expected: Vec<String>,
+        reason: String,
+    },
     Literal {
         expected: String,
     },
@@ -1154,6 +1168,17 @@ enum FailureReasonReport {
 impl FailureReasonReport {
     fn human(&self) -> String {
         match self {
+            Self::DefaultExpression {
+                capture_index,
+                state,
+                expected,
+                reason,
+            } => {
+                format!(
+                    "omitted capture #{capture_index} ({}) default {state}: {reason}",
+                    expected.join(" or ")
+                )
+            }
             Self::Literal { expected } => format!("expected literal {expected:?}"),
             Self::Regex { pattern } => format!("expected regex <{pattern}>"),
             Self::Expression => "could not parse an expression".to_owned(),
@@ -1676,6 +1701,8 @@ fn resolved_elements(
             },
             PatternCapture::TypeExpression {
                 pattern_span: capture_pattern_span,
+                capture_index,
+                state,
                 expression,
                 value,
                 span,
@@ -1685,6 +1712,13 @@ fn resolved_elements(
             } => {
                 let expression_node = resolution_id.as_ref().and_then(|_| resolved.next());
                 ResolvedElementReport::Expression {
+                    capture_index: *capture_index,
+                    state: match state {
+                        skript_parser::TypeCaptureState::Explicit => "explicit",
+                        skript_parser::TypeCaptureState::Omitted => "omitted",
+                        skript_parser::TypeCaptureState::Null => "null",
+                        skript_parser::TypeCaptureState::Default => "default",
+                    },
                     pattern_span: pattern_span(*capture_pattern_span),
                     span: match_span(span),
                     source: value.clone(),
@@ -1706,6 +1740,13 @@ fn expression_report(
     depth: usize,
 ) -> ExpressionReport {
     let (expression, pattern) = match &node.kind {
+        ExpressionNodeKind::Default { info } => (
+            ExpressionIdentityReport::Default {
+                provider_id: info.provider_id.clone(),
+                component_id: info.component_id.clone(),
+            },
+            None,
+        ),
         ExpressionNodeKind::Grouped => (ExpressionIdentityReport::Grouped, None),
         ExpressionNodeKind::List { conjunction } => (
             ExpressionIdentityReport::List {
@@ -1866,6 +1907,12 @@ fn expression_report(
         Vec::new()
     };
     ExpressionReport {
+        default_expression: match &node.kind {
+            ExpressionNodeKind::Default { info } => {
+                Some(default_expression_report(info, &node.span))
+            }
+            _ => None,
+        },
         source: source_slice(input, node.span.mapped.virtual_range),
         span,
         expression,
@@ -1889,6 +1936,43 @@ fn expression_report(
         metadata: node.metadata.clone(),
         truncated,
     }
+}
+
+fn default_expression_report(
+    info: &skript_parser::DefaultExpressionInfo,
+    span: &skript_parser::MatchSpan,
+) -> serde_json::Value {
+    serde_json::json!({
+        "implicit": true,
+        "captureIndex": info.capture_index,
+        "expression": info.expression_source,
+        "patternSpan": { "start": info.pattern_span.start, "end": info.pattern_span.end },
+        "requestedType": { "className": info.requested_type.class_name.as_str(), "plural": info.requested_type.plural },
+        "typeDefinitionId": info.type_definition_id,
+        "typeRegistrationId": info.type_registration_id,
+        "providerId": info.provider_id,
+        "componentId": info.component_id,
+        "reason": info.reason,
+        "isLiteral": info.is_literal,
+        "time": info.time,
+        "context": {
+            "eventClasses": info.event_classes.iter().map(|class| class.as_str()).collect::<Vec<_>>(),
+            "sectionScopeIds": info.section_scope_ids,
+        },
+        "anchor": {
+            "start": span.mapped.virtual_range.start,
+            "end": span.mapped.virtual_range.end,
+            "origins": span.mapped.origins.iter().map(|origin| serde_json::json!({
+                "kind": format!("{:?}", origin.kind),
+                "start": origin.original_range.start, "end": origin.original_range.end,
+                "expansionId": origin.expansion.map(|id| id.get()),
+            })).collect::<Vec<_>>(),
+        },
+        "catalogReferences": info.catalog_references.iter().map(|reference| serde_json::json!({
+            "role": reference.role, "definitionId": reference.definition_id, "registrationId": reference.registration_id,
+            "sourceDigest": reference.source_digest, "snapshotId": reference.snapshot_id, "document": reference.document, "index": reference.index,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 fn expression_public_data(entries: &[ExpressionPublicData]) -> Vec<ExpressionPublicDataReport> {
@@ -1976,6 +2060,30 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
             .reasons
             .into_iter()
             .map(|reason| match reason {
+                PatternFailureReason::DefaultExpression {
+                    capture_index,
+                    expression,
+                    kind,
+                    reason,
+                } => FailureReasonReport::DefaultExpression {
+                    capture_index,
+                    state: match kind {
+                        skript_parser::DefaultExpressionFailureKind::Rejected => "rejected",
+                        skript_parser::DefaultExpressionFailureKind::Unresolved => "unresolved",
+                    },
+                    expected: expression
+                        .alternatives
+                        .iter()
+                        .map(|alternative| {
+                            format!(
+                                "{}{}",
+                                alternative.name,
+                                if alternative.plural { "[]" } else { "" }
+                            )
+                        })
+                        .collect(),
+                    reason,
+                },
                 PatternFailureReason::Literal { expected } => {
                     FailureReasonReport::Literal { expected }
                 }
@@ -2194,7 +2302,9 @@ fn write_failure(
         .reasons
         .iter()
         .enumerate()
-        .filter(|(index, _)| Some(*index) != primary_index)
+        // Miette may omit a zero-width label at EOF. Keep its explanation in
+        // help as well, without extending an implicit anchor into source text.
+        .filter(|(index, _)| Some(*index) != primary_index || start == end)
         .map(|(_, reason)| reason)
         .filter(|reason| {
             !has_type_failure
@@ -2341,12 +2451,17 @@ fn write_resolved_elements(
             ResolvedElementReport::Expression {
                 source,
                 span,
+                state,
+                capture_index,
                 expected,
                 selected_alternative,
                 resolved,
                 ..
             } => {
-                writeln!(writer, "{prefix}- expression {source:?} at {span}")?;
+                writeln!(
+                    writer,
+                    "{prefix}- expression {source:?} at {span} (capture #{capture_index}, {state})"
+                )?;
                 writeln!(
                     writer,
                     "{prefix}  expectedTypes: {}",
@@ -2373,6 +2488,22 @@ fn write_expression(
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     match &expression.expression {
+        ExpressionIdentityReport::Default {
+            provider_id,
+            component_id,
+        } => {
+            writeln!(
+                writer,
+                "{prefix}resolved: implicit / default ({component_id}/{provider_id})"
+            )?;
+            if let Some(info) = &expression.default_expression {
+                writeln!(
+                    writer,
+                    "{prefix}reason: {}",
+                    info["reason"].as_str().unwrap_or_default()
+                )?;
+            }
+        }
         ExpressionIdentityReport::Grouped => {
             writeln!(writer, "{prefix}resolved: groupedExpression")?;
         }
