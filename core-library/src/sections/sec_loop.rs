@@ -556,6 +556,7 @@ mod tests {
 
     fn summary(kind: &str) -> ParseSummary {
         ParseSummary {
+            default_expression: None,
             kind: kind.to_owned(),
             definition_id: None,
             registration_id: None,

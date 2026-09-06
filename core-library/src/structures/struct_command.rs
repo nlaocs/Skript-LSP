@@ -746,6 +746,7 @@ mod tests {
             has_parser: true,
             parse_contexts: contexts.iter().map(|value| (*value).to_owned()).collect(),
             has_supplier: false,
+            default_expression: None,
         }
     }
 

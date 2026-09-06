@@ -94,6 +94,7 @@ mod tests {
             tags: Vec::new(),
             mark: 0,
             children: vec![RegisteredExpressionChild {
+                default_expression: None,
                 text: "players".to_owned(),
                 kind: "custom".to_owned(),
                 parser_id: None,

@@ -153,6 +153,7 @@ mod tests {
             tags: Vec::new(),
             mark: 0,
             children: vec![RegisteredExpressionChild {
+                default_expression: None,
                 text: "objects".to_owned(),
                 kind: "expression".to_owned(),
                 parser_id: None,
