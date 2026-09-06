@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use syntaxes::{Catalog, CatalogSource};
 
 /// Highest SSG snapshot schema accepted by this reader.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 /// Oldest SSG snapshot schema accepted by this reader.
 pub const MIN_SCHEMA_VERSION: u32 = 3;
 /// Canonical manifest filename.
@@ -62,7 +62,7 @@ pub const LEGACY_ALL_FILES: [&str; 19] = [
     "Types.json",
 ];
 
-/// Data files covered by the current schema 5 content digest, in canonical order.
+/// Data files covered by the current schema 6 content digest, in canonical order.
 pub const DATA_FILES: [&str; 19] = [
     "Aliases.json",
     "ClassHierarchy.json",
@@ -85,7 +85,7 @@ pub const DATA_FILES: [&str; 19] = [
     "Types.json",
 ];
 
-/// Complete current schema 5 snapshot inventory, including `Manifest.json`.
+/// Complete current schema 6 snapshot inventory, including `Manifest.json`.
 pub const ALL_FILES: [&str; 20] = [
     "Aliases.json",
     "ClassHierarchy.json",
@@ -113,7 +113,7 @@ pub const ALL_FILES: [&str; 20] = [
 pub fn data_files_for_schema(schema_version: u32) -> Option<&'static [&'static str]> {
     match schema_version {
         3 | 4 => Some(&LEGACY_DATA_FILES),
-        5 => Some(&DATA_FILES),
+        5 | 6 => Some(&DATA_FILES),
         _ => None,
     }
 }
@@ -122,7 +122,7 @@ pub fn data_files_for_schema(schema_version: u32) -> Option<&'static [&'static s
 pub fn all_files_for_schema(schema_version: u32) -> Option<&'static [&'static str]> {
     match schema_version {
         3 | 4 => Some(&LEGACY_ALL_FILES),
-        5 => Some(&ALL_FILES),
+        5 | 6 => Some(&ALL_FILES),
         _ => None,
     }
 }

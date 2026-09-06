@@ -119,6 +119,8 @@ fn schema_five_loads_language_and_exposes_current_inventory() {
     assert_eq!(ssg::all_files_for_schema(4).unwrap().len(), 19);
     assert_eq!(ssg::data_files_for_schema(5).unwrap(), ssg::DATA_FILES);
     assert_eq!(ssg::all_files_for_schema(5).unwrap(), ssg::ALL_FILES);
+    assert_eq!(ssg::data_files_for_schema(6).unwrap(), ssg::DATA_FILES);
+    assert_eq!(ssg::all_files_for_schema(6).unwrap(), ssg::ALL_FILES);
 
     let expected_files = ssg::ALL_FILES
         .iter()
@@ -151,6 +153,22 @@ fn schema_five_loads_language_and_exposes_current_inventory() {
         source.document("Language.json"),
         Some(language_bytes.as_slice())
     );
+}
+
+#[test]
+fn schema_six_loads_structured_default_expression_metadata() {
+    let directory = materialize_snapshot(6, Some(serde_json::json!({})));
+    let snapshot = load(directory.path()).expect("schema 6 fixture must load");
+    let descriptor = snapshot
+        .catalog()
+        .types()
+        .find_map(|value| value.default_expression.as_ref())
+        .expect("fixture must include a default Expression");
+
+    assert!(!descriptor.implementation_class.as_str().is_empty());
+    assert!(descriptor.literal.is_some());
+    assert!(descriptor.return_type.is_some());
+    assert!(descriptor.single.is_some());
 }
 
 #[test]
@@ -271,7 +289,7 @@ fn rejects_unsupported_schema_before_reading_data_files() {
     let mut manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(modern_fixture().join("Manifest.json")).unwrap())
             .unwrap();
-    manifest["schemaVersion"] = 6.into();
+    manifest["schemaVersion"] = 7.into();
     fs::write(
         directory.path().join("Manifest.json"),
         serde_json::to_vec(&manifest).unwrap(),
@@ -283,8 +301,8 @@ fn rejects_unsupported_schema_before_reading_data_files() {
         error,
         SnapshotError::UnsupportedSchema {
             minimum: 3,
-            maximum: 5,
-            actual: 6
+            maximum: 6,
+            actual: 7
         }
     ));
 }
@@ -365,7 +383,7 @@ fn materialize_snapshot(
     schema_version: u32,
     language: Option<serde_json::Value>,
 ) -> tempfile::TempDir {
-    assert!((4..=5).contains(&schema_version));
+    assert!((4..=6).contains(&schema_version));
 
     let directory = tempfile::tempdir().unwrap();
     copy_snapshot(&modern_fixture(), directory.path());
@@ -413,6 +431,31 @@ fn materialize_snapshot(
             serde_json::to_vec(&language).unwrap(),
         )
         .unwrap();
+    }
+
+    if schema_version >= 6 {
+        let path = directory.path().join("Types.json");
+        let mut types: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        for value in types.as_array_mut().unwrap() {
+            let return_type = value["originalClass"].clone();
+            let Some(implementation_class) = value
+                .as_object_mut()
+                .and_then(|object| object.remove("defaultExpressionClass"))
+            else {
+                continue;
+            };
+            let literal = implementation_class
+                .as_str()
+                .is_some_and(|class| class == "ch.njol.skript.lang.util.SimpleLiteral");
+            value["defaultExpression"] = serde_json::json!({
+                "implementationClass": implementation_class,
+                "literal": literal,
+                "returnType": return_type,
+                "single": true
+            });
+        }
+        fs::write(&path, serde_json::to_vec(&types).unwrap()).unwrap();
     }
 
     let manifest_path = directory.path().join("Manifest.json");

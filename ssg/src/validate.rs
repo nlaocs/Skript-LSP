@@ -83,7 +83,13 @@ pub(crate) fn snapshot(
         .collect::<HashSet<_>>();
 
     validate_class_graph(manifest.schema_version, snapshot, &class_paths)?;
-    validate_type_references(snapshot, &class_paths, &type_paths, &property_names)?;
+    validate_type_references(
+        manifest.schema_version,
+        snapshot,
+        &class_paths,
+        &type_paths,
+        &property_names,
+    )?;
     validate_syntax_references(snapshot, &class_paths, &event_value_ids)?;
     validate_function_references(snapshot, &class_paths)?;
     validate_registry_references(snapshot, &class_paths, &type_paths, &operator_signs)?;
@@ -472,7 +478,7 @@ fn validate_class_graph(
         if schema_version >= 5 && class.methods.is_none() {
             return Err(SnapshotError::validation(
                 format!("ClassHierarchy.json[{index}].methods"),
-                "schema 5 class records must include declared methods",
+                "schema 5+ class records must include declared methods",
             ));
         }
         if let Some(parent) = &class.super_class {
@@ -521,12 +527,19 @@ fn validate_class_graph(
 }
 
 fn validate_type_references(
+    schema_version: u32,
     snapshot: &raw::Snapshot,
     classes: &HashMap<&str, String>,
     types: &HashMap<&str, String>,
     properties: &HashSet<&str>,
 ) -> Result<(), SnapshotError> {
     for (index, value) in snapshot.types.iter().enumerate() {
+        if schema_version >= 6 && value.default_expression_class.is_some() {
+            return Err(SnapshotError::validation(
+                format!("Types.json[{index}].defaultExpressionClass"),
+                "schema 6 requires the structured defaultExpression field",
+            ));
+        }
         class_ref(
             classes,
             &format!("Types.json[{index}].originalClass"),
@@ -542,6 +555,20 @@ fn validate_type_references(
         ] {
             if let Some(referenced) = referenced {
                 class_ref(classes, &format!("Types.json[{index}].{field}"), referenced)?;
+            }
+        }
+        if let Some(default_expression) = &value.default_expression {
+            class_ref(
+                classes,
+                &format!("Types.json[{index}].defaultExpression.implementationClass"),
+                &default_expression.implementation_class,
+            )?;
+            if let Some(return_type) = &default_expression.return_type {
+                class_ref(
+                    classes,
+                    &format!("Types.json[{index}].defaultExpression.returnType"),
+                    return_type,
+                )?;
             }
         }
         for (reference_index, reference) in value.interfaces.iter().enumerate() {
@@ -1195,7 +1222,7 @@ mod tests {
         assert_validation(
             snapshot(&manifest, &data).unwrap_err(),
             "ClassHierarchy.json[0].methods",
-            "schema 5 class records must include declared methods",
+            "schema 5+ class records must include declared methods",
         );
     }
 
@@ -1231,6 +1258,25 @@ mod tests {
         assert_validation(
             snapshot(&manifest, &data).unwrap_err(),
             "Conditions.json[0].elementClass",
+            "unknown class",
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_default_expression_return_types() {
+        let (mut manifest, mut data) = schema_five_fixture();
+        manifest.schema_version = 6;
+        data.types[0].default_expression_class = None;
+        data.types[0].default_expression = Some(raw::DefaultExpressionDescriptor {
+            implementation_class: data.types[0].original_class.clone(),
+            literal: true,
+            return_type: Some("missing.DefaultReturn".to_owned()),
+            single: Some(true),
+        });
+
+        assert_validation(
+            snapshot(&manifest, &data).unwrap_err(),
+            "Types.json[0].defaultExpression.returnType",
             "unknown class",
         );
     }

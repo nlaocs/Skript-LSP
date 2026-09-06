@@ -213,6 +213,24 @@ fn type_data(source_index: usize, value: raw::Type) -> model::Type {
         .enum_values
         .or_else(|| legacy_enum_values.then(|| value.usage.clone().unwrap_or_default()))
         .unwrap_or_default();
+    let default_expression = value
+        .default_expression
+        .map(|descriptor| model::DefaultExpressionDescriptor {
+            implementation_class: descriptor.implementation_class.into(),
+            literal: Some(descriptor.literal),
+            return_type: descriptor.return_type.map(Into::into),
+            single: descriptor.single,
+        })
+        .or_else(|| {
+            value.default_expression_class.map(|implementation_class| {
+                model::DefaultExpressionDescriptor {
+                    implementation_class: implementation_class.into(),
+                    literal: None,
+                    return_type: None,
+                    single: None,
+                }
+            })
+        });
     model::Type {
         source_index,
         type_parse_order: value.type_parse_order,
@@ -283,7 +301,7 @@ fn type_data(source_index: usize, value: raw::Type) -> model::Type {
             .collect(),
         parser_class: value.parser_class.map(Into::into),
         parse_contexts: value.parse_contexts.unwrap_or_default(),
-        default_expression_class: value.default_expression_class.map(Into::into),
+        default_expression,
         has_parser: value.has_parser,
         has_serializer: value.has_serializer,
         has_supplier: value.has_supplier,
