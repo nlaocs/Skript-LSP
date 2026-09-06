@@ -5,8 +5,8 @@
 #![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
 
 use crate::{
-    FailureFrame, FailureFrameRole, FailureTrace, MappedSource, MappedSpan, RankedFailures,
-    TextRange,
+    FailureFrame, FailureFrameRole, FailureTrace, MappedSource, MappedSpan, OriginKind,
+    RankedFailures, TextRange,
 };
 use fancy_regex::{Error as FancyRegexError, Regex, RegexBuilder, RuntimeError};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -92,6 +92,19 @@ impl<'a> MatchInput<'a> {
 pub struct MatchSpan {
     pub local_range: TextRange,
     pub mapped: MappedSpan,
+}
+
+/// Anchors absent source text without discarding any contributing origin.
+pub(crate) fn implicit_capture_span(mut span: MatchSpan) -> MatchSpan {
+    span.local_range = TextRange::empty(span.local_range.end);
+    span.mapped.virtual_range = TextRange::empty(span.mapped.virtual_range.end);
+    for origin in &mut span.mapped.origins {
+        origin.original_range = TextRange::empty(origin.original_range.end);
+        if origin.expansion.is_some() {
+            origin.kind = OriginKind::Anchored;
+        }
+    }
+    span
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -248,6 +261,8 @@ pub trait PatternMatchHooks {
     }
 
     /// Finalizes one matcher invocation and its selected candidate state.
+    /// On `accepted == false`, discard unadopted state, including unfinished
+    /// hook scopes after an error. See [`PatternMatchEnvironment::dispatch_hook`].
     fn finish_match(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
@@ -283,6 +298,8 @@ pub trait PatternMatchHooks {
         false
     }
 
+    /// Dispatches a scope event with the transaction ownership described by
+    /// [`PatternMatchEnvironment::dispatch_hook`].
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
 }
 
@@ -293,6 +310,21 @@ pub trait PatternMatchHooks {
 /// hook host. This is particularly important for WASM-backed expression
 /// parsing, where both operations share one transactional parse session.
 pub trait PatternMatchEnvironment {
+    /// Resolves omitted typed captures before accepting a complete pattern.
+    ///
+    /// The matcher retains every typed slot, including unselected branches. A
+    /// returned trace rejects only this complete branch; later branches and
+    /// patterns remain eligible. The default implementation keeps omissions
+    /// visible without applying language-specific default semantics.
+    fn complete_typed_captures(
+        &mut self,
+        _candidate: &PatternCandidate<'_>,
+        _pattern: &MatchPattern<'_>,
+        _matched: &mut PatternMatch,
+    ) -> Result<Option<FailureTrace>, String> {
+        Ok(None)
+    }
+
     /// Detaches the latest successful match's state for later semantic selection.
     fn take_pattern_candidate_state(&mut self) -> Option<crate::ExpressionEffects> {
         None
@@ -319,12 +351,16 @@ pub trait PatternMatchEnvironment {
     }
 
     /// Finalizes one matcher invocation and its selected candidate state.
+    /// On `accepted == false`, discard unadopted state, including unfinished
+    /// hook scopes after an error.
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         let _ = accepted;
         Ok(())
     }
 
-    /// Captures extension-owned state for one matcher backtracking branch.
+    /// Captures extension-owned state for branch backtracking or failed default
+    /// completion. Scope rejection is handled by [`Self::dispatch_hook`], not
+    /// by restoring a branch checkpoint after the scope has already rolled back.
     fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
         Ok(None)
     }
@@ -361,6 +397,11 @@ pub trait PatternMatchEnvironment {
     ) -> Result<TypeExpressionOutcome, String>;
 
     /// Dispatches one matcher lifecycle event.
+    ///
+    /// Stateful environments own scope transactions: open them on `Before`,
+    /// then adopt or discard their state on `After` according to the final
+    /// outcome and returned control. Rejected scopes discard both explicit
+    /// and default child effects before the next scope's `Before` event.
     fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
 }
 
@@ -527,6 +568,12 @@ pub enum PatternFailureReason {
     TypeExpression {
         expected: Vec<String>,
     },
+    DefaultExpression {
+        capture_index: usize,
+        expression: PatternTypeExpr,
+        kind: crate::DefaultExpressionFailureKind,
+        reason: String,
+    },
     EventRestricted {
         supported: Vec<String>,
         current: Vec<String>,
@@ -576,6 +623,19 @@ pub struct RegexGroupCapture {
     pub span: Option<MatchSpan>,
 }
 
+/// Presence and resolution state of one typed pattern slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeCaptureState {
+    /// A nonempty source expression was supplied by the user.
+    Explicit,
+    /// The pattern branch omitted a non-nullable slot that needs a default.
+    Omitted,
+    /// The pattern permits an absent expression through its `-` flag.
+    Null,
+    /// A provider supplied an implicit expression for the omitted slot.
+    Default,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Typed value captured by a regex or `%type%` element.
 pub enum PatternCapture {
@@ -588,6 +648,7 @@ pub enum PatternCapture {
     },
     TypeExpression {
         capture_index: usize,
+        state: TypeCaptureState,
         pattern_span: PatternSpan,
         expression: PatternTypeExpr,
         value: String,
@@ -874,12 +935,23 @@ impl FailureTracker {
             .map(|trace| trace.root_cause().failure.span.mapped.virtual_range)
             .or(self.range)
             .unwrap_or_else(|| TextRange::empty(self.offset));
-        let rank = crate::failure::compare_failure_rank(
-            current_range,
-            current_specificity,
-            candidate_range,
-            specificity,
-        );
+        // A completed candidate's omitted-argument failure is authoritative even
+        // when its zero-width anchor is less concrete than an explored token.
+        let completed = frame
+            .as_ref()
+            .is_some_and(|frame| frame.role == FailureFrameRole::SemanticCandidate);
+        let current_completed = self
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.role == FailureFrameRole::SemanticCandidate);
+        let rank = completed.cmp(&current_completed).then_with(|| {
+            crate::failure::compare_failure_rank(
+                current_range,
+                current_specificity,
+                candidate_range,
+                specificity,
+            )
+        });
         if !self.initialized || rank == std::cmp::Ordering::Greater {
             self.offset = offset;
             self.range = range;
@@ -924,12 +996,22 @@ impl FailureTracker {
             .map(|trace| trace.root_cause().failure.span.mapped.virtual_range)
             .or(other.range)
             .unwrap_or_else(|| TextRange::empty(other.offset));
-        let rank = crate::failure::compare_failure_rank(
-            current_range,
-            specificity,
-            other_range,
-            other_specificity,
-        );
+        let completed = self
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.role == FailureFrameRole::SemanticCandidate);
+        let other_completed = other
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.role == FailureFrameRole::SemanticCandidate);
+        let rank = other_completed.cmp(&completed).then_with(|| {
+            crate::failure::compare_failure_rank(
+                current_range,
+                specificity,
+                other_range,
+                other_specificity,
+            )
+        });
         if !self.initialized || rank == std::cmp::Ordering::Greater {
             *self = other;
             return;
@@ -1329,10 +1411,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     ScopeDecision::Matched(range) if range == self.trim_range
                 ) {
                     let matched = self.first_synthetic_candidate_match(candidate)?;
-                    if matched.is_some()
-                        && self
-                            .scope_after_matched(PatternHookScope::Definition, self.trim_range)?
-                    {
+                    if matched.is_none() {
+                        self.scope_after_failed(
+                            PatternHookScope::Definition,
+                            "registration override has no valid completed pattern",
+                        )?;
+                        return Ok(None);
+                    }
+                    if self.scope_after_matched(PatternHookScope::Definition, self.trim_range)? {
                         return Ok(matched);
                     }
                     return Ok(None);
@@ -1411,13 +1497,28 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         "pattern hook rejected the pattern",
                     )?;
                     if matches!(after, ScopeDecision::Matched(range) if range == self.trim_range) {
-                        matched = Some(self.synthetic_candidate_match(candidate, pattern)?);
-                        break;
+                        matched = self.synthetic_candidate_match(candidate, pattern)?;
+                        if matched.is_some() {
+                            break;
+                        }
                     }
                     continue;
                 }
                 ScopeDecision::Matched(range) if range == self.trim_range => {
-                    let value = self.synthetic_candidate_match(candidate, pattern)?;
+                    let Some(value) = self.synthetic_candidate_match(candidate, pattern)? else {
+                        let after = self.scope_after_failed(
+                            PatternHookScope::Pattern,
+                            "pattern default expression completion failed",
+                        )?;
+                        if matches!(after, ScopeDecision::Matched(range) if range == self.trim_range)
+                        {
+                            matched = self.synthetic_candidate_match(candidate, pattern)?;
+                            if matched.is_some() {
+                                break;
+                            }
+                        }
+                        continue;
+                    };
                     if self.scope_after_matched(PatternHookScope::Pattern, range)? {
                         matched = Some(value);
                         break;
@@ -1439,17 +1540,17 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 &mut path,
                 &pattern_end,
             )?;
-            if let Some(state) = states
-                .iter()
-                .find(|state| state.cursor == self.trim_range.end)
-                .cloned()
-            {
+            let mut has_complete_state = false;
+            let mut completed_match = None;
+            let trim_end = self.trim_range.end;
+            for state in states.iter().filter(|state| state.cursor == trim_end) {
+                has_complete_state = true;
                 if let Some(checkpoint) = state.extension_checkpoint {
                     self.environment
                         .restore_pattern_branch(checkpoint)
                         .map_err(|message| PatternMatchError::Hook { message })?;
                 }
-                let value = CandidateMatch {
+                let mut value = CandidateMatch {
                     extension_state: None,
                     kind: candidate.kind,
                     definition_id: candidate.definition_id.to_owned(),
@@ -1465,28 +1566,43 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     pattern: pattern.source.to_owned(),
                     matched: PatternMatch {
                         span: self.input.map_range(self.trim_range)?,
-                        captures: state.captures,
-                        tags: state.tags,
+                        captures: state.captures.clone(),
+                        tags: state.tags.clone(),
                         mark: state.mark,
-                        marks: state.marks,
-                        recovered_failures: state.recovered_failures,
+                        marks: state.marks.clone(),
+                        recovered_failures: state.recovered_failures.clone(),
                     },
                 };
+                if !self.complete_candidate_match(candidate, pattern, &mut value.matched)? {
+                    continue;
+                }
+                completed_match = Some(value);
+                break;
+            }
+            // Matching hooks bracket a pattern, not each complete branch. Try
+            // other branches only until defaults are valid, then close once.
+            if let Some(value) = completed_match {
                 if self.scope_after_matched(PatternHookScope::Pattern, self.trim_range)? {
                     matched = Some(value);
                     break;
                 }
-            } else {
+                continue;
+            }
+            if !has_complete_state {
                 for state in &states {
                     self.failure
                         .record(state.cursor, PatternFailureReason::TrailingInput);
                 }
-                let after = self.scope_after_failed(
-                    PatternHookScope::Pattern,
-                    "pattern did not consume the complete input",
-                )?;
-                if matches!(after, ScopeDecision::Matched(range) if range == self.trim_range) {
-                    matched = Some(self.synthetic_candidate_match(candidate, pattern)?);
+            }
+            let reason = if has_complete_state {
+                "pattern default expression completion failed"
+            } else {
+                "pattern did not consume the complete input"
+            };
+            let after = self.scope_after_failed(PatternHookScope::Pattern, reason)?;
+            if matches!(after, ScopeDecision::Matched(range) if range == self.trim_range) {
+                matched = self.synthetic_candidate_match(candidate, pattern)?;
+                if matched.is_some() {
                     break;
                 }
             }
@@ -1534,9 +1650,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             ScopeDecision::Matched(range) if range == self.trim_range
         ) {
             let matched = self.first_synthetic_candidate_match(candidate)?;
-            if matched.is_some()
-                && self.scope_after_matched(PatternHookScope::Definition, self.trim_range)?
-            {
+            if matched.is_none() {
+                self.scope_after_failed(
+                    PatternHookScope::Definition,
+                    "registration override has no valid completed pattern",
+                )?;
+                return Ok(None);
+            }
+            if self.scope_after_matched(PatternHookScope::Definition, self.trim_range)? {
                 return Ok(matched);
             }
             return Ok(None);
@@ -1559,19 +1680,21 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         &mut self,
         candidate: &'candidate PatternCandidate<'candidate>,
     ) -> Result<Option<CandidateMatch>, PatternMatchError> {
-        let Some(pattern) = candidate.patterns.first() else {
-            return Ok(None);
-        };
-        self.current = Some(CandidateContext::new(candidate, Some(pattern)));
-        self.synthetic_candidate_match(candidate, pattern).map(Some)
+        for pattern in &candidate.patterns {
+            self.current = Some(CandidateContext::new(candidate, Some(pattern)));
+            if let Some(matched) = self.synthetic_candidate_match(candidate, pattern)? {
+                return Ok(Some(matched));
+            }
+        }
+        Ok(None)
     }
 
     fn synthetic_candidate_match(
-        &self,
+        &mut self,
         candidate: &PatternCandidate<'_>,
         pattern: &MatchPattern<'_>,
-    ) -> Result<CandidateMatch, PatternMatchError> {
-        Ok(CandidateMatch {
+    ) -> Result<Option<CandidateMatch>, PatternMatchError> {
+        let mut value = CandidateMatch {
             extension_state: None,
             kind: candidate.kind,
             definition_id: candidate.definition_id.to_owned(),
@@ -1593,7 +1716,124 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 marks: Vec::new(),
                 recovered_failures: Vec::new(),
             },
-        })
+        };
+        Ok(self
+            .complete_candidate_match(candidate, pattern, &mut value.matched)?
+            .then_some(value))
+    }
+
+    fn complete_candidate_match(
+        &mut self,
+        candidate: &PatternCandidate<'_>,
+        pattern: &MatchPattern<'_>,
+        matched: &mut PatternMatch,
+    ) -> Result<bool, PatternMatchError> {
+        // Native skipped branches supply their insertion position. Captures
+        // bypassed by hook overrides use the matched input's end as an anchor.
+        self.retain_omitted_captures(
+            &pattern.parsed.elements,
+            matched.span.local_range.end,
+            &mut matched.captures,
+        )?;
+        matched.captures.sort_by_key(PatternCapture::capture_index);
+        if !matched.captures.iter().any(|capture| {
+            matches!(
+                capture,
+                PatternCapture::TypeExpression {
+                    state: TypeCaptureState::Omitted,
+                    ..
+                }
+            )
+        }) {
+            return Ok(true);
+        }
+        let checkpoint = self
+            .environment
+            .checkpoint_pattern_branch()
+            .map_err(|message| PatternMatchError::Hook { message })?;
+        let result = self
+            .environment
+            .complete_typed_captures(candidate, pattern, matched);
+        if !matches!(result, Ok(None))
+            && let Some(checkpoint) = checkpoint
+        {
+            self.environment
+                .restore_pattern_branch(checkpoint)
+                .map_err(|message| PatternMatchError::Hook { message })?;
+        }
+        if let Some(trace) = result.map_err(|message| PatternMatchError::Hook { message })? {
+            let frame = self.failure_frame(
+                &[],
+                None,
+                self.trim_range,
+                FailureFrameRole::SemanticCandidate,
+            )?;
+            let reason = trace.failure.reasons.first().cloned().unwrap_or_else(|| {
+                PatternFailureReason::HookRejected {
+                    reason: "omitted typed capture could not be resolved".to_owned(),
+                }
+            });
+            self.failure.record_detailed(
+                self.trim_range.end,
+                Some(trace.failure.span.local_range),
+                reason,
+                frame,
+                Some(trace),
+            );
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    fn retain_omitted_captures(
+        &self,
+        elements: &[SpannedPatternElement],
+        anchor: usize,
+        captures: &mut Vec<PatternCapture>,
+    ) -> Result<(), PatternMatchError> {
+        for element in elements {
+            match &element.value {
+                PatternElement::TypeExpr(expression) => {
+                    let capture_index = self.current_capture_index(element.span);
+                    if captures
+                        .iter()
+                        .any(|capture| capture.capture_index() == capture_index)
+                    {
+                        continue;
+                    }
+                    captures.push(PatternCapture::TypeExpression {
+                        capture_index,
+                        state: if expression.nullable {
+                            TypeCaptureState::Null
+                        } else {
+                            TypeCaptureState::Omitted
+                        },
+                        pattern_span: element.span,
+                        expression: expression.clone(),
+                        value: String::new(),
+                        span: implicit_capture_span(
+                            self.input.map_range(TextRange::empty(anchor))?,
+                        ),
+                        alternative_index: None,
+                        resolution_id: None,
+                    });
+                }
+                PatternElement::Group(children) | PatternElement::Option(children) => {
+                    self.retain_omitted_captures(children, anchor, captures)?;
+                }
+                PatternElement::Choice(branches) => {
+                    for branch in branches {
+                        self.retain_omitted_captures(branch, anchor, captures)?;
+                    }
+                }
+                PatternElement::Literal(_)
+                | PatternElement::Regex(_)
+                | PatternElement::ParseTag(_)
+                | PatternElement::ParseMark(_)
+                | PatternElement::Empty => {}
+            }
+        }
+        Ok(())
     }
 
     fn scope_before(
@@ -1883,6 +2123,17 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     let mut branch_matches =
                         self.match_sequence(branch, 0, state.clone(), path, tail)?;
                     path.pop();
+                    for branch_match in &mut branch_matches {
+                        for (omitted_index, omitted_branch) in branches.iter().enumerate() {
+                            if omitted_index != index {
+                                self.retain_omitted_captures(
+                                    omitted_branch,
+                                    state.cursor,
+                                    &mut branch_match.captures,
+                                )?;
+                            }
+                        }
+                    }
                     matches.append(&mut branch_matches);
                 }
                 Ok(matches)
@@ -1891,6 +2142,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             PatternElement::Option(elements) => {
                 let mut matches = self.match_sequence(elements, 0, state.clone(), path, tail)?;
                 state.pending_implicit_tag = None;
+                self.retain_omitted_captures(elements, state.cursor, &mut state.captures)?;
                 matches.push(state);
                 Ok(matches)
             }
@@ -2203,13 +2455,22 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             next.cursor = range.end;
             next.captures.push(PatternCapture::TypeExpression {
                 capture_index,
+                state: if range.is_empty() {
+                    TypeCaptureState::Null
+                } else {
+                    TypeCaptureState::Explicit
+                },
                 pattern_span,
                 expression: expression.clone(),
                 value: range
                     .slice(self.input.text())
                     .expect("validated type expression range")
                     .to_owned(),
-                span: self.input.map_range(range)?,
+                span: if range.is_empty() {
+                    implicit_capture_span(self.input.map_range(range)?)
+                } else {
+                    self.input.map_range(range)?
+                },
                 alternative_index: resolution.alternative_index,
                 resolution_id: resolution.resolution_id,
             });
@@ -2293,6 +2554,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     next.cursor = end;
                     next.captures.push(PatternCapture::TypeExpression {
                         capture_index,
+                        state: TypeCaptureState::Explicit,
                         pattern_span,
                         expression: expression.clone(),
                         value: range
@@ -2675,6 +2937,59 @@ pub(crate) fn find_parenthesis_end(input: &str, mut cursor: usize, end: usize) -
 mod tests {
     use super::*;
     use syntax_pattern_parser::syntax::{self, PluralRules};
+
+    #[test]
+    fn implicit_capture_span_preserves_every_origin_and_expansion() {
+        let original = MatchSpan {
+            local_range: TextRange::new(0, 5),
+            mapped: MappedSpan {
+                virtual_range: TextRange::new(10, 15),
+                origins: vec![
+                    crate::SourceOrigin::replaced(
+                        TextRange::new(2, 6),
+                        Some(crate::ExpansionId::new(1)),
+                    ),
+                    crate::SourceOrigin::replaced(
+                        TextRange::new(20, 30),
+                        Some(crate::ExpansionId::new(2)),
+                    ),
+                ],
+            },
+        };
+        let anchored = implicit_capture_span(original.clone());
+        assert_eq!(anchored.local_range, TextRange::empty(5));
+        assert_eq!(anchored.mapped.virtual_range, TextRange::empty(15));
+        assert_eq!(anchored.mapped.origins.len(), 2);
+        for (origin, previous) in anchored.mapped.origins.iter().zip(original.mapped.origins) {
+            assert_eq!(origin.kind, OriginKind::Anchored);
+            assert_eq!(
+                origin.original_range,
+                TextRange::empty(previous.original_range.end)
+            );
+            assert_eq!(origin.expansion, previous.expansion);
+        }
+    }
+
+    #[test]
+    fn implicit_capture_span_keeps_identity_source_exact() {
+        let original = MatchSpan {
+            local_range: TextRange::new(0, 5),
+            mapped: MappedSpan {
+                virtual_range: TextRange::new(10, 15),
+                origins: vec![crate::SourceOrigin::exact(TextRange::new(20, 25), None)],
+            },
+        };
+
+        let implicit = implicit_capture_span(original);
+
+        assert_eq!(implicit.local_range, TextRange::empty(5));
+        assert_eq!(implicit.mapped.virtual_range, TextRange::empty(15));
+        assert_eq!(
+            implicit.mapped.primary_origin(),
+            Some(crate::SourceOrigin::exact(TextRange::empty(25), None))
+        );
+        assert!(!implicit.mapped.is_generated());
+    }
 
     #[test]
     fn tail_prefixes_keep_literals_beside_dynamic_choices() {

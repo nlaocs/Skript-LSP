@@ -1,10 +1,10 @@
 use skript_parser::{
-    CandidateMatches, MappedSource, MatchInput, MatchPattern, MatchSyntaxKind,
+    CandidateMatches, FailureTrace, MappedSource, MatchInput, MatchPattern, MatchSyntaxKind,
     NoopPatternMatchHooks, PatternCandidate, PatternCapture, PatternFailureReason,
     PatternHookControl, PatternHookEvent, PatternHookOutcome, PatternHookScope, PatternHookTiming,
-    PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatchLimit,
-    PatternMatcherConfig, RejectTypeExpressions, TextRange, TypeExpressionOutcome,
-    TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver,
+    PatternMatch, PatternMatchEnvironment, PatternMatchError, PatternMatchHooks, PatternMatchLimit,
+    PatternMatcherConfig, RejectTypeExpressions, TextRange, TypeCaptureState,
+    TypeExpressionOutcome, TypeExpressionRequest, TypeExpressionResolution, TypeExpressionResolver,
     match_pattern_candidates, match_pattern_candidates_with_environment,
 };
 use syntax_pattern_parser::syntax::{
@@ -213,6 +213,634 @@ fn capture_indexes_include_unselected_choice_branches() {
     assert_eq!(selected.matched.captures.len(), 2);
     assert_eq!(selected.matched.captures[0].capture_index(), 1);
     assert_eq!(selected.matched.captures[1].capture_index(), 2);
+}
+
+#[test]
+fn omitted_typed_captures_distinguish_defaults_from_nullable_slots() {
+    for (source, expected_state) in [
+        ("do [%number%]", TypeCaptureState::Omitted),
+        ("do [%-number%]", TypeCaptureState::Null),
+    ] {
+        let selected = match_one("do", source, &parse(source))
+            .unwrap()
+            .selected
+            .unwrap();
+        assert_eq!(selected.matched.captures.len(), 1);
+        let PatternCapture::TypeExpression {
+            state,
+            value,
+            span,
+            expression,
+            ..
+        } = &selected.matched.captures[0]
+        else {
+            panic!("typed capture expected");
+        };
+        assert_eq!(*state, expected_state);
+        assert_eq!(
+            expression.nullable,
+            expected_state == TypeCaptureState::Null
+        );
+        assert!(value.is_empty());
+        assert_eq!(span.local_range, TextRange::empty(2));
+        assert_eq!(span.mapped.virtual_range, TextRange::empty(2));
+        assert_eq!(
+            span.mapped.origins[0].kind,
+            skript_parser::OriginKind::Exact
+        );
+        assert_eq!(span.mapped.origins[0].original_range, TextRange::empty(2));
+    }
+}
+
+#[test]
+fn explicit_and_zero_length_nullable_resolutions_have_distinct_states() {
+    for (input, source, expected_state) in [
+        ("do 1", "do %number%", TypeCaptureState::Explicit),
+        ("do", "do %-number%", TypeCaptureState::Null),
+    ] {
+        let mapped = MappedSource::identity(input);
+        let parsed = parse(source);
+        let result = match_pattern_candidates(
+            MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+            &[candidate(source, &parsed, 0)],
+            &mut AcceptTypeExpressions,
+            &mut NoopPatternMatchHooks,
+            PatternMatcherConfig::default(),
+        )
+        .unwrap();
+        let selected = result.selected.unwrap();
+        let PatternCapture::TypeExpression { state, value, .. } = &selected.matched.captures[0]
+        else {
+            panic!("typed capture expected");
+        };
+        assert_eq!(*state, expected_state);
+        assert_eq!(value.is_empty(), expected_state == TypeCaptureState::Null);
+    }
+}
+
+#[test]
+fn nested_unselected_branches_keep_every_typed_slot_at_the_insertion_position() {
+    let source = "do [[%number%]] (done|%string%)";
+    let selected = match_one("do done", source, &parse(source))
+        .unwrap()
+        .selected
+        .unwrap();
+    assert_eq!(selected.matched.captures.len(), 2);
+    for (index, capture) in selected.matched.captures.iter().enumerate() {
+        let PatternCapture::TypeExpression { state, span, .. } = capture else {
+            panic!("typed capture expected");
+        };
+        assert_eq!(capture.capture_index(), index);
+        assert_eq!(*state, TypeCaptureState::Omitted);
+        assert_eq!(span.local_range, TextRange::empty(3));
+    }
+}
+
+#[test]
+fn typed_omissions_share_stable_slot_indices_with_regex_captures() {
+    let source = "[<foo>][%number%](<bar>|%string%)";
+    let selected = match_one("bar", source, &parse(source))
+        .unwrap()
+        .selected
+        .unwrap();
+    assert_eq!(
+        selected
+            .matched
+            .captures
+            .iter()
+            .map(PatternCapture::capture_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert!(matches!(
+        selected.matched.captures[0],
+        PatternCapture::TypeExpression {
+            state: TypeCaptureState::Omitted,
+            ..
+        }
+    ));
+    assert!(matches!(
+        selected.matched.captures[1],
+        PatternCapture::Regex { .. }
+    ));
+    assert!(matches!(
+        selected.matched.captures[2],
+        PatternCapture::TypeExpression {
+            state: TypeCaptureState::Omitted,
+            ..
+        }
+    ));
+}
+
+#[derive(Default)]
+struct CompletingEnvironment {
+    calls: usize,
+    reject_calls: usize,
+    state: usize,
+    checkpoints: Vec<usize>,
+    completed_states_seen_after: Vec<usize>,
+    states_seen_before: Vec<usize>,
+    scopes: Vec<(PatternHookScope, usize)>,
+    match_states: Vec<(usize, usize)>,
+    explicit_state: usize,
+    override_pattern: bool,
+    override_failed_registration: Option<TextRange>,
+    reject_registration_before: bool,
+    reject_after: Option<PatternHookScope>,
+    error_after: Option<PatternHookScope>,
+    report_exploratory_type_failure: bool,
+}
+
+impl PatternMatchEnvironment for CompletingEnvironment {
+    fn begin_pattern_match(&mut self) -> Result<(), String> {
+        self.match_states.push((self.state, self.scopes.len()));
+        Ok(())
+    }
+
+    fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
+        let (state, scope_depth) = self.match_states.pop().unwrap();
+        if !accepted {
+            self.state = state;
+            self.scopes.truncate(scope_depth);
+        }
+        assert_eq!(self.scopes.len(), scope_depth);
+        Ok(())
+    }
+
+    fn select_type_resolution(
+        &mut self,
+        _resolution: &TypeExpressionResolution,
+    ) -> Result<(), String> {
+        self.state = self.explicit_state;
+        Ok(())
+    }
+
+    fn checkpoint_pattern_branch(&mut self) -> Result<Option<u64>, String> {
+        let checkpoint = self.checkpoints.len() as u64;
+        self.checkpoints.push(self.state);
+        Ok(Some(checkpoint))
+    }
+
+    fn restore_pattern_branch(&mut self, checkpoint: u64) -> Result<(), String> {
+        self.state = self.checkpoints[checkpoint as usize];
+        Ok(())
+    }
+
+    fn resolve_type(
+        &mut self,
+        request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        let failure = if self.report_exploratory_type_failure {
+            let source = MappedSource::identity(request.input);
+            let range = TextRange::new(request.remaining.start, request.remaining.end);
+            Some(FailureTrace::leaf(skript_parser::PatternFailure {
+                span: MatchInput::from_source(&source, TextRange::new(0, request.input.len()))
+                    .unwrap()
+                    .map_range(range)
+                    .unwrap(),
+                reasons: vec![PatternFailureReason::TypeParserUnresolved {
+                    definition_id: "type:test".to_owned(),
+                    registration_id: "type:test#0".to_owned(),
+                    parser_class: None,
+                    reason: "an explored type has no provider".to_owned(),
+                    required_provider: None,
+                }],
+            }))
+        } else {
+            None
+        };
+        let mut outcome = AcceptTypeExpressions.resolve(request)?;
+        outcome.failure = failure;
+        Ok(outcome)
+    }
+
+    fn complete_typed_captures(
+        &mut self,
+        _candidate: &PatternCandidate<'_>,
+        _pattern: &MatchPattern<'_>,
+        matched: &mut PatternMatch,
+    ) -> Result<Option<FailureTrace>, String> {
+        assert_eq!(
+            self.state, self.explicit_state,
+            "rejected completion state must have rolled back"
+        );
+        self.calls += 1;
+        self.state = self.calls;
+        let PatternCapture::TypeExpression {
+            capture_index,
+            expression,
+            state,
+            span,
+            resolution_id,
+            ..
+        } = matched
+            .captures
+            .iter_mut()
+            .find(|capture| {
+                matches!(
+                    capture,
+                    PatternCapture::TypeExpression {
+                        state: TypeCaptureState::Omitted,
+                        ..
+                    }
+                )
+            })
+            .expect("an omitted typed capture is required")
+        else {
+            panic!("typed capture expected");
+        };
+        if self.calls <= self.reject_calls {
+            return Ok(Some(FailureTrace::leaf(skript_parser::PatternFailure {
+                span: span.clone(),
+                reasons: vec![PatternFailureReason::DefaultExpression {
+                    capture_index: *capture_index,
+                    expression: expression.clone(),
+                    kind: skript_parser::DefaultExpressionFailureKind::Rejected,
+                    reason: "test provider rejected the omitted argument".to_owned(),
+                }],
+            })));
+        }
+        *state = TypeCaptureState::Default;
+        *resolution_id = Some("test:default".to_owned());
+        Ok(None)
+    }
+
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        let mut scope_state = None;
+        if matches!(
+            event.scope,
+            PatternHookScope::Definition
+                | PatternHookScope::Registration
+                | PatternHookScope::Pattern
+        ) {
+            match event.timing {
+                PatternHookTiming::Before => self.scopes.push((event.scope, self.state)),
+                PatternHookTiming::After => {
+                    let (scope, state) = self.scopes.pop().unwrap();
+                    assert_eq!(scope, event.scope);
+                    scope_state = Some(state);
+                }
+            }
+        }
+        if event.scope == PatternHookScope::Pattern {
+            if event.timing == PatternHookTiming::Before {
+                self.states_seen_before.push(self.state);
+                if self.override_pattern {
+                    return Ok(PatternHookControl::Match(event.input_range));
+                }
+            }
+            if event.timing == PatternHookTiming::After
+                && matches!(event.outcome, PatternHookOutcome::Matched { .. })
+            {
+                self.completed_states_seen_after.push(self.state);
+            }
+        }
+        let mut control = PatternHookControl::Continue;
+        if event.scope == PatternHookScope::Registration && event.registration_id == "effect:test#0"
+        {
+            if event.timing == PatternHookTiming::Before && self.reject_registration_before {
+                control = PatternHookControl::Fail("test registration rejected".to_owned());
+            } else if event.timing == PatternHookTiming::After
+                && matches!(event.outcome, PatternHookOutcome::Failed { .. })
+                && let Some(range) = self.override_failed_registration
+            {
+                control = PatternHookControl::Match(range);
+            }
+        }
+        if event.timing == PatternHookTiming::After
+            && matches!(event.outcome, PatternHookOutcome::Matched { .. })
+            && self.calls == 1
+        {
+            if self.error_after == Some(event.scope) {
+                self.state = usize::MAX;
+                return Err("test after hook failed".to_owned());
+            }
+            if self.reject_after == Some(event.scope) {
+                self.state = usize::MAX;
+                control = PatternHookControl::Fail("test after hook rejected".to_owned());
+            }
+        }
+        if let Some(state) = scope_state
+            && ((matches!(event.outcome, PatternHookOutcome::Failed { .. })
+                && matches!(control, PatternHookControl::Continue))
+                || matches!(control, PatternHookControl::Fail(_)))
+        {
+            self.state = state;
+        }
+        Ok(control)
+    }
+}
+
+#[test]
+fn completion_rejection_rolls_back_and_tries_the_next_complete_branch() {
+    let source = "do [[%number%]]";
+    let parsed = parse(source);
+    let mapped = MappedSource::identity("do");
+    let mut environment = CompletingEnvironment {
+        reject_calls: 1,
+        ..Default::default()
+    };
+    let result = match_pattern_candidates_with_environment(
+        MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+        &[candidate(source, &parsed, 0)],
+        &mut environment,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    let selected = result
+        .selected
+        .expect("the second complete branch must be attempted");
+    assert_eq!(environment.calls, 2);
+    assert_eq!(environment.completed_states_seen_after, vec![2]);
+    assert!(matches!(
+        selected.matched.captures[0],
+        PatternCapture::TypeExpression {
+            state: TypeCaptureState::Default,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn after_hook_rejection_restores_defaults_before_the_next_patterns_before_hook() {
+    for override_pattern in [false, true] {
+        let source = "do [[%number%]]";
+        let parsed = parse(source);
+        let mapped = MappedSource::identity("do");
+        let mut candidate = candidate(source, &parsed, 0);
+        candidate.patterns.push(MatchPattern {
+            pattern_index: 1,
+            source,
+            parsed: &parsed,
+        });
+        let mut environment = CompletingEnvironment {
+            override_pattern,
+            reject_after: Some(PatternHookScope::Pattern),
+            ..Default::default()
+        };
+        let result = match_pattern_candidates_with_environment(
+            MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+            &[candidate],
+            &mut environment,
+            PatternMatcherConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(result.selected.unwrap().pattern_index, 1);
+        assert_eq!(environment.states_seen_before, vec![0, 0]);
+        assert_eq!(environment.completed_states_seen_after, vec![1, 2]);
+        assert_eq!(
+            environment.state, 2,
+            "the selected default's state must remain active"
+        );
+    }
+}
+
+#[test]
+fn failed_registration_override_closes_definition_before_the_next_candidate() {
+    for reject_registration_before in [false, true] {
+        let source = "do [%number%]";
+        let parsed = parse(source);
+        let fallback = parse("do");
+        let mapped = MappedSource::identity("do");
+        let mut fallback_candidate = candidate("do", &fallback, 1);
+        fallback_candidate.registration_id = "effect:fallback#0".to_owned();
+        let mut environment = CompletingEnvironment {
+            reject_calls: usize::MAX,
+            override_failed_registration: Some(TextRange::new(0, 2)),
+            reject_registration_before,
+            ..Default::default()
+        };
+        let result = match_pattern_candidates_with_environment(
+            MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+            &[candidate(source, &parsed, 0), fallback_candidate],
+            &mut environment,
+            PatternMatcherConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result.selected.unwrap().registration_id,
+            "effect:fallback#0"
+        );
+        assert!(environment.calls > 0);
+        assert!(environment.scopes.is_empty());
+        assert_eq!(environment.state, 0);
+    }
+}
+
+#[test]
+fn rejected_scope_does_not_restore_explicit_child_state_from_before_completion() {
+    let source = "do %string%[ to %number%]";
+    let parsed = parse(source);
+    let mapped = MappedSource::identity("do value");
+    let mut candidate = candidate(source, &parsed, 0);
+    candidate.patterns.push(MatchPattern {
+        pattern_index: 1,
+        source,
+        parsed: &parsed,
+    });
+    let mut environment = CompletingEnvironment {
+        explicit_state: 7,
+        reject_after: Some(PatternHookScope::Pattern),
+        ..Default::default()
+    };
+    let result = match_pattern_candidates_with_environment(
+        MatchInput::from_source(&mapped, TextRange::new(0, 8)).unwrap(),
+        &[candidate],
+        &mut environment,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    assert_eq!(result.selected.unwrap().pattern_index, 1);
+    assert_eq!(environment.states_seen_before, vec![0, 0]);
+    assert_eq!(environment.completed_states_seen_after, vec![1, 2]);
+    assert_eq!(environment.state, 2);
+}
+
+#[test]
+fn rejected_completion_balances_pattern_hooks_even_with_a_before_override() {
+    for override_pattern in [false, true] {
+        let source = "do [[%number%]]";
+        let parsed = parse(source);
+        let mapped = MappedSource::identity("do");
+        let mut environment = CompletingEnvironment {
+            override_pattern,
+            reject_calls: usize::MAX,
+            ..Default::default()
+        };
+        let result = match_pattern_candidates_with_environment(
+            MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+            &[candidate(source, &parsed, 0)],
+            &mut environment,
+            PatternMatcherConfig::default(),
+        )
+        .unwrap();
+        assert!(result.selected.is_none());
+        assert!(environment.scopes.is_empty());
+        assert_eq!(environment.state, 0);
+        assert!(matches!(
+            result
+                .failures
+                .primary()
+                .unwrap()
+                .trace
+                .root_cause()
+                .failure
+                .reasons[0],
+            PatternFailureReason::DefaultExpression { .. }
+        ));
+    }
+}
+
+#[test]
+fn final_after_hook_rejection_or_error_restores_completion_state_at_every_scope() {
+    for scope in [
+        PatternHookScope::Pattern,
+        PatternHookScope::Registration,
+        PatternHookScope::Definition,
+    ] {
+        for error in [false, true] {
+            let source = "do [%number%]";
+            let parsed = parse(source);
+            let mapped = MappedSource::identity("do");
+            let mut environment = CompletingEnvironment {
+                reject_after: (!error).then_some(scope),
+                error_after: error.then_some(scope),
+                ..Default::default()
+            };
+            let result = match_pattern_candidates_with_environment(
+                MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+                &[candidate(source, &parsed, 0)],
+                &mut environment,
+                PatternMatcherConfig::default(),
+            );
+            if error {
+                assert!(
+                    matches!(result, Err(PatternMatchError::Hook { message }) if message == "test after hook failed")
+                );
+            } else {
+                assert!(result.unwrap().selected.is_none());
+            }
+            assert_eq!(
+                environment.state, 0,
+                "completion state leaked after {scope:?}, error={error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn completion_rejection_keeps_the_recognized_candidate_and_argument_reason() {
+    let source = "do [%number%]";
+    let parsed = parse(source);
+    let mapped = MappedSource::identity("do");
+    let mut environment = CompletingEnvironment {
+        reject_calls: usize::MAX,
+        ..Default::default()
+    };
+    let result = match_pattern_candidates_with_environment(
+        MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+        &[candidate(source, &parsed, 0)],
+        &mut environment,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    assert!(result.selected.is_none());
+    assert_eq!(environment.state, 0);
+    let failure = result.failures.primary().unwrap();
+    assert_eq!(failure.registration_id, "effect:test#0");
+    assert_eq!(failure.pattern.as_deref(), Some(source));
+    assert_eq!(
+        failure.trace.root_cause().failure.span.local_range,
+        TextRange::empty(2)
+    );
+    assert!(matches!(&failure.trace.root_cause().failure.reasons[0],
+        PatternFailureReason::DefaultExpression { reason, .. }
+            if reason == "test provider rejected the omitted argument"
+    ));
+}
+
+#[test]
+fn completed_default_failure_outweighs_exploratory_type_failure_with_a_concrete_span() {
+    let source = "do %string%[ to %number%]";
+    let parsed = parse(source);
+    let later_source = "do %string% missing";
+    let later_parsed = parse(later_source);
+    let mut candidate = candidate(source, &parsed, 0);
+    candidate.patterns.push(MatchPattern {
+        pattern_index: 1,
+        source: later_source,
+        parsed: &later_parsed,
+    });
+    let mapped = MappedSource::identity("do value");
+    let mut environment = CompletingEnvironment {
+        reject_calls: usize::MAX,
+        report_exploratory_type_failure: true,
+        ..Default::default()
+    };
+    let result = match_pattern_candidates_with_environment(
+        MatchInput::from_source(&mapped, TextRange::new(0, 8)).unwrap(),
+        &[candidate],
+        &mut environment,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    assert!(result.selected.is_none());
+    let failure = result.failures.primary().unwrap();
+    assert_eq!(failure.pattern.as_deref(), Some(source));
+    assert_eq!(
+        failure.trace.root_cause().failure.span.local_range,
+        TextRange::empty(8)
+    );
+    assert!(matches!(
+        failure.trace.root_cause().failure.reasons[0],
+        PatternFailureReason::DefaultExpression {
+            capture_index: 1,
+            ..
+        }
+    ));
+    assert!(matches!(
+        result
+            .failures
+            .fallback
+            .unwrap()
+            .root_cause()
+            .failure
+            .reasons[0],
+        PatternFailureReason::DefaultExpression {
+            capture_index: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn synthetic_pattern_matches_also_complete_typed_slots_before_after_hooks() {
+    let source = "other %number%";
+    let parsed = parse(source);
+    let mapped = MappedSource::identity("do");
+    let mut environment = CompletingEnvironment {
+        override_pattern: true,
+        ..Default::default()
+    };
+    let result = match_pattern_candidates_with_environment(
+        MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+        &[candidate(source, &parsed, 0)],
+        &mut environment,
+        PatternMatcherConfig::default(),
+    )
+    .unwrap();
+    let selected = result.selected.unwrap();
+    assert_eq!(environment.calls, 1);
+    assert_eq!(environment.completed_states_seen_after, vec![1]);
+    let PatternCapture::TypeExpression {
+        span, state, value, ..
+    } = &selected.matched.captures[0]
+    else {
+        panic!("typed capture expected");
+    };
+    assert_eq!(*state, TypeCaptureState::Default);
+    assert!(value.is_empty());
+    assert_eq!(span.local_range, TextRange::empty(2));
 }
 
 // These boundary-focused tests use stub resolvers that accept the requested range without

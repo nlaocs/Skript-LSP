@@ -126,7 +126,7 @@ pub enum PatternElement {
 /// A syntax pattern AST element with its range in the original pattern.
 pub type SpannedPatternElement = Spanned<PatternElement>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Parsed contents of a `%...%` expression placeholder.
 pub struct PatternTypeExpr {
     /// Slash-separated accepted types, normalized to singular names.
@@ -141,7 +141,7 @@ pub struct PatternTypeExpr {
     pub time: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// One normalized type name inside a type expression.
 pub struct PatternTypeAlternative {
     /// Singular type code name.
