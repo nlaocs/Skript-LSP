@@ -30,6 +30,7 @@ const PARTICLE_CLASS: &str =
 struct SnapshotFixture {
     name: &'static str,
     directory: &'static str,
+    schema_version: u32,
     skript_version: &'static str,
     minecraft_version: &'static str,
     snapshot_id: &'static str,
@@ -160,6 +161,7 @@ const FIXTURES: &[SnapshotFixture] = &[
     SnapshotFixture {
         name: "Skript 2.6.4 on Minecraft 1.12.2",
         directory: "skript-2.6.4-mc-1.12.2",
+        schema_version: 5,
         skript_version: "2.6.4",
         minecraft_version: "1.12.2",
         snapshot_id: "8f8223a8f71a5e73fba2b6f12ebd5a52989b47b41fcdf9be1dc4edbbb9fc48c1",
@@ -171,6 +173,7 @@ const FIXTURES: &[SnapshotFixture] = &[
     SnapshotFixture {
         name: "Skript 2.15.4",
         directory: "skript-2.15.4",
+        schema_version: 5,
         skript_version: "2.15.4",
         minecraft_version: "1.21.11",
         snapshot_id: "a57b3b7f9bf384fc356a82c276a97410d76e9518ac8eaf862f35c008ae217a4a",
@@ -182,10 +185,11 @@ const FIXTURES: &[SnapshotFixture] = &[
     SnapshotFixture {
         name: "Skript 2.16.0",
         directory: "skript-2.16.0",
+        schema_version: 6,
         skript_version: "2.16.0",
         minecraft_version: "1.21.11",
-        snapshot_id: "3850ff00d5290ea5b9789789bf1efcb2d20286902f582fd8a021c3799d4aa940",
-        content_digest: "865cae4fbffdff43f53e676255a5bd8481ffb1ddb91793ee6ff3d504af3d35c8",
+        snapshot_id: "8b164811497583c1d5cefbe0abe2ca8e79a5b7234e17d1c1058e5cdf21608477",
+        content_digest: "4e238b3b4b0f32dd22544a9e1d210e88799a1f6ae661ff1ce28b96d936e6a0c4",
         modern_language: true,
         modern_supplier_literals: true,
         types: MODERN_2160_TYPES,
@@ -286,7 +290,11 @@ fn load_snapshot(fixture: &SnapshotFixture) -> ssg::Snapshot {
     let snapshot = ssg::load(fixture_path(fixture))
         .unwrap_or_else(|error| panic!("{} fixture must load: {error}", fixture.name));
     let manifest = snapshot.manifest();
-    assert_eq!(manifest.schema_version, 5, "{}", fixture.name);
+    assert_eq!(
+        manifest.schema_version, fixture.schema_version,
+        "{}",
+        fixture.name
+    );
     assert_eq!(
         manifest.snapshot_id, fixture.snapshot_id,
         "{}",
@@ -349,7 +357,11 @@ fn load_snapshot(fixture: &SnapshotFixture) -> ssg::Snapshot {
     let source = catalog
         .source()
         .expect("SSG catalog must retain its source");
-    assert_eq!(source.schema_version, 5, "{}", fixture.name);
+    assert_eq!(
+        source.schema_version, fixture.schema_version,
+        "{}",
+        fixture.name
+    );
     assert_eq!(source.snapshot_id, fixture.snapshot_id, "{}", fixture.name);
     assert_eq!(
         source.document_names().collect::<Vec<_>>(),

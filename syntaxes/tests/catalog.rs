@@ -128,7 +128,7 @@ fn type_syntax(code_name: &str, assignable_to: &[&str], order: usize) -> Syntax 
         type_literals: Vec::new(),
         parser_class: None,
         parse_contexts: Vec::new(),
-        default_expression_class: None,
+        default_expression: None,
         has_parser: false,
         has_serializer: false,
         has_supplier: false,
@@ -170,6 +170,40 @@ fn parts() -> CatalogParts {
         .unwrap(),
         language: BTreeMap::new(),
     }
+}
+
+#[test]
+fn class_info_lookup_is_exact_and_preserves_the_first_registration() {
+    let mut parts = parts();
+    let first = type_syntax("parent", &[], 0);
+    let Syntax::Type(mut duplicate) = type_syntax("duplicate", &[], 1) else {
+        unreachable!()
+    };
+    duplicate.original_class = class_name("test.parent");
+    parts.syntaxes = vec![
+        first,
+        Syntax::Type(duplicate),
+        type_syntax("child", &["parent"], 2),
+    ];
+    let catalog = Catalog::new(parts);
+    assert_eq!(
+        catalog
+            .type_by_class_name("test.parent")
+            .unwrap()
+            .code_name
+            .as_str(),
+        "parent"
+    );
+    assert_eq!(
+        catalog
+            .type_by_class_name("test.child")
+            .unwrap()
+            .code_name
+            .as_str(),
+        "child"
+    );
+    assert!(catalog.type_by_class_name("test.missing").is_none());
+    assert!(catalog.type_by_class_name("TEST.parent").is_none());
 }
 
 #[test]

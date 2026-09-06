@@ -2,6 +2,9 @@
 
 [English](README.md)
 
+省略された型付き引数はWASMのDefaultExpression providerで解決し、共通parser treeの
+implicitな子として保持します。[DefaultExpression APIとAddonガイド](docs/default-expressions.ja.md)を参照してください。
+
 Skript-LSPは、[Skript](https://github.com/SkriptLang/Skript)言語向けに開発中の
 Language Serverです。このworkspaceは、SkriptSyntaxGenerator（SSG）がサーバーごとに
 生成する構文データ、出典位置を保持するparser、LSP本体に組み込まずに解析へ参加できる
@@ -47,7 +50,7 @@ flowchart LR
 
 想定しているデータの流れは次のとおりです。
 
-1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 5
+1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 6
    snapshotを生成する。
 2. `ssg`がsnapshotを検証し、保存形式に依存しない`syntaxes::Catalog`へ変換する。
    schema 3・4も引き続き読み込める。schema 5では`Language.json`が必須だが、旧schemaでは不要。
@@ -71,7 +74,7 @@ flowchart LR
 | --- | --- | --- |
 | [`skript-lsp`](./) | library / binary | 最上位の統合crate。CoreLibraryを埋め込み、parser hostを構築します。binaryは現時点ではscaffoldです。 |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
-| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜5 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5のlanguage dataも含みます。 |
+| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜6 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage dataとschema 6のdefault Expression descriptorも含みます。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
 | [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、lossless RawTree、登録pattern照合、再帰syntax node、二段階Structure/EntryValidator解析を所有します。 |
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、transactional syntax pipeline、Structure lifecycle、StateStore、dynamic syntax bridgeを実装します。 |

@@ -335,7 +335,7 @@ impl SourceMap {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Local virtual range plus every editor-facing original origin.
 pub struct MappedSpan {
     pub virtual_range: TextRange,

@@ -88,6 +88,347 @@ fn expression_fixture() -> Catalog {
     })
 }
 
+#[derive(Clone, Copy)]
+enum DefaultTestOutcome {
+    Resolved,
+    Rejected,
+    Unresolved,
+    WrongType,
+    Multiple,
+    WrongTime,
+}
+
+struct DefaultEnvironment {
+    outcome: DefaultTestOutcome,
+    calls: usize,
+    parent_saw_default: bool,
+}
+
+impl PatternMatchEnvironment for DefaultEnvironment {
+    fn resolve_type(
+        &mut self,
+        _: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+    fn dispatch_hook(&mut self, _: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for DefaultEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        PublicDataEnvironment::default().parse_expression_leaf(request)
+    }
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+    fn can_resolve_registered_expression(&self, _: RegisteredSyntaxIdentity<'_>) -> bool {
+        true
+    }
+    fn provide_default_expression(
+        &mut self,
+        request: skript_parser::DefaultExpressionRequest<'_>,
+    ) -> Result<skript_parser::DefaultExpressionDecision, String> {
+        use skript_parser::{DefaultExpressionDecision as Decision, DefaultExpressionResolution};
+        self.calls += 1;
+        assert_eq!(request.capture_index, 0);
+        assert_eq!(request.value_type.code_name.as_str(), "string");
+        assert!(request.span.local_range.is_empty());
+        assert!(
+            request
+                .span
+                .mapped
+                .origins
+                .iter()
+                .all(|origin| origin.kind == skript_parser::OriginKind::Exact)
+        );
+        Ok(match self.outcome {
+            DefaultTestOutcome::Rejected => Decision::Rejected {
+                reason: "required test context is missing".to_owned(),
+                diagnostics: Vec::new(),
+            },
+            DefaultTestOutcome::Unresolved => Decision::Unresolved {
+                reason: "no test registry data".to_owned(),
+            },
+            _ => Decision::Resolved(Box::new(DefaultExpressionResolution {
+                provider_id: "test.defaults.string".to_owned(),
+                component_id: "test.addon".to_owned(),
+                return_type: ClassName(
+                    if matches!(self.outcome, DefaultTestOutcome::WrongType) {
+                        "test.Incompatible"
+                    } else {
+                        "java.lang.String"
+                    }
+                    .to_owned(),
+                ),
+                multiplicity: if matches!(self.outcome, DefaultTestOutcome::Multiple) {
+                    Multiplicity::Multiple
+                } else {
+                    Multiplicity::Single
+                },
+                is_literal: false,
+                time: if matches!(self.outcome, DefaultTestOutcome::WrongTime) {
+                    1
+                } else {
+                    request.expression.time
+                },
+                reason: "supplied by the test provider".to_owned(),
+                catalog_references: Vec::new(),
+                public_data: Vec::new(),
+                metadata: BTreeMap::from([("test.addon/reason".to_owned(), "default".to_owned())]),
+                effects: None,
+            })),
+        })
+    }
+    fn resolve_registered_expression(
+        &mut self,
+        request: RegisteredExpressionRequest<'_>,
+    ) -> Result<RegisteredExpressionDecision, String> {
+        self.parent_saw_default |= request
+            .children
+            .iter()
+            .any(|node| matches!(node.kind, ExpressionNodeKind::Default { .. }))
+            && request.parsed_captures.iter().any(|capture| {
+                capture
+                    .result
+                    .summary
+                    .as_ref()
+                    .is_some_and(|summary| summary.default_expression.is_some())
+            });
+        Ok(RegisteredExpressionDecision::UseDeclared)
+    }
+}
+
+fn default_case(
+    pattern: &str,
+    text: &str,
+    outcome: DefaultTestOutcome,
+) -> (skript_parser::ExpressionMatches, DefaultEnvironment) {
+    let catalog = expression_fixture();
+    let mut snapshot = public_data_snapshot(&catalog);
+    for definition in snapshot.definitions.values_mut() {
+        definition.patterns = vec![DynamicPattern {
+            source: pattern.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules()).unwrap(),
+        }];
+    }
+    let source = MappedSource::identity(text);
+    let mut environment = DefaultEnvironment {
+        outcome,
+        calls: 0,
+        parent_saw_default: false,
+    };
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: event_context(&["test.Event"]),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .unwrap();
+    (result, environment)
+}
+
+#[test]
+fn omitted_default_becomes_a_shared_child_visible_to_semantic_hooks() {
+    let (result, environment) = default_case(
+        "public parent[ %string%]",
+        "public parent",
+        DefaultTestOutcome::Resolved,
+    );
+    let parent = result.selected.unwrap().node;
+    assert!(environment.calls > 0);
+    assert!(environment.parent_saw_default);
+    let child = &parent.children[0];
+    let ExpressionNodeKind::Default { info } = &child.kind else {
+        panic!("implicit child expected")
+    };
+    assert_eq!(info.event_classes, vec![ClassName("test.Event".to_owned())]);
+    assert_eq!(info.requested_type.class_name.as_str(), "java.lang.String");
+    assert_eq!(
+        child.return_type.as_ref().unwrap().as_str(),
+        "java.lang.String"
+    );
+    assert!(child.span.local_range.is_empty());
+    assert_eq!(child.metadata["test.addon/reason"], "default");
+    assert!(matches!(
+        parent.captures[0],
+        skript_parser::PatternCapture::TypeExpression {
+            state: skript_parser::TypeCaptureState::Default,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explicit_and_nullable_captures_never_request_a_default() {
+    for (pattern, text) in [
+        ("public parent[ %string%]", "public parent \"leaf\""),
+        ("public parent[ %-string%]", "public parent"),
+    ] {
+        let (result, environment) = default_case(pattern, text, DefaultTestOutcome::Rejected);
+        assert!(result.selected.is_some(), "{text}");
+        assert_eq!(environment.calls, 0, "{text}");
+    }
+}
+
+#[test]
+fn default_rejection_and_unresolved_are_distinct_failures() {
+    for (outcome, expected_kind) in [
+        (
+            DefaultTestOutcome::Rejected,
+            skript_parser::DefaultExpressionFailureKind::Rejected,
+        ),
+        (
+            DefaultTestOutcome::Unresolved,
+            skript_parser::DefaultExpressionFailureKind::Unresolved,
+        ),
+    ] {
+        let (result, _) = default_case("public parent[ %string%]", "public parent", outcome);
+        assert!(result.selected.is_none());
+        let failure = result.failure.unwrap();
+        assert!(failure.trace.unwrap().root_cause().failure.reasons.iter().any(|reason| matches!(reason, skript_parser::PatternFailureReason::DefaultExpression { kind, .. } if *kind == expected_kind)));
+    }
+}
+
+#[test]
+fn absent_default_type_and_unimplemented_alternatives_remain_unresolved() {
+    for pattern in [
+        "public parent[ %unexported%]",
+        "public parent[ %string/unexported%]",
+    ] {
+        let (result, environment) =
+            default_case(pattern, "public parent", DefaultTestOutcome::Rejected);
+        assert!(result.selected.is_none());
+        if pattern.contains("%unexported%") {
+            assert_eq!(environment.calls, 0);
+        }
+        let trace = result.failure.unwrap().trace.unwrap();
+        assert!(
+            trace
+                .root_cause()
+                .failure
+                .reasons
+                .iter()
+                .any(|reason| matches!(
+                    reason,
+                    skript_parser::PatternFailureReason::DefaultExpression {
+                        kind: skript_parser::DefaultExpressionFailureKind::Unresolved,
+                        ..
+                    }
+                ))
+        );
+    }
+}
+
+#[test]
+fn native_parser_without_core_library_keeps_unimplemented_defaults_unresolved() {
+    let catalog = expression_fixture();
+    let mut snapshot = public_data_snapshot(&catalog);
+    let pattern = "public parent[ %string%]";
+    for definition in snapshot.definitions.values_mut() {
+        definition.patterns = vec![DynamicPattern {
+            source: pattern.to_owned(),
+            parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules()).unwrap(),
+        }];
+    }
+    let text = "public parent";
+    let source = MappedSource::identity(text);
+    let result = parse_expression_with_snapshot(
+        &catalog,
+        Some(&snapshot),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default(),
+        },
+        &mut skript_parser::NoopExpressionEnvironment,
+        ExpressionParserConfig::default(),
+    )
+    .unwrap();
+    assert!(result.selected.is_none());
+    let trace = result.failure.unwrap().trace.unwrap();
+    assert!(
+        trace
+            .root_cause()
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(
+                reason,
+                skript_parser::PatternFailureReason::DefaultExpression {
+                    kind: skript_parser::DefaultExpressionFailureKind::Unresolved,
+                    reason,
+                    ..
+                } if reason.contains("no DefaultExpression provider")
+            ))
+    );
+}
+
+#[test]
+fn default_results_obey_type_multiplicity_flags_and_time() {
+    for outcome in [DefaultTestOutcome::WrongType, DefaultTestOutcome::Multiple] {
+        assert!(
+            default_case("public parent[ %string%]", "public parent", outcome)
+                .0
+                .selected
+                .is_none()
+        );
+    }
+    assert!(
+        default_case(
+            "public parent[ %string%]",
+            "public parent",
+            DefaultTestOutcome::WrongTime
+        )
+        .0
+        .selected
+        .is_some(),
+        "Skript does not constrain a default Expression when the capture time is zero"
+    );
+    assert!(
+        default_case(
+            "public parent[ %string@-1%]",
+            "public parent",
+            DefaultTestOutcome::WrongTime
+        )
+        .0
+        .selected
+        .is_none(),
+        "an explicit past capture must reject a future-only default Expression"
+    );
+    assert!(
+        default_case(
+            "public parent[ %*string%]",
+            "public parent",
+            DefaultTestOutcome::Resolved
+        )
+        .0
+        .selected
+        .is_none()
+    );
+    assert!(
+        default_case(
+            "public parent[ %strings%]",
+            "public parent",
+            DefaultTestOutcome::Multiple
+        )
+        .0
+        .selected
+        .is_some()
+    );
+}
+
 #[test]
 fn parses_registered_expression_without_placeholders() {
     let catalog = expression_fixture();

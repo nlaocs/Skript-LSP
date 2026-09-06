@@ -55,6 +55,8 @@ pub enum SectionScopeKind {
 /// Semantic summary of one parsed Section pattern capture.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SectionScopeCapture {
+    /// Implicit capture provenance available to later hooks inside this scope.
+    pub default_expression: Option<crate::DefaultExpressionInfo>,
     pub capture_index: usize,
     pub parser_id: String,
     pub status: ParsedCaptureStatus,
@@ -709,6 +711,7 @@ fn section_scope_capture(capture: &ParsedCapture, source: &str) -> SectionScopeC
     let summary = capture.result.summary.as_ref();
     let local = capture.result.span.local_range;
     SectionScopeCapture {
+        default_expression: summary.and_then(|summary| summary.default_expression.clone()),
         capture_index: capture.capture_index,
         parser_id: capture.result.parser_id.clone(),
         status: capture.result.status.clone(),

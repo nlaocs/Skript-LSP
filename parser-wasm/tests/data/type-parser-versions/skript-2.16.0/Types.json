@@ -25,12 +25,17 @@
   },
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$LongParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Long",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
   "properties" : [ ],
-  "before" : [ "short", "integer", "byte" ]
+  "before" : [ "integer", "short", "byte" ]
 }, {
   "typeParseOrder" : 1,
   "name" : "",
@@ -57,12 +62,17 @@
   },
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$DoubleParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Double",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
   "properties" : [ ],
-  "before" : [ "short", "float", "integer", "byte" ],
+  "before" : [ "short", "byte", "integer", "float" ],
   "after" : [ "long" ]
 }, {
   "typeParseOrder" : 2,
@@ -90,7 +100,12 @@
   },
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$FloatParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Float",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -156,7 +171,12 @@
   },
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$ShortParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Short",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -187,7 +207,12 @@
   },
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$ByteParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Byte",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -274,7 +299,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.data.SkriptClasses$3",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "ch.njol.skript.util.WeatherType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -310,7 +340,12 @@
   "usage" : [ "##:##", "##[:##][ ]am/pm" ],
   "parserClass" : "ch.njol.skript.classes.data.SkriptClasses$4",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "ch.njol.skript.util.Time",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -346,7 +381,12 @@
   "usage" : [ "##:## - ##:##", "dusk/day/dawn/night" ],
   "parserClass" : "ch.njol.skript.classes.data.SkriptClasses$6",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "ch.njol.skript.util.Timeperiod",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -414,7 +454,12 @@
   },
   "usage" : [ "see <a href='#ExprDirection'>direction (expression)</a>" ],
   "parserClass" : "ch.njol.skript.classes.data.SkriptClasses$8",
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "ch.njol.skript.util.Direction",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -735,7 +780,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "ch.njol.skript.util.TreeSpecies",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -1000,7 +1050,12 @@
     "genderId" : "a"
   },
   "usage" : [ "arrow, fireball, snowball, thrown potion, etc." ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Projectile",
+    "single" : true
+  },
   "hasParser" : false,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -1165,7 +1220,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.inventory.InventoryAction",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -1275,7 +1335,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.inventory.ClickType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -1475,7 +1540,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.inventory.InventoryType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -1535,7 +1605,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "org.bukkit.GameMode",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -1723,7 +1798,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.player.PlayerTeleportEvent$TeleportCause",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -1997,7 +2077,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.CreatureSpawnEvent$SpawnReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -2051,7 +2136,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.player.PlayerRespawnEvent$RespawnReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -2148,7 +2238,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.FireworkEffect$Type",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -2183,7 +2278,12 @@
   },
   "usage" : [ "See <a href='/#FireworkType'>Firework Types</a>" ],
   "parserClass" : "ch.njol.skript.classes.data.BukkitClasses$11",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.FireworkEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -2242,7 +2342,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.Difficulty",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -2321,7 +2426,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.player.PlayerResourcePackStatusEvent$Status",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -2415,7 +2525,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.SoundCategory",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -2499,7 +2614,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.EntityRegainHealthEvent$RegainReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3008,7 +3128,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.attribute.Attribute",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3067,7 +3192,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.World$Environment",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3146,7 +3276,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "io.papermc.paper.world.MoonPhase",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3205,7 +3340,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.player.PlayerQuitEvent$QuitReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3289,7 +3429,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.inventory.InventoryCloseEvent$Reason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3378,7 +3523,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.EntityTransformEvent$TransformReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3437,7 +3587,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.EntityUnleashEvent$UnleashReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3521,7 +3676,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.inventory.ItemFlag",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3570,7 +3730,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.player.PlayerExpCooldownChangeEvent$ChangeReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3667,7 +3832,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Villager$Profession",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -3938,7 +4108,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.block.banner.PatternType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -4053,7 +4228,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.inventory.EquipmentSlot",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -4102,7 +4282,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.VillagerCareerChangeEvent$ChangeReason",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -4169,7 +4354,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.common.types.QuaternionClassInfo$QuaternionParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.joml.Quaternionf",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -4248,7 +4438,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.types.BlockClassInfo$BlockParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.block.Block",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -4288,7 +4483,12 @@
     "genderId" : "an"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.types.InventoryClassInfo$InventoryParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.inventory.Inventory",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -4322,7 +4522,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.types.LocationClassInfo$LocationParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.Location",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -4364,7 +4569,12 @@
   },
   "serializeAs" : "org.bukkit.inventory.ItemStack",
   "parserClass" : "org.skriptlang.skript.bukkit.types.SlotClassInfo$SlotParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "ch.njol.skript.util.slot.Slot",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -4399,7 +4609,12 @@
   },
   "usage" : [ "vector(x, y, z)" ],
   "parserClass" : "org.skriptlang.skript.bukkit.types.VectorClassInfo$VectorParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.util.Vector",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -4433,7 +4648,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.bossbar.KeyedBossBarClassInfo$KeyedBossBarParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.boss.KeyedBossBar",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -4497,7 +4717,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.boss.BarStyle",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -4528,7 +4753,12 @@
     "gender" : 0,
     "genderId" : "a"
   },
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.damage.DamageSource",
+    "single" : true
+  },
   "hasParser" : false,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -4765,7 +4995,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.damage.DamageType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -4975,7 +5210,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.enchantments.Enchantment",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5133,7 +5373,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.entity.types.TeleportFlagClassInfo$SkriptTeleportFlag",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5167,7 +5412,12 @@
     "gender" : 0,
     "genderId" : "a"
   },
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Display",
+    "single" : true
+  },
   "hasParser" : false,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -5226,7 +5476,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Display$Billboard",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5280,7 +5535,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.TextDisplay$TextAlignment",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5364,7 +5624,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.ItemDisplay$ItemDisplayTransform",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5443,7 +5708,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.player.PlayerFishEvent$State",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5518,7 +5788,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.input.InputKey",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -5583,7 +5858,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.loottables.LootTableModule$3",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.loot.LootContext",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -6000,7 +6280,12 @@
   } ],
   "parserClass" : "org.skriptlang.skript.bukkit.particles.ParticleModule$2",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.particles.GameEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -6434,7 +6719,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.EntityEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7098,7 +7388,12 @@
   } ],
   "parserClass" : "org.skriptlang.skript.bukkit.particles.ParticleModule$5",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.particles.particleeffects.ConvergingEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7306,7 +7601,12 @@
   } ],
   "parserClass" : "org.skriptlang.skript.bukkit.particles.ParticleModule$6",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.particles.particleeffects.DirectionalEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7350,7 +7650,12 @@
   } ],
   "parserClass" : "org.skriptlang.skript.bukkit.particles.ParticleModule$8",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.particles.particleeffects.ScalableEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7380,7 +7685,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.potion.PotionModule$1",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.potion.util.SkriptPotionEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -7612,7 +7922,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.potion.PotionEffectType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7782,7 +8097,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.EntityPotionEffectEvent$Cause",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7842,7 +8162,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.EntityPotionEffectEvent$Action",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7896,7 +8221,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.potion.PotionEffectTypeCategory",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -7991,7 +8321,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.worldborder.elements.WorldBorderModule$1",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.WorldBorder",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -8074,7 +8409,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Cat$Type",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8125,7 +8465,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Chicken$Variant",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8176,7 +8521,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Cow$Variant",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8226,7 +8576,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Frog$Variant",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8301,7 +8656,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Panda$Gene",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8352,7 +8712,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Pig$Variant",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8427,7 +8792,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Wolf$Variant",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8473,7 +8843,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.ZombieNautilus$Variant",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -8504,7 +8879,12 @@
   },
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$IntegerParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Integer",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -8605,7 +8985,12 @@
     "genderId" : "a"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.bossbar.BossBarClassInfo$BossBarParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.boss.BossBar",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -9102,7 +9487,12 @@
   } ],
   "parserClass" : "org.skriptlang.skript.bukkit.particles.ParticleModule$4",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.particles.particleeffects.ParticleEffect",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -9138,7 +9528,12 @@
   "usage" : [ "[-]###[.###] [e[+|-]###] [[in ](rad[ian][s]|deg[ree][s])]" ],
   "parserClass" : "ch.njol.skript.classes.data.JavaClasses$NumberParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "java.lang.Integer",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -17462,8 +17857,8 @@
   "hasSerializer" : true,
   "hasSupplier" : true,
   "properties" : [ "amount", "display name", "name", "title" ],
-  "before" : [ "itemstack", "entitytype", "entitydata" ],
-  "after" : [ "number", "long", "time", "integer" ]
+  "before" : [ "entitytype", "itemstack", "entitydata" ],
+  "after" : [ "long", "number", "integer", "time" ]
 }, {
   "typeParseOrder" : 110,
   "name" : "Entity Type",
@@ -21372,7 +21767,12 @@
   } ],
   "parserClass" : "ch.njol.skript.entity.EntityData$2",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "ch.njol.skript.entity.SimpleEntityData",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -21408,7 +21808,12 @@
   "usage" : [ "&lt;<a href='#number'>number</a>&gt; &lt;entity type&gt;" ],
   "parserClass" : "ch.njol.skript.entity.EntityType$1",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.lang.util.SimpleLiteral",
+    "literal" : true,
+    "returnType" : "ch.njol.skript.entity.EntityType",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -22295,7 +22700,7 @@
   "hasSerializer" : true,
   "hasSupplier" : true,
   "properties" : [ ],
-  "after" : [ "itemtype", "entitytype", "entitydata" ]
+  "after" : [ "entitytype", "itemtype", "entitydata" ]
 }, {
   "typeParseOrder" : 115,
   "name" : "Any Named Thing",
@@ -22422,7 +22827,12 @@
   "usage" : [ "<code>\"world_name\"</code>, e.g. \"world\"" ],
   "parserClass" : "ch.njol.skript.classes.data.BukkitClasses$3",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.World",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
@@ -29977,7 +30387,12 @@
   } ],
   "parserClass" : "org.skriptlang.skript.bukkit.types.ItemStackClassInfo$ItemStackParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.inventory.ItemStack",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -30019,12 +30434,17 @@
   "usage" : [ "Parsing an offline player as a player (online) will return nothing (none), for that case you would need to parse as offlineplayer which only returns nothing (none) if player doesn't exist in Minecraft databases (name not taken) otherwise it will return the player regardless of their online status." ],
   "parserClass" : "org.skriptlang.skript.bukkit.types.PlayerClassInfo$PlayerParser",
   "parseContexts" : [ "COMMAND", "PARSE" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Player",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ "display name", "name" ],
-  "after" : [ "string", "world" ]
+  "after" : [ "world", "string" ]
 }, {
   "typeParseOrder" : 121,
   "name" : "Equippable Components",
@@ -30054,12 +30474,17 @@
     "genderId" : "an"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.itemcomponents.equippable.EquippableModule$1",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.skriptlang.skript.bukkit.itemcomponents.equippable.EquippableWrapper",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ ],
-  "after" : [ "itemtype", "itemstack", "slot" ]
+  "after" : [ "itemstack", "itemtype", "slot" ]
 }, {
   "typeParseOrder" : 122,
   "name" : "Living Entity",
@@ -30094,7 +30519,12 @@
     "genderId" : "a"
   },
   "usage" : [ "see <a href='#entity'>entity</a>, but ignore inanimate objects" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.LivingEntity",
+    "single" : true
+  },
   "hasParser" : false,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -30299,12 +30729,17 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.EnumParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.ExprDamageCause",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.ExprDamageCause",
+    "literal" : false,
+    "returnType" : "org.bukkit.event.entity.EntityDamageEvent$DamageCause",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
   "properties" : [ ],
-  "after" : [ "itemtype", "entitytype", "itemstack", "entitydata" ]
+  "after" : [ "entitydata", "itemstack", "entitytype", "itemtype" ]
 }, {
   "typeParseOrder" : 124,
   "name" : "Entity",
@@ -30341,7 +30776,12 @@
   "usage" : [ "player, op, wolf, tamed ocelot, powered creeper, zombie, unsaddled pig, fireball, arrow, dropped item, item frame, etc." ],
   "parserClass" : "org.skriptlang.skript.bukkit.types.EntityClassInfo$EntityParser",
   "parseContexts" : [ "COMMAND", "PARSE" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Entity",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -30376,12 +30816,17 @@
   "usage" : [ "Parsing an offline player as a player (online) will return nothing (none), for that case you would need to parse as offlineplayer which only returns nothing (none) if player doesn't exist in Minecraft databases (name not taken) otherwise it will return the player regardless of their online status." ],
   "parserClass" : "org.skriptlang.skript.bukkit.types.OfflinePlayerClassInfo$OfflinePlayerParser",
   "parseContexts" : [ "COMMAND", "PARSE" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.OfflinePlayer",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : false,
   "properties" : [ "name" ],
-  "after" : [ "string", "world" ]
+  "after" : [ "world", "string" ]
 }, {
   "typeParseOrder" : 126,
   "name" : "Item Component",
@@ -30415,7 +30860,7 @@
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ ],
-  "after" : [ "itemtype", "itemstack", "slot" ]
+  "after" : [ "itemstack", "itemtype", "slot" ]
 }, {
   "typeParseOrder" : 127,
   "name" : "Command Sender",
@@ -30445,7 +30890,12 @@
   },
   "usage" : [ "use <a href='#LitConsole'>the console</a> for the console", "see <a href='#player'>player</a> for players." ],
   "parserClass" : "ch.njol.skript.classes.data.BukkitClasses$5",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.command.CommandSender",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
@@ -30474,12 +30924,17 @@
     "genderId" : "an"
   },
   "parserClass" : "ch.njol.skript.classes.data.BukkitClasses$6",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.inventory.InventoryHolder",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ ],
-  "after" : [ "entity", "block" ]
+  "after" : [ "block", "entity" ]
 }, {
   "typeParseOrder" : 129,
   "name" : "Biome",
@@ -30773,7 +31228,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.block.Biome",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -30870,7 +31330,12 @@
   } ],
   "parserClass" : "ch.njol.skript.classes.registry.RegistryParser",
   "parseContexts" : [ "DEFAULT", "EVENT", "COMMAND", "PARSE", "CONFIG", "SCRIPT" ],
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.entity.Villager$Type",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : true,
   "hasSupplier" : true,
@@ -30902,12 +31367,17 @@
     "gender" : 0,
     "genderId" : "a"
   },
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.Nameable",
+    "single" : true
+  },
   "hasParser" : false,
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ "display name", "name" ],
-  "after" : [ "player", "entity", "block", "commandsender" ]
+  "after" : [ "entity", "player", "commandsender", "block" ]
 }, {
   "typeParseOrder" : 133,
   "name" : "Audience",
@@ -30936,7 +31406,12 @@
     "genderId" : "an"
   },
   "parserClass" : "org.skriptlang.skript.bukkit.text.types.AudienceClassInfo$AudienceParser",
-  "defaultExpressionClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+  "defaultExpression" : {
+    "implementationClass" : "ch.njol.skript.expressions.base.EventValueExpression",
+    "literal" : false,
+    "returnType" : "org.bukkit.command.CommandSender",
+    "single" : true
+  },
   "hasParser" : true,
   "hasSerializer" : false,
   "hasSupplier" : false,

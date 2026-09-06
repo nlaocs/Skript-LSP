@@ -52,6 +52,7 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
         .map(|parser| RegisteredSyntaxHandler {
             handler_id: parser.id.to_owned(),
             kind: SyntaxKind::Type,
+            phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
             targets: parser
                 .classes
                 .iter()

@@ -2,6 +2,11 @@
 
 [English](README.md)
 
+標準DefaultExpression providerは、型付きSSG情報を根拠にSkriptの`SimpleLiteral`、
+`EventValueExpression`、`ExprDamageCause`意味論を実装します。文脈不足は拒否し、
+不完全または独自の意味論はunresolvedにします。
+[DefaultExpressionガイド](../docs/default-expressions.ja.md)を参照してください。
+
 `core-library`は、すべての`parser-wasm::ParserHost`が読み込む必須のWebAssembly
 Componentです。third-party parser addonと同じABIを使う必要がある、Skript標準の
 解析処理を実装するための安定した配置場所です。
@@ -11,14 +16,14 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.33.0`とABI `15.0`
+- WIT package `nlaocs:skript-parser-addon@0.35.0`とABI `17.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
-- Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
-  Structureの意味処理、およびlow-priority Tree phaseのoptions preprocessorからなる9件のsubscription
+- DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
+  Structureの意味処理、およびlow-priority Tree phaseのoptions preprocessorからなる10件のsubscription
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
-manifestは`parser.hooks`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
+manifestは`parser.hooks`、`parser.default-expression`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
 `parser.dynamic-syntax`とversion 2の`parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。

@@ -2,6 +2,11 @@
 
 [日本語](README.ja.md)
 
+Typed captures retain explicit, omitted, nullable and default states. Semantic
+parsing completes non-nullable omissions through `provide_default_expression`
+before syntax hooks and exposes implicit nodes and failures in the shared model.
+See the [DefaultExpression API guide](../docs/default-expressions.md).
+
 `skript-parser` owns source mapping, lossless RawTree construction, registered
 syntax matching, and recursive source-level syntax trees for `.sk` documents.
 It parses Expressions, Conditions, Effects, Event headers, Sections, and

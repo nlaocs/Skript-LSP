@@ -11,6 +11,10 @@ of the LSP binary.
 
 ## Current Status
 
+Omitted typed arguments are resolved through WASM DefaultExpression providers
+and represented as implicit children in the shared parser tree. See the
+[DefaultExpression API and addon guide](docs/default-expressions.md).
+
 The libraries implement snapshot loading, registration-pattern parsing, source
 mapping, Text/Tree macros, a Wasmtime host, transactional StateStore, dynamic
 syntax registration, and recursive Expression, Condition, Effect, Event, and
@@ -51,7 +55,7 @@ flowchart LR
 
 The intended data flow is:
 
-1. A Minecraft server runs SSG and produces a schema 5 snapshot for its exact
+1. A Minecraft server runs SSG and produces a schema 6 snapshot for its exact
    Skript and addon set.
 2. `ssg` validates the snapshot and converts it into the format-independent
    `syntaxes::Catalog`. Schema 3 and 4 snapshots remain readable. Schema 5 adds
@@ -80,7 +84,7 @@ Skript/addon syntax; addon-specific semantics may also require a WASM addon.
 | --- | --- | --- |
 | [`skript-lsp`](./) | library and binary | Top-level integration crate. Embeds CoreLibrary and constructs the parser host. The binary is currently a scaffold. |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
-| [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 through 5 snapshot directories, including schema 5 language data. |
+| [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 through 6 snapshot directories, including schema 5+ language data and schema 6 default Expression descriptors. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |
 | [`skript-parser`](./skript-parser/) | library | Owns UTF-8 ranges, SourceMaps, macro provenance, lossless RawTree, registered-pattern matching, recursive syntax nodes, and two-pass Structure/EntryValidator parsing for `.sk` documents. |
 | [`parser-wasm`](./parser-wasm/) | library | Defines the WIT ABI and implements the Wasmtime host, hook registry, transactional syntax pipelines, Structure lifecycle, StateStore, and dynamic syntax bridge. |

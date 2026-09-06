@@ -179,6 +179,7 @@ mod tests {
         multiplicity: Option<DynamicMultiplicity>,
     ) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
+            default_expression: None,
             text: text.to_owned(),
             kind: "custom".to_owned(),
             parser_id: None,

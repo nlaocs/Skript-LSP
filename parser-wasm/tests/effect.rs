@@ -164,10 +164,10 @@ fn core_library_parses_boolean_alias_and_supplied_type_literals() {
         .unwrap();
 
     for source in [
-        "send 2 if true is true",
-        "send stone",
-        "send zombie",
-        "send all players",
+        "send 2 to console if true is true",
+        "send stone to console",
+        "send zombie to console",
+        "send all players to console",
     ] {
         let result = parse_effect(&mut host, &transaction, 12, source);
         assert!(
@@ -177,7 +177,12 @@ fn core_library_parses_boolean_alias_and_supplied_type_literals() {
         );
     }
 
-    let invalid_comparison = parse_effect(&mut host, &transaction, 12, "send 1 if 1 is true");
+    let invalid_comparison = parse_effect(
+        &mut host,
+        &transaction,
+        12,
+        "send 1 to console if 1 is true",
+    );
     assert!(invalid_comparison.matches.selected.is_none());
     let failure = format!("{:#?}", invalid_comparison.matches.unknown);
     assert!(
@@ -204,7 +209,7 @@ fn common_effects_parse_with_collection_and_nested_expression_inputs() {
     for source in [
         "broadcast stone",
         "send 1 to all players",
-        "teleport all players to location(1,2,3)",
+        "teleport all players {_direction} location(1,2,3)",
         "set slot 0 of a random element out of all players to 2 stone",
     ] {
         let result = parse_effect(&mut host, &transaction, 14, source);
@@ -233,7 +238,7 @@ fn real_effect_section_parses_as_an_effect_without_losing_section_identity() {
         .begin_parse("file:///workspace", "file:///workspace/effect.sk", 20)
         .unwrap();
 
-    let result = parse_effect(&mut host, &transaction, 20, "shoot zombie");
+    let result = parse_effect(&mut host, &transaction, 20, "shoot zombie from all players");
     let selected = result
         .matches
         .selected
@@ -268,10 +273,15 @@ fn real_effect_section_parses_as_an_effect_without_losing_section_identity() {
 
 #[test]
 fn invalid_ternary_condition_retains_parent_effect_interpretations() {
+    let catalog = ssg::load(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.16.0"),
+    )
+    .expect("Skript 2.16 fixture must load")
+    .into_catalog();
     let mut host = ParserHost::new(
         CORE_LIBRARY,
         HostConfig {
-            syntax_catalog: Some(full_dynamic_catalog()),
+            syntax_catalog: Some(Arc::new(catalog)),
             ..HostConfig::default()
         },
     )
@@ -280,7 +290,27 @@ fn invalid_ternary_condition_retains_parent_effect_interpretations() {
         .begin_parse("file:///workspace", "file:///workspace/effect.sk", 15)
         .unwrap();
 
-    let result = parse_effect(&mut host, &transaction, 15, "send 1 if a < 5 else 2");
+    let source = MappedSource::identity("send 1 if a < 5 else 2");
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 16));
+    let result = host
+        .parse_effect_in_parse(
+            &transaction,
+            context(15),
+            EffectParseRequest {
+                source: &source,
+                node: tree.get(tree.roots[0]).unwrap(),
+                // The competing EffDoIf branch parses `send 1` first. Supply
+                // its audience so this test isolates the invalid condition.
+                context: ExpressionParseContext {
+                    event_classes: vec![ClassName(
+                        "org.bukkit.event.player.PlayerJoinEvent".to_owned(),
+                    )],
+                    ..ExpressionParseContext::default()
+                },
+            },
+            EffectParserConfig::default(),
+        )
+        .expect("invalid nested condition remains recoverable");
     let unknown = result
         .matches
         .unknown
@@ -360,32 +390,32 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
 
     for (source, conjunction, multiplicity) in [
         (
-            "send 1,2,3",
+            "send 1,2,3 to console",
             ExpressionListConjunction::And,
             Multiplicity::Multiple,
         ),
         (
-            "send 1 or 2",
+            "send 1 or 2 to console",
             ExpressionListConjunction::Or,
             Multiplicity::Single,
         ),
         (
-            "send 1 and 2 or 3",
+            "send 1 and 2 or 3 to console",
             ExpressionListConjunction::And,
             Multiplicity::Multiple,
         ),
         (
-            "send 1 nor 2",
+            "send 1 nor 2 to console",
             ExpressionListConjunction::And,
             Multiplicity::Multiple,
         ),
         (
-            "send 1, 2 or 3",
+            "send 1, 2 or 3 to console",
             ExpressionListConjunction::Or,
             Multiplicity::Single,
         ),
         (
-            "send (1 and 2) or 3",
+            "send (1 and 2) or 3 to console",
             ExpressionListConjunction::Or,
             Multiplicity::Multiple,
         ),
@@ -401,7 +431,7 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
         assert!(expression.children.len() >= 2);
     }
 
-    let source = "send spherical vector radius 1, yaw 45, pitch 90 and 2";
+    let source = "send spherical vector radius 1, yaw 45, pitch 90 and 2 to console";
     let selected = parse_effect(&mut host, &transaction, 17, source)
         .matches
         .selected
@@ -419,7 +449,7 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
         Some("spherical vector radius 1, yaw 45, pitch 90")
     );
 
-    let numeric = parse_effect(&mut host, &transaction, 17, "send 1, 2.5")
+    let numeric = parse_effect(&mut host, &transaction, 17, "send 1, 2.5 to console")
         .matches
         .selected
         .expect("numeric list must parse");
@@ -435,14 +465,14 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
     );
 
     assert!(
-        parse_effect(&mut host, &transaction, 17, "send 1,and 2")
+        parse_effect(&mut host, &transaction, 17, "send 1,and 2 to console")
             .matches
             .selected
             .is_none(),
         "comma-adjacent `and` is part of the next piece, not the delimiter"
     );
 
-    let invalid_utf8_child = parse_effect(&mut host, &transaction, 17, "send 1 and あ")
+    let invalid_utf8_child = parse_effect(&mut host, &transaction, 17, "send 1 and あ to console")
         .matches
         .unknown
         .expect("the invalid UTF-8 list child must retain its failure");
@@ -461,7 +491,7 @@ fn expression_lists_follow_skript_conjunction_and_nesting_rules() {
         TextRange::new(11, 14)
     );
 
-    for source in ["send location(1,2,3)", "send \"a,b\""] {
+    for source in ["send location(1,2,3) to console", "send \"a,b\" to console"] {
         let result = parse_effect(&mut host, &transaction, 17, source);
         let selected = result
             .matches
@@ -550,7 +580,7 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
         .begin_parse("file:///workspace", "file:///workspace/effect.sk", 16)
         .unwrap();
 
-    for source in ["send all colors", "send every color"] {
+    for source in ["send all colors to console", "send every color to console"] {
         assert!(
             parse_effect(&mut host, &transaction, 16, source)
                 .matches
@@ -560,7 +590,7 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
         );
     }
 
-    let item_alias = parse_effect(&mut host, &transaction, 16, "send all strings");
+    let item_alias = parse_effect(&mut host, &transaction, 16, "send all strings to console");
     let item_alias_candidate = item_alias
         .matches
         .selected
@@ -578,7 +608,7 @@ fn core_library_resolves_sets_only_for_supplier_backed_types() {
 
     // `strings` is also a valid Minecraft ItemType alias, so use a type name
     // without an alias to exercise ExprSets' supplier rejection path.
-    let invalid = parse_effect(&mut host, &transaction, 16, "send all objects");
+    let invalid = parse_effect(&mut host, &transaction, 16, "send all objects to console");
     let best = invalid
         .matches
         .unknown
@@ -1034,7 +1064,7 @@ fn third_party_dynamic_effect_reuses_core_input_source_parser() {
         .unwrap();
 
     // This Effect is registered by the third-party component. Its optional
-    // `%string%` owns capture 0 even when omitted, while `<.+>` remains capture
+    // `%-string%` owns capture 0 even when omitted, while `<.+>` remains capture
     // 1 and is parsed with the InputSource context supplied by that component.
     let result = parse_effect(&mut host, &transaction, 20, "dummy scoped using input");
     let selected = result.matches.selected.expect("dynamic Effect must parse");
@@ -1061,7 +1091,7 @@ fn third_party_dynamic_effect_reuses_core_input_source_parser() {
 
     // Without an Effect-local InputSource context, the same `input` token is
     // not a valid standalone expression and must not become a selected Effect.
-    let contextless = parse_effect(&mut host, &transaction, 20, "send input");
+    let contextless = parse_effect(&mut host, &transaction, 20, "send input to console");
     assert!(
         contextless.matches.selected.is_none(),
         "contextless input must be rejected"
@@ -1124,7 +1154,7 @@ fn dynamic_size_and_parse_expressions_work_inside_effects() {
         &mut host,
         &transaction,
         4,
-        "send new vector from yaw all offline players's size and pitch all offline players's size",
+        "send new vector from yaw all offline players's size and pitch all offline players's size to console",
     );
     assert!(
         vector.matches.selected.is_some(),
@@ -1238,7 +1268,7 @@ fn input_source_effects_parse_mappings_in_their_local_context() {
     for input in [
         "transform {_value} using input",
         "sort {_words::*} by {_values::*}",
-        "send input",
+        "send input to console",
     ] {
         let result = parse_effect(&mut host, &transaction, 7, input);
         assert!(
@@ -1263,7 +1293,7 @@ fn nested_parenthesized_expressions_work_inside_effects() {
     let transaction = host
         .begin_parse("file:///workspace", "file:///workspace/effect.sk", 8)
         .unwrap();
-    let input = "send (new vector from yaw (all offline players's size) and pitch (all offline players's size))";
+    let input = "send (new vector from yaw (all offline players's size) and pitch (all offline players's size)) to console";
     let result = parse_effect(&mut host, &transaction, 8, input);
     let selected = result.matches.selected.unwrap_or_else(|| {
         panic!(
@@ -1430,7 +1460,7 @@ fn property_expression_return_type_flows_into_function_arguments() {
     let transaction = host
         .begin_parse("file:///workspace", "file:///workspace/effect.sk", 12)
         .unwrap();
-    let input = "teleport \"nlaocs\" parsed as player to location(\"nlaocs\" parsed as player's location's x-coord, 1, 1)";
+    let input = "teleport \"nlaocs\" parsed as player {_direction} location(\"nlaocs\" parsed as player's location's x-coord, 1, 1)";
     let result = parse_effect(&mut host, &transaction, 12, input);
     let selected = result.matches.selected.unwrap_or_else(|| {
         let failures = result.matches.unknown.as_ref().map(|unknown| {
@@ -1493,7 +1523,7 @@ fn property_expression_prefers_the_closest_source_handler() {
         &mut host,
         &transaction,
         13,
-        "send \"nlaocs\" parsed as player's name",
+        "send \"nlaocs\" parsed as player's name to console",
     )
     .matches
     .selected

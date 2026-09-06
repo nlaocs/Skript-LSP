@@ -2,6 +2,10 @@
 
 [日本語](README.ja.md)
 
+The `parser.default-expression` capability adds typed omitted-capture providers
+to the existing subscription, selector, metadata and transaction contract.
+See the [DefaultExpression addon guide](../docs/default-expressions.md).
+
 `parser-wasm` owns both sides of the WebAssembly Component Model boundary
 between the Rust parser, mandatory CoreLibrary, and parser addon components.
 It contains the shared ABI model plus the optional native Wasmtime host.
@@ -30,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.33.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.35.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -90,7 +94,9 @@ multiple targets for each registered semantic handler, including dynamic
   parser results changed it to 0.30.0; runtime Type parser registration
   metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
   changed it to 0.32.0; the read-only structured Section scope stack changed it
-  to 0.33.0. The manifest's current `abi` value is 15.0 and is a
+  to 0.33.0; typed default providers, capture presence, implicit summaries and
+  indexed ClassInfo lookup changed it to 0.34.0; typed DefaultExpression descriptors changed it to
+  0.35.0. The manifest's current `abi` value is 17.0 and is a
 runtime handshake that requires an exact
 `major.minor` match.
 

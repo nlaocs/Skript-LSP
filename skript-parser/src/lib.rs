@@ -4,6 +4,7 @@
 mod arithmetic;
 mod catalog_match;
 mod condition;
+mod default_expression;
 mod effect;
 mod event;
 mod expansion;
@@ -24,6 +25,8 @@ mod tree_edit;
 pub use catalog_match::*;
 /// Condition parsing over SSG registrations and recursive Expressions.
 pub use condition::*;
+/// Shared default Expression requests, outcomes and implicit-node provenance.
+pub use default_expression::*;
 /// Effect parsing over lossless Simple nodes and recursive Expressions.
 pub use effect::*;
 /// Event-header matching used by StructEvent and addon Structure handlers.

@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+`parser.default-expression` capabilityは既存のsubscription、selector、metadata、
+transaction contractへ型付き省略captureのproviderを追加します。
+[DefaultExpression Addonガイド](../docs/default-expressions.ja.md)を参照してください。
+
 `parser-wasm`は、Rust parser、必須のCoreLibrary、parser addon componentをつなぐ
 WebAssembly Component Model境界の両側を所有します。共通ABI modelと、任意で有効になる
 native Wasmtime hostを含みます。
@@ -29,7 +33,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.33.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.35.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -75,7 +79,9 @@ Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、provid
 完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
 unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加で0.31.0へ、
 host側で索引化するruntime Type pattern照合の追加で0.32.0へ、read-onlyな構造化Section scope stackの
-追加で0.33.0へ変わりました。manifestの現在の`abi`値は15.0で、
+追加で0.33.0へ、型付きdefault provider、capture状態、implicit summary、索引化ClassInfo検索の
+追加で0.34.0、型付きDefaultExpression descriptorの追加で0.35.0へ変わりました。
+manifestの現在の`abi`値は17.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと

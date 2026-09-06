@@ -81,6 +81,7 @@ mod tests {
 
     fn child(text: &str, kind: &str, return_type: &str) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
+            default_expression: None,
             text: text.to_owned(),
             kind: kind.to_owned(),
             parser_id: None,

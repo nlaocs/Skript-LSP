@@ -95,6 +95,7 @@ mod tests {
             },
             mark: 0,
             children: vec![RegisteredExpressionChild {
+                default_expression: None,
                 text: "uuid".to_owned(),
                 kind: "literal".to_owned(),
                 parser_id: None,
