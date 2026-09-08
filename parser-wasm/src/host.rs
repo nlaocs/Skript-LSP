@@ -4,7 +4,13 @@
 //! coordinates macros and dynamic syntax, and commits only accepted side effects.
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
+mod document;
 mod public_data;
+
+pub use document::{
+    DocumentCancellationToken, DocumentExpressionId, DocumentExpressionRecord, DocumentParseError,
+    DocumentParseRequest, DocumentParseResult, DocumentParseStage, DocumentParserConfig,
+};
 
 use std::{
     cell::RefCell,
@@ -9908,6 +9914,13 @@ impl ParserHost {
                 pipeline.active.pop();
                 return Err(HostError::TreeMacroNodeQuotaExceeded {
                     limit: self.config.max_tree_macro_nodes,
+                });
+            }
+            if application.source.virtual_source().len() > self.config.max_virtual_source_bytes {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(HostError::VirtualSourceQuotaExceeded {
+                    limit: self.config.max_virtual_source_bytes,
                 });
             }
 

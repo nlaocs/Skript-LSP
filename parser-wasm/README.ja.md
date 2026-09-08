@@ -478,7 +478,11 @@ hostだけが割り当てます。
 です。addon error、trap、不正edit、cycleでは現在のnodeを保持し、その候補の書き込みを
 rollbackします。型付きRejectまたはpipeline quota errorでは、元tree、source provenance、
 parse StateStore savepointを復元します。成功したeditはExpansionGraphへTree entryを追加し、
-再帰的に生成されたnodeから完全なcall-site backtraceを辿れます。
+再帰的に生成されたnodeから完全なcall-site backtraceを辿れます。edit採用後は有効なRawTree
+全体をpreorderでmapped virtual source arenaの新しい領域へ投影します。各RawNodeはSectionの
+header/bodyを含む整合した生成後の実範囲を指すため、後続のsyntax parserは生成後のtextを読み、
+diagnosticはmacroのcall-siteへ戻せます。以前の投影はprovenance用に参照可能なまま残りますが、
+有効なRawTree nodeとしては扱われません。
 
 ## Pattern matching hook
 
@@ -691,6 +695,8 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 主なentry pointは次のとおりです。
 
 - `ParserHost::new`: 必須CoreLibraryをinstantiateする
+- `parse_document`: Text macro、RawTree、Tree macro、二段階Structure parseを1つの
+  atomicなdocument revisionとして実行する
 - `load_addon` / `unload_addon`: component lifecycleを管理する
 - `begin_parse`: multi-phase parse transactionを作る
 - `dispatch_in_parse`: 一致するhook subscriptionを呼ぶ
@@ -707,6 +713,19 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `parse_structures_in_parse`: top-level Structureと選択されたbodyを解析する
 - `dispatch`: 1回のdispatch transaction用convenience API
 
+editorやserverからは通常`parse_document`を使用します。SSG runtime profileからversion依存の
+RawTree動作を選び、未知の構文をpartial `StructureDocument`として保持し、全pipeline完走後だけ
+採用済みStateStore writeをcommitします。cancelまたはfatal failure時にはdocument scopeの
+dynamic syntaxも一緒にrollbackします。`DocumentParseResult::expressions`は、選択された
+Expressionをrevision内でpreorderに並べたindexです。最終return type、multiplicity、metadata、
+schema-version付きpublic dataを保持しますが、addon固有schemaの中身は解釈しません。将来の
+Rust semantic databaseはこの中立なindexを入力にでき、StateStoreは正規のLSP symbol database
+ではなくaddon state/cacheのままです。
+
+cancelはphase境界で協調的に確認します。長いnative parse中にcancelされた場合も、そのphaseが
+戻り次第commitを止めます。AST macro実行は専用のAST macro実装へ残しており、現時点の正本となる
+syntax結果は`StructureDocument`です。
+
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch
 output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax Catalogを管理します。
 
@@ -717,6 +736,7 @@ output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax 
 | `wit/` | Component Model package、world、record、variant、host import |
 | `src/bindings.rs` | WITから生成されるWasmtime binding |
 | `src/host.rs` | component lifecycle、subscription、dispatch、limit、dynamic syntax bridge |
+| `src/host/document.rs` | atomicな単一document pipeline、cancel、Expression semantic-input index |
 | `src/state/mod.rs` | namespace registryとin-memory transactional StateStore |
 | `src/state/persistent.rs` | `redb` persistent-project backend |
 | `tests/contract.rs` | host/guest binding contract |
@@ -725,6 +745,7 @@ output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax 
 | `tests/dynamic_syntax.rs` | SSG fixtureに対する実WASM dynamic registration |
 | `tests/text_macro.rs` | 順序付き実WASM展開、diagnostic mapping、rollback、quota、trap |
 | `tests/tree_macro.rs` | 実WASM node/body edit、再帰provenance、cycle、rollback、quota、trap |
+| `tests/document.rs` | modern/legacyのend-to-end parse、Tree生成syntax/diagnostic、回復、cancel、stale revision |
 | `tests/pattern_match.rs` | 実WASM element overrideと採用候補だけを残すStateStore rollback |
 | `tests/structure.rs` | 実CoreLibrary Structure lifecycle、Event capture、EntryValidator、未知addon entry |
 

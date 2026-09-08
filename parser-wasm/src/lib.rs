@@ -19,6 +19,8 @@ pub mod state;
 
 #[cfg(feature = "host")]
 pub use host::{
+    DocumentCancellationToken, DocumentExpressionId, DocumentExpressionRecord, DocumentParseError,
+    DocumentParseRequest, DocumentParseResult, DocumentParseStage, DocumentParserConfig,
     HostConfig, HostError, ParserHost, RuntimePlugin, RuntimeProfile, TreeMacroCall,
     TreeMacroRequest, TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult,
     WasmExpressionParseResult, WasmPatternMatchResult, WasmSectionParseResult,

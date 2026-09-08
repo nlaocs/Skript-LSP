@@ -589,7 +589,12 @@ and cycles preserve the current node and roll back that candidate's writes. A
 typed rejection or a pipeline quota error restores the original tree, source
 provenance, and parse StateStore savepoint. Successful edits append Tree
 entries to the ExpansionGraph, so recursively generated nodes retain complete
-call-site backtraces.
+call-site backtraces. After each accepted edit, the complete active RawTree is
+projected in preorder into a new region of the mapped virtual-source arena.
+Every RawNode therefore points at the exact active text, including coherent
+Section header and body ranges, while generated text still maps back to the
+macro call-site. Earlier projections remain addressable for provenance and are
+not treated as active RawTree nodes.
 
 ## Pattern Matching Hooks
 
@@ -845,6 +850,8 @@ The capability is intentionally unavailable when no Catalog is connected.
 The main entry points are:
 
 - `ParserHost::new`: instantiate the mandatory CoreLibrary
+- `parse_document`: run Text macro, RawTree, Tree macro, and two-pass Structure
+  parsing as one atomic document revision
 - `load_addon` and `unload_addon`: manage component lifecycles
 - `begin_parse`: create a multi-phase parse transaction
 - `dispatch_in_parse`: invoke matching hook subscriptions
@@ -861,6 +868,22 @@ The main entry points are:
 - `parse_structures_in_parse`: parse all top-level Structures and their selected bodies
 - `dispatch`: convenience API for a one-dispatch transaction
 
+`parse_document` is the normal entry point for an editor or server. It derives
+version-sensitive RawTree behavior from the SSG runtime profile, preserves
+unknown syntax as a partial `StructureDocument`, commits accepted StateStore
+writes only after the complete pipeline, and rolls back document-scoped dynamic
+syntax on cancellation or fatal failure. `DocumentParseResult::expressions` is
+a revision-local preorder index of selected Expressions. It retains final
+return types, multiplicity, metadata, and schema-versioned public data without
+interpreting addon-owned schemas. A future Rust semantic database can consume
+that neutral index; StateStore remains addon state and cache rather than the
+canonical LSP symbol database.
+
+Cancellation is cooperative at phase boundaries. A request cancelled during a
+long native parse is prevented from committing as soon as that phase returns.
+AST macro execution remains reserved for the dedicated AST-macro implementation;
+the canonical syntax result today is `StructureDocument`.
+
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
 limits, dispatch, Text macro, and Tree macro quotas, StateStore configuration, and the
 optional syntax Catalog.
@@ -872,6 +895,7 @@ optional syntax Catalog.
 | `wit/` | Component Model package, world, records, variants, and host imports |
 | `src/bindings.rs` | Wasmtime bindings generated from WIT |
 | `src/host.rs` | component lifecycle, subscriptions, dispatch, limits, and dynamic syntax bridge |
+| `src/host/document.rs` | atomic single-document pipeline, cancellation, and Expression semantic-input index |
 | `src/state/mod.rs` | namespace registry and in-memory transactional StateStore |
 | `src/state/persistent.rs` | `redb` persistent-project backend |
 | `tests/contract.rs` | host and guest binding contract |
@@ -880,6 +904,7 @@ optional syntax Catalog.
 | `tests/dynamic_syntax.rs` | real WASM dynamic registration against an SSG fixture |
 | `tests/text_macro.rs` | ordered real-WASM expansion, diagnostic mapping, rollback, quotas, and traps |
 | `tests/tree_macro.rs` | real-WASM node/body edits, recursive provenance, cycles, rollback, quotas, and traps |
+| `tests/document.rs` | end-to-end modern/legacy parsing, Tree-generated syntax and diagnostics, recovery, cancellation, and stale revisions |
 | `tests/pattern_match.rs` | real-WASM element override and selected-candidate StateStore rollback |
 | `tests/structure.rs` | real CoreLibrary Structure lifecycle, Event capture, EntryValidator, and unknown addon entries |
 
