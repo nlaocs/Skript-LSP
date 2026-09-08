@@ -704,7 +704,7 @@ impl MappedSource {
                 TextRange::new(cursor, edit.range.start),
                 &mut virtual_source,
                 &mut segments,
-            );
+            )?;
 
             let replacement_start = virtual_source.len();
             virtual_source.push_str(&edit.replacement);
@@ -721,7 +721,7 @@ impl MappedSource {
             TextRange::new(cursor, self.virtual_source.len()),
             &mut virtual_source,
             &mut segments,
-        );
+        )?;
 
         if virtual_source.is_empty() {
             segments.push(SourceMapSegment::with_origins(
@@ -821,20 +821,22 @@ impl MappedSource {
         Ok(())
     }
 
-    fn append_preserved_range(
+    pub(crate) fn append_preserved_range(
         &self,
         range: TextRange,
         output: &mut String,
         segments: &mut Vec<SourceMapSegment>,
-    ) {
+    ) -> Result<(), SourceMapError> {
         if range.is_empty() {
-            return;
+            return Ok(());
         }
-        output.push_str(
-            range
-                .slice(&self.virtual_source)
-                .expect("text edit ranges were validated"),
-        );
+        let text = range
+            .slice(&self.virtual_source)
+            .ok_or(SourceMapError::InvalidRange {
+                input: "virtual source",
+                range,
+            })?;
+        output.push_str(text);
         let mut output_start = output.len() - range.len();
         for segment in &self.source_map.segments {
             let Some(overlap) = segment.virtual_range.intersection(range) else {
@@ -847,6 +849,7 @@ impl MappedSource {
             ));
             output_start = output_end;
         }
+        Ok(())
     }
 
     fn generated_origins(
