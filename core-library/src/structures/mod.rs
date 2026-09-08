@@ -88,6 +88,7 @@ fn register_handler(
     handlers.push(RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Structure,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Structure,
         targets: vec![
             RegisteredSyntaxHandlerTarget::ClassSuffix(class_suffix.to_owned()),
             RegisteredSyntaxHandlerTarget::DynamicHandler(handler_id.to_owned()),

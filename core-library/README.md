@@ -2,6 +2,11 @@
 
 [日本語](README.ja.md)
 
+The standard DefaultExpression provider implements Skript `SimpleLiteral`,
+`EventValueExpression`, and `ExprDamageCause` semantics from typed SSG evidence.
+Missing context rejects; incomplete or custom semantics remain unresolved.
+See the [DefaultExpression guide](../docs/default-expressions.md).
+
 `core-library` is the mandatory WebAssembly Component loaded by every
 `parser-wasm::ParserHost`. It is the stable home for Skript's built-in parsing
 behavior that must use the same addon ABI as third-party parser addons.
@@ -11,17 +16,17 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.33.0` and ABI `15.0`
+- WIT package `nlaocs:skript-parser-addon@0.35.0` and ABI `17.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
-- nine registered subscriptions: a Document health check, ParseStage
+- ten registered subscriptions: a DefaultExpression provider, a Document health check, ParseStage
   Expression candidates, registered-Expression and Type semantics, Condition,
   Effect, Section, and Structure semantics, plus a low-priority Tree-phase
   options preprocessor
 - typed exports for hooks and text, tree, and AST macro interfaces
 
-The manifest requires `parser.hooks`, the five syntax-parser capabilities,
+The manifest requires `parser.hooks`, `parser.default-expression`, the five syntax-parser capabilities,
 Tree macros, and `parser.state-store`. It optionally consumes
 `parser.dynamic-syntax` and `parser.catalog-data` version 2; Text and AST macro
 capabilities are not requirements.

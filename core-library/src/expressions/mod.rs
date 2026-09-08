@@ -1,5 +1,5 @@
 mod context_validation;
-mod event_value_expression;
+pub(crate) mod event_value_expression;
 mod expr_all_banned_entries;
 mod expr_any_of;
 mod expr_argument;
@@ -243,6 +243,7 @@ fn register_handler_targets(
     handlers.push(RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Expression,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
         targets: class_suffixes
             .iter()
             .map(|suffix| RegisteredSyntaxHandlerTarget::ClassSuffix((*suffix).to_owned()))
@@ -282,6 +283,7 @@ fn register_handler_with_context(
     handlers.push(RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Expression,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
         targets: vec![RegisteredSyntaxHandlerTarget::ClassSuffix(
             class_suffix.to_owned(),
         )],

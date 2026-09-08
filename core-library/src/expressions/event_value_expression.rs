@@ -13,6 +13,7 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     handlers.push(RegisteredSyntaxHandler {
         handler_id: HANDLER_ID.to_owned(),
         kind: SyntaxKind::Expression,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
         targets: vec![RegisteredSyntaxHandlerTarget::SuperClass(
             SUPER_CLASS.to_owned(),
         )],
@@ -79,7 +80,7 @@ pub(super) fn resolve_target(
                 &payload.type_options,
             );
             if let Some(message) = without_conversion.abort.as_ref() {
-                return SemanticResolution::Reject(message.clone());
+                return SemanticResolution::Reject(message.reason.clone());
             }
             target_unknown |= without_conversion.unknown;
             if without_conversion.values.len() > 1 {
@@ -96,7 +97,7 @@ pub(super) fn resolve_target(
                     &payload.type_options,
                 );
                 if let Some(message) = converted.abort.as_ref() {
-                    return SemanticResolution::Reject(message.clone());
+                    return SemanticResolution::Reject(message.reason.clone());
                 }
                 converted
             } else {
@@ -195,7 +196,7 @@ pub(super) fn resolve_identifier(
         };
         let matches = preferred_identifier_matches(&values, event_class, payload.time);
         if let Some(message) = matches.abort.as_ref() {
-            return SemanticResolution::Reject(message.clone());
+            return SemanticResolution::Reject(message.reason.clone());
         }
         unknown |= matches.unknown;
         if matches.values.len() > 1 {
@@ -294,10 +295,17 @@ enum ResolutionPhase {
     Conversion,
 }
 
-struct CandidateMatches {
-    values: Vec<EventValueOption>,
-    unknown: bool,
-    abort: Option<String>,
+pub(crate) struct CandidateMatches {
+    pub(crate) values: Vec<EventValueOption>,
+    pub(crate) unknown: bool,
+    pub(crate) abort: Option<EventValueAbort>,
+}
+
+/// An exclusion stops this Event/time lookup, not every Event in a context.
+pub(crate) struct EventValueAbort {
+    pub(crate) reason: String,
+    /// Only an explicitly registered exclusion message is a Skript diagnostic.
+    pub(crate) diagnostic: Option<String>,
 }
 
 fn preferred_identifier_matches(
@@ -375,7 +383,7 @@ fn collect_identifier_matches(
 /// consulted only when that state produced no compatible value for this target.
 /// This matters when an event has an unrelated registration at the requested
 /// time but a useful default registration for the expression being resolved.
-fn preferred_event_value_matches(
+pub(crate) fn preferred_event_value_matches(
     values: &[EventValueOption],
     event_class: &str,
     target_type: &str,
@@ -467,8 +475,15 @@ fn collect_event_value_matches(
             }
         }
         if !matches.is_empty() {
+            let values = match strip_event_value_candidates(target_type, matches, type_options) {
+                Ok(values) => values,
+                Err(()) => {
+                    unknown = true;
+                    Vec::new()
+                }
+            };
             return CandidateMatches {
-                values: strip_event_value_candidates(target_type, matches, type_options),
+                values,
                 unknown,
                 abort: None,
             };
@@ -483,7 +498,7 @@ fn collect_event_value_matches(
 
 enum CandidateValidation {
     Valid,
-    Abort(String),
+    Abort(EventValueAbort),
     Unknown,
 }
 
@@ -495,14 +510,15 @@ fn validate_candidate(
     for excluded in &value.excludes {
         match crate::catalog::is_class_assignable(event_class, excluded) {
             Ok(TypeRelation::Compatible) => {
-                return CandidateValidation::Abort(
-                    value.exclude_error_message.clone().unwrap_or_else(|| {
+                return CandidateValidation::Abort(EventValueAbort {
+                    reason: value.exclude_error_message.clone().unwrap_or_else(|| {
                         format!(
                             "event value {} is excluded from {event_class}",
                             value.registration_id
                         )
                     }),
-                );
+                    diagnostic: value.exclude_error_message.clone(),
+                });
             }
             Ok(TypeRelation::Incompatible) => {}
             Ok(TypeRelation::Unknown) | Err(_) => return CandidateValidation::Unknown,
@@ -604,22 +620,32 @@ fn strip_event_value_candidates(
     requested_type: &str,
     candidates: Vec<EventValueOption>,
     type_options: &[crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption],
-) -> Vec<EventValueOption> {
-    strip_event_value_candidates_with_class_info(requested_type, candidates, |class_name| {
-        type_options
-            .iter()
-            .find(|option| option.class_name == class_name)
-            .map(|option| option.registration_id.clone())
-    })
+) -> Result<Vec<EventValueOption>, ()> {
+    let mut lookup_failed = false;
+    let values =
+        strip_event_value_candidates_with_class_info(requested_type, candidates, |class_name| {
+            type_options
+                .iter()
+                .find(|option| option.class_name == class_name)
+                .map(|option| option.registration_id.clone())
+                .or_else(|| match crate::catalog::type_for_class(class_name) {
+                    Ok(option) => option.map(|option| option.registration_id),
+                    Err(_) => {
+                        lookup_failed = true;
+                        None
+                    }
+                })
+        });
+    if lookup_failed { Err(()) } else { Ok(values) }
 }
 
 fn strip_event_value_candidates_with_class_info<F>(
     requested_type: &str,
     candidates: Vec<EventValueOption>,
-    class_info_of: F,
+    mut class_info_of: F,
 ) -> Vec<EventValueOption>
 where
-    F: Fn(&str) -> Option<String> + Copy,
+    F: FnMut(&str) -> Option<String>,
 {
     if candidates.len() <= 1 {
         return candidates;
@@ -703,6 +729,7 @@ mod tests {
 
     fn event_value(value_class: &str, time: i32, registration_id: &str) -> EventValueOption {
         EventValueOption {
+            source_record: None,
             event_class: "test.Event".to_owned(),
             value_class: value_class.to_owned(),
             time,

@@ -439,6 +439,7 @@ fn registered_handler(handler_id: &str, parser_class: &str) -> RegisteredSyntaxH
     RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Type,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
         targets: vec![RegisteredSyntaxHandlerTarget::ParserClass(
             parser_class.to_owned(),
         )],

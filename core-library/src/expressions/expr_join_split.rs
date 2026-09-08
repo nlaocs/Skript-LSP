@@ -106,6 +106,7 @@ mod tests {
 
     fn delimiter(text: &str, literal: bool) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
+            default_expression: None,
             text: text.to_owned(),
             kind: if literal { "literal" } else { "variable" }.to_owned(),
             parser_id: literal.then(|| "core.literal.string".to_owned()),

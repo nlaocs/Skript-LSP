@@ -275,6 +275,7 @@ struct RegisteredTypePatternIndexEntry {
 struct CatalogIndex {
     syntaxes_by_registration_id: HashMap<String, Vec<usize>>,
     types_by_code_name: HashMap<String, usize>,
+    types_by_class_name: HashMap<String, usize>,
     functions_by_name: HashMap<String, Vec<usize>>,
     event_values_by_event_class: HashMap<String, Vec<usize>>,
     converters_by_from: HashMap<String, Vec<usize>>,
@@ -342,6 +343,10 @@ impl Catalog {
 
             match syntax {
                 Syntax::Type(value) => {
+                    index
+                        .types_by_class_name
+                        .entry(value.original_class.as_str().to_owned())
+                        .or_insert(position);
                     index
                         .types_by_code_name
                         .insert(value.code_name.as_str().to_owned(), position);
@@ -640,6 +645,15 @@ impl Catalog {
     /// Looks up a type by its normalized Skript code name.
     pub fn type_by_code_name(&self, code_name: &str) -> Option<&Type> {
         let position = *self.index.types_by_code_name.get(code_name)?;
+        match &self.parts.syntaxes[position] {
+            Syntax::Type(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Looks up the first registered ClassInfo for an exact Java class.
+    pub fn type_by_class_name(&self, class_name: &str) -> Option<&Type> {
+        let position = *self.index.types_by_class_name.get(class_name)?;
         match &self.parts.syntaxes[position] {
             Syntax::Type(value) => Some(value),
             _ => None,

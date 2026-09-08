@@ -16,6 +16,7 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     handlers.push(RegisteredSyntaxHandler {
         handler_id: HANDLER_ID.to_owned(),
         kind: SyntaxKind::Effect,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Effect,
         targets: vec![RegisteredSyntaxHandlerTarget::SuperClass(
             SUPER_CLASS.to_owned(),
         )],

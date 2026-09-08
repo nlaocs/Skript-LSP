@@ -78,6 +78,7 @@ mod tests {
 
     fn child(return_type: Option<&str>) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
+            default_expression: None,
             text: "value".to_owned(),
             kind: "custom".to_owned(),
             parser_id: None,

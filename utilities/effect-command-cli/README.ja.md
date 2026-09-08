@@ -2,6 +2,11 @@
 
 [English](README.md)
 
+schema 7はimplicit/defaultの子Expressionと、省略引数のrejected/unresolvedを通常表示・
+JSONの両方へ表示します。例えば`send stone`には`--event "on join"`などCommandSenderを
+提供するEventが必要です。`send stone to console`は送信先を明示しています。原文は維持します。
+[共通DefaultExpressionモデル](../../docs/default-expressions.ja.md)を参照してください。
+
 `effectcommandcli`は、1つのSkript EffectをSkriptSyntaxGenerator（SSG）の
 schema 3 / 4 / 5 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
 `ssg`、`syntaxes`、`skript-parser`、`parser-wasm`、必須CoreLibraryを接続する
@@ -24,7 +29,7 @@ Windowsの成果物は`target/debug/effectcommandcli.exe`です。
 SSGの出力directoryまたは`Manifest.json`を指定できます。
 
 ```console
-effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1"
+effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1 to console"
 ```
 
 `--snapshot`を省略した場合は`EFFECT_COMMAND_CLI_SNAPSHOT`、次にcurrent directoryを
@@ -39,9 +44,9 @@ schema 5では`Language.json`が必須ですが、schema 3と4では不要です
 Effect引数を渡すと1行だけ解析して終了します。
 
 ```console
-effectcommandcli.exe "send 1"
+effectcommandcli.exe "send 1 to console"
 effectcommandcli.exe --json "broadcast \"hello\""
-effectcommandcli.exe "send sin(abs(-1))"
+effectcommandcli.exe "send sin(abs(-1)) to console"
 effectcommandcli.exe --event "on join:" "send join message"
 effectcommandcli.exe --section "loop all players:" "continue"
 effectcommandcli.exe --section "loop all players" --section "if loop-player is online:" "exit 2 sections"
@@ -66,7 +71,7 @@ Section選択時はrootのexit hookをすぐ実行せず、enter hook後のtrans
 人間向け出力では、採用Effect、addon、実装class、登録pattern、pattern AST、capture、
 期待されるSkript type、解決されたJava return type、multiplicity、再帰Expression、
 public semantic data、parse tag、parse mark、代替候補、最遠failureを表示します。
-JSON reportには`schemaVersion: 6`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
+JSON reportには`schemaVersion: 7`を持たせ、SSG schemaとは独立してreaderをversion管理できます。
 人間向け出力の`parseTime`は、1 millisecond以上なら`ms`、それ未満なら`ns`で表示します。
 JSONでは同じ時間を整数nanosecondの`parseDurationNs`として出力します。この時間には
 RawTree解析、parserによる解析、transaction rollbackを含みます。SSG snapshotの読み込み、
@@ -120,7 +125,7 @@ Effectを省略するか`--repl`を渡すと、読み込んだsnapshot、catalog
 ```console
 effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
 
-effect> send 1
+effect> send 1 to console
 effect> broadcast "hello"
 effect> :event on join:
 effect> :section loop all players:

@@ -19,7 +19,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(15, 0)
+        parser_wasm::AbiVersion::new(17, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -36,7 +36,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.33.0")
+        Some("0.35.0")
     );
 
     let world = package
@@ -115,6 +115,7 @@ fn catalog_data_import_exposes_the_complete_source_query_surface() {
         "common-assignable-class",
         "can-convert",
         "registered-type-pattern-match",
+        "type-for-class",
     ] {
         assert!(
             catalog_interface.functions.contains_key(function),
@@ -127,7 +128,7 @@ fn catalog_data_import_exposes_the_complete_source_query_surface() {
 fn host_bindings_expose_typed_hook_contract() {
     use host::nlaocs::skript_parser_addon::types::{
         AbiVersion, CapabilityRequirement, ComponentManifest, ExpressionTypeOption, HookMode,
-        HookPhase, HookSelector, HookSubscription, HookTarget, SyntaxKind,
+        HookPhase, HookSelector, HookSubscription, HookTarget, SyntaxKind, TypeDefaultExpression,
     };
 
     let subscription = HookSubscription {
@@ -187,8 +188,17 @@ fn host_bindings_expose_typed_hook_contract() {
         has_parser: true,
         parse_contexts: vec!["DEFAULT".to_owned()],
         has_supplier: true,
+        default_expression: Some(TypeDefaultExpression {
+            implementation_class: "ch.njol.skript.lang.util.SimpleLiteral".to_owned(),
+            literal: Some(true),
+            return_type: Some("ch.njol.skript.util.weather.WeatherType".to_owned()),
+            single: Some(true),
+        }),
     };
     assert!(type_option.has_supplier);
+    let default_expression = type_option.default_expression.unwrap();
+    assert_eq!(default_expression.literal, Some(true));
+    assert_eq!(default_expression.single, Some(true));
 }
 
 #[test]
@@ -389,6 +399,7 @@ fn contract_defines_every_hook_phase_and_execution_mode() {
         HookPhase::Node,
         HookPhase::Matching,
         HookPhase::Expression,
+        HookPhase::DefaultExpression,
         HookPhase::Effect,
         HookPhase::Capture,
         HookPhase::Syntax,
@@ -399,7 +410,7 @@ fn contract_defines_every_hook_phase_and_execution_mode() {
     ];
     let modes = [HookMode::Observe, HookMode::Transform, HookMode::Override];
 
-    assert_eq!(phases.len(), 14);
+    assert_eq!(phases.len(), 15);
     assert_eq!(modes.len(), 3);
 }
 

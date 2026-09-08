@@ -75,7 +75,17 @@ pub(crate) struct TypeSerializationContract {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CatalogRecordReference {
+    pub source_digest: String,
+    pub snapshot_id: String,
+    pub document: String,
+    pub index: u64,
+    pub byte_length: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EventValueOption {
+    pub source_record: Option<CatalogRecordReference>,
     pub event_class: String,
     pub value_class: String,
     pub time: i32,
@@ -330,6 +340,21 @@ pub(crate) fn event_values_for(event_class: &str) -> Result<Vec<EventValueOption
         .map(|values| values.into_iter().map(event_value_option).collect())
 }
 
+pub(crate) fn type_for_class(
+    class_name: &str,
+) -> Result<Option<crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption>, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::nlaocs::skript_parser_addon::catalog_data::type_for_class(class_name)
+            .map_err(|error| error.message)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = class_name;
+        Ok(None)
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn event_values_for_input(
     event_class: &str,
@@ -347,6 +372,13 @@ fn event_value_option(
     value: crate::nlaocs::skript_parser_addon::catalog_data::EventValueOption,
 ) -> EventValueOption {
     EventValueOption {
+        source_record: value.source_record.map(|record| CatalogRecordReference {
+            source_digest: record.source_digest,
+            snapshot_id: record.snapshot_id,
+            document: record.document,
+            index: record.index,
+            byte_length: record.byte_length,
+        }),
         event_class: value.event_class,
         value_class: value.value_class,
         time: value.time,
@@ -1286,6 +1318,7 @@ mod tests {
 
     fn source_child(contract: ChangeContract) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
+            default_expression: None,
             text: "source".to_owned(),
             kind: "registered-expression".to_owned(),
             parser_id: None,

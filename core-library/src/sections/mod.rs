@@ -139,6 +139,7 @@ fn register_pattern_handler_targets(
     handlers.push(RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Section,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Section,
         targets: class_suffixes
             .iter()
             .map(|suffix| RegisteredSyntaxHandlerTarget::ClassSuffix((*suffix).to_owned()))
