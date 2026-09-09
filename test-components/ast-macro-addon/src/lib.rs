@@ -162,6 +162,12 @@ impl ast_macro::Guest for AstMacroAddon {
                 replacement.context_origin = AstContextOrigin::CallSite;
                 Ok(changed(replacement_tree(vec![replacement])))
             }
+            "definition-site" => {
+                let mut replacement =
+                    generated_node(target, 0, "definition-site-expanded", "definition-site");
+                replacement.context_origin = AstContextOrigin::DefinitionSite;
+                Ok(changed(replacement_tree(vec![replacement])))
+            }
             "cycle" => Ok(changed(cycle_fragment(&input.tree, target.id))),
             "invalid" => Ok(changed(AstTree {
                 roots: vec![u64::MAX],

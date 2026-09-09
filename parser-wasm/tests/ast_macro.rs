@@ -270,7 +270,7 @@ fn document_parse_feeds_zero_one_many_replacements_and_reenters_generated_nodes(
 #[test]
 fn generated_ast_nodes_have_fresh_context_and_call_site_backtrace() {
     let mut host = fixture_host(HostConfig::default());
-    let (source, tree) = fixture_tree(&["one"]);
+    let (source, tree) = fixture_tree(&["one", "one"]);
     let transaction = host
         .begin_parse("file:///workspace", "file:///workspace/ast.sk", 3)
         .expect("AST parse transaction must begin");
@@ -282,14 +282,77 @@ fn generated_ast_nodes_have_fresh_context_and_call_site_backtrace() {
         .tree
         .nodes
         .iter()
-        .find(|node| node.syntax_id.starts_with("macro:nlaocs.test.ast-macro/"))
-        .expect("fixture must return a generated node");
-    assert_eq!(generated.context_origin, AstContextOrigin::Macro);
+        .filter(|node| node.syntax_id.starts_with("macro:nlaocs.test.ast-macro/"))
+        .collect::<Vec<_>>();
+    assert_eq!(generated.len(), 2);
+    assert!(
+        generated
+            .iter()
+            .all(|node| node.context_origin == AstContextOrigin::Macro)
+    );
+    assert!(
+        generated.iter().all(|node| node.syntax_context != 0),
+        "macro nodes need fresh contexts"
+    );
     assert_ne!(
-        generated.syntax_context, 0,
-        "macro nodes need a fresh context"
+        generated[0].syntax_context, generated[1].syntax_context,
+        "separate macro expansions must not share a hygiene context"
     );
     assert_ast_expansion(&result, ParserTextRange::new(0, 3));
+    transaction
+        .cancel()
+        .expect("test transaction may be cancelled");
+}
+
+#[test]
+fn metadata_and_definition_site_intent_survive_validated_replacements() {
+    let mut host = fixture_host(HostConfig::default());
+    let (source, tree) = fixture_tree(&["metadata", "definition-site"]);
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/ast.sk", 31)
+        .expect("AST parse transaction must begin");
+    let result = host
+        .expand_ast_in_parse(&transaction, request(31, source, tree))
+        .expect("metadata and definition-site replacements must finish");
+
+    let metadata = result
+        .tree
+        .nodes
+        .iter()
+        .find(|node| node.text == "metadata")
+        .expect("metadata node must remain");
+    assert!(metadata.metadata.iter().any(|entry| {
+        entry.key == "fixture.ast-macro.mode"
+            && entry.value == "metadata-updated"
+            && entry.owner_component_id.as_deref() == Some(COMPONENT_ID)
+    }));
+
+    let definition_site = result
+        .tree
+        .nodes
+        .iter()
+        .find(|node| node.text == "definition-site-expanded")
+        .expect("definition-site node must be generated");
+    assert_eq!(
+        definition_site.context_origin,
+        AstContextOrigin::DefinitionSite
+    );
+    assert_ne!(definition_site.syntax_context, 0);
+    let expansion_id = result
+        .calls
+        .iter()
+        .find(|call| call.target == 1 && call.accepted)
+        .and_then(|call| call.expansion)
+        .expect("definition-site replacement must record an expansion");
+    assert!(
+        result
+            .source
+            .expansions()
+            .get(expansion_id)
+            .expect("definition-site expansion must exist")
+            .definition_site
+            .is_some()
+    );
     transaction
         .cancel()
         .expect("test transaction may be cancelled");
