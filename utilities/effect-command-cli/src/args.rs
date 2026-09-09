@@ -13,7 +13,7 @@ ARGS:
     <EFFECT>                 Effect text to parse. Omit it to start the REPL.
 
 OPTIONS:
-    -s, --snapshot <PATH>    SSG schema 3..5 directory, or its Manifest.json
+    -s, --snapshot <PATH>    SSG schema 3..6 directory, or its Manifest.json
         --event <HEADER>     Parse Effects inside this Event context
         --section <HEADER>   Push a Section context; may be repeated
         --json               Emit structured JSON

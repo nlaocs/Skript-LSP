@@ -12,7 +12,7 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".StructCommand";
-const HANDLER_ID: &str = "core.structure.struct-command";
+pub(super) const HANDLER_ID: &str = "core.structure.struct-command";
 const COMMAND_EVENT: &str = "ch.njol.skript.command.ScriptCommandEvent";
 const EXPRESSION_PARSER_ID: &str = "host.expression";
 const PARSE_MODE: &str = "parse.mode";

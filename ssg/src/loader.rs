@@ -306,6 +306,29 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
                 enabled: plugin.enabled,
             })
             .collect(),
+        capabilities: syntaxes::CatalogRuntimeCapabilities {
+            syntax_api: manifest.capabilities.syntax_api.as_str().to_owned(),
+            event_value_api: manifest.capabilities.event_value_api.as_str().to_owned(),
+            syntax_kinds: syntaxes::CatalogSyntaxKindCapabilities {
+                conditions: manifest.capabilities.syntax_kinds.conditions,
+                effects: manifest.capabilities.syntax_kinds.effects,
+                events: manifest.capabilities.syntax_kinds.events,
+                expressions: manifest.capabilities.syntax_kinds.expressions,
+                types: manifest.capabilities.syntax_kinds.types,
+                functions: manifest.capabilities.syntax_kinds.functions,
+                sections: manifest.capabilities.syntax_kinds.sections,
+                structures: manifest.capabilities.syntax_kinds.structures,
+                properties: manifest.capabilities.syntax_kinds.properties,
+                arithmetic: manifest.capabilities.syntax_kinds.arithmetic,
+                converters: manifest.capabilities.syntax_kinds.converters,
+                comparators: manifest.capabilities.syntax_kinds.comparators,
+                event_values: manifest.capabilities.syntax_kinds.event_values,
+            },
+            aliases: syntaxes::CatalogAliasCapabilities {
+                supported: manifest.capabilities.aliases.supported,
+                collected: manifest.capabilities.aliases.collected,
+            },
+        },
     });
     // Both views were built from the same validated `serialized` document set above.
     let catalog = convert::catalog(raw_snapshot, plural_rules)?.with_unchecked_source(source);

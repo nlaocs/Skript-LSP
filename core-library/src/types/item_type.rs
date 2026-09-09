@@ -2,7 +2,7 @@ use super::registered_literal::candidate_from_option;
 use crate::expression_candidates::metadata;
 use crate::nlaocs::skript_parser_addon::types::{
     DynamicMultiplicity, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLiteralSource,
-    ExpressionPayload,
+    ExpressionPayload, RuntimeAliasCapabilities, TypeParserUnresolved,
 };
 #[cfg(target_arch = "wasm32")]
 use crate::nlaocs::skript_parser_addon::{
@@ -24,9 +24,27 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     id: "core.type.item-type",
     classes: &["ch.njol.skript.aliases.ItemType"],
     parse,
-    unresolved: None,
+    unresolved: Some(unresolved),
     all_type_options: false,
 };
+
+fn unresolved(_payload: &ExpressionPayload, _text: &str) -> Option<TypeParserUnresolved> {
+    let profile = crate::runtime::current()?;
+    unresolved_aliases(
+        profile
+            .snapshot_capabilities
+            .as_ref()
+            .map(|capabilities| &capabilities.aliases),
+    )
+}
+
+fn unresolved_aliases(aliases: Option<&RuntimeAliasCapabilities>) -> Option<TypeParserUnresolved> {
+    let aliases = aliases?;
+    (aliases.supported && !aliases.collected).then(|| TypeParserUnresolved {
+        reason: "the SSG snapshot supports global aliases but did not collect them".to_owned(),
+        required_provider: Some("ssg.aliases".to_owned()),
+    })
+}
 
 pub(super) fn parse(
     payload: &ExpressionPayload,
@@ -351,7 +369,31 @@ fn item_start(pattern: &str, text: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_enchantment_list, parse_prefix};
+    use super::{parse_enchantment_list, parse_prefix, unresolved_aliases};
+    use crate::nlaocs::skript_parser_addon::types::RuntimeAliasCapabilities;
+
+    #[test]
+    fn unresolved_aliases_follow_snapshot_capabilities() {
+        let missing = RuntimeAliasCapabilities {
+            supported: true,
+            collected: false,
+        };
+        let unresolved = unresolved_aliases(Some(&missing)).expect("missing alias inventory");
+        assert_eq!(unresolved.required_provider.as_deref(), Some("ssg.aliases"));
+
+        let collected = RuntimeAliasCapabilities {
+            supported: true,
+            collected: true,
+        };
+        assert!(unresolved_aliases(Some(&collected)).is_none());
+
+        let unsupported = RuntimeAliasCapabilities {
+            supported: false,
+            collected: false,
+        };
+        assert!(unresolved_aliases(Some(&unsupported)).is_none());
+        assert!(unresolved_aliases(None).is_none());
+    }
 
     #[test]
     fn matches_skript_amount_and_all_prefixes() {

@@ -9,7 +9,7 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".StructFunction";
-const HANDLER_ID: &str = "core.structure.struct-function";
+pub(super) const HANDLER_ID: &str = "core.structure.struct-function";
 const EXPRESSION_PARSER_ID: &str = "host.expression";
 const FUNCTION_EVENT: &str = "ch.njol.skript.lang.function.FunctionEvent";
 

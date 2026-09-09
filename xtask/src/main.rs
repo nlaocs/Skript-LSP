@@ -75,6 +75,13 @@ const TREE_MACRO_ADDON: ComponentSpec = ComponentSpec {
     display_name: "tree macro test addon",
     feature: None,
 };
+const AST_MACRO_ADDON: ComponentSpec = ComponentSpec {
+    package: "ast-macro-addon",
+    module_name: "ast_macro_addon.wasm",
+    artifact_name: "ast-macro-addon.wasm",
+    display_name: "AST macro test addon",
+    feature: None,
+};
 
 const TYPE_PARSER_ADDON: ComponentSpec = ComponentSpec {
     package: "type-parser-addon",
@@ -115,6 +122,7 @@ fn build_core_library() -> Result<()> {
 
 fn build_test_components() -> Result<()> {
     build_components(&[
+        &AST_MACRO_ADDON,
         &CATALOG_DATA_ADDON,
         &DYNAMIC_SYNTAX_ADDON,
         &EFFECT_ADDON,

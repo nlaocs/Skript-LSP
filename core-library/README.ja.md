@@ -16,7 +16,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.35.0`とABI `17.0`
+- WIT package `nlaocs:skript-parser-addon@0.37.0`とABI `19.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -128,7 +128,13 @@ low-priorityのCoreLibrary options preprocessor専用に実装されています
 一回だけ置換し、置換したSectionのchildrenを保持し、undefined option diagnosticを出します。生成nodeは
 Tree phaseへ再入しますが、これは汎用CoreLibrary tree-macro APIではありません。Function callの照合はnative
 parserが担当し、`StructFunction`はdocument-function declarationだけを提供します。optionalな
-dynamic-syntax capabilityが使える場合は、version-gatedなlegacy Structure registrationも追加されます。
+dynamic-syntax capabilityが使える場合、CoreLibraryはSSGのStructure capabilityと、登録済みの
+`StructEvent`、`StructFunction`、`StructCommand` handler bindingを比較します。不足しているtop-level
+entryだけを登録し、Structureを収集できないsnapshotでは3種類すべてを補います。Skript versionはlegacyの
+`with priority ...`を含むEvent header文法の選択にだけ使い、registrationの有無は決めません。
+
+legacy item解析もSSGのalias capabilityに従います。収集済みalias inventoryを確定情報として使い、alias対応版で
+未収集なら`ssg.aliases` providerが未解決だと報告します。alias非対応版ではこのdiagnosticを出しません。
 
 初期化には空でないparse可能な`runtime.skript-version`が必要です。`ParserHost::new`がSSG由来の
 `syntax_catalog`を受け取ると、初期化前にCatalogから未指定のRuntimeProfile fieldを自動補完するため、callerが

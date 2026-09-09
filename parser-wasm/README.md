@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.35.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.37.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -94,11 +94,12 @@ multiple targets for each registered semantic handler, including dynamic
   parser results changed it to 0.30.0; runtime Type parser registration
   metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
   changed it to 0.32.0; the read-only structured Section scope stack changed it
-  to 0.33.0; typed default providers, capture presence, implicit summaries and
-  indexed ClassInfo lookup changed it to 0.34.0; typed DefaultExpression descriptors changed it to
-  0.35.0. The manifest's current `abi` value is 17.0 and is a
-runtime handshake that requires an exact
-`major.minor` match.
+  to 0.33.0; hygienic AST macros changed it to 0.34.0; typed default providers,
+  capture presence, implicit summaries, and indexed ClassInfo lookup changed it
+  to 0.35.0; typed DefaultExpression descriptors changed it to 0.36.0; and SSG
+  runtime snapshot capabilities changed it to 0.37.0. The manifest's current
+  `abi` value is 19.0 and is a runtime handshake that requires an exact
+  `major.minor` match.
 
 Every parse context exposes a read-only Section stack from the outermost scope
 to the innermost. Frames distinguish the catalog addon from the owner WASM
@@ -117,24 +118,29 @@ older host without failing while lifting its manifest.
   component manifest, then the guest validates the host profile in
   `addon.initialize`.
 
-The host advertises and executes Text and Tree macros. The AST macro capability
-remains contract-only and is not advertised yet. CoreLibrary's manifest
-requires `parser.hooks`, the five syntax-parser capabilities, Tree macros, and
-`parser.state-store`; it optionally consumes `parser.dynamic-syntax` and
-`parser.catalog-data` version 2. It does not require Text or AST macros.
+The host advertises and executes Text, Tree, and AST macros. CoreLibrary's
+manifest requires `parser.hooks`, the five syntax-parser capabilities, Tree
+macros, and `parser.state-store`; it optionally consumes
+`parser.dynamic-syntax` and `parser.catalog-data` version 2. It does not require
+Text or AST macros.
 
 `addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
 manifest. It includes snapshot/server/Skript/Minecraft/Java versions, language,
-and enabled plugins in load order. `ParserHost::new` calls
+enabled plugins in load order, and the manifest's syntax API, syntax-kind, and
+alias capabilities. `ParserHost::new` calls
 `HostConfig::inherit_catalog_runtime` before validation: when
 `syntax_catalog` contains an SSG-backed source, missing profile fields,
 including the Skript version and snapshot identity, are filled from that
 source. Callers do not need to duplicate those values. A default configuration
 with neither a source Catalog nor an explicit Skript version is rejected by
 CoreLibrary initialization; explicitly supplied snapshot identity must still
-match the source Catalog. Components may use the profile to select semantics
+match the source Catalog. Explicitly supplied snapshot capabilities must also
+match the source Catalog, so callers cannot accidentally enable or suppress
+legacy fallbacks with a contradictory profile. Components may use the profile to select semantics
 whose Java class or parse mark changed between releases without treating one
-Skript release as the implicit default.
+Skript release as the implicit default. CoreLibrary also uses the capability
+block to add legacy top-level syntax only when its static Structure handlers
+are absent.
 
 ## Open Parser Requests
 
@@ -595,7 +601,12 @@ and cycles preserve the current node and roll back that candidate's writes. A
 typed rejection or a pipeline quota error restores the original tree, source
 provenance, and parse StateStore savepoint. Successful edits append Tree
 entries to the ExpansionGraph, so recursively generated nodes retain complete
-call-site backtraces.
+call-site backtraces. After each accepted edit, the complete active RawTree is
+projected in preorder into a new region of the mapped virtual-source arena.
+Every RawNode therefore points at the exact active text, including coherent
+Section header and body ranges, while generated text still maps back to the
+macro call-site. Earlier projections remain addressable for provenance and are
+not treated as active RawTree nodes.
 
 ## Pattern Matching Hooks
 
@@ -846,11 +857,38 @@ snapshots without mutating already frozen document snapshots.
 
 The capability is intentionally unavailable when no Catalog is connected.
 
+## AST Macros And Hygiene
+
+After native Structure parsing, the host projects the selected syntax into a
+data-only `AstTree` and walks its nodes in deterministic preorder. AST macro
+subscriptions may target the parse stage, syntax kind, definition,
+registration, or pattern. A replacement with zero roots deletes a list item,
+one root replaces it, and multiple roots splice into list positions. A capture
+that owns exactly one node accepts exactly one replacement root.
+
+The host owns node IDs, graph references, source spans, syntax references, and
+metadata namespaces. It validates and canonicalizes every addon fragment before
+adopting it. Generated nodes receive a fresh expansion `SyntaxContextId`; an
+explicit call-site node inherits the replaced node's context. A definition-site
+node keeps that resolution intent, while the expansion's component and hook
+identify its defining addon. `preserved` is accepted only for an unchanged node
+identity from the target subtree. Each accepted replacement registers an AST
+expansion in the same provenance graph used by Text and Tree macros.
+
+An invalid fragment, addon error, or trap rolls back that invocation and keeps
+the original node. A typed rejection or fatal host quota rolls back the complete
+AST stage. Recursion depth, tree depth, call count, node count, and output size
+are bounded by `HostConfig`. State written by syntax parsing before the AST
+stage is not undone merely because a later macro deletes its projected node;
+cancelling the document still rolls back the complete parse transaction.
+
 ## Native Host API
 
 The main entry points are:
 
 - `ParserHost::new`: instantiate the mandatory CoreLibrary
+- `parse_document`: run Text macro, RawTree, Tree macro, two-pass Structure
+  parsing, and AST macro expansion as one atomic document revision
 - `load_addon` and `unload_addon`: manage component lifecycles
 - `begin_parse`: create a multi-phase parse transaction
 - `dispatch_in_parse`: invoke matching hook subscriptions
@@ -858,6 +896,8 @@ The main entry points are:
 - `expand_text`: convenience API for a one-pipeline parse transaction
 - `expand_tree_in_parse`: recursively run Tree macros in an existing parse transaction
 - `expand_tree`: convenience API for a one-tree-pipeline parse transaction
+- `expand_ast_in_parse`: run hygienic AST macros in an existing parse transaction
+- `expand_ast`: convenience API for a one-AST-pipeline parse transaction
 - `dynamic_syntax_snapshot`: freeze and retrieve ranked syntax candidates
 - `match_patterns_in_parse`: match ranked candidates with transactional WASM hooks
 - `parse_expression_in_parse`: parse a typed recursive Expression
@@ -867,9 +907,24 @@ The main entry points are:
 - `parse_structures_in_parse`: parse all top-level Structures and their selected bodies
 - `dispatch`: convenience API for a one-dispatch transaction
 
+`parse_document` is the normal entry point for an editor or server. It derives
+version-sensitive RawTree behavior from the SSG runtime profile, preserves
+unknown syntax in a recovery-oriented `StructureDocument`, commits accepted
+StateStore writes only after the complete pipeline, and rolls back
+document-scoped dynamic syntax on cancellation or fatal failure.
+`DocumentParseResult::ast` is the canonical, post-macro data tree. It retains
+selected syntax summaries, metadata, and schema-versioned public data without
+interpreting addon-owned schemas. `DocumentParseResult::syntax` remains the
+native recovery trace and is not rewritten by AST macros. A future Rust
+semantic database can consume the neutral AST; StateStore remains addon state
+and cache rather than the canonical LSP symbol database.
+
+Cancellation is cooperative at phase boundaries. A request cancelled during a
+long native parse is prevented from committing as soon as that phase returns.
+
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
-limits, dispatch, Text macro, and Tree macro quotas, StateStore configuration, and the
-optional syntax Catalog.
+limits, dispatch, Text, Tree, and AST macro quotas, StateStore configuration,
+and the optional syntax Catalog.
 
 ## Source Layout
 
@@ -878,6 +933,9 @@ optional syntax Catalog.
 | `wit/` | Component Model package, world, records, variants, and host imports |
 | `src/bindings.rs` | Wasmtime bindings generated from WIT |
 | `src/host.rs` | component lifecycle, subscriptions, dispatch, limits, and dynamic syntax bridge |
+| `src/host/document.rs` | atomic single-document pipeline, cancellation, and canonical AST result |
+| `src/host/ast_tree.rs` | projection from native recovery syntax into the data-only AST |
+| `src/host/ast_macro.rs` | AST subscription dispatch, validation, hygiene, provenance, and replacement |
 | `src/state/mod.rs` | namespace registry and in-memory transactional StateStore |
 | `src/state/persistent.rs` | `redb` persistent-project backend |
 | `tests/contract.rs` | host and guest binding contract |
@@ -886,6 +944,8 @@ optional syntax Catalog.
 | `tests/dynamic_syntax.rs` | real WASM dynamic registration against an SSG fixture |
 | `tests/text_macro.rs` | ordered real-WASM expansion, diagnostic mapping, rollback, quotas, and traps |
 | `tests/tree_macro.rs` | real-WASM node/body edits, recursive provenance, cycles, rollback, quotas, and traps |
+| `tests/ast_macro.rs` | real-WASM 0/1/N replacement, hygiene, provenance, rollback, cycles, and quotas |
+| `tests/document.rs` | end-to-end modern/legacy parsing, Tree-generated syntax and diagnostics, recovery, cancellation, and stale revisions |
 | `tests/pattern_match.rs` | real-WASM element override and selected-candidate StateStore rollback |
 | `tests/structure.rs` | real CoreLibrary Structure lifecycle, Event capture, EntryValidator, and unknown addon entries |
 

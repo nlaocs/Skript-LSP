@@ -39,6 +39,7 @@ artifacts/expression-data-addon-b.wasm
 artifacts/matching-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm
+artifacts/ast-macro-addon.wasm
 ```
 
 parser hostのintegration testがこれらのartifactを埋め込みます。

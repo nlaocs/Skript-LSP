@@ -2,13 +2,13 @@
 
 [English](README.md)
 
-schema 7はimplicit/defaultの子Expressionと、省略引数のrejected/unresolvedを通常表示・
+JSON report schema 7はimplicit/defaultの子Expressionと、省略引数のrejected/unresolvedを通常表示・
 JSONの両方へ表示します。例えば`send stone`には`--event "on join"`などCommandSenderを
 提供するEventが必要です。`send stone to console`は送信先を明示しています。原文は維持します。
 [共通DefaultExpressionモデル](../../docs/default-expressions.ja.md)を参照してください。
 
 `effectcommandcli`は、1つのSkript EffectをSkriptSyntaxGenerator（SSG）の
-schema 3 / 4 / 5 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
+schema 3 / 4 / 5 / 6 snapshotに対して解析する独立した確認用utilityです。Effectは実行しません。
 `ssg`、`syntaxes`、`skript-parser`、`parser-wasm`、必須CoreLibraryを接続する
 小さな実例としても利用できます。
 
@@ -36,7 +36,7 @@ effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1 
 使用します。CoreLibraryの起動前にsnapshot全体を検証するため、未対応schema、digestの
 不一致、file不足、参照不整合があるsnapshotでは解析を開始しません。
 
-schema 5では`Language.json`が必須ですが、schema 3と4では不要です。必要なfile一覧は
+schema 5と6では`Language.json`が必須ですが、schema 3と4では不要です。必要なfile一覧は
 [`ssg`のformat説明](../../ssg/README.ja.md)を参照してください。
 
 ## 単発モード

@@ -288,7 +288,12 @@ impl addon::Guest for CoreLibrary {
             .iter()
             .any(|capability| capability.id == CAPABILITY_DYNAMIC_SYNTAX && capability.version >= 1)
         {
-            structures::register_missing(skript_version).map_err(|message| CompatibilityError {
+            structures::register_missing(
+                skript_version,
+                runtime_profile.snapshot_capabilities.as_ref(),
+                &registered_handler_bindings,
+            )
+            .map_err(|message| CompatibilityError {
                 kind: CompatibilityErrorKind::InvalidManifest,
                 subject: CAPABILITY_DYNAMIC_SYNTAX.to_owned(),
                 message,
@@ -866,6 +871,7 @@ mod tests {
                 language: None,
                 skript_version: None,
                 plugins: Vec::new(),
+                snapshot_capabilities: None,
             },
         })
         .unwrap_err();
@@ -894,6 +900,7 @@ mod tests {
                 language: None,
                 skript_version: None,
                 plugins: Vec::new(),
+                snapshot_capabilities: None,
             },
         })
         .unwrap_err();
@@ -983,6 +990,7 @@ mod tests {
                     version: "2.15.4".to_owned(),
                     main: "ch.njol.skript.Skript".to_owned(),
                 }],
+                snapshot_capabilities: None,
             },
         };
 

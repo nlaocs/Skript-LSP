@@ -5,9 +5,9 @@
 #![allow(missing_docs)] // Type-level docs describe aggregate field contracts.
 
 use crate::{
-    ExpansionId, MappedSource, MappedSpan, OriginKind, RawLine, RawNode, RawNodeId, RawNodeKind,
-    RawTree, RawTrivia, RawTriviaKind, SourceOrigin, SyntaxContextId, TextRange, TreeExpansion,
-    TreeExpansionError,
+    ExpansionId, LineEnding, MappedSource, MappedSpan, OriginKind, RawLine, RawNode, RawNodeId,
+    RawNodeKind, RawTree, RawTrivia, RawTriviaKind, SourceMapError, SourceMapSegment, SourceOrigin,
+    SyntaxContextId, TextRange, TreeExpansion, TreeExpansionError,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -144,7 +144,10 @@ pub struct TreeEditApplication {
 /// let replacement = applied.tree.get(applied.tree.roots[0]).unwrap();
 /// assert_eq!(replacement.text, "broadcast \"generated\"");
 /// assert!(replacement.span.is_generated());
-/// assert_eq!(applied.source.virtual_source(), "replace me\n");
+/// assert_eq!(
+///     applied.source.virtual_source(),
+///     "replace me\nbroadcast \"generated\"\n",
+/// );
 /// assert_eq!(applied.replacement_roots, 1);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ~~~
@@ -210,8 +213,15 @@ pub fn apply_tree_edit(
         }
     }
 
+    let projected_source = project_forest(
+        &expansion.source,
+        &mut forest,
+        &target_node.span,
+        expansion.expansion,
+    )?;
+
     Ok(TreeEditApplication {
-        source: expansion.source,
+        source: projected_source,
         tree: flatten_tree(forest, tree),
         expansion: expansion.expansion,
         syntax_context: expansion.syntax_context,
@@ -260,6 +270,8 @@ pub enum TreeEditError {
     RetainedChildrenParentNotSection { id: GeneratedRawNodeId },
     #[error(transparent)]
     Expansion(#[from] TreeExpansionError),
+    #[error(transparent)]
+    SourceMap(#[from] SourceMapError),
 }
 
 #[derive(Debug, Clone)]
@@ -363,14 +375,15 @@ fn validate_generated_node(node: &GeneratedRawNode) -> Result<(), TreeEditError>
             kind: node.kind,
         });
     }
-    let invalid_text = match node.kind {
-        GeneratedRawNodeKind::Blank => !node.text.is_empty(),
-        GeneratedRawNodeKind::Comment => false,
-        GeneratedRawNodeKind::Simple => node.text.trim().is_empty(),
-        GeneratedRawNodeKind::Section => {
-            node.text.trim().is_empty() || node.text.trim_end().ends_with(':')
-        }
-    };
+    let invalid_text = node.text.contains(['\r', '\n'])
+        || match node.kind {
+            GeneratedRawNodeKind::Blank => !node.text.is_empty(),
+            GeneratedRawNodeKind::Comment => false,
+            GeneratedRawNodeKind::Simple => node.text.trim().is_empty(),
+            GeneratedRawNodeKind::Section => {
+                node.text.trim().is_empty() || node.text.trim_end().ends_with(':')
+            }
+        };
     if invalid_text {
         return Err(TreeEditError::InvalidGeneratedText {
             id: node.id,
@@ -476,7 +489,7 @@ fn build_generated_node(
         line: RawLine {
             number: line_number,
             raw_text,
-            line_ending: crate::LineEnding::None,
+            line_ending: LineEnding::Lf,
             span: span.clone(),
             content_span: span.clone(),
             line_ending_span: point.clone(),
@@ -501,6 +514,194 @@ fn build_generated_node(
         node,
         children,
     }
+}
+
+/// Appends one self-consistent snapshot of the active tree to the virtual arena.
+/// Earlier bytes stay addressable so existing expansion backtraces remain valid.
+fn project_forest(
+    source: &MappedSource,
+    forest: &mut [OwnedSubtree],
+    call_site: &MappedSpan,
+    expansion: ExpansionId,
+) -> Result<MappedSource, SourceMapError> {
+    if forest.is_empty() {
+        return Ok(source.clone());
+    }
+
+    let generated_origins = generated_span(call_site, expansion).origins;
+    let mut virtual_source = source.virtual_source().to_owned();
+    let mut segments = source.source_map().segments().to_vec();
+    if !virtual_source.is_empty()
+        && !virtual_source.ends_with('\n')
+        && !virtual_source.ends_with('\r')
+    {
+        let start = virtual_source.len();
+        virtual_source.push('\n');
+        segments.push(SourceMapSegment {
+            virtual_range: TextRange::new(start, start + 1),
+            origins: generated_origins.clone(),
+        });
+    }
+
+    for subtree in forest.iter_mut() {
+        append_projected_subtree(
+            source,
+            subtree,
+            &generated_origins,
+            &mut virtual_source,
+            &mut segments,
+        )?;
+    }
+
+    let projected = MappedSource::new(
+        source.original().to_owned(),
+        virtual_source,
+        source.expansions().clone(),
+        segments,
+    )?;
+    for subtree in forest {
+        finalize_projected_subtree(&projected, subtree)?;
+    }
+    Ok(projected)
+}
+
+fn append_projected_subtree(
+    source: &MappedSource,
+    subtree: &mut OwnedSubtree,
+    generated_origins: &[SourceOrigin],
+    virtual_source: &mut String,
+    segments: &mut Vec<SourceMapSegment>,
+) -> Result<(), SourceMapError> {
+    let new_start = virtual_source.len();
+    if subtree.local_id.is_some() {
+        virtual_source.push_str(&subtree.node.line.raw_text);
+        virtual_source.push('\n');
+        let new_end = virtual_source.len();
+        segments.push(SourceMapSegment {
+            virtual_range: TextRange::new(new_start, new_end),
+            origins: generated_origins.to_vec(),
+        });
+        initialize_generated_line(&mut subtree.node, new_start, new_end, generated_origins);
+    } else {
+        let old_start = subtree.node.line.span.virtual_range.start;
+        source.append_preserved_range(
+            subtree.node.line.span.virtual_range,
+            virtual_source,
+            segments,
+        )?;
+        rebase_existing_line(&mut subtree.node, old_start, new_start);
+    }
+
+    for child in &mut subtree.children {
+        append_projected_subtree(source, child, generated_origins, virtual_source, segments)?;
+    }
+    Ok(())
+}
+
+fn initialize_generated_line(
+    node: &mut RawNode,
+    line_start: usize,
+    line_end: usize,
+    origins: &[SourceOrigin],
+) {
+    let content_end = line_end - 1;
+    let mapped = |range| MappedSpan {
+        virtual_range: range,
+        origins: origins.to_vec(),
+    };
+    let point = mapped(TextRange::empty(line_start));
+    node.line.span = mapped(TextRange::new(line_start, line_end));
+    node.line.content_span = mapped(TextRange::new(line_start, content_end));
+    node.line.line_ending_span = mapped(TextRange::new(content_end, line_end));
+    node.line.indentation.span = point;
+    node.line.trailing_trivia.clear();
+    node.code_span = matches!(node.kind, RawNodeKind::Simple | RawNodeKind::Section)
+        .then(|| mapped(TextRange::new(line_start, content_end)));
+    node.header_span = (node.kind == RawNodeKind::Section)
+        .then(|| mapped(TextRange::new(line_start, content_end)));
+}
+
+fn rebase_existing_line(node: &mut RawNode, old_start: usize, new_start: usize) {
+    rebase_span(&mut node.line.span, old_start, new_start);
+    rebase_span(&mut node.line.content_span, old_start, new_start);
+    rebase_span(&mut node.line.line_ending_span, old_start, new_start);
+    rebase_span(&mut node.line.indentation.span, old_start, new_start);
+    for trivia in &mut node.line.trailing_trivia {
+        rebase_span(&mut trivia.span, old_start, new_start);
+    }
+    if let Some(span) = &mut node.code_span {
+        rebase_span(span, old_start, new_start);
+    }
+    if let Some(span) = &mut node.header_span {
+        rebase_span(span, old_start, new_start);
+    }
+}
+
+fn rebase_span(span: &mut MappedSpan, old_start: usize, new_start: usize) {
+    let range = span.virtual_range;
+    span.virtual_range = TextRange::new(
+        new_start + range.start - old_start,
+        new_start + range.end - old_start,
+    );
+}
+
+fn finalize_projected_subtree(
+    source: &MappedSource,
+    subtree: &mut OwnedSubtree,
+) -> Result<(), SourceMapError> {
+    remap_line_spans(source, &mut subtree.node)?;
+    for child in &mut subtree.children {
+        finalize_projected_subtree(source, child)?;
+    }
+
+    if subtree.node.kind == RawNodeKind::Section {
+        let line_range = subtree.node.line.span.virtual_range;
+        let body_range =
+            subtree
+                .children
+                .first()
+                .map_or(TextRange::empty(line_range.end), |first| {
+                    TextRange::new(
+                        first.node.line.span.virtual_range.start,
+                        subtree
+                            .children
+                            .last()
+                            .expect("a non-empty child list has a last item")
+                            .node
+                            .span
+                            .virtual_range
+                            .end,
+                    )
+                });
+        subtree.node.body_span = Some(source.map_range(body_range)?);
+        subtree.node.span = source.map_range(TextRange::new(line_range.start, body_range.end))?;
+    } else {
+        subtree.node.body_span = None;
+        subtree.node.span = subtree.node.line.span.clone();
+    }
+    Ok(())
+}
+
+fn remap_line_spans(source: &MappedSource, node: &mut RawNode) -> Result<(), SourceMapError> {
+    remap_span(source, &mut node.line.span)?;
+    remap_span(source, &mut node.line.content_span)?;
+    remap_span(source, &mut node.line.line_ending_span)?;
+    remap_span(source, &mut node.line.indentation.span)?;
+    for trivia in &mut node.line.trailing_trivia {
+        remap_span(source, &mut trivia.span)?;
+    }
+    if let Some(span) = &mut node.code_span {
+        remap_span(source, span)?;
+    }
+    if let Some(span) = &mut node.header_span {
+        remap_span(source, span)?;
+    }
+    Ok(())
+}
+
+fn remap_span(source: &MappedSource, span: &mut MappedSpan) -> Result<(), SourceMapError> {
+    *span = source.map_range(span.virtual_range)?;
+    Ok(())
 }
 
 fn generated_span(call_site: &MappedSpan, expansion: ExpansionId) -> MappedSpan {
@@ -722,6 +923,25 @@ mod tests {
         assert_eq!(application.replacement_roots, 2);
         let generated = application.tree.get(application.tree.roots[1]).unwrap();
         assert_eq!(generated.syntax_context, application.syntax_context);
+        assert_eq!(
+            generated
+                .code_span
+                .as_ref()
+                .unwrap()
+                .virtual_range
+                .slice(application.source.virtual_source()),
+            Some("alpha"),
+        );
+        let second = application.tree.get(application.tree.roots[2]).unwrap();
+        assert_eq!(
+            second
+                .code_span
+                .as_ref()
+                .unwrap()
+                .virtual_range
+                .slice(application.source.virtual_source()),
+            Some("beta"),
+        );
         assert!(
             generated
                 .span
@@ -767,6 +987,25 @@ mod tests {
         let section = application.tree.get(application.tree.roots[0]).unwrap();
         assert_eq!(section.text, "new");
         assert_eq!(
+            section.header_span.as_ref().and_then(|span| span
+                .virtual_range
+                .slice(application.source.virtual_source())),
+            Some("new:")
+        );
+        assert_eq!(
+            section.body_span.as_ref().and_then(|span| span
+                .virtual_range
+                .slice(application.source.virtual_source())),
+            Some("generated\n    child\n")
+        );
+        assert_eq!(
+            section
+                .span
+                .virtual_range
+                .slice(application.source.virtual_source()),
+            Some("new:\ngenerated\n    child\n")
+        );
+        assert_eq!(
             section
                 .children
                 .iter()
@@ -805,6 +1044,18 @@ mod tests {
         assert_eq!(section.text, "section");
         assert_eq!(section.syntax_context, SyntaxContextId::ROOT);
         assert_eq!(
+            section.header_span.as_ref().and_then(|span| span
+                .virtual_range
+                .slice(application.source.virtual_source())),
+            Some("section:")
+        );
+        assert_eq!(
+            section.body_span.as_ref().and_then(|span| span
+                .virtual_range
+                .slice(application.source.virtual_source())),
+            Some("new\n")
+        );
+        assert_eq!(
             application.tree.get(section.children[0]).unwrap().text,
             "new"
         );
@@ -833,5 +1084,77 @@ mod tests {
             validate_fragment(&reused),
             Err(TreeEditError::ReusedGeneratedNode { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_generated_text_that_contains_physical_line_breaks() {
+        let multiline = GeneratedRawTree {
+            roots: vec![GeneratedRawNodeId::new(1)],
+            nodes: vec![generated_node(
+                1,
+                GeneratedRawNodeKind::Simple,
+                "first\nsecond",
+                &[],
+            )],
+        };
+
+        assert!(matches!(
+            validate_fragment(&multiline),
+            Err(TreeEditError::InvalidGeneratedText { .. })
+        ));
+    }
+
+    #[test]
+    fn projected_tree_spans_stay_on_utf8_boundaries() {
+        let (source, tree) = source_tree("前\n置換\n後\n");
+        let application = apply_tree_edit(
+            &source,
+            &tree,
+            RawNodeId::new(1),
+            TreeEdit::ReplaceNode {
+                replacement: GeneratedRawTree {
+                    roots: vec![GeneratedRawNodeId::new(1)],
+                    nodes: vec![generated_node(1, GeneratedRawNodeKind::Simple, "生成", &[])],
+                },
+                retained_children: None,
+            },
+            metadata("utf8"),
+        )
+        .unwrap();
+        let virtual_source = application.source.virtual_source();
+
+        for node in &application.tree.nodes {
+            for range in [
+                node.span.virtual_range,
+                node.line.span.virtual_range,
+                node.line.content_span.virtual_range,
+                node.line.line_ending_span.virtual_range,
+            ] {
+                assert!(virtual_source.is_char_boundary(range.start));
+                assert!(virtual_source.is_char_boundary(range.end));
+            }
+            if let Some(span) = &node.code_span {
+                assert!(virtual_source.is_char_boundary(span.virtual_range.start));
+                assert!(virtual_source.is_char_boundary(span.virtual_range.end));
+            }
+        }
+
+        let generated = application.tree.get(application.tree.roots[1]).unwrap();
+        assert_eq!(
+            generated
+                .code_span
+                .as_ref()
+                .and_then(|span| span.virtual_range.slice(virtual_source)),
+            Some("生成")
+        );
+        assert_eq!(
+            generated
+                .code_span
+                .as_ref()
+                .and_then(|span| application.source.map_range(span.virtual_range).ok())
+                .and_then(|span| span.primary_origin())
+                .and_then(|origin| origin.original_range.slice(source.original())),
+            Some("置換\n")
+        );
     }
 }

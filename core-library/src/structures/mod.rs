@@ -33,8 +33,14 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     handlers
 }
 
-pub(crate) fn register_missing(skript_version: &str) -> Result<(), String> {
-    legacy::register_missing(skript_version)
+pub(crate) fn register_missing(
+    skript_version: &str,
+    snapshot_capabilities: Option<
+        &crate::nlaocs::skript_parser_addon::types::RuntimeSnapshotCapabilities,
+    >,
+    bindings: &[crate::nlaocs::skript_parser_addon::types::RegisteredHandlerBinding],
+) -> Result<(), String> {
+    legacy::register_missing(skript_version, snapshot_capabilities, bindings)
 }
 
 pub(crate) fn expand_options(

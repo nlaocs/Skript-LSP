@@ -4,9 +4,18 @@
 //! coordinates macros and dynamic syntax, and commits only accepted side effects.
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
+mod ast_macro;
+mod ast_tree;
 mod default_expression;
+mod document;
 mod public_data;
 mod subscriptions;
+
+pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
+pub use document::{
+    DocumentCancellationToken, DocumentParseError, DocumentParseRequest, DocumentParseResult,
+    DocumentParseStage, DocumentParserConfig,
+};
 
 use std::{
     cell::RefCell,
@@ -22,6 +31,20 @@ use std::{
 
 use fancy_regex::Regex;
 use sha2::{Digest, Sha256};
+use skript_parser::{
+    AstExpansion, ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
+    GeneratedRawNodeId as ParserGeneratedRawNodeId,
+    GeneratedRawNodeKind as ParserGeneratedRawNodeKind, GeneratedRawTree as ParserGeneratedRawTree,
+    IndentKind as ParserIndentKind, LineEnding as ParserLineEnding, MappedSource,
+    OriginKind as ParserOriginKind, RawDiagnosticCode as ParserRawDiagnosticCode,
+    RawDiagnosticSeverity as ParserRawDiagnosticSeverity,
+    RawInvalidReason as ParserRawInvalidReason, RawNodeId as ParserRawNodeId,
+    RawNodeKind as ParserRawNodeKind, RawTree as ParserRawTree,
+    RawTriviaKind as ParserRawTriviaKind, RetainedChildren as ParserRetainedChildren,
+    RetainedChildrenPlacement as ParserRetainedChildrenPlacement, TextEdit as ParserTextEdit,
+    TextExpansion, TextRange as ParserTextRange, TreeEdit as ParserTreeEdit, TreeEditMetadata,
+    apply_tree_edit,
+};
 use skript_parser::{
     CandidateFailure, CandidateMatches, ConditionMatches, ConditionNode, ConditionNodeKind,
     ConditionParseError, ConditionParseRequest, ConditionParserConfig, ConditionSemanticDecision,
@@ -58,20 +81,6 @@ use skript_parser::{
     parse_expression_with_snapshot as run_expression_parser,
     parse_section_with_snapshot as run_section_parser,
     parse_structures_with_snapshot as run_structure_parser,
-};
-use skript_parser::{
-    ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
-    GeneratedRawNodeId as ParserGeneratedRawNodeId,
-    GeneratedRawNodeKind as ParserGeneratedRawNodeKind, GeneratedRawTree as ParserGeneratedRawTree,
-    IndentKind as ParserIndentKind, LineEnding as ParserLineEnding, MappedSource,
-    OriginKind as ParserOriginKind, RawDiagnosticCode as ParserRawDiagnosticCode,
-    RawDiagnosticSeverity as ParserRawDiagnosticSeverity,
-    RawInvalidReason as ParserRawInvalidReason, RawNodeId as ParserRawNodeId,
-    RawNodeKind as ParserRawNodeKind, RawTree as ParserRawTree,
-    RawTriviaKind as ParserRawTriviaKind, RetainedChildren as ParserRetainedChildren,
-    RetainedChildrenPlacement as ParserRetainedChildrenPlacement, TextEdit as ParserTextEdit,
-    TextExpansion, TextRange as ParserTextRange, TreeEdit as ParserTreeEdit, TreeEditMetadata,
-    apply_tree_edit,
 };
 use syntaxes::{
     Catalog, CatalogSourceRecord, ChangeMode as CatalogChangeMode, ClassName, DefinitionId,
@@ -155,29 +164,29 @@ use crate::state::{
     StateStoreConfig, StateValue,
 };
 use crate::{
-    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CATALOG_DATA,
-    CAPABILITY_CONDITION_PARSER, CAPABILITY_CONTEXT_UPDATES, CAPABILITY_DEFAULT_EXPRESSION,
-    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
-    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE,
-    CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
-    CapabilityRequirement, CompatibilityError, REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
-    validate_compatibility,
+    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_AST_MACRO,
+    CAPABILITY_CATALOG_DATA, CAPABILITY_CONDITION_PARSER, CAPABILITY_CONTEXT_UPDATES,
+    CAPABILITY_DEFAULT_EXPRESSION, CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER,
+    CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER,
+    CAPABILITY_STATE_STORE, CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TEXT_MACRO,
+    CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement, CompatibilityError,
+    REGISTERED_CONTEXT_ALL_TYPE_OPTIONS, validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
-    AstNode, AstTree, Capture, CaptureValue, CatalogAnnotationTarget, ComponentManifest,
-    ConditionPayload, ContextUpdate, DefaultExpressionCatalogReference, DefaultExpressionInfo,
-    DefaultExpressionOutcome, DefaultExpressionPayload, DefaultExpressionResolution, Diagnostic,
-    DiagnosticSeverity, ExpressionExpectedType, ExpressionLiteralOption,
-    ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
-    HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
-    HookSubscription, HookTarget, InvocationContext, MappedSpan, MatchingPathSegment,
-    MatchingPayload, MatchingScope, MatchingStatus, MatchingTiming, ParseRequest, ParseResult,
-    ParseResultNode, PatternRef, RawTree, RawTreeNode, RegisteredExpressionChild,
-    RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
-    RegisteredSyntaxHandlerTarget, Rejection, RelatedSpan, ReturnTypeSelector,
-    SelectorTypeRelation, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
-    TreeMacroOutput, TypeCaptureState, TypeParserUnresolved,
+    AstContextOrigin, AstMacroInput, AstMacroOutput, AstNode, AstTree, Capture, CaptureValue,
+    CatalogAnnotationTarget, ComponentManifest, ConditionPayload, ContextUpdate,
+    DefaultExpressionCatalogReference, DefaultExpressionInfo, DefaultExpressionOutcome,
+    DefaultExpressionPayload, DefaultExpressionResolution, Diagnostic, DiagnosticSeverity,
+    ExpressionExpectedType, ExpressionLiteralOption, ExpressionPossibleReturnTypesState,
+    ExpressionReturnTypeState, ExpressionTypeOption, HookDecision, HookEffects, HookMode,
+    HookOutput, HookPayload, HookPhase, HookSelector, HookSubscription, HookTarget,
+    InvocationContext, MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope,
+    MatchingStatus, MatchingTiming, ParseRequest, ParseResult, ParseResultNode, PatternRef,
+    RawTree, RawTreeNode, RegisteredExpressionChild, RegisteredExpressionPayload,
+    RegisteredExpressionPropertyOption, RegisteredExpressionTag, RegisteredSyntaxHandlerTarget,
+    Rejection, RelatedSpan, ReturnTypeSelector, SelectorTypeRelation, SyntaxKind, TextMacroInput,
+    TextMacroOutput, TreeMacroInput, TreeMacroOutput, TypeCaptureState, TypeParserUnresolved,
 };
 
 /// Reserved component ID required for the first host component.
@@ -233,6 +242,10 @@ pub struct HostConfig {
     pub max_tree_macro_expansion_depth: usize,
     pub max_tree_macro_nodes: usize,
     pub max_tree_macro_calls: usize,
+    pub max_ast_macro_expansion_depth: usize,
+    pub max_ast_depth: usize,
+    pub max_ast_macro_nodes: usize,
+    pub max_ast_macro_calls: usize,
     pub max_catalog_response_bytes: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
@@ -251,6 +264,69 @@ pub struct RuntimeProfile {
     pub language: Option<String>,
     pub skript_version: Option<String>,
     pub plugins: Vec<RuntimePlugin>,
+    pub snapshot_capabilities: Option<RuntimeSnapshotCapabilities>,
+}
+
+/// SSG collection capabilities associated with the active snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSnapshotCapabilities {
+    pub syntax_api: String,
+    pub event_value_api: String,
+    pub syntax_kinds: RuntimeSyntaxKindCapabilities,
+    pub aliases: RuntimeAliasCapabilities,
+}
+
+/// Syntax and supporting registry kinds available in the active snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSyntaxKindCapabilities {
+    pub conditions: bool,
+    pub effects: bool,
+    pub events: bool,
+    pub expressions: bool,
+    pub types: bool,
+    pub functions: bool,
+    pub sections: bool,
+    pub structures: bool,
+    pub properties: bool,
+    pub arithmetic: bool,
+    pub converters: bool,
+    pub comparators: bool,
+    pub event_values: bool,
+}
+
+/// Whether global aliases existed and were collected by SSG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeAliasCapabilities {
+    pub supported: bool,
+    pub collected: bool,
+}
+
+fn runtime_snapshot_capabilities(
+    capabilities: &syntaxes::CatalogRuntimeCapabilities,
+) -> RuntimeSnapshotCapabilities {
+    RuntimeSnapshotCapabilities {
+        syntax_api: capabilities.syntax_api.clone(),
+        event_value_api: capabilities.event_value_api.clone(),
+        syntax_kinds: RuntimeSyntaxKindCapabilities {
+            conditions: capabilities.syntax_kinds.conditions,
+            effects: capabilities.syntax_kinds.effects,
+            events: capabilities.syntax_kinds.events,
+            expressions: capabilities.syntax_kinds.expressions,
+            types: capabilities.syntax_kinds.types,
+            functions: capabilities.syntax_kinds.functions,
+            sections: capabilities.syntax_kinds.sections,
+            structures: capabilities.syntax_kinds.structures,
+            properties: capabilities.syntax_kinds.properties,
+            arithmetic: capabilities.syntax_kinds.arithmetic,
+            converters: capabilities.syntax_kinds.converters,
+            comparators: capabilities.syntax_kinds.comparators,
+            event_values: capabilities.syntax_kinds.event_values,
+        },
+        aliases: RuntimeAliasCapabilities {
+            supported: capabilities.aliases.supported,
+            collected: capabilities.aliases.collected,
+        },
+    }
 }
 
 /// One enabled plugin in deterministic server load order.
@@ -299,6 +375,10 @@ impl Default for HostConfig {
             max_tree_macro_expansion_depth: 64,
             max_tree_macro_nodes: 100_000,
             max_tree_macro_calls: 4_096,
+            max_ast_macro_expansion_depth: 32,
+            max_ast_depth: 256,
+            max_ast_macro_nodes: 100_000,
+            max_ast_macro_calls: 1_024,
             max_catalog_response_bytes: 32 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
@@ -356,6 +436,9 @@ impl HostConfig {
                 })
                 .collect();
         }
+        self.runtime_profile
+            .snapshot_capabilities
+            .get_or_insert_with(|| runtime_snapshot_capabilities(&runtime.capabilities));
     }
 
     fn validate(&self) -> Result<(), HostError> {
@@ -379,6 +462,10 @@ impl HostConfig {
             || self.max_tree_macro_expansion_depth == 0
             || self.max_tree_macro_nodes == 0
             || self.max_tree_macro_calls == 0
+            || self.max_ast_macro_expansion_depth == 0
+            || self.max_ast_depth == 0
+            || self.max_ast_macro_nodes == 0
+            || self.max_ast_macro_calls == 0
             || self.max_catalog_response_bytes == 0;
         if invalid {
             return Err(HostError::InvalidConfiguration);
@@ -401,6 +488,19 @@ impl HostConfig {
                     profile: profile_schema_version.to_string(),
                     catalog: source.schema_version.to_string(),
                 });
+            }
+            if let (Some(profile_capabilities), Some(runtime)) = (
+                self.runtime_profile.snapshot_capabilities.as_ref(),
+                source.runtime.as_ref(),
+            ) {
+                let catalog_capabilities = runtime_snapshot_capabilities(&runtime.capabilities);
+                if profile_capabilities != &catalog_capabilities {
+                    return Err(HostError::CatalogProfileMismatch {
+                        field: "snapshot capabilities",
+                        profile: format!("{profile_capabilities:?}"),
+                        catalog: format!("{catalog_capabilities:?}"),
+                    });
+                }
             }
         }
         Ok(())
@@ -571,6 +671,27 @@ pub enum HostError {
     TreeMacroCallQuotaExceeded { limit: usize },
     #[error("tree macro expansion cycle detected in {component_id}:{subscription_id}")]
     TreeMacroCycleDetected {
+        component_id: String,
+        subscription_id: String,
+    },
+    #[error(
+        "component {component_id} returned invalid AST macro output for {subscription_id}: {message}"
+    )]
+    InvalidAstMacroOutput {
+        component_id: String,
+        subscription_id: String,
+        message: String,
+    },
+    #[error("AST macro pipeline exceeded the expansion depth quota of {limit}")]
+    AstMacroExpansionDepthQuotaExceeded { limit: usize },
+    #[error("AST exceeded the structural depth quota of {limit}")]
+    AstDepthQuotaExceeded { limit: usize },
+    #[error("AST macro pipeline exceeded the node quota of {limit}")]
+    AstMacroNodeQuotaExceeded { limit: usize },
+    #[error("AST macro pipeline exceeded the hook call quota of {limit}")]
+    AstMacroCallQuotaExceeded { limit: usize },
+    #[error("AST macro expansion cycle detected in {component_id}:{subscription_id}")]
+    AstMacroCycleDetected {
         component_id: String,
         subscription_id: String,
     },
@@ -10058,6 +10179,13 @@ impl ParserHost {
                     limit: self.config.max_tree_macro_nodes,
                 });
             }
+            if application.source.virtual_source().len() > self.config.max_virtual_source_bytes {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(HostError::VirtualSourceQuotaExceeded {
+                    limit: self.config.max_virtual_source_bytes,
+                });
+            }
 
             state_invocation.commit()?;
             let expansion = application.expansion;
@@ -10943,6 +11071,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,
         CAPABILITY_TREE_MACRO,
+        CAPABILITY_AST_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
         CAPABILITY_EXPRESSION_PARSER,
@@ -10977,7 +11106,10 @@ fn host_profile(
 ) -> crate::bindings::nlaocs::skript_parser_addon::types::HostProfile {
     use crate::bindings::nlaocs::skript_parser_addon::types::{
         AbiVersion as WitAbiVersion, Capability as WitCapability, HostProfile,
-        RuntimePlugin as WitRuntimePlugin, RuntimeProfile as WitRuntimeProfile,
+        RuntimeAliasCapabilities as WitRuntimeAliasCapabilities, RuntimePlugin as WitRuntimePlugin,
+        RuntimeProfile as WitRuntimeProfile,
+        RuntimeSnapshotCapabilities as WitRuntimeSnapshotCapabilities,
+        RuntimeSyntaxKindCapabilities as WitRuntimeSyntaxKindCapabilities,
     };
     HostProfile {
         abi: WitAbiVersion {
@@ -11010,6 +11142,31 @@ fn host_profile(
                     main: plugin.main.clone(),
                 })
                 .collect(),
+            snapshot_capabilities: runtime.snapshot_capabilities.as_ref().map(|capabilities| {
+                WitRuntimeSnapshotCapabilities {
+                    syntax_api: capabilities.syntax_api.clone(),
+                    event_value_api: capabilities.event_value_api.clone(),
+                    syntax_kinds: WitRuntimeSyntaxKindCapabilities {
+                        conditions: capabilities.syntax_kinds.conditions,
+                        effects: capabilities.syntax_kinds.effects,
+                        events: capabilities.syntax_kinds.events,
+                        expressions: capabilities.syntax_kinds.expressions,
+                        types: capabilities.syntax_kinds.types,
+                        functions: capabilities.syntax_kinds.functions,
+                        sections: capabilities.syntax_kinds.sections,
+                        structures: capabilities.syntax_kinds.structures,
+                        properties: capabilities.syntax_kinds.properties,
+                        arithmetic: capabilities.syntax_kinds.arithmetic,
+                        converters: capabilities.syntax_kinds.converters,
+                        comparators: capabilities.syntax_kinds.comparators,
+                        event_values: capabilities.syntax_kinds.event_values,
+                    },
+                    aliases: WitRuntimeAliasCapabilities {
+                        supported: capabilities.aliases.supported,
+                        collected: capabilities.aliases.collected,
+                    },
+                }
+            }),
         },
         registered_handler_bindings: registered_handler_bindings.to_vec(),
     }
@@ -11273,6 +11430,26 @@ fn validate_manifest(
             return Err(HostError::InvalidManifest {
                 message: format!(
                     "tree macro subscription {} must target parse-stage in the tree phase with transform mode",
+                    subscription.id
+                ),
+            });
+        }
+        if subscription.capability_id == CAPABILITY_AST_MACRO
+            && (!matches!(subscription.phase, HookPhase::Ast)
+                || !matches!(subscription.mode, HookMode::Transform)
+                || !matches!(
+                    subscription.target,
+                    HookTarget::ParseStage
+                        | HookTarget::SyntaxKind(_)
+                        | HookTarget::Definition(_)
+                        | HookTarget::Registration(_)
+                        | HookTarget::Pattern(_)
+                )
+                || !selector_is_empty(&subscription.selector))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "AST macro subscription {} must target parse-stage or syntax in the AST phase with transform mode",
                     subscription.id
                 ),
             });
@@ -14245,8 +14422,30 @@ fn ast_tree_size(tree: &AstTree) -> usize {
 fn ast_node_size(node: &AstNode) -> usize {
     node.syntax_id
         .len()
+        .saturating_add(node.text.len())
+        .saturating_add(metadata_entries_size(&node.metadata))
+        .saturating_add(node.summary.as_ref().map_or(0, ast_summary_size))
         .saturating_add(captures_size(&node.captures))
         .saturating_add(node.children.len().saturating_mul(mem::size_of::<u64>()))
+}
+
+fn ast_summary_size(summary: &WitParseSummary) -> usize {
+    summary
+        .kind
+        .len()
+        .saturating_add(summary.definition_id.as_ref().map_or(0, String::len))
+        .saturating_add(summary.registration_id.as_ref().map_or(0, String::len))
+        .saturating_add(summary.element_class.as_ref().map_or(0, String::len))
+        .saturating_add(summary.return_type.as_ref().map_or(0, String::len))
+        .saturating_add(
+            summary
+                .possible_return_types
+                .iter()
+                .map(String::len)
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(public_data::size(&summary.public_data))
+        .saturating_add(metadata_entries_size(&summary.metadata))
 }
 
 fn captures_size(captures: &[Capture]) -> usize {
@@ -14446,6 +14645,39 @@ mod tests {
                 .iter()
                 .any(|capability| capability.id == CAPABILITY_CATALOG_DATA)
         );
+    }
+
+    #[test]
+    fn rejects_snapshot_capabilities_that_disagree_with_catalog() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/type-parser-versions/skript-2.16.0");
+        let catalog = Arc::new(ssg::load(fixture).unwrap().into_catalog());
+        let mut capabilities = runtime_snapshot_capabilities(
+            &catalog
+                .source()
+                .and_then(|source| source.runtime.as_ref())
+                .expect("fixture must expose runtime capabilities")
+                .capabilities,
+        );
+        capabilities.syntax_kinds.structures = false;
+        let mut config = HostConfig {
+            syntax_catalog: Some(catalog),
+            runtime_profile: RuntimeProfile {
+                snapshot_capabilities: Some(capabilities),
+                ..RuntimeProfile::default()
+            },
+            ..HostConfig::default()
+        };
+
+        config.inherit_catalog_runtime();
+
+        assert!(matches!(
+            config.validate(),
+            Err(HostError::CatalogProfileMismatch {
+                field: "snapshot capabilities",
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -15473,6 +15705,7 @@ mod tests {
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,
                 CAPABILITY_TREE_MACRO,
+                CAPABILITY_AST_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
                 CAPABILITY_EXPRESSION_PARSER,

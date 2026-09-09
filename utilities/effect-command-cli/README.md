@@ -2,14 +2,14 @@
 
 [日本語](README.ja.md)
 
-Schema 7 displays implicit/default Expression children and rejected/unresolved
+JSON report schema 7 displays implicit/default Expression children and rejected/unresolved
 omitted arguments in both human and JSON reports. For example, `send stone`
 requires a CommandSender-providing Event such as `--event "on join"`;
 `send stone to console` has an explicit recipient. Source text is preserved.
 See the [shared DefaultExpression model](../../docs/default-expressions.md).
 
 `effectcommandcli` is a standalone inspection utility that parses one Skript
-Effect against an exact SkriptSyntaxGenerator (SSG) schema 3, 4, or 5 snapshot. It never
+Effect against an exact SkriptSyntaxGenerator (SSG) schema 3, 4, 5, or 6 snapshot. It never
 executes the Effect. The binary demonstrates how `ssg`, `syntaxes`,
 `skript-parser`, `parser-wasm`, and the mandatory CoreLibrary fit together.
 
@@ -40,7 +40,7 @@ snapshot is validated before CoreLibrary starts; unsupported schemas, digest
 mismatches, missing files, and invalid cross-file references fail before
 parsing.
 
-Schema 5 requires `Language.json`; schemas 3 and 4 do not. See the
+Schemas 5 and 6 require `Language.json`; schemas 3 and 4 do not. See the
 [`ssg` format documentation](../../ssg/README.md) for the required file inventories.
 
 ## One-Shot Mode

@@ -36,6 +36,7 @@ pub struct CatalogRuntime {
     pub java_version: String,
     pub language: String,
     pub plugins: Vec<CatalogRuntimePlugin>,
+    pub capabilities: CatalogRuntimeCapabilities,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,40 @@ pub struct CatalogRuntimePlugin {
     pub version: String,
     pub main: String,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// SSG collection capabilities retained from `Manifest.json`.
+pub struct CatalogRuntimeCapabilities {
+    pub syntax_api: String,
+    pub event_value_api: String,
+    pub syntax_kinds: CatalogSyntaxKindCapabilities,
+    pub aliases: CatalogAliasCapabilities,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Syntax and supporting registry kinds available in the source snapshot.
+pub struct CatalogSyntaxKindCapabilities {
+    pub conditions: bool,
+    pub effects: bool,
+    pub events: bool,
+    pub expressions: bool,
+    pub types: bool,
+    pub functions: bool,
+    pub sections: bool,
+    pub structures: bool,
+    pub properties: bool,
+    pub arithmetic: bool,
+    pub converters: bool,
+    pub comparators: bool,
+    pub event_values: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether the runtime supported and successfully collected global aliases.
+pub struct CatalogAliasCapabilities {
+    pub supported: bool,
+    pub collected: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -410,6 +410,25 @@ pub struct TreeExpansion {
     pub definition_site: Option<ExpansionSite>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Ownership and optional definition provenance for one accepted AST macro.
+pub struct AstExpansion {
+    pub component: ComponentId,
+    pub hook: HookId,
+    pub definition_site: Option<ExpansionSite>,
+}
+
+impl AstExpansion {
+    /// Creates AST expansion metadata from the owning component and hook.
+    pub fn new(component: impl Into<String>, hook: impl Into<String>) -> Self {
+        Self {
+            component: ComponentId::new(component),
+            hook: HookId::new(hook),
+            definition_site: None,
+        }
+    }
+}
+
 impl TreeExpansion {
     /// Creates expansion metadata from the owning component and hook.
     pub fn new(component: impl Into<String>, hook: impl Into<String>) -> Self {
@@ -428,6 +447,12 @@ pub struct TreeExpansionApplication {
     pub expansion: ExpansionId,
     pub syntax_context: SyntaxContextId,
 }
+
+/// AST expansion registration has the same source/provenance result shape.
+pub type AstExpansionApplication = TreeExpansionApplication;
+
+/// AST expansion registration uses the same validated mapped-site contract.
+pub type AstExpansionError = TreeExpansionError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Mapped source and accounting returned after an accepted text-edit batch.
@@ -588,33 +613,70 @@ impl MappedSource {
         call_site: &MappedSpan,
         metadata: TreeExpansion,
     ) -> Result<TreeExpansionApplication, TreeExpansionError> {
-        if !call_site.virtual_range.is_valid_for(&self.virtual_source) {
-            return Err(TreeExpansionError::InvalidVirtualRange {
-                range: call_site.virtual_range,
-            });
-        }
-        if call_site.origins.is_empty() {
+        self.register_non_text_expansion(
+            std::slice::from_ref(call_site),
+            ExpansionKind::Tree,
+            metadata.component,
+            metadata.hook,
+            metadata.definition_site,
+        )
+    }
+
+    /// Registers one accepted AST transformation and all of its source sites.
+    pub fn register_ast_expansion(
+        &self,
+        call_sites: &[MappedSpan],
+        metadata: AstExpansion,
+    ) -> Result<AstExpansionApplication, AstExpansionError> {
+        self.register_non_text_expansion(
+            call_sites,
+            ExpansionKind::Ast,
+            metadata.component,
+            metadata.hook,
+            metadata.definition_site,
+        )
+    }
+
+    fn register_non_text_expansion(
+        &self,
+        mapped_sites: &[MappedSpan],
+        kind: ExpansionKind,
+        component: ComponentId,
+        hook: HookId,
+        definition_site: Option<ExpansionSite>,
+    ) -> Result<TreeExpansionApplication, TreeExpansionError> {
+        if mapped_sites.is_empty() {
             return Err(TreeExpansionError::MissingOrigins);
         }
 
         let mut call_sites = Vec::new();
-        for origin in &call_site.origins {
-            if !origin.original_range.is_valid_for(&self.original) {
-                return Err(TreeExpansionError::InvalidOriginalRange {
-                    range: origin.original_range,
+        for call_site in mapped_sites {
+            if !call_site.virtual_range.is_valid_for(&self.virtual_source) {
+                return Err(TreeExpansionError::InvalidVirtualRange {
+                    range: call_site.virtual_range,
                 });
             }
-            if let Some(expansion) = origin.expansion
-                && !self.expansions.contains(expansion)
-            {
-                return Err(TreeExpansionError::UnknownExpansion { expansion });
+            if call_site.origins.is_empty() {
+                return Err(TreeExpansionError::MissingOrigins);
             }
-            let site = ExpansionSite {
-                original_range: origin.original_range,
-                expansion: origin.expansion,
-            };
-            if !call_sites.contains(&site) {
-                call_sites.push(site);
+            for origin in &call_site.origins {
+                if !origin.original_range.is_valid_for(&self.original) {
+                    return Err(TreeExpansionError::InvalidOriginalRange {
+                        range: origin.original_range,
+                    });
+                }
+                if let Some(expansion) = origin.expansion
+                    && !self.expansions.contains(expansion)
+                {
+                    return Err(TreeExpansionError::UnknownExpansion { expansion });
+                }
+                let site = ExpansionSite {
+                    original_range: origin.original_range,
+                    expansion: origin.expansion,
+                };
+                if !call_sites.contains(&site) {
+                    call_sites.push(site);
+                }
             }
         }
 
@@ -622,11 +684,11 @@ impl MappedSource {
         let syntax_context = SyntaxContextId::new(expansion_id.get());
         let expansion = Expansion {
             id: expansion_id,
-            kind: ExpansionKind::Tree,
-            component: metadata.component,
-            hook: metadata.hook,
+            kind,
+            component,
+            hook,
             call_sites,
-            definition_site: metadata.definition_site,
+            definition_site,
             syntax_context,
         };
         let mut source = self.clone();
@@ -704,7 +766,7 @@ impl MappedSource {
                 TextRange::new(cursor, edit.range.start),
                 &mut virtual_source,
                 &mut segments,
-            );
+            )?;
 
             let replacement_start = virtual_source.len();
             virtual_source.push_str(&edit.replacement);
@@ -721,7 +783,7 @@ impl MappedSource {
             TextRange::new(cursor, self.virtual_source.len()),
             &mut virtual_source,
             &mut segments,
-        );
+        )?;
 
         if virtual_source.is_empty() {
             segments.push(SourceMapSegment::with_origins(
@@ -821,20 +883,22 @@ impl MappedSource {
         Ok(())
     }
 
-    fn append_preserved_range(
+    pub(crate) fn append_preserved_range(
         &self,
         range: TextRange,
         output: &mut String,
         segments: &mut Vec<SourceMapSegment>,
-    ) {
+    ) -> Result<(), SourceMapError> {
         if range.is_empty() {
-            return;
+            return Ok(());
         }
-        output.push_str(
-            range
-                .slice(&self.virtual_source)
-                .expect("text edit ranges were validated"),
-        );
+        let text = range
+            .slice(&self.virtual_source)
+            .ok_or(SourceMapError::InvalidRange {
+                input: "virtual source",
+                range,
+            })?;
+        output.push_str(text);
         let mut output_start = output.len() - range.len();
         for segment in &self.source_map.segments {
             let Some(overlap) = segment.virtual_range.intersection(range) else {
@@ -847,6 +911,7 @@ impl MappedSource {
             ));
             output_start = output_end;
         }
+        Ok(())
     }
 
     fn generated_origins(
@@ -872,13 +937,13 @@ impl MappedSource {
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 /// Invalid attempt to register Tree expansion provenance.
 pub enum TreeExpansionError {
-    #[error("tree macro call site has invalid virtual range {range}")]
+    #[error("macro call site has invalid virtual range {range}")]
     InvalidVirtualRange { range: TextRange },
-    #[error("tree macro call site has no source origins")]
+    #[error("macro call site has no source origins")]
     MissingOrigins,
-    #[error("tree macro call site has invalid original range {range}")]
+    #[error("macro call site has invalid original range {range}")]
     InvalidOriginalRange { range: TextRange },
-    #[error("tree macro call site references unknown expansion {expansion}")]
+    #[error("macro call site references unknown expansion {expansion}")]
     UnknownExpansion { expansion: ExpansionId },
     #[error(transparent)]
     Expansion(#[from] ExpansionGraphError),
