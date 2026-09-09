@@ -545,7 +545,7 @@ fn script_aliases_feed_later_item_type_literals() {
     let result = parse(
         &mut host,
         41,
-        "aliases:\n    building stone¦s = stone\non load:\n    send building stones\n",
+        "aliases:\n    building stone¦s = stone\non load:\n    send building stones to console\n",
     );
     let event = selected_at(&result, 1);
     let StructureBody::Trigger(body) = &event.body else {
@@ -720,7 +720,11 @@ fn struct_event_propagates_reference_event_classes_to_trigger_effects() {
     )
     .unwrap();
 
-    let join = parse(&mut host, 5, "on join:\n    send restricted event value\n");
+    let join = parse(
+        &mut host,
+        5,
+        "on join:\n    send restricted event value to console\n",
+    );
     let join_effect = body_effect(&join);
     assert!(
         join_effect.selected.is_some(),
@@ -728,7 +732,11 @@ fn struct_event_propagates_reference_event_classes_to_trigger_effects() {
     );
     assert!(join_effect.unknown.is_none());
 
-    let quit = parse(&mut host, 6, "on quit:\n    send restricted event value\n");
+    let quit = parse(
+        &mut host,
+        6,
+        "on quit:\n    send restricted event value to console\n",
+    );
     let quit_effect = body_effect(&quit);
     assert!(
         quit_effect.selected.is_none(),

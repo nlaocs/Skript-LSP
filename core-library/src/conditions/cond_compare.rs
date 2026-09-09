@@ -451,6 +451,7 @@ mod tests {
     #[test]
     fn complete_possible_types_do_not_inherit_a_broad_return_type() {
         let child = RegisteredExpressionChild {
+            default_expression: None,
             text: "value".to_owned(),
             kind: "registered-expression".to_owned(),
             parser_id: None,

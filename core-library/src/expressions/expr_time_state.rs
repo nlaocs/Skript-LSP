@@ -129,6 +129,7 @@ fn handler(
     RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Expression,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
         targets: vec![RegisteredSyntaxHandlerTarget::ClassSuffix(
             CLASS_SUFFIX.to_owned(),
         )],

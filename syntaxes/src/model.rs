@@ -316,13 +316,25 @@ pub struct Type {
     pub type_literals: Vec<TypeLiteral>,
     pub parser_class: Option<ClassName>,
     pub parse_contexts: Vec<String>,
-    pub default_expression_class: Option<ClassName>,
+    pub default_expression: Option<DefaultExpressionDescriptor>,
     pub has_parser: bool,
     pub has_serializer: bool,
     pub has_supplier: bool,
     pub properties: Vec<String>,
     pub before: Vec<TypeCodeName>,
     pub after: Vec<TypeCodeName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Static metadata for a Type's registered default Expression.
+pub struct DefaultExpressionDescriptor {
+    pub implementation_class: ClassName,
+    /// `None` means an older snapshot recorded only the implementation class.
+    pub literal: Option<bool>,
+    /// Runtime return type when it can be inspected without parser context.
+    pub return_type: Option<ClassName>,
+    /// Whether the registered default returns one value rather than multiple values.
+    pub single: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

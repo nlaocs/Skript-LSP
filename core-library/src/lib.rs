@@ -5,6 +5,7 @@
 
 mod catalog;
 mod conditions;
+mod default_expression;
 mod effects;
 mod experiments;
 mod expression_candidates;
@@ -131,6 +132,11 @@ impl addon::Guest for CoreLibrary {
                     minimum_version: 2,
                     required: false,
                 },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_DEFAULT_EXPRESSION.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
             ],
             subscriptions: vec![
                 HookSubscription {
@@ -214,6 +220,7 @@ impl addon::Guest for CoreLibrary {
                     capability_id: CAPABILITY_TREE_MACRO.to_owned(),
                     selector: empty_hook_selector(),
                 },
+                default_expression::subscription(),
             ],
             registered_syntax_handlers: {
                 let mut handlers = expressions::handlers();
@@ -324,6 +331,9 @@ fn require_skript_version(version: Option<&str>) -> Result<&str, CompatibilityEr
 
 impl hooks::Guest for CoreLibrary {
     fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        if input.context.subscription_id == default_expression::PROVIDER_ID {
+            return Ok(default_expression::invoke(input));
+        }
         match input.context.subscription_id.as_str() {
             HEALTH_CHECK_SUBSCRIPTION_ID => health_check(input),
             EXPRESSION_SUBSCRIPTION_ID => parse_expressions(input),
@@ -744,10 +754,10 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 10);
+        assert_eq!(manifest.capabilities.len(), 11);
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
-        assert_eq!(manifest.subscriptions.len(), 9);
+        assert_eq!(manifest.subscriptions.len(), 10);
         assert_eq!(manifest.subscriptions[0].id, HEALTH_CHECK_SUBSCRIPTION_ID);
         assert!(matches!(
             manifest.subscriptions[0].target,
@@ -792,6 +802,19 @@ mod tests {
         assert_eq!(manifest.state_namespaces.len(), 2);
         assert_eq!(manifest.state_namespaces[0].name, "commands");
         assert_eq!(manifest.state_namespaces[1].name, "aliases");
+        assert_eq!(
+            manifest.capabilities[10].id,
+            parser_wasm::CAPABILITY_DEFAULT_EXPRESSION
+        );
+        assert!(manifest.capabilities[10].required);
+        assert_eq!(
+            manifest.subscriptions[9].id,
+            default_expression::PROVIDER_ID
+        );
+        assert!(matches!(
+            manifest.subscriptions[9].phase,
+            HookPhase::DefaultExpression
+        ));
         assert_eq!(manifest.registered_syntax_handlers.len(), 134);
         for handler_id in [
             "core.condition.cond-compare",
@@ -1111,6 +1134,7 @@ mod tests {
                 has_parser: true,
                 parse_contexts: vec!["DEFAULT".to_owned()],
                 has_supplier: false,
+                default_expression: None,
             });
             payload.literal_options.push(ExpressionLiteralOption {
                 source_record: None,
@@ -1336,6 +1360,7 @@ mod tests {
             has_parser: true,
             parse_contexts: vec!["PARSE".to_owned()],
             has_supplier: true,
+            default_expression: None,
         });
 
         let output = invoke_expression_pipeline(invocation).unwrap();
@@ -1377,6 +1402,7 @@ mod tests {
             has_parser: true,
             parse_contexts: vec!["DEFAULT".to_owned(), "COMMAND".to_owned()],
             has_supplier: false,
+            default_expression: None,
         });
         payload.type_options.push(ExpressionTypeOption {
             source_record: None,
@@ -1396,6 +1422,7 @@ mod tests {
             has_parser: true,
             parse_contexts: vec!["PARSE".to_owned()],
             has_supplier: true,
+            default_expression: None,
         });
         payload.literal_options.push(ExpressionLiteralOption {
             source_record: None,
@@ -1528,6 +1555,7 @@ mod tests {
             "org.skriptlang.skript.common.properties.elements.expressions.PropExprSize",
         );
         size.children.push(RegisteredExpressionChild {
+            default_expression: None,
             text: "all offline players".to_owned(),
             kind: "registered-expression".to_owned(),
             parser_id: None,
@@ -1761,6 +1789,7 @@ mod tests {
             "org.skriptlang.skript.common.properties.elements.expressions.PropExprValueOf",
         );
         value.children.push(RegisteredExpressionChild {
+            default_expression: None,
             text: "number".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
@@ -1808,6 +1837,7 @@ mod tests {
     fn entities_expression_uses_the_entity_data_runtime_class() {
         let mut entities = registered_expression("ch.njol.skript.expressions.ExprEntities");
         entities.children.push(RegisteredExpressionChild {
+            default_expression: None,
             text: "players".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.entity-data".to_owned()),
@@ -1915,6 +1945,7 @@ mod tests {
     fn random_expression_uses_the_conversion_target_as_a_single_value() {
         let mut random = registered_expression("ch.njol.skript.expressions.ExprRandom");
         random.children.push(RegisteredExpressionChild {
+            default_expression: None,
             text: "element".to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
@@ -1962,6 +1993,7 @@ mod tests {
     #[test]
     fn sets_expression_requires_a_supplied_plural_class_info() {
         let class_info = |input: &str, plural: &str, supplier: &str| RegisteredExpressionChild {
+            default_expression: None,
             text: input.to_owned(),
             kind: "literal".to_owned(),
             parser_id: Some("core.literal.class-info".to_owned()),
@@ -2039,6 +2071,7 @@ mod tests {
                 child_metadata.insert(0, metadata("target-class", target_class));
             }
             invalid.children.push(RegisteredExpressionChild {
+                default_expression: None,
                 text: "color".to_owned(),
                 kind: "literal".to_owned(),
                 parser_id: Some("core.literal.class-info".to_owned()),
@@ -2110,6 +2143,7 @@ mod tests {
                         has_parser: true,
                         parse_contexts: literal.parse_contexts.clone(),
                         has_supplier: true,
+                        default_expression: None,
                     }),
             )
         {
@@ -2195,6 +2229,7 @@ mod tests {
                 has_parser: true,
                 parse_contexts: Vec::new(),
                 has_supplier: false,
+                default_expression: None,
             },
         )
         .collect()
@@ -2311,6 +2346,7 @@ mod tests {
         multiplicity: DynamicMultiplicity,
     ) -> RegisteredExpressionChild {
         RegisteredExpressionChild {
+            default_expression: None,
             text: text.to_owned(),
             kind: "custom".to_owned(),
             parser_id: None,

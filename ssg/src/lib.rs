@@ -9,7 +9,7 @@ mod convert;
 mod digest;
 mod error;
 mod loader;
-/// Serde data-transfer objects that mirror SSG schema 3 through 5 JSON.
+/// Serde data-transfer objects that mirror SSG schema 3 through 6 JSON.
 ///
 /// These types preserve the generator's wire format, including nullable fields
 /// and explicit resolution-state values. For Serde `Option` fields, an omitted

@@ -119,7 +119,7 @@ fn parses_tree_macro_generated_effect_text() {
         .parse_document(
             request(
                 2,
-                "options:\n    message: send 1\non load:\n    {@message}\n",
+                "options:\n    message: send 1 to console\non load:\n    {@message}\n",
             ),
             DocumentParserConfig::default(),
         )
@@ -151,9 +151,12 @@ fn parses_tree_macro_generated_effect_text() {
             SectionBodyNode::Effect(matches) => matches.selected.as_ref(),
             _ => None,
         })
-        .expect("generated `send 1` must parse as an Effect");
+        .expect("generated `send 1 to console` must parse as an Effect");
     let range = effect.matched.matched.span.mapped.virtual_range;
-    assert_eq!(range.slice(result.source.virtual_source()), Some("send 1"));
+    assert_eq!(
+        range.slice(result.source.virtual_source()),
+        Some("send 1 to console")
+    );
     assert!(range.start >= result.source.original().len());
     let mapped = result
         .source
@@ -230,7 +233,10 @@ fn preserves_unknown_nodes_and_continues_parsing_later_lines() {
     let mut host = host(modern_fixture());
     let result = host
         .parse_document(
-            request(4, "on load:\n    this effect does not exist\n    send 1\n"),
+            request(
+                4,
+                "on load:\n    this effect does not exist\n    send 1 to console\n",
+            ),
             DocumentParserConfig::default(),
         )
         .expect("syntax errors must produce a partial document");

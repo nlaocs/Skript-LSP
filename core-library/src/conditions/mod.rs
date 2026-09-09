@@ -74,6 +74,7 @@ fn register_handler_targets(
     handlers.push(RegisteredSyntaxHandler {
         handler_id: handler_id.to_owned(),
         kind: SyntaxKind::Condition,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Condition,
         targets: class_suffixes
             .iter()
             .map(|suffix| RegisteredSyntaxHandlerTarget::ClassSuffix((*suffix).to_owned()))

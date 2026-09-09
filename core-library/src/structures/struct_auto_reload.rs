@@ -182,6 +182,7 @@ mod tests {
 
     fn summary(return_type: Option<&str>, possible_return_types: &[&str]) -> ParseSummary {
         ParseSummary {
+            default_expression: None,
             kind: "expression".to_owned(),
             definition_id: None,
             registration_id: None,

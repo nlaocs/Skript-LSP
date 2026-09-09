@@ -102,7 +102,7 @@ struct SelectedSection {
 }
 
 impl EffectCommandSession {
-    /// Loads and validates an SSG schema 3 through 5 snapshot and initializes CoreLibrary.
+    /// Loads and validates an SSG schema 3 through 6 snapshot and initializes CoreLibrary.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, EffectCommandSessionError> {
         let snapshot_path = snapshot_directory(path);
         let loaded =

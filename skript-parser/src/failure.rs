@@ -198,6 +198,15 @@ impl FailureTrace {
                 .as_deref()
                 .is_some_and(FailureTrace::is_semantic_rejection)
     }
+
+    fn is_default_expression_failure(&self) -> bool {
+        self.root_cause().failure.reasons.iter().any(|reason| {
+            matches!(
+                reason,
+                crate::PatternFailureReason::DefaultExpression { .. }
+            )
+        })
+    }
 }
 
 pub(crate) fn compare_failure_rank(
@@ -250,29 +259,37 @@ pub(crate) fn compare_failure_trace_rank(
     let candidate_root = candidate.root_cause();
     let current_range = current_root.failure.span.mapped.virtual_range;
     let candidate_range = candidate_root.failure.span.mapped.virtual_range;
-    compare_failure_rank_at_progress(
-        current_range,
-        if current.is_event_restriction() {
-            current_range.end
-        } else {
-            current_range.start
-        },
-        current.specificity(),
-        candidate_range,
-        if candidate.is_event_restriction() {
-            candidate_range.end
-        } else {
-            candidate_range.start
-        },
-        candidate.specificity(),
-    )
-    // A structurally complete candidate rejected by its semantic handler is
-    // more actionable than a generic structural failure at the same rank.
-    .then_with(|| {
-        candidate
-            .is_semantic_rejection()
-            .cmp(&current.is_semantic_rejection())
-    })
+    // Defaults are initialized only after the complete pattern matched. Their
+    // zero-width anchors describe missing arguments, not a lack of progress.
+    // Preserve that evidence ahead of speculative token-parser failures.
+    candidate
+        .is_default_expression_failure()
+        .cmp(&current.is_default_expression_failure())
+        .then_with(|| {
+            compare_failure_rank_at_progress(
+                current_range,
+                if current.is_event_restriction() {
+                    current_range.end
+                } else {
+                    current_range.start
+                },
+                current.specificity(),
+                candidate_range,
+                if candidate.is_event_restriction() {
+                    candidate_range.end
+                } else {
+                    candidate_range.start
+                },
+                candidate.specificity(),
+            )
+        })
+        // A structurally complete candidate rejected by its semantic handler is
+        // more actionable than a generic structural failure at the same rank.
+        .then_with(|| {
+            candidate
+                .is_semantic_rejection()
+                .cmp(&current.is_semantic_rejection())
+        })
 }
 
 /// Keeps the most actionable of two recoverable parser failures.
@@ -328,6 +345,33 @@ mod tests {
                 })
             },
         )
+    }
+
+    #[test]
+    fn completed_default_failure_survives_speculative_nonempty_failures_in_either_order() {
+        let source = MappedSource::identity("emit value");
+        let speculative = trace(&source, TextRange::new(5, 10), &[]);
+        let mut default = trace(&source, TextRange::empty(10), &[]);
+        default.failure.reasons = vec![PatternFailureReason::DefaultExpression {
+            capture_index: 1,
+            expression: syntax_pattern_parser::syntax::PatternTypeExpr {
+                alternatives: Vec::new(),
+                nullable: false,
+                allow_literals: true,
+                allow_expressions: true,
+                time: 0,
+            },
+            kind: crate::DefaultExpressionFailureKind::Unresolved,
+            reason: "context unavailable".to_owned(),
+        }];
+        assert_eq!(
+            choose_failure_trace(Some(speculative.clone()), Some(default.clone())),
+            Some(default.clone())
+        );
+        assert_eq!(
+            choose_failure_trace(Some(default.clone()), Some(speculative)),
+            Some(default)
+        );
     }
 
     #[test]

@@ -191,6 +191,7 @@ mod tests {
             has_parser: true,
             parse_contexts: vec!["DEFAULT".to_owned()],
             has_supplier: false,
+            default_expression: None,
         }
     }
 

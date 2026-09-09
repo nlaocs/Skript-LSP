@@ -378,6 +378,8 @@ pub struct Type {
     pub type_literals: Option<Vec<TypeLiteral>>,
     pub parser_class: Option<String>,
     pub parse_contexts: Option<Vec<String>>,
+    pub default_expression: Option<DefaultExpressionDescriptor>,
+    /// Schema 3 through 5 representation, retained for compatibility.
     pub default_expression_class: Option<String>,
     pub has_parser: bool,
     pub has_serializer: bool,
@@ -385,6 +387,15 @@ pub struct Type {
     pub properties: Vec<String>,
     pub before: Option<Vec<String>>,
     pub after: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultExpressionDescriptor {
+    pub implementation_class: String,
+    pub literal: bool,
+    pub return_type: Option<String>,
+    pub single: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

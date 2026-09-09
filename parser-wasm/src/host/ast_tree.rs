@@ -17,9 +17,9 @@ use syntaxes::{EntryKind, PossibleReturnTypesState};
 
 use super::{
     AstContextOrigin, AstNode, AstTree, Capture, CaptureValue, SyntaxKind, WitMetadataEntry,
-    WitParseSummary, WitPossibleReturnTypesState, expression_node_element_class,
-    expression_node_identity, expression_node_registration, mapped_span_to_wit, metadata_to_wit,
-    multiplicity_to_wit, public_data,
+    WitParseSummary, WitPossibleReturnTypesState, default_expression,
+    expression_node_element_class, expression_node_identity, expression_node_registration,
+    mapped_span_to_wit, metadata_to_wit, multiplicity_to_wit, public_data,
 };
 
 pub(super) fn from_structure_document(
@@ -233,6 +233,7 @@ impl AstBuilder<'_> {
                         possible_return_types: Vec::new(),
                         possible_return_types_state: WitPossibleReturnTypesState::Complete,
                         multiplicity: None,
+                        default_expression: None,
                         public_data: Vec::new(),
                         metadata: metadata_to_wit(&condition.metadata),
                     }),
@@ -278,6 +279,7 @@ impl AstBuilder<'_> {
                 expression.possible_return_types_state,
             ),
             multiplicity: expression.multiplicity.map(multiplicity_to_wit),
+            default_expression: default_expression::node_info(expression),
             public_data: public_data::to_wit(&expression.public_data),
             metadata: metadata_to_wit(&expression.metadata),
         };
@@ -451,6 +453,9 @@ fn expression_syntax_identity(expression: &ExpressionNode) -> (SyntaxKind, Strin
         ExpressionNodeKind::Registered {
             registration_id, ..
         } => (SyntaxKind::Expression, registration_id.clone()),
+        ExpressionNodeKind::Default { info } => {
+            (SyntaxKind::Type, info.type_registration_id.clone())
+        }
         ExpressionNodeKind::Grouped => (
             SyntaxKind::Expression,
             "parser:expression.grouped".to_owned(),
@@ -508,6 +513,7 @@ fn candidate_summary(
         possible_return_types: Vec::new(),
         possible_return_types_state: WitPossibleReturnTypesState::Complete,
         multiplicity: None,
+        default_expression: None,
         public_data: Vec::new(),
         metadata,
     }

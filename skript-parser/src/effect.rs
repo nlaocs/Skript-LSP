@@ -524,6 +524,7 @@ pub(crate) fn effect_semantic_summary(
     catalog: &Catalog,
 ) -> crate::ParsedCaptureSemanticSummary {
     crate::ParsedCaptureSemanticSummary {
+        default_expression: None,
         kind: "effect".to_owned(),
         definition_id: Some(candidate.matched.definition_id.clone()),
         registration_id: Some(candidate.matched.registration_id.clone()),

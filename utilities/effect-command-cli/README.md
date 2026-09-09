@@ -2,8 +2,14 @@
 
 [日本語](README.ja.md)
 
+JSON report schema 7 displays implicit/default Expression children and rejected/unresolved
+omitted arguments in both human and JSON reports. For example, `send stone`
+requires a CommandSender-providing Event such as `--event "on join"`;
+`send stone to console` has an explicit recipient. Source text is preserved.
+See the [shared DefaultExpression model](../../docs/default-expressions.md).
+
 `effectcommandcli` is a standalone inspection utility that parses one Skript
-Effect against an exact SkriptSyntaxGenerator (SSG) schema 3, 4, or 5 snapshot. It never
+Effect against an exact SkriptSyntaxGenerator (SSG) schema 3, 4, 5, or 6 snapshot. It never
 executes the Effect. The binary demonstrates how `ssg`, `syntaxes`,
 `skript-parser`, `parser-wasm`, and the mandatory CoreLibrary fit together.
 
@@ -25,7 +31,7 @@ The Windows executable is `target/debug/effectcommandcli.exe`.
 Pass either an SSG output directory or its `Manifest.json`:
 
 ```console
-effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1"
+effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator "send 1 to console"
 ```
 
 When `--snapshot` is omitted, the utility uses
@@ -34,7 +40,7 @@ snapshot is validated before CoreLibrary starts; unsupported schemas, digest
 mismatches, missing files, and invalid cross-file references fail before
 parsing.
 
-Schema 5 requires `Language.json`; schemas 3 and 4 do not. See the
+Schemas 5 and 6 require `Language.json`; schemas 3 and 4 do not. See the
 [`ssg` format documentation](../../ssg/README.md) for the required file inventories.
 
 ## One-Shot Mode
@@ -42,9 +48,9 @@ Schema 5 requires `Language.json`; schemas 3 and 4 do not. See the
 An Effect argument parses one line and exits:
 
 ```console
-effectcommandcli.exe "send 1"
+effectcommandcli.exe "send 1 to console"
 effectcommandcli.exe --json "broadcast \"hello\""
-effectcommandcli.exe "send sin(abs(-1))"
+effectcommandcli.exe "send sin(abs(-1)) to console"
 effectcommandcli.exe --event "on join:" "send join message"
 effectcommandcli.exe --section "loop all players:" "continue"
 effectcommandcli.exe --section "loop all players" --section "if loop-player is online:" "exit 2 sections"
@@ -75,7 +81,7 @@ Human output identifies the selected Effect, addon, implementation class,
 registration pattern, pattern AST, captures, expected Skript types, resolved
 Java return types, multiplicity, nested Expressions, public semantic data,
 parse tags, parse marks, alternatives, and the farthest useful failure. JSON
-reports carry `schemaVersion: 6` so consumers can version their reader
+reports carry `schemaVersion: 7` so consumers can version their reader
 independently from the SSG schema. Human reports include `parseTime` in
 milliseconds for durations of
 at least one millisecond and in nanoseconds for shorter parses. JSON reports
@@ -134,7 +140,7 @@ parser host:
 ```console
 effectcommandcli.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator
 
-effect> send 1
+effect> send 1 to console
 effect> broadcast "hello"
 effect> :event on join:
 effect> :section loop all players:

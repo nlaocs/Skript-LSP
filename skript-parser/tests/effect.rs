@@ -582,9 +582,9 @@ impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
 fn effect_expression_capture_uses_local_context_without_leaking_it() {
     let catalog = effect_fixture();
     let id = DynamicSyntaxId::new("test.dynamic", "scoped-expression-effect");
-    // The omitted optional `%string%` still owns capture slot 0, so the
+    // The omitted nullable `%-string%` still owns capture slot 0, so the
     // matched regex must retain its registration-defined slot 1.
-    let pattern = "scoped [%string% ]using <.+>";
+    let pattern = "scoped [%-string% ]using <.+>";
     let definition = DynamicSyntaxDefinition {
         id: id.clone(),
         kind: SyntaxKind::Effect,

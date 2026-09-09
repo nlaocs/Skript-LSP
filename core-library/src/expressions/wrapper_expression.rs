@@ -13,6 +13,7 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     handlers.push(RegisteredSyntaxHandler {
         handler_id: HANDLER_ID.to_owned(),
         kind: SyntaxKind::Expression,
+        phase: crate::nlaocs::skript_parser_addon::types::HookPhase::Expression,
         targets: vec![RegisteredSyntaxHandlerTarget::SuperClass(
             SUPER_CLASS.to_owned(),
         )],

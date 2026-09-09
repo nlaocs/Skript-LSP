@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+型付きcaptureは明示入力、省略、null許可、defaultの状態を保持します。意味解析は
+syntax hookより前に`provide_default_expression`でnull不可の省略を補完し、implicit nodeと
+失敗を共通モデルへ公開します。[DefaultExpression APIガイド](../docs/default-expressions.ja.md)を参照してください。
+
 `skript-parser`は、`.sk` documentのsource mapping、lossless RawTree、登録構文照合、再帰的な
 構文木を所有します。Expression、Condition、Effect、Event header、Section、EntryValidator付きの
 top-level Structureを解析し、document定義Functionの呼び出しで使うtransactional registryも持ちます。

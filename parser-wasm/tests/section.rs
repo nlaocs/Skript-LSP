@@ -401,7 +401,7 @@ fn effect_and_expression_section_metadata_is_preserved() {
         &mut host,
         &transaction,
         5,
-        "shoot players:\n    dummy effect registered through wrapper\n",
+        "shoot players from all players:\n    dummy effect registered through wrapper\n",
         SectionParserConfig::default(),
     )
     .expect("EffectSection must use the Section pipeline")
