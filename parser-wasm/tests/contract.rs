@@ -19,7 +19,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(15, 0)
+        parser_wasm::AbiVersion::new(16, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -36,7 +36,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.33.0")
+        Some("0.34.0")
     );
 
     let world = package
@@ -304,6 +304,8 @@ fn guest_bindings_expose_typed_macro_payloads() {
             roots: Vec::new(),
             nodes: Vec::new(),
         },
+        target: 0,
+        depth: 0,
     };
     let output = TextMacroOutput {
         decision: HookDecision::ContinueProcessing,

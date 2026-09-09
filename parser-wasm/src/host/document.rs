@@ -6,7 +6,6 @@
 //! roll back both StateStore writes and document-scoped dynamic syntax.
 
 use std::{
-    collections::BTreeMap,
     fmt,
     sync::{
         Arc,
@@ -15,22 +14,18 @@ use std::{
 };
 
 use skript_parser::{
-    ConditionNode, EffectCandidate, ExpressionNode, ExpressionNodeKind, ExpressionParseContext,
-    ExpressionPublicData, FunctionRegistrySnapshot, MappedSource, MatchSpan, ParsedCapture,
-    ParsedCaptureValue, RawTree, RawTreeOptions, SectionBodyNode, SectionCandidate, StructureBody,
-    StructureCandidate, StructureDocument, StructureDocumentNode, StructureEntry,
-    StructureEntryValue, StructureParseRequest, StructureParserConfig, parse_raw_tree,
+    ExpressionParseContext, FunctionRegistrySnapshot, MappedSource, RawTree, RawTreeOptions,
+    StructureDocument, StructureParseRequest, StructureParserConfig, parse_raw_tree,
 };
-use syntaxes::{
-    ClassName, DynamicRegistryError, DynamicSyntaxSavepoint, Multiplicity, PossibleReturnTypesState,
-};
+use syntaxes::{DynamicRegistryError, DynamicSyntaxSavepoint};
 
 use crate::state::{CommitSummary, ParseTransaction, StateError};
 
 use super::{
-    ComponentFailure, HookCall, HookDecision, HookEffects, HostError, InvocationContext,
-    ParserHost, TextMacroCall, TextMacroRequest, TextMacroResult, TreeMacroCall, TreeMacroRequest,
-    TreeMacroResult, WasmStructureParseResult, empty_effects, merge_effects,
+    AstMacroCall, AstMacroRequest, AstMacroResult, AstTree, ComponentFailure, HookCall,
+    HookDecision, HookEffects, HostError, InvocationContext, ParserHost, TextMacroCall,
+    TextMacroRequest, TextMacroResult, TreeMacroCall, TreeMacroRequest, TreeMacroResult,
+    WasmStructureParseResult, ast_tree, empty_effects, merge_effects,
 };
 
 /// Cooperative cancellation shared by the caller and one document parse.
@@ -68,6 +63,7 @@ pub enum DocumentParseStage {
     RawTree,
     TreeMacro,
     Syntax,
+    AstMacro,
     Commit,
 }
 
@@ -79,6 +75,7 @@ impl fmt::Display for DocumentParseStage {
             Self::RawTree => "raw tree",
             Self::TreeMacro => "tree macro",
             Self::Syntax => "syntax",
+            Self::AstMacro => "AST macro",
             Self::Commit => "commit",
         };
         formatter.write_str(name)
@@ -195,81 +192,41 @@ impl Default for DocumentParserConfig {
     }
 }
 
-/// Revision-local preorder identity for a selected Expression node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DocumentExpressionId(u64);
-
-impl DocumentExpressionId {
-    /// Returns the numeric identity. It is not stable across document revisions.
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-/// Flattened semantic input retained from one selected Expression.
-///
-/// This index does not interpret addon data. CoreLibrary and third-party addons
-/// can publish the same public schema from different Expression parsers, while
-/// a later Rust semantic database consumes the final transformed records.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DocumentExpressionRecord {
-    pub id: DocumentExpressionId,
-    pub parent: Option<DocumentExpressionId>,
-    pub kind: ExpressionNodeKind,
-    pub span: MatchSpan,
-    pub return_type: Option<ClassName>,
-    pub possible_return_types: Vec<ClassName>,
-    pub possible_return_types_state: PossibleReturnTypesState,
-    pub multiplicity: Option<Multiplicity>,
-    pub public_data: Vec<ExpressionPublicData>,
-    pub metadata: BTreeMap<String, String>,
-}
-
 /// Fully parsed partial AST and every accepted side effect for one committed revision.
 #[derive(Debug)]
 pub struct DocumentParseResult {
     pub source: MappedSource,
     pub raw_tree: RawTree,
+    /// Native parser trace including unknown and recovered nodes.
     pub syntax: StructureDocument,
+    /// Canonical data-only AST after every accepted AST macro.
+    pub ast: AstTree,
     pub functions: FunctionRegistrySnapshot,
-    pub expressions: Vec<DocumentExpressionRecord>,
     pub effects: HookEffects,
     pub text_macro_decision: HookDecision,
     pub tree_macro_decision: HookDecision,
+    pub ast_macro_decision: HookDecision,
     pub text_macro_calls: Vec<TextMacroCall>,
     pub tree_macro_calls: Vec<TreeMacroCall>,
+    pub ast_macro_calls: Vec<AstMacroCall>,
     pub syntax_calls: Vec<HookCall>,
     pub component_failures: Vec<ComponentFailure>,
     pub state: CommitSummary,
-}
-
-impl DocumentParseResult {
-    /// Iterates final addon-public data for one schema across selected Expressions.
-    pub fn expression_public_data<'a>(
-        &'a self,
-        schema_id: &'a str,
-    ) -> impl Iterator<Item = (DocumentExpressionId, &'a ExpressionPublicData)> + 'a {
-        self.expressions.iter().flat_map(move |expression| {
-            expression
-                .public_data
-                .iter()
-                .filter(move |entry| entry.schema_id == schema_id)
-                .map(move |entry| (expression.id, entry))
-        })
-    }
 }
 
 struct UncommittedDocument {
     source: MappedSource,
     raw_tree: RawTree,
     syntax: StructureDocument,
+    ast: AstTree,
     functions: FunctionRegistrySnapshot,
-    expressions: Vec<DocumentExpressionRecord>,
     effects: HookEffects,
     text_macro_decision: HookDecision,
     tree_macro_decision: HookDecision,
+    ast_macro_decision: HookDecision,
     text_macro_calls: Vec<TextMacroCall>,
     tree_macro_calls: Vec<TreeMacroCall>,
+    ast_macro_calls: Vec<AstMacroCall>,
     syntax_calls: Vec<HookCall>,
     component_failures: Vec<ComponentFailure>,
 }
@@ -368,13 +325,15 @@ impl ParserHost {
             source: parsed.source,
             raw_tree: parsed.raw_tree,
             syntax: parsed.syntax,
+            ast: parsed.ast,
             functions: parsed.functions,
-            expressions: parsed.expressions,
             effects: parsed.effects,
             text_macro_decision: parsed.text_macro_decision,
             tree_macro_decision: parsed.tree_macro_decision,
+            ast_macro_decision: parsed.ast_macro_decision,
             text_macro_calls: parsed.text_macro_calls,
             tree_macro_calls: parsed.tree_macro_calls,
+            ast_macro_calls: parsed.ast_macro_calls,
             syntax_calls: parsed.syntax_calls,
             component_failures: parsed.component_failures,
             state,
@@ -462,28 +421,53 @@ impl ParserHost {
         check_cancelled(
             &request.context,
             &config.cancellation,
-            DocumentParseStage::Syntax,
+            DocumentParseStage::AstMacro,
         )?;
-        let expressions = collect_expressions(&syntax);
+        let ast = ast_tree::from_structure_document(&source, &syntax);
+        let AstMacroResult {
+            decision: ast_macro_decision,
+            source,
+            tree: ast,
+            effects: ast_effects,
+            calls: ast_macro_calls,
+            failures: ast_failures,
+        } = self.expand_ast_in_parse(
+            transaction,
+            AstMacroRequest {
+                context: request.context.clone(),
+                source,
+                tree: ast,
+            },
+        )?;
+
+        check_cancelled(
+            &request.context,
+            &config.cancellation,
+            DocumentParseStage::AstMacro,
+        )?;
         let mut effects = empty_effects();
         merge_effects(&mut effects, text_effects);
         merge_effects(&mut effects, tree_effects);
         merge_effects(&mut effects, syntax_effects);
+        merge_effects(&mut effects, ast_effects);
         let mut component_failures = text_failures;
         component_failures.extend(tree_failures);
         component_failures.extend(syntax_failures);
+        component_failures.extend(ast_failures);
 
         Ok(UncommittedDocument {
             source,
             raw_tree,
             syntax,
+            ast,
             functions,
-            expressions,
             effects,
             text_macro_decision,
             tree_macro_decision,
+            ast_macro_decision,
             text_macro_calls,
             tree_macro_calls,
+            ast_macro_calls,
             syntax_calls,
             component_failures,
         })
@@ -532,126 +516,4 @@ fn raw_tree_options_for_runtime(version: Option<&str>) -> RawTreeOptions {
         return RawTreeOptions::for_skript_version(2, 9);
     };
     RawTreeOptions::for_skript_version(major, minor)
-}
-
-fn collect_expressions(document: &StructureDocument) -> Vec<DocumentExpressionRecord> {
-    let mut collector = ExpressionCollector::default();
-    for root in &document.roots {
-        if let StructureDocumentNode::Structure(matches) = root
-            && let Some(selected) = &matches.selected
-        {
-            collector.structure(selected);
-        }
-    }
-    collector.records
-}
-
-#[derive(Default)]
-struct ExpressionCollector {
-    records: Vec<DocumentExpressionRecord>,
-}
-
-impl ExpressionCollector {
-    fn expression(&mut self, expression: &ExpressionNode, parent: Option<DocumentExpressionId>) {
-        let id = DocumentExpressionId(
-            u64::try_from(self.records.len()).expect("document Expression count exceeds u64"),
-        );
-        self.records.push(DocumentExpressionRecord {
-            id,
-            parent,
-            kind: expression.kind.clone(),
-            span: expression.span.clone(),
-            return_type: expression.return_type.clone(),
-            possible_return_types: expression.possible_return_types.clone(),
-            possible_return_types_state: expression.possible_return_types_state,
-            multiplicity: expression.multiplicity,
-            public_data: expression.public_data.clone(),
-            metadata: expression.metadata.clone(),
-        });
-        for child in &expression.children {
-            self.expression(child, Some(id));
-        }
-    }
-
-    fn capture(&mut self, capture: &ParsedCapture) {
-        let Some(value) = &capture.result.value else {
-            return;
-        };
-        match value {
-            ParsedCaptureValue::Expression(expression) => self.expression(expression, None),
-            ParsedCaptureValue::Condition(condition) => self.condition(condition),
-            ParsedCaptureValue::Effect(effect) => self.effect(effect),
-            ParsedCaptureValue::Section(section) => self.section(section),
-            ParsedCaptureValue::Event(_) | ParsedCaptureValue::Raw(_) => {}
-        }
-    }
-
-    fn captures(&mut self, captures: &[ParsedCapture]) {
-        for capture in captures {
-            self.capture(capture);
-        }
-    }
-
-    fn condition(&mut self, condition: &ConditionNode) {
-        for expression in &condition.expressions {
-            self.expression(expression, None);
-        }
-        for child in &condition.children {
-            self.condition(child);
-        }
-    }
-
-    fn effect(&mut self, effect: &EffectCandidate) {
-        self.captures(&effect.parsed_captures);
-    }
-
-    fn section(&mut self, section: &SectionCandidate) {
-        self.captures(&section.parsed_captures);
-        self.body(&section.body);
-    }
-
-    fn body(&mut self, body: &[SectionBodyNode]) {
-        for node in body {
-            match node {
-                SectionBodyNode::Section(matches) => {
-                    if let Some(selected) = &matches.selected {
-                        self.section(selected);
-                    }
-                }
-                SectionBodyNode::Effect(matches) => {
-                    if let Some(selected) = &matches.selected {
-                        self.effect(selected);
-                    }
-                }
-                SectionBodyNode::Condition { matches, .. } => {
-                    if let Some(selected) = &matches.selected {
-                        self.condition(&selected.node);
-                    }
-                }
-                SectionBodyNode::Trivia(_) | SectionBodyNode::Unclaimed(_) => {}
-            }
-        }
-    }
-
-    fn structure(&mut self, structure: &StructureCandidate) {
-        self.captures(&structure.parsed_captures);
-        match &structure.body {
-            StructureBody::Entries(entries) => self.entries(entries),
-            StructureBody::Trigger(body) => self.body(body),
-            StructureBody::None | StructureBody::Raw(_) => {}
-        }
-    }
-
-    fn entries(&mut self, entries: &[StructureEntry]) {
-        for entry in entries {
-            match &entry.value {
-                StructureEntryValue::Expression(expression) => self.expression(expression, None),
-                StructureEntryValue::Trigger(body) => self.body(body),
-                StructureEntryValue::Container(entries) => self.entries(entries),
-                StructureEntryValue::Raw(_)
-                | StructureEntryValue::Section(_)
-                | StructureEntryValue::Unknown(_) => {}
-            }
-        }
-    }
 }

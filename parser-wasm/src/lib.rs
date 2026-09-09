@@ -19,7 +19,7 @@ pub mod state;
 
 #[cfg(feature = "host")]
 pub use host::{
-    DocumentCancellationToken, DocumentExpressionId, DocumentExpressionRecord, DocumentParseError,
+    AstMacroCall, AstMacroRequest, AstMacroResult, DocumentCancellationToken, DocumentParseError,
     DocumentParseRequest, DocumentParseResult, DocumentParseStage, DocumentParserConfig,
     HostConfig, HostError, ParserHost, RuntimePlugin, RuntimeProfile, TreeMacroCall,
     TreeMacroRequest, TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult,
@@ -30,7 +30,7 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(15, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(16, 0);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -44,7 +44,7 @@ pub const CAPABILITY_DYNAMIC_SYNTAX: &str = "parser.dynamic-syntax";
 pub const CAPABILITY_TEXT_MACRO: &str = "parser.macro.text";
 /// Capability ID for lossless RawTree transformation macros.
 pub const CAPABILITY_TREE_MACRO: &str = "parser.macro.tree";
-/// Reserved capability ID for hygienic parsed-AST macros.
+/// Capability ID for hygienic parsed-AST macros.
 pub const CAPABILITY_AST_MACRO: &str = "parser.macro.ast";
 /// Capability ID for parser context updates emitted by hooks.
 pub const CAPABILITY_CONTEXT_UPDATES: &str = "parser.context-updates";

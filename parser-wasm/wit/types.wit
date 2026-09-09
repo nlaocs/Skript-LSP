@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.33.0;
+package nlaocs:skript-parser-addon@0.34.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -1334,14 +1334,30 @@ interface types {
         value: capture-value,
     }
 
+    /// How an AST node receives its syntax context after a macro replacement.
+    enum ast-context-origin {
+        /// Keep the context of the input node with the same ID and identity.
+        preserved,
+        /// Use the fresh hygienic context allocated for this macro expansion.
+        macro,
+        /// Resolve identifiers in the context surrounding the replacement site.
+        call-site,
+        /// Resolve identifiers in the defining addon context.
+        definition-site,
+    }
+
     record ast-node {
         id: node-id,
         kind: syntax-kind,
         syntax-id: string,
+        text: string,
         span: mapped-span,
         syntax-context: syntax-context-id,
+        context-origin: ast-context-origin,
+        summary: option<parse-summary>,
         captures: list<capture>,
         children: list<node-id>,
+        metadata: list<metadata-entry>,
     }
 
     record ast-tree {
@@ -1508,10 +1524,16 @@ interface types {
     record ast-macro-input {
         context: invocation-context,
         tree: ast-tree,
+        /// Node currently visited by the host's deterministic pre-order walk.
+        target: node-id,
+        /// Expansion depth of the target, independent from its source nesting.
+        depth: u32,
     }
 
     record ast-macro-output {
         decision: hook-decision,
+        /// Complete replacement fragment for `input.target`. `none` keeps the
+        /// target, zero roots delete it, and multiple roots splice a list slot.
         replacement: option<ast-tree>,
         effects: hook-effects,
     }

@@ -4,12 +4,15 @@
 //! coordinates macros and dynamic syntax, and commits only accepted side effects.
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
+mod ast_macro;
+mod ast_tree;
 mod document;
 mod public_data;
 
+pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
 pub use document::{
-    DocumentCancellationToken, DocumentExpressionId, DocumentExpressionRecord, DocumentParseError,
-    DocumentParseRequest, DocumentParseResult, DocumentParseStage, DocumentParserConfig,
+    DocumentCancellationToken, DocumentParseError, DocumentParseRequest, DocumentParseResult,
+    DocumentParseStage, DocumentParserConfig,
 };
 
 use std::{
@@ -26,6 +29,20 @@ use std::{
 
 use fancy_regex::Regex;
 use sha2::{Digest, Sha256};
+use skript_parser::{
+    AstExpansion, ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
+    GeneratedRawNodeId as ParserGeneratedRawNodeId,
+    GeneratedRawNodeKind as ParserGeneratedRawNodeKind, GeneratedRawTree as ParserGeneratedRawTree,
+    IndentKind as ParserIndentKind, LineEnding as ParserLineEnding, MappedSource,
+    OriginKind as ParserOriginKind, RawDiagnosticCode as ParserRawDiagnosticCode,
+    RawDiagnosticSeverity as ParserRawDiagnosticSeverity,
+    RawInvalidReason as ParserRawInvalidReason, RawNodeId as ParserRawNodeId,
+    RawNodeKind as ParserRawNodeKind, RawTree as ParserRawTree,
+    RawTriviaKind as ParserRawTriviaKind, RetainedChildren as ParserRetainedChildren,
+    RetainedChildrenPlacement as ParserRetainedChildrenPlacement, TextEdit as ParserTextEdit,
+    TextExpansion, TextRange as ParserTextRange, TreeEdit as ParserTreeEdit, TreeEditMetadata,
+    apply_tree_edit,
+};
 use skript_parser::{
     CandidateFailure, CandidateMatches, ConditionMatches, ConditionNode, ConditionNodeKind,
     ConditionParseError, ConditionParseRequest, ConditionParserConfig, ConditionSemanticDecision,
@@ -62,20 +79,6 @@ use skript_parser::{
     parse_expression_with_snapshot as run_expression_parser,
     parse_section_with_snapshot as run_section_parser,
     parse_structures_with_snapshot as run_structure_parser,
-};
-use skript_parser::{
-    ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
-    GeneratedRawNodeId as ParserGeneratedRawNodeId,
-    GeneratedRawNodeKind as ParserGeneratedRawNodeKind, GeneratedRawTree as ParserGeneratedRawTree,
-    IndentKind as ParserIndentKind, LineEnding as ParserLineEnding, MappedSource,
-    OriginKind as ParserOriginKind, RawDiagnosticCode as ParserRawDiagnosticCode,
-    RawDiagnosticSeverity as ParserRawDiagnosticSeverity,
-    RawInvalidReason as ParserRawInvalidReason, RawNodeId as ParserRawNodeId,
-    RawNodeKind as ParserRawNodeKind, RawTree as ParserRawTree,
-    RawTriviaKind as ParserRawTriviaKind, RetainedChildren as ParserRetainedChildren,
-    RetainedChildrenPlacement as ParserRetainedChildrenPlacement, TextEdit as ParserTextEdit,
-    TextExpansion, TextRange as ParserTextRange, TreeEdit as ParserTreeEdit, TreeEditMetadata,
-    apply_tree_edit,
 };
 use syntaxes::{
     Catalog, CatalogSourceRecord, ChangeMode as CatalogChangeMode, ClassName, DefinitionId,
@@ -159,20 +162,22 @@ use crate::state::{
     StateStoreConfig, StateValue,
 };
 use crate::{
-    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_CATALOG_DATA,
-    CAPABILITY_CONDITION_PARSER, CAPABILITY_CONTEXT_UPDATES, CAPABILITY_DYNAMIC_SYNTAX,
-    CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER, CAPABILITY_HOOKS,
-    CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE, CAPABILITY_STRUCTURE_PARSER,
-    CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability, CapabilityRequirement,
-    CompatibilityError, REGISTERED_CONTEXT_ALL_TYPE_OPTIONS, validate_compatibility,
+    ABI_VERSION, AbiVersion, CAPABILITY_ADDITIONAL_PARSE, CAPABILITY_AST_MACRO,
+    CAPABILITY_CATALOG_DATA, CAPABILITY_CONDITION_PARSER, CAPABILITY_CONTEXT_UPDATES,
+    CAPABILITY_DYNAMIC_SYNTAX, CAPABILITY_EFFECT_PARSER, CAPABILITY_EXPRESSION_PARSER,
+    CAPABILITY_HOOKS, CAPABILITY_SECTION_PARSER, CAPABILITY_STATE_STORE,
+    CAPABILITY_STRUCTURE_PARSER, CAPABILITY_TEXT_MACRO, CAPABILITY_TREE_MACRO, Capability,
+    CapabilityRequirement, CompatibilityError, REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+    validate_compatibility,
 };
 
 pub use crate::bindings::nlaocs::skript_parser_addon::types::{
-    AstNode, AstTree, Capture, CaptureValue, CatalogAnnotationTarget, ComponentManifest,
-    ConditionPayload, ContextUpdate, Diagnostic, DiagnosticSeverity, ExpressionExpectedType,
-    ExpressionLiteralOption, ExpressionPossibleReturnTypesState, ExpressionReturnTypeState,
-    ExpressionTypeOption, HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase,
-    HookSelector, HookSubscription, HookTarget, InvocationContext, MappedSpan, MatchingPathSegment,
+    AstContextOrigin, AstMacroInput, AstMacroOutput, AstNode, AstTree, Capture, CaptureValue,
+    CatalogAnnotationTarget, ComponentManifest, ConditionPayload, ContextUpdate, Diagnostic,
+    DiagnosticSeverity, ExpressionExpectedType, ExpressionLiteralOption,
+    ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
+    HookDecision, HookEffects, HookMode, HookOutput, HookPayload, HookPhase, HookSelector,
+    HookSubscription, HookTarget, InvocationContext, MappedSpan, MatchingPathSegment,
     MatchingPayload, MatchingScope, MatchingStatus, MatchingTiming, ParseRequest, ParseResult,
     ParseResultNode, PatternRef, RawTree, RawTreeNode, RegisteredExpressionChild,
     RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
@@ -234,6 +239,10 @@ pub struct HostConfig {
     pub max_tree_macro_expansion_depth: usize,
     pub max_tree_macro_nodes: usize,
     pub max_tree_macro_calls: usize,
+    pub max_ast_macro_expansion_depth: usize,
+    pub max_ast_depth: usize,
+    pub max_ast_macro_nodes: usize,
+    pub max_ast_macro_calls: usize,
     pub max_catalog_response_bytes: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
@@ -300,6 +309,10 @@ impl Default for HostConfig {
             max_tree_macro_expansion_depth: 64,
             max_tree_macro_nodes: 100_000,
             max_tree_macro_calls: 4_096,
+            max_ast_macro_expansion_depth: 32,
+            max_ast_depth: 256,
+            max_ast_macro_nodes: 100_000,
+            max_ast_macro_calls: 1_024,
             max_catalog_response_bytes: 32 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
@@ -380,6 +393,10 @@ impl HostConfig {
             || self.max_tree_macro_expansion_depth == 0
             || self.max_tree_macro_nodes == 0
             || self.max_tree_macro_calls == 0
+            || self.max_ast_macro_expansion_depth == 0
+            || self.max_ast_depth == 0
+            || self.max_ast_macro_nodes == 0
+            || self.max_ast_macro_calls == 0
             || self.max_catalog_response_bytes == 0;
         if invalid {
             return Err(HostError::InvalidConfiguration);
@@ -572,6 +589,27 @@ pub enum HostError {
     TreeMacroCallQuotaExceeded { limit: usize },
     #[error("tree macro expansion cycle detected in {component_id}:{subscription_id}")]
     TreeMacroCycleDetected {
+        component_id: String,
+        subscription_id: String,
+    },
+    #[error(
+        "component {component_id} returned invalid AST macro output for {subscription_id}: {message}"
+    )]
+    InvalidAstMacroOutput {
+        component_id: String,
+        subscription_id: String,
+        message: String,
+    },
+    #[error("AST macro pipeline exceeded the expansion depth quota of {limit}")]
+    AstMacroExpansionDepthQuotaExceeded { limit: usize },
+    #[error("AST exceeded the structural depth quota of {limit}")]
+    AstDepthQuotaExceeded { limit: usize },
+    #[error("AST macro pipeline exceeded the node quota of {limit}")]
+    AstMacroNodeQuotaExceeded { limit: usize },
+    #[error("AST macro pipeline exceeded the hook call quota of {limit}")]
+    AstMacroCallQuotaExceeded { limit: usize },
+    #[error("AST macro expansion cycle detected in {component_id}:{subscription_id}")]
+    AstMacroCycleDetected {
         component_id: String,
         subscription_id: String,
     },
@@ -10804,6 +10842,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,
         CAPABILITY_TREE_MACRO,
+        CAPABILITY_AST_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
         CAPABILITY_EXPRESSION_PARSER,
@@ -11133,6 +11172,26 @@ fn validate_manifest(
             return Err(HostError::InvalidManifest {
                 message: format!(
                     "tree macro subscription {} must target parse-stage in the tree phase with transform mode",
+                    subscription.id
+                ),
+            });
+        }
+        if subscription.capability_id == CAPABILITY_AST_MACRO
+            && (!matches!(subscription.phase, HookPhase::Ast)
+                || !matches!(subscription.mode, HookMode::Transform)
+                || !matches!(
+                    subscription.target,
+                    HookTarget::ParseStage
+                        | HookTarget::SyntaxKind(_)
+                        | HookTarget::Definition(_)
+                        | HookTarget::Registration(_)
+                        | HookTarget::Pattern(_)
+                )
+                || !selector_is_empty(&subscription.selector))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!(
+                    "AST macro subscription {} must target parse-stage or syntax in the AST phase with transform mode",
                     subscription.id
                 ),
             });
@@ -13971,8 +14030,30 @@ fn ast_tree_size(tree: &AstTree) -> usize {
 fn ast_node_size(node: &AstNode) -> usize {
     node.syntax_id
         .len()
+        .saturating_add(node.text.len())
+        .saturating_add(metadata_entries_size(&node.metadata))
+        .saturating_add(node.summary.as_ref().map_or(0, ast_summary_size))
         .saturating_add(captures_size(&node.captures))
         .saturating_add(node.children.len().saturating_mul(mem::size_of::<u64>()))
+}
+
+fn ast_summary_size(summary: &WitParseSummary) -> usize {
+    summary
+        .kind
+        .len()
+        .saturating_add(summary.definition_id.as_ref().map_or(0, String::len))
+        .saturating_add(summary.registration_id.as_ref().map_or(0, String::len))
+        .saturating_add(summary.element_class.as_ref().map_or(0, String::len))
+        .saturating_add(summary.return_type.as_ref().map_or(0, String::len))
+        .saturating_add(
+            summary
+                .possible_return_types
+                .iter()
+                .map(String::len)
+                .fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(public_data::size(&summary.public_data))
+        .saturating_add(metadata_entries_size(&summary.metadata))
 }
 
 fn captures_size(captures: &[Capture]) -> usize {
@@ -15199,6 +15280,7 @@ mod tests {
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,
                 CAPABILITY_TREE_MACRO,
+                CAPABILITY_AST_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
                 CAPABILITY_EXPRESSION_PARSER,

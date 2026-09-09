@@ -11,7 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.33.0` and ABI `15.0`
+- WIT package `nlaocs:skript-parser-addon@0.34.0` and ABI `16.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list

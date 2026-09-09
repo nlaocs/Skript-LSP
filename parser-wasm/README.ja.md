@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.33.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.34.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -75,7 +75,7 @@ Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、provid
 完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
 unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加で0.31.0へ、
 host側で索引化するruntime Type pattern照合の追加で0.32.0へ、read-onlyな構造化Section scope stackの
-追加で0.33.0へ変わりました。manifestの現在の`abi`値は15.0で、
+追加で0.34.0へ変わりました。manifestの現在の`abi`値は16.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -92,9 +92,9 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
 - hostとguestは同じnegotiation ruleを使います。hostがcomponent manifestを検証したあと、
   guestが`addon.initialize`でhost profileを検証します。
 
-hostはText macroとTree macroをadvertiseし、実行します。AST macroはcontractだけが存在し、
-まだadvertiseされません。CoreLibraryのmanifestは`parser.hooks`、5つのsyntax parser capability、
-Tree macro、`parser.state-store`を必須とし、`parser.dynamic-syntax`とversion 2の
+hostはText macro、Tree macro、AST macroをadvertiseし、実行します。CoreLibraryのmanifestは
+`parser.hooks`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
+`parser.dynamic-syntax`とversion 2の
 `parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
 
 `addon.initialize`には、読み込んだSSG manifestから作った`RuntimeProfile`も渡します。snapshot、server、
@@ -690,13 +690,32 @@ freezeされたdocument snapshotは変更しません。
 
 Catalog未接続時は、このcapabilityを意図的に利用できません。
 
+## AST macroとhygiene
+
+nativeなStructure parseの後、hostは採用されたsyntaxをdata-onlyな`AstTree`へ射影し、
+nodeを決定的なpreorderで巡回します。AST macroはparse stage、syntax kind、definition、
+registration、patternを対象にできます。replacementのrootが0個ならlist要素を削除し、1個なら
+置換し、複数ならlist位置へspliceします。単一nodeを所有するcaptureには1 rootだけを返せます。
+
+node ID、graph参照、source span、syntax参照、metadata namespaceはhostが所有します。addonの
+fragmentは採用前にすべて検証し、canonicalizeします。生成nodeには新しいmacroまたは
+definition-siteの`SyntaxContextId`を割り当て、call-site指定なら置換対象のcontextを継承します。
+`preserved`は対象subtreeにある同一identityのnodeだけに許可します。採用した置換はText/Tree
+macroと同じprovenance graphへAST expansionとして登録します。
+
+不正fragment、addon error、trapはそのinvocationだけをrollbackし、元nodeを維持します。
+typed rejectionまたはfatalなhost quotaではAST stage全体をrollbackします。再帰深度、tree深度、
+call数、node数、output sizeは`HostConfig`で制限します。AST stageより前のsyntax parseが書いた
+stateは、後続macroが射影nodeを削除しただけでは戻しません。document cancel時はparse transaction
+全体をrollbackします。
+
 ## Native host API
 
 主なentry pointは次のとおりです。
 
 - `ParserHost::new`: 必須CoreLibraryをinstantiateする
-- `parse_document`: Text macro、RawTree、Tree macro、二段階Structure parseを1つの
-  atomicなdocument revisionとして実行する
+- `parse_document`: Text macro、RawTree、Tree macro、二段階Structure parse、AST macroを
+  1つのatomicなdocument revisionとして実行する
 - `load_addon` / `unload_addon`: component lifecycleを管理する
 - `begin_parse`: multi-phase parse transactionを作る
 - `dispatch_in_parse`: 一致するhook subscriptionを呼ぶ
@@ -704,6 +723,8 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `expand_text`: 1 pipeline分のparse transactionを作るconvenience API
 - `expand_tree_in_parse`: 既存parse transaction内でTree macroを再帰実行する
 - `expand_tree`: 1 tree pipeline分のparse transactionを作るconvenience API
+- `expand_ast_in_parse`: 既存parse transaction内でhygienicなAST macroを実行する
+- `expand_ast`: 1 AST pipeline分のparse transactionを作るconvenience API
 - `dynamic_syntax_snapshot`: 候補をfreezeし、順位付きsnapshotを取得する
 - `match_patterns_in_parse`: transactional WASM hook付きで順位済み候補を照合する
 - `parse_expression_in_parse`: 型付き再帰Expressionを解析する
@@ -714,20 +735,19 @@ Catalog未接続時は、このcapabilityを意図的に利用できません。
 - `dispatch`: 1回のdispatch transaction用convenience API
 
 editorやserverからは通常`parse_document`を使用します。SSG runtime profileからversion依存の
-RawTree動作を選び、未知の構文をpartial `StructureDocument`として保持し、全pipeline完走後だけ
+RawTree動作を選び、未知の構文を回復用`StructureDocument`として保持し、全pipeline完走後だけ
 採用済みStateStore writeをcommitします。cancelまたはfatal failure時にはdocument scopeの
-dynamic syntaxも一緒にrollbackします。`DocumentParseResult::expressions`は、選択された
-Expressionをrevision内でpreorderに並べたindexです。最終return type、multiplicity、metadata、
-schema-version付きpublic dataを保持しますが、addon固有schemaの中身は解釈しません。将来の
-Rust semantic databaseはこの中立なindexを入力にでき、StateStoreは正規のLSP symbol database
-ではなくaddon state/cacheのままです。
+dynamic syntaxも一緒にrollbackします。`DocumentParseResult::ast`がmacro適用後の正規data treeで、
+採用syntaxのsummary、metadata、schema-version付きpublic dataを保持しますが、addon固有schemaの
+中身は解釈しません。`DocumentParseResult::syntax`はnativeな回復traceとして残り、AST macroでは
+書き換えません。将来のRust semantic databaseはこの中立なASTを入力にでき、StateStoreは正規の
+LSP symbol databaseではなくaddon state/cacheのままです。
 
 cancelはphase境界で協調的に確認します。長いnative parse中にcancelされた場合も、そのphaseが
-戻り次第commitを止めます。AST macro実行は専用のAST macro実装へ残しており、現時点の正本となる
-syntax結果は`StructureDocument`です。
+戻り次第commitを止めます。
 
 `HostConfig`はcall fuel、epoch timeout、Wasmtimeのmemory/table/instance limit、dispatch
-output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax Catalogを管理します。
+output quota、Text/Tree/AST macro quota、StateStore設定、任意のsyntax Catalogを管理します。
 
 ## Source構成
 
@@ -736,7 +756,9 @@ output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax 
 | `wit/` | Component Model package、world、record、variant、host import |
 | `src/bindings.rs` | WITから生成されるWasmtime binding |
 | `src/host.rs` | component lifecycle、subscription、dispatch、limit、dynamic syntax bridge |
-| `src/host/document.rs` | atomicな単一document pipeline、cancel、Expression semantic-input index |
+| `src/host/document.rs` | atomicな単一document pipeline、cancel、正規AST結果 |
+| `src/host/ast_tree.rs` | native回復syntaxからdata-only ASTへの射影 |
+| `src/host/ast_macro.rs` | AST subscription dispatch、検証、hygiene、provenance、置換 |
 | `src/state/mod.rs` | namespace registryとin-memory transactional StateStore |
 | `src/state/persistent.rs` | `redb` persistent-project backend |
 | `tests/contract.rs` | host/guest binding contract |
@@ -745,6 +767,7 @@ output quota、Text macro/Tree macro quota、StateStore設定、任意のsyntax 
 | `tests/dynamic_syntax.rs` | SSG fixtureに対する実WASM dynamic registration |
 | `tests/text_macro.rs` | 順序付き実WASM展開、diagnostic mapping、rollback、quota、trap |
 | `tests/tree_macro.rs` | 実WASM node/body edit、再帰provenance、cycle、rollback、quota、trap |
+| `tests/ast_macro.rs` | 実WASM 0/1/N置換、hygiene、provenance、rollback、cycle、quota |
 | `tests/document.rs` | modern/legacyのend-to-end parse、Tree生成syntax/diagnostic、回復、cancel、stale revision |
 | `tests/pattern_match.rs` | 実WASM element overrideと採用候補だけを残すStateStore rollback |
 | `tests/structure.rs` | 実CoreLibrary Structure lifecycle、Event capture、EntryValidator、未知addon entry |

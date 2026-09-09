@@ -93,11 +93,16 @@ fn parses_and_commits_a_document_with_public_expression_data() {
         "the Effect body must be parsed"
     );
     let variables = result
-        .expression_public_data(VARIABLE_SCHEMA_ID)
+        .ast
+        .nodes
+        .iter()
+        .filter_map(|node| node.summary.as_ref())
+        .flat_map(|summary| &summary.public_data)
+        .filter(|entry| entry.schema_id == VARIABLE_SCHEMA_ID)
         .collect::<Vec<_>>();
     assert_eq!(variables.len(), 1);
     let variable: serde_json::Value =
-        serde_json::from_str(&variables[0].1.json).expect("variable public data must be JSON");
+        serde_json::from_str(&variables[0].json).expect("variable public data must be JSON");
     assert_eq!(variable["scope"], "local");
     assert_eq!(variable["name"][0]["text"], "value");
     assert_eq!(result.state.writes, 0);
