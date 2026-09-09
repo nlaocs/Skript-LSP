@@ -868,11 +868,12 @@ that owns exactly one node accepts exactly one replacement root.
 
 The host owns node IDs, graph references, source spans, syntax references, and
 metadata namespaces. It validates and canonicalizes every addon fragment before
-adopting it. Generated nodes receive a fresh macro or definition-site
-`SyntaxContextId`; an explicit call-site node inherits the replaced node's
-context. `preserved` is accepted only for an unchanged node identity from the
-target subtree. Each accepted replacement registers an AST expansion in the
-same provenance graph used by Text and Tree macros.
+adopting it. Generated nodes receive a fresh expansion `SyntaxContextId`; an
+explicit call-site node inherits the replaced node's context. A definition-site
+node keeps that resolution intent, while the expansion's component and hook
+identify its defining addon. `preserved` is accepted only for an unchanged node
+identity from the target subtree. Each accepted replacement registers an AST
+expansion in the same provenance graph used by Text and Tree macros.
 
 An invalid fragment, addon error, or trap rolls back that invocation and keeps
 the original node. A typed rejection or fatal host quota rolls back the complete

@@ -709,10 +709,11 @@ registration、patternを対象にできます。replacementのrootが0個なら
 置換し、複数ならlist位置へspliceします。単一nodeを所有するcaptureには1 rootだけを返せます。
 
 node ID、graph参照、source span、syntax参照、metadata namespaceはhostが所有します。addonの
-fragmentは採用前にすべて検証し、canonicalizeします。生成nodeには新しいmacroまたは
-definition-siteの`SyntaxContextId`を割り当て、call-site指定なら置換対象のcontextを継承します。
-`preserved`は対象subtreeにある同一identityのnodeだけに許可します。採用した置換はText/Tree
-macroと同じprovenance graphへAST expansionとして登録します。
+fragmentは採用前にすべて検証し、canonicalizeします。生成nodeには新しい展開固有の
+`SyntaxContextId`を割り当て、call-site指定なら置換対象のcontextを継承します。definition-site
+指定は解決方針として保持し、展開のcomponentとhookが定義元addonを識別します。`preserved`は
+対象subtreeにある同一identityのnodeだけに許可します。採用した置換はText/Tree macroと同じ
+provenance graphへAST expansionとして登録します。
 
 不正fragment、addon error、trapはそのinvocationだけをrollbackし、元nodeを維持します。
 typed rejectionまたはfatalなhost quotaではAST stage全体をrollbackします。再帰深度、tree深度、

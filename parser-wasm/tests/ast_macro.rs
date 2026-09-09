@@ -314,6 +314,7 @@ fn metadata_and_definition_site_intent_survive_validated_replacements() {
     let result = host
         .expand_ast_in_parse(&transaction, request(31, source, tree))
         .expect("metadata and definition-site replacements must finish");
+    assert!(result.failures.is_empty(), "{result:#?}");
 
     let metadata = result
         .tree
@@ -359,6 +360,43 @@ fn metadata_and_definition_site_intent_survive_validated_replacements() {
 }
 
 #[test]
+fn nested_ast_expansions_retain_the_complete_backtrace() {
+    let mut host = fixture_host(HostConfig::default());
+    let (source, tree) = fixture_tree(&["nested"]);
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/ast.sk", 32)
+        .expect("AST parse transaction must begin");
+    let result = host
+        .expand_ast_in_parse(&transaction, request(32, source, tree))
+        .expect("nested AST replacement must finish");
+
+    let generated = result
+        .tree
+        .nodes
+        .iter()
+        .find(|node| node.text == "nested-complete")
+        .expect("second replacement must be retained");
+    let expansion_id = generated.span.origins[0]
+        .expansion
+        .map(|id| {
+            skript_parser::ExpansionId::new(
+                u32::try_from(id).expect("test expansion id must fit in u32"),
+            )
+        })
+        .expect("generated node must point at its expansion");
+    let backtrace = result
+        .source
+        .expansion_backtrace(expansion_id)
+        .expect("nested expansion must have a backtrace");
+    assert_eq!(backtrace.len(), 2);
+    assert_eq!(backtrace[0].hook.as_str(), SUBSCRIPTION_ID);
+    assert_eq!(backtrace[1].hook.as_str(), SUBSCRIPTION_ID);
+    transaction
+        .cancel()
+        .expect("test transaction may be cancelled");
+}
+
+#[test]
 fn preserved_and_call_site_contexts_survive_without_hygiene_replacement() {
     let mut host = fixture_host(HostConfig::default());
     let (source, mut tree) = fixture_tree(&["preserved"]);
@@ -369,6 +407,7 @@ fn preserved_and_call_site_contexts_survive_without_hygiene_replacement() {
     let result = host
         .expand_ast_in_parse(&transaction, request(4, source, tree))
         .expect("preserved AST replacement must finish");
+    assert!(result.failures.is_empty(), "{result:#?}");
 
     let preserved = result
         .tree
@@ -456,6 +495,12 @@ fn invalid_fragment_addon_error_and_trap_preserve_nodes_and_state() {
                 );
             }
             _ => unreachable!(),
+        }
+        if text == "invalid" {
+            assert_eq!(
+                result.effects.diagnostics[0].code,
+                "ast-macro-invalid-output"
+            );
         }
         transaction
             .cancel()

@@ -425,6 +425,7 @@ impl ParserHost {
                     component_id,
                     subscription_id,
                     target,
+                    node.span.clone(),
                     accesses,
                     message,
                 );
@@ -504,6 +505,7 @@ impl ParserHost {
                         component_id,
                         subscription_id,
                         target,
+                        node.span.clone(),
                         accesses,
                         message,
                     );
@@ -987,8 +989,7 @@ fn apply_ast_replacement(
     }
 
     validate_parent_capture_replacement(tree, path, target.id, fragment.roots.len())?;
-    let call_site = source
-        .map_range(wit_range_to_parser(&target.span.virtual_range)?)
+    let call_site = parser_mapped_span_from_wit(&target.span)
         .map_err(|error| format!("AST call-site span: {error}"))?;
     let definition_site = fragment
         .nodes
@@ -1000,8 +1001,7 @@ fn apply_ast_replacement(
             )
         })
         .and_then(|node| {
-            source
-                .map_range(wit_range_to_parser(&node.span.virtual_range).ok()?)
+            parser_mapped_span_from_wit(&node.span)
                 .ok()?
                 .primary_origin()
                 .map(|origin| skript_parser::ExpansionSite {
@@ -1019,6 +1019,7 @@ fn apply_ast_replacement(
             },
         )
         .map_err(|error| error.to_string())?;
+    let expansion_id = u64::from(expansion.expansion.get());
 
     let next_id = tree
         .nodes
@@ -1072,7 +1073,11 @@ fn apply_ast_replacement(
         }
         for capture in &mut node.captures {
             remap_capture_ids(&mut capture.value, &id_map);
+            if let CaptureValue::Span(span) = &mut capture.value {
+                stamp_ast_expansion(span, expansion_id);
+            }
         }
+        stamp_ast_expansion(&mut node.span, expansion_id);
     }
     let replacement_roots = fragment.roots.len();
     let roots = fragment
@@ -1134,12 +1139,6 @@ fn ast_subtree_ids(tree: &AstTree, root: u64) -> Result<HashSet<u64>, String> {
         stack.extend(node.children.iter().copied());
     }
     Ok(found)
-}
-
-fn wit_range_to_parser(range: &WitTextRange) -> Result<ParserTextRange, String> {
-    let start = usize::try_from(range.start).map_err(|_| "range start does not fit usize")?;
-    let end = usize::try_from(range.end).map_err(|_| "range end does not fit usize")?;
-    Ok(ParserTextRange::new(start, end))
 }
 
 fn same_ast_identity(previous: &AstNode, replacement: &AstNode) -> bool {
@@ -1339,16 +1338,88 @@ fn hash_ast_subtree(id: u64, nodes: &HashMap<u64, &AstNode>, digest: &mut Sha256
     let Some(node) = nodes.get(&id) else {
         return;
     };
-    digest.update(format!("{:?}", node.kind));
-    digest.update(node.syntax_id.as_bytes());
-    digest.update(node.text.as_bytes());
-    for entry in &node.metadata {
-        digest.update(entry.owner_component_id.as_deref().unwrap_or_default());
-        digest.update(entry.key.as_bytes());
-        digest.update(entry.value.as_bytes());
+    hash_debug(&node.kind, digest);
+    hash_text(&node.syntax_id, digest);
+    hash_text(&node.text, digest);
+    hash_mapped_span(&node.span, digest);
+    hash_debug(&node.context_origin, digest);
+    hash_debug(&node.summary, digest);
+    hash_len(node.captures.len(), digest);
+    for capture in &node.captures {
+        hash_text(&capture.name, digest);
+        match &capture.value {
+            CaptureValue::Text(value) => {
+                digest.update([0]);
+                hash_text(value, digest);
+            }
+            CaptureValue::Node(child) => {
+                digest.update([1]);
+                hash_child_reference(node, *child, digest);
+            }
+            CaptureValue::Nodes(children) => {
+                digest.update([2]);
+                hash_len(children.len(), digest);
+                for child in children {
+                    hash_child_reference(node, *child, digest);
+                }
+            }
+            CaptureValue::Span(span) => {
+                digest.update([3]);
+                hash_mapped_span(span, digest);
+            }
+        }
     }
+    hash_len(node.metadata.len(), digest);
+    for entry in &node.metadata {
+        hash_text(
+            entry.owner_component_id.as_deref().unwrap_or_default(),
+            digest,
+        );
+        hash_text(&entry.key, digest);
+        hash_text(&entry.value, digest);
+    }
+    hash_len(node.children.len(), digest);
     for child in &node.children {
         hash_ast_subtree(*child, nodes, digest);
+    }
+}
+
+fn hash_child_reference(node: &AstNode, child: u64, digest: &mut Sha256) {
+    let position = node
+        .children
+        .iter()
+        .position(|candidate| *candidate == child)
+        .unwrap_or(usize::MAX);
+    hash_len(position, digest);
+}
+
+fn hash_mapped_span(span: &MappedSpan, digest: &mut Sha256) {
+    digest.update(span.virtual_range.start.to_le_bytes());
+    digest.update(span.virtual_range.end.to_le_bytes());
+    hash_len(span.origins.len(), digest);
+    for origin in &span.origins {
+        digest.update(origin.original_range.start.to_le_bytes());
+        digest.update(origin.original_range.end.to_le_bytes());
+        hash_debug(&origin.kind, digest);
+    }
+}
+
+fn hash_text(value: &str, digest: &mut Sha256) {
+    hash_len(value.len(), digest);
+    digest.update(value.as_bytes());
+}
+
+fn hash_len(value: usize, digest: &mut Sha256) {
+    digest.update(u64::try_from(value).unwrap_or(u64::MAX).to_le_bytes());
+}
+
+fn hash_debug(value: &impl std::fmt::Debug, digest: &mut Sha256) {
+    hash_text(&format!("{value:?}"), digest);
+}
+
+fn stamp_ast_expansion(span: &mut MappedSpan, expansion: u64) {
+    for origin in &mut span.origins {
+        origin.expansion = Some(expansion);
     }
 }
 
@@ -1371,6 +1442,7 @@ fn record_invalid_ast_output(
     component_id: String,
     subscription_id: String,
     target: u64,
+    span: MappedSpan,
     state_accesses: StateReadWriteSet,
     message: String,
 ) {
@@ -1381,6 +1453,15 @@ fn record_invalid_ast_output(
         accepted: false,
         expansion: None,
         state_accesses,
+    });
+    pipeline.effects.diagnostics.push(Diagnostic {
+        code: "ast-macro-invalid-output".to_owned(),
+        message: format!(
+            "component {component_id} returned invalid AST macro output for {subscription_id}: {message}"
+        ),
+        severity: DiagnosticSeverity::Error,
+        span,
+        related: Vec::new(),
     });
     pipeline.failures.push(ComponentFailure {
         component_id: component_id.clone(),

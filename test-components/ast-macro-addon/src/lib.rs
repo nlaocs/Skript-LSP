@@ -168,6 +168,18 @@ impl ast_macro::Guest for AstMacroAddon {
                 replacement.context_origin = AstContextOrigin::DefinitionSite;
                 Ok(changed(replacement_tree(vec![replacement])))
             }
+            "nested" => Ok(changed(replacement_tree(vec![generated_node(
+                target,
+                0,
+                "nested-step",
+                "nested/step",
+            )]))),
+            "nested-step" => Ok(changed(replacement_tree(vec![generated_node(
+                target,
+                0,
+                "nested-complete",
+                "nested/complete",
+            )]))),
             "cycle" => Ok(changed(cycle_fragment(&input.tree, target.id))),
             "invalid" => Ok(changed(AstTree {
                 roots: vec![u64::MAX],
@@ -263,11 +275,7 @@ fn preserved_fragment(tree: &AstTree, target_id: u64, extra: Option<MetadataEntr
 }
 
 fn cycle_fragment(tree: &AstTree, target_id: u64) -> AstTree {
-    let mut fragment = preserved_fragment(tree, target_id, None);
-    if let Some(root) = fragment.nodes.first_mut() {
-        root.context_origin = AstContextOrigin::Macro;
-    }
-    fragment
+    preserved_fragment(tree, target_id, None)
 }
 
 fn has_fixture_metadata(target: &AstNode) -> bool {
