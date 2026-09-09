@@ -147,6 +147,7 @@ impl EffectCommandSession {
                     main: plugin.main.clone(),
                 })
                 .collect(),
+            snapshot_capabilities: None,
         };
         let catalog = Arc::new(loaded.into_catalog());
         let host = skript_lsp::new_parser_host(HostConfig {
