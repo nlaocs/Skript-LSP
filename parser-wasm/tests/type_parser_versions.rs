@@ -861,6 +861,14 @@ fn standard_value_parsers_follow_each_real_skript_snapshot() {
             node.return_type.as_ref().map(ClassName::as_str),
             Some(ITEM_STACK_CLASS)
         );
+        if !fixture.modern_supplier_literals {
+            assert_eq!(
+                metadata(&node, "literal-source"),
+                Some("alias"),
+                "{} must resolve legacy items from the SSG alias inventory",
+                fixture.name
+            );
+        }
 
         if catalog.type_by_code_name("particle").is_some() {
             let node = selected_node(

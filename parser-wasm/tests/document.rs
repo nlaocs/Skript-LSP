@@ -42,6 +42,10 @@ fn legacy_fixture() -> PathBuf {
         .join("tests/data/type-parser-versions/skript-2.6.4-mc-1.12.2")
 }
 
+fn current_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.16.0")
+}
+
 fn request(revision: u64, source: &str) -> DocumentParseRequest {
     DocumentParseRequest::new(
         "file:///workspace",
@@ -268,6 +272,94 @@ fn derives_multiline_comment_rules_from_the_snapshot_version() {
             .iter()
             .any(|node| node.kind == RawNodeKind::Simple && node.text == "send 1")
     );
+}
+
+#[test]
+fn legacy_and_modern_snapshots_share_the_document_parser_api() {
+    const SOURCE: &str = "on dummy fixture event with priority high:\n    dummy effect registered through wrapper\nfunction fixture():\n    dummy effect registered through wrapper\ncommand /fixture:\n    trigger:\n        dummy effect registered through wrapper\n";
+
+    for (fixture, legacy) in [(legacy_fixture(), true), (current_fixture(), false)] {
+        let mut host = host(fixture);
+        let transaction = host
+            .begin_parse("file:///workspace", "file:///workspace/document.sk", 10)
+            .expect("dynamic syntax snapshot must begin");
+        let dynamic = host
+            .dynamic_syntax_snapshot(&transaction)
+            .expect("dynamic syntax registrations must freeze");
+        let legacy_registrations = dynamic
+            .definitions
+            .keys()
+            .filter(|id| {
+                id.component_id == "nlaocs.core-library"
+                    && id.local_id.starts_with("legacy-struct-")
+            })
+            .count();
+        assert_eq!(legacy_registrations, if legacy { 3 } else { 0 });
+        transaction.cancel().expect("inspection may be cancelled");
+
+        let result = host
+            .parse_document(request(11, SOURCE), DocumentParserConfig::default())
+            .expect("legacy and modern documents must use the same parser API");
+        assert!(result.component_failures.is_empty(), "{result:#?}");
+        assert_eq!(result.ast.roots.len(), 3, "{result:#?}");
+        assert_eq!(result.functions.registrations().len(), 1, "{result:#?}");
+
+        let selected = result
+            .syntax
+            .roots
+            .iter()
+            .filter_map(|root| match root {
+                StructureDocumentNode::Structure(matches) => matches.selected.as_ref(),
+                StructureDocumentNode::Trivia(_) | StructureDocumentNode::Unclaimed(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), 3, "{result:#?}");
+
+        for semantic_mode in ["event-structure", "function-structure", "command-structure"] {
+            let structure = selected
+                .iter()
+                .find(|structure| {
+                    structure
+                        .metadata
+                        .get("nlaocs.core-library/semantic-mode")
+                        .is_some_and(|mode| mode == semantic_mode)
+                })
+                .unwrap_or_else(|| panic!("missing {semantic_mode}: {result:#?}"));
+            let is_legacy_registration = structure
+                .matched
+                .registration_id
+                .starts_with("dynamic:nlaocs.core-library/legacy-struct-");
+            assert_eq!(is_legacy_registration, legacy, "{structure:#?}");
+        }
+
+        let event = selected
+            .iter()
+            .find(|structure| {
+                structure
+                    .metadata
+                    .get("nlaocs.core-library/semantic-mode")
+                    .is_some_and(|mode| mode == "event-structure")
+            })
+            .expect("event Structure must be selected");
+        assert_eq!(
+            event
+                .metadata
+                .get("nlaocs.core-library/event-priority")
+                .map(String::as_str),
+            Some("high")
+        );
+
+        let command = selected
+            .iter()
+            .find(|structure| {
+                structure
+                    .metadata
+                    .get("nlaocs.core-library/semantic-mode")
+                    .is_some_and(|mode| mode == "command-structure")
+            })
+            .expect("command Structure must be selected");
+        assert!(matches!(command.body, StructureBody::Entries(_)));
+    }
 }
 
 #[test]
