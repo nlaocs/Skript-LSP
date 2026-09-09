@@ -6,7 +6,7 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".StructEvent";
-const HANDLER_ID: &str = "core.structure.struct-event";
+pub(super) const HANDLER_ID: &str = "core.structure.struct-event";
 const EVENT_PRIORITIES: [&str; 6] = ["lowest", "low", "normal", "high", "highest", "monitor"];
 const INTRODUCED_IN: (u64, u64) = (2, 8);
 const FIRST_UNSUPPORTED_MINOR: (u64, u64) = (2, 17);

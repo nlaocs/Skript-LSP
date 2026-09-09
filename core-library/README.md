@@ -11,7 +11,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.34.0` and ABI `16.0`
+- WIT package `nlaocs:skript-parser-addon@0.35.0` and ABI `17.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -154,8 +154,18 @@ nodes, preserves replaced Section children, and emits undefined-option
 diagnostics. Generated nodes re-enter the Tree phase; this is not a general
 purpose CoreLibrary tree-macro API. Function-call matching remains in the
 native parser, while `StructFunction` only contributes the document-function
-declaration. Version-gated legacy Structure registrations are installed when
-the optional dynamic-syntax capability is available.
+declaration. When the optional dynamic-syntax capability is available,
+CoreLibrary compares the SSG Structure capability with the registered
+`StructEvent`, `StructFunction`, and `StructCommand` handler bindings. It
+registers only the missing top-level entries; a snapshot that cannot collect
+Structures receives all three. The Skript version selects the Event header
+grammar, including the legacy `with priority ...` suffix, but does not decide
+which registrations exist.
+
+Legacy item parsing also follows the SSG alias capability. A collected alias
+inventory is authoritative. If aliases are supported but were not collected,
+CoreLibrary reports the unresolved provider `ssg.aliases`; snapshots that do
+not support aliases do not receive that diagnostic.
 
 Initialization requires a non-empty, parseable `runtime.skript-version`. When
 `ParserHost::new` receives an SSG-backed `syntax_catalog`, it automatically
