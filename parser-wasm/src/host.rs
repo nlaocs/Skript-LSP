@@ -261,6 +261,69 @@ pub struct RuntimeProfile {
     pub language: Option<String>,
     pub skript_version: Option<String>,
     pub plugins: Vec<RuntimePlugin>,
+    pub snapshot_capabilities: Option<RuntimeSnapshotCapabilities>,
+}
+
+/// SSG collection capabilities associated with the active snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSnapshotCapabilities {
+    pub syntax_api: String,
+    pub event_value_api: String,
+    pub syntax_kinds: RuntimeSyntaxKindCapabilities,
+    pub aliases: RuntimeAliasCapabilities,
+}
+
+/// Syntax and supporting registry kinds available in the active snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSyntaxKindCapabilities {
+    pub conditions: bool,
+    pub effects: bool,
+    pub events: bool,
+    pub expressions: bool,
+    pub types: bool,
+    pub functions: bool,
+    pub sections: bool,
+    pub structures: bool,
+    pub properties: bool,
+    pub arithmetic: bool,
+    pub converters: bool,
+    pub comparators: bool,
+    pub event_values: bool,
+}
+
+/// Whether global aliases existed and were collected by SSG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeAliasCapabilities {
+    pub supported: bool,
+    pub collected: bool,
+}
+
+fn runtime_snapshot_capabilities(
+    capabilities: &syntaxes::CatalogRuntimeCapabilities,
+) -> RuntimeSnapshotCapabilities {
+    RuntimeSnapshotCapabilities {
+        syntax_api: capabilities.syntax_api.clone(),
+        event_value_api: capabilities.event_value_api.clone(),
+        syntax_kinds: RuntimeSyntaxKindCapabilities {
+            conditions: capabilities.syntax_kinds.conditions,
+            effects: capabilities.syntax_kinds.effects,
+            events: capabilities.syntax_kinds.events,
+            expressions: capabilities.syntax_kinds.expressions,
+            types: capabilities.syntax_kinds.types,
+            functions: capabilities.syntax_kinds.functions,
+            sections: capabilities.syntax_kinds.sections,
+            structures: capabilities.syntax_kinds.structures,
+            properties: capabilities.syntax_kinds.properties,
+            arithmetic: capabilities.syntax_kinds.arithmetic,
+            converters: capabilities.syntax_kinds.converters,
+            comparators: capabilities.syntax_kinds.comparators,
+            event_values: capabilities.syntax_kinds.event_values,
+        },
+        aliases: RuntimeAliasCapabilities {
+            supported: capabilities.aliases.supported,
+            collected: capabilities.aliases.collected,
+        },
+    }
 }
 
 /// One enabled plugin in deterministic server load order.
@@ -370,6 +433,9 @@ impl HostConfig {
                 })
                 .collect();
         }
+        self.runtime_profile
+            .snapshot_capabilities
+            .get_or_insert_with(|| runtime_snapshot_capabilities(&runtime.capabilities));
     }
 
     fn validate(&self) -> Result<(), HostError> {
@@ -419,6 +485,19 @@ impl HostConfig {
                     profile: profile_schema_version.to_string(),
                     catalog: source.schema_version.to_string(),
                 });
+            }
+            if let (Some(profile_capabilities), Some(runtime)) = (
+                self.runtime_profile.snapshot_capabilities.as_ref(),
+                source.runtime.as_ref(),
+            ) {
+                let catalog_capabilities = runtime_snapshot_capabilities(&runtime.capabilities);
+                if profile_capabilities != &catalog_capabilities {
+                    return Err(HostError::CatalogProfileMismatch {
+                        field: "snapshot capabilities",
+                        profile: format!("{profile_capabilities:?}"),
+                        catalog: format!("{catalog_capabilities:?}"),
+                    });
+                }
             }
         }
         Ok(())
@@ -10876,7 +10955,10 @@ fn host_profile(
 ) -> crate::bindings::nlaocs::skript_parser_addon::types::HostProfile {
     use crate::bindings::nlaocs::skript_parser_addon::types::{
         AbiVersion as WitAbiVersion, Capability as WitCapability, HostProfile,
-        RuntimePlugin as WitRuntimePlugin, RuntimeProfile as WitRuntimeProfile,
+        RuntimeAliasCapabilities as WitRuntimeAliasCapabilities, RuntimePlugin as WitRuntimePlugin,
+        RuntimeProfile as WitRuntimeProfile,
+        RuntimeSnapshotCapabilities as WitRuntimeSnapshotCapabilities,
+        RuntimeSyntaxKindCapabilities as WitRuntimeSyntaxKindCapabilities,
     };
     HostProfile {
         abi: WitAbiVersion {
@@ -10909,6 +10991,31 @@ fn host_profile(
                     main: plugin.main.clone(),
                 })
                 .collect(),
+            snapshot_capabilities: runtime.snapshot_capabilities.as_ref().map(|capabilities| {
+                WitRuntimeSnapshotCapabilities {
+                    syntax_api: capabilities.syntax_api.clone(),
+                    event_value_api: capabilities.event_value_api.clone(),
+                    syntax_kinds: WitRuntimeSyntaxKindCapabilities {
+                        conditions: capabilities.syntax_kinds.conditions,
+                        effects: capabilities.syntax_kinds.effects,
+                        events: capabilities.syntax_kinds.events,
+                        expressions: capabilities.syntax_kinds.expressions,
+                        types: capabilities.syntax_kinds.types,
+                        functions: capabilities.syntax_kinds.functions,
+                        sections: capabilities.syntax_kinds.sections,
+                        structures: capabilities.syntax_kinds.structures,
+                        properties: capabilities.syntax_kinds.properties,
+                        arithmetic: capabilities.syntax_kinds.arithmetic,
+                        converters: capabilities.syntax_kinds.converters,
+                        comparators: capabilities.syntax_kinds.comparators,
+                        event_values: capabilities.syntax_kinds.event_values,
+                    },
+                    aliases: WitRuntimeAliasCapabilities {
+                        supported: capabilities.aliases.supported,
+                        collected: capabilities.aliases.collected,
+                    },
+                }
+            }),
         },
         registered_handler_bindings: registered_handler_bindings.to_vec(),
     }
@@ -14257,6 +14364,39 @@ mod tests {
                 .iter()
                 .any(|capability| capability.id == CAPABILITY_CATALOG_DATA)
         );
+    }
+
+    #[test]
+    fn rejects_snapshot_capabilities_that_disagree_with_catalog() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/type-parser-versions/skript-2.16.0");
+        let catalog = Arc::new(ssg::load(fixture).unwrap().into_catalog());
+        let mut capabilities = runtime_snapshot_capabilities(
+            &catalog
+                .source()
+                .and_then(|source| source.runtime.as_ref())
+                .expect("fixture must expose runtime capabilities")
+                .capabilities,
+        );
+        capabilities.syntax_kinds.structures = false;
+        let mut config = HostConfig {
+            syntax_catalog: Some(catalog),
+            runtime_profile: RuntimeProfile {
+                snapshot_capabilities: Some(capabilities),
+                ..RuntimeProfile::default()
+            },
+            ..HostConfig::default()
+        };
+
+        config.inherit_catalog_runtime();
+
+        assert!(matches!(
+            config.validate(),
+            Err(HostError::CatalogProfileMismatch {
+                field: "snapshot capabilities",
+                ..
+            })
+        ));
     }
 
     #[test]

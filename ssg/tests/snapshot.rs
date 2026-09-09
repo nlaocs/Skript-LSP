@@ -203,6 +203,18 @@ fn loads_legacy_264_on_minecraft_1122() {
     assert!(!manifest.capabilities.syntax_kinds.properties);
     assert!(!manifest.capabilities.syntax_kinds.arithmetic);
 
+    let capabilities = &catalog
+        .source()
+        .expect("SSG catalog must retain its source")
+        .runtime
+        .as_ref()
+        .expect("SSG catalog must retain runtime metadata")
+        .capabilities;
+    assert_eq!(capabilities.syntax_api, "legacy-static");
+    assert!(!capabilities.syntax_kinds.structures);
+    assert!(capabilities.aliases.supported);
+    assert!(capabilities.aliases.collected);
+
     assert_eq!(catalog.events().count(), 125);
     assert_eq!(catalog.conditions().count(), 66);
     assert_eq!(catalog.effects().count(), 73);
@@ -234,6 +246,15 @@ fn into_catalog_exposes_the_complete_source_view() {
     assert_eq!(source.format, "ssg");
     assert_eq!(source.schema_version, 3);
     assert_eq!(source.snapshot_id, expected_snapshot_id);
+    let capabilities = &source
+        .runtime
+        .as_ref()
+        .expect("SSG catalog must retain runtime metadata")
+        .capabilities;
+    assert_eq!(capabilities.syntax_api, "registry");
+    assert!(capabilities.syntax_kinds.structures);
+    assert!(capabilities.aliases.supported);
+    assert!(capabilities.aliases.collected);
     assert_eq!(
         source.document_names().collect::<Vec<_>>(),
         ssg::LEGACY_ALL_FILES.to_vec()

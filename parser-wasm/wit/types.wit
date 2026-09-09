@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.34.0;
+package nlaocs:skript-parser-addon@0.35.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -47,6 +47,34 @@ interface types {
         main: string,
     }
 
+    record runtime-syntax-kind-capabilities {
+        conditions: bool,
+        effects: bool,
+        events: bool,
+        expressions: bool,
+        types: bool,
+        functions: bool,
+        sections: bool,
+        structures: bool,
+        properties: bool,
+        arithmetic: bool,
+        converters: bool,
+        comparators: bool,
+        event-values: bool,
+    }
+
+    record runtime-alias-capabilities {
+        supported: bool,
+        collected: bool,
+    }
+
+    record runtime-snapshot-capabilities {
+        syntax-api: string,
+        event-value-api: string,
+        syntax-kinds: runtime-syntax-kind-capabilities,
+        aliases: runtime-alias-capabilities,
+    }
+
     record runtime-profile {
         snapshot-schema-version: option<u32>,
         snapshot-id: option<string>,
@@ -57,6 +85,7 @@ interface types {
         language: option<string>,
         skript-version: option<string>,
         plugins: list<runtime-plugin>,
+        snapshot-capabilities: option<runtime-snapshot-capabilities>,
     }
 
     record registered-handler-binding {

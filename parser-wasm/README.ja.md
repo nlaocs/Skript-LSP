@@ -29,7 +29,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.34.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.35.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -75,7 +75,8 @@ Expression dataと編集可能なsemantic envelopeの追加で0.28.0へ、provid
 完全なactive Type metadata、parser-class targetの追加で0.29.0へ、構造化されたType parserの
 unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加で0.31.0へ、
 host側で索引化するruntime Type pattern照合の追加で0.32.0へ、read-onlyな構造化Section scope stackの
-追加で0.34.0へ変わりました。manifestの現在の`abi`値は16.0で、
+追加で0.34.0へ、SSG runtime snapshot capabilityの追加で0.35.0へ変わりました。
+manifestの現在の`abi`値は17.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -98,13 +99,17 @@ hostはText macro、Tree macro、AST macroをadvertiseし、実行します。Co
 `parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
 
 `addon.initialize`には、読み込んだSSG manifestから作った`RuntimeProfile`も渡します。snapshot、server、
-Skript、Minecraft、Javaのversion、language、有効pluginのload orderが含まれます。`ParserHost::new`は
+Skript、Minecraft、Javaのversion、language、有効pluginのload orderに加え、manifestのsyntax API、
+syntax-kind、alias capabilityが含まれます。`ParserHost::new`は
 validation前に`HostConfig::inherit_catalog_runtime`を呼びます。`syntax_catalog`がSSG sourceを持つ場合、
 profileで未指定のfield（Skript versionやsnapshot identityを含む）はsourceから自動補完されるため、callerが
 同じversionを重複指定する必要はありません。source Catalogも明示的なSkript versionもないdefault configは
 CoreLibrary初期化で拒否され、明示したsnapshot identityはsource Catalogと一致する必要があります。
+明示したsnapshot capabilityもsource Catalogと一致しなければならず、矛盾するprofileによってlegacy fallbackを
+誤って有効化または抑制することはできません。
 componentは、Java classやparse markの意味がversion間で変わる構文を、特定のSkript releaseを暗黙の標準にせず
-処理できます。
+処理できます。CoreLibraryはこのcapability blockも使い、静的Structure handlerが存在しない場合だけlegacyの
+top-level syntaxを追加します。
 
 ## Open parser request
 

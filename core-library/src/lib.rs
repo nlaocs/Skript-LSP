@@ -843,6 +843,7 @@ mod tests {
                 language: None,
                 skript_version: None,
                 plugins: Vec::new(),
+                snapshot_capabilities: None,
             },
         })
         .unwrap_err();
@@ -871,6 +872,7 @@ mod tests {
                 language: None,
                 skript_version: None,
                 plugins: Vec::new(),
+                snapshot_capabilities: None,
             },
         })
         .unwrap_err();
@@ -960,6 +962,7 @@ mod tests {
                     version: "2.15.4".to_owned(),
                     main: "ch.njol.skript.Skript".to_owned(),
                 }],
+                snapshot_capabilities: None,
             },
         };
 

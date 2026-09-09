@@ -1,7 +1,7 @@
 # AST macro テスト addon
 
 Issue #58 の AST macro component-boundary テストで使う決定的な WASM fixture
-です。現行 worktree の `nlaocs:skript-parser-addon@0.34.0` と ABI 16 を対象に
+です。現行 worktree の `nlaocs:skript-parser-addon@0.35.0` と ABI 17 を対象に
 しています。
 
 対象 node の `text` によって動作を切り替えます。

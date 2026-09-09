@@ -30,7 +30,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.34.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.35.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -90,9 +90,9 @@ multiple targets for each registered semantic handler, including dynamic
   parser results changed it to 0.30.0; runtime Type parser registration
   metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
   changed it to 0.32.0; the read-only structured Section scope stack changed it
-  to 0.34.0. The manifest's current `abi` value is 16.0 and is a
-runtime handshake that requires an exact
-`major.minor` match.
+  to 0.34.0; and SSG runtime snapshot capabilities changed it to 0.35.0. The
+  manifest's current `abi` value is 17.0 and is a runtime handshake that
+  requires an exact `major.minor` match.
 
 Every parse context exposes a read-only Section stack from the outermost scope
 to the innermost. Frames distinguish the catalog addon from the owner WASM
@@ -119,16 +119,21 @@ Text or AST macros.
 
 `addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
 manifest. It includes snapshot/server/Skript/Minecraft/Java versions, language,
-and enabled plugins in load order. `ParserHost::new` calls
+enabled plugins in load order, and the manifest's syntax API, syntax-kind, and
+alias capabilities. `ParserHost::new` calls
 `HostConfig::inherit_catalog_runtime` before validation: when
 `syntax_catalog` contains an SSG-backed source, missing profile fields,
 including the Skript version and snapshot identity, are filled from that
 source. Callers do not need to duplicate those values. A default configuration
 with neither a source Catalog nor an explicit Skript version is rejected by
 CoreLibrary initialization; explicitly supplied snapshot identity must still
-match the source Catalog. Components may use the profile to select semantics
+match the source Catalog. Explicitly supplied snapshot capabilities must also
+match the source Catalog, so callers cannot accidentally enable or suppress
+legacy fallbacks with a contradictory profile. Components may use the profile to select semantics
 whose Java class or parse mark changed between releases without treating one
-Skript release as the implicit default.
+Skript release as the implicit default. CoreLibrary also uses the capability
+block to add legacy top-level syntax only when its static Structure handlers
+are absent.
 
 ## Open Parser Requests
 
