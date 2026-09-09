@@ -40,6 +40,7 @@ artifacts/expression-data-addon-b.wasm
 artifacts/matching-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm
+artifacts/ast-macro-addon.wasm
 ```
 
 Parser host integration tests embed these artifacts.
