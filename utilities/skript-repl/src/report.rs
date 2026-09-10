@@ -1,13 +1,14 @@
 use crate::{EventContext, OutputFormat, SectionContext};
 use miette::{GraphicalReportHandler, GraphicalTheme, LabeledSpan, MietteDiagnostic, NamedSource};
-use parser_wasm::host::WasmEffectParseResult;
+use parser_wasm::bindings::nlaocs::skript_parser_addon::types::OriginKind as WitOriginKind;
+use parser_wasm::host::{DiagnosticSeverity, WasmEffectParseResult};
 use serde::Serialize;
 use skript_parser::{
     CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
     ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, ExpressionPublicData,
-    FailureFrameRole, FailureTrace, MatchSpan, MatchSyntaxKind, ParseMarkCapture, ParseTagCapture,
-    ParsedCapture, ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure,
-    PatternFailureReason, TextRange,
+    FailureFrameRole, FailureTrace, MatchSpan, MatchSyntaxKind, OriginKind as NativeOriginKind,
+    ParseMarkCapture, ParseTagCapture, ParsedCapture, ParsedCaptureStatus, ParsedCaptureValue,
+    PatternCapture, PatternFailure, PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -16,6 +17,10 @@ use syntax_pattern_parser::syntax::{
     PatternElement, PatternTypeExpr, Span as PatternSpan, SpannedPatternElement, parse,
 };
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Syntax};
+
+mod document;
+
+pub use document::DocumentAnalysisReport;
 
 const REPORT_SCHEMA_VERSION: u32 = 7;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
@@ -57,11 +62,7 @@ impl AnalysisReport {
             .map(|diagnostic| DiagnosticReport {
                 code: diagnostic.code,
                 message: diagnostic.message,
-                severity: format!("{:?}", diagnostic.severity)
-                    .rsplit("::")
-                    .next()
-                    .expect("split always returns one segment")
-                    .to_ascii_lowercase(),
+                severity: diagnostic_severity_name(diagnostic.severity).to_owned(),
                 span: SpanReport {
                     start: usize::try_from(diagnostic.span.virtual_range.start)
                         .unwrap_or(usize::MAX),
@@ -194,7 +195,7 @@ impl AnalysisReport {
 
     fn render(self, format: OutputFormat, color: bool) -> io::Result<Vec<u8>> {
         let worker = std::thread::Builder::new()
-            .name("effectcommandcli-report".to_owned())
+            .name("skript-repl-report".to_owned())
             .stack_size(32 * 1024 * 1024)
             .spawn(move || {
                 let mut output = Vec::new();
@@ -1237,6 +1238,9 @@ impl std::fmt::Display for SpanReport {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SourceColor {
+    Structure,
+    Section,
+    Event,
     Effect,
     Expression,
     Condition,
@@ -1245,11 +1249,15 @@ enum SourceColor {
     TypeName,
     Alias,
     Function,
+    InterpolationDelimiter,
 }
 
 impl SourceColor {
     fn ansi_code(self) -> &'static str {
         match self {
+            Self::Structure => "38;2;154;114;172",
+            Self::Section => "38;2;92;208;179",
+            Self::Event => "38;2;197;95;115",
             Self::Effect => "38;2;88;196;221",
             Self::Expression => "38;2;131;193;103",
             Self::Condition => "38;2;252;98;85",
@@ -1258,6 +1266,7 @@ impl SourceColor {
             Self::TypeName => "38;2;255;134;47",
             Self::Alias => "38;2;240;172;95",
             Self::Function => "38;2;160;160;160",
+            Self::InterpolationDelimiter => "38;2;176;176;176",
         }
     }
 }
@@ -1278,17 +1287,23 @@ fn render_matched_source(input: &str, effect: &EffectReport, color: bool) -> Str
     render_source_colors(input, &effect.source_colors)
 }
 
-fn collect_effect_colors(effect: &EffectCandidate, spans: &mut Vec<SourceColorSpan>, depth: usize) {
+fn collect_effect_colors(
+    input: &str,
+    effect: &EffectCandidate,
+    spans: &mut Vec<SourceColorSpan>,
+    depth: usize,
+) {
     push_source_color_span(
         spans,
         match_span(&effect.matched.matched.span),
         SourceColor::Effect,
         depth,
     );
-    collect_parsed_capture_colors(&effect.parsed_captures, spans, depth + 1);
+    collect_parsed_capture_colors(input, &effect.parsed_captures, spans, depth + 1);
 }
 
 fn collect_condition_colors(
+    input: &str,
     condition: &ConditionNode,
     spans: &mut Vec<SourceColorSpan>,
     depth: usize,
@@ -1300,14 +1315,15 @@ fn collect_condition_colors(
         depth,
     );
     for expression in &condition.expressions {
-        collect_expression_node_colors(expression, spans, depth + 1);
+        collect_expression_node_colors(input, expression, spans, depth + 1);
     }
     for child in &condition.children {
-        collect_condition_colors(child, spans, depth + 1);
+        collect_condition_colors(input, child, spans, depth + 1);
     }
 }
 
 fn collect_expression_node_colors(
+    input: &str,
     expression: &ExpressionNode,
     spans: &mut Vec<SourceColorSpan>,
     depth: usize,
@@ -1327,10 +1343,61 @@ fn collect_expression_node_colors(
         push_source_color_span(spans, alias_span, SourceColor::Alias, depth + 1);
     }
 
-    collect_parsed_capture_colors(&expression.parsed_captures(), spans, depth + 1);
+    if matches!(
+        &expression.kind,
+        ExpressionNodeKind::Literal { parser_id } if is_variable_string_syntax_id(parser_id)
+    ) {
+        for delimiter in interpolation_delimiter_spans(
+            input,
+            match_span(&expression.span),
+            expression
+                .children
+                .iter()
+                .map(|child| match_span(&child.span)),
+        ) {
+            push_source_color_span(
+                spans,
+                delimiter,
+                SourceColor::InterpolationDelimiter,
+                depth + 1,
+            );
+        }
+    }
+
+    collect_parsed_capture_colors(input, &expression.parsed_captures(), spans, depth + 1);
+}
+
+fn is_variable_string_syntax_id(syntax_id: &str) -> bool {
+    syntax_id.ends_with("core.literal.variable-string")
+}
+
+fn interpolation_delimiter_spans(
+    source: &str,
+    parent: SpanReport,
+    children: impl IntoIterator<Item = SpanReport>,
+) -> Vec<SpanReport> {
+    let mut delimiters = Vec::new();
+    for child in children {
+        if parent.start < child.start
+            && child.end < parent.end
+            && source.as_bytes().get(child.start - 1) == Some(&b'%')
+            && source.as_bytes().get(child.end) == Some(&b'%')
+        {
+            delimiters.push(SpanReport {
+                start: child.start - 1,
+                end: child.start,
+            });
+            delimiters.push(SpanReport {
+                start: child.end,
+                end: child.end + 1,
+            });
+        }
+    }
+    delimiters
 }
 
 fn collect_parsed_capture_colors(
+    input: &str,
     captures: &[ParsedCapture],
     spans: &mut Vec<SourceColorSpan>,
     depth: usize,
@@ -1338,14 +1405,16 @@ fn collect_parsed_capture_colors(
     for capture in captures {
         match capture.result.value.as_ref() {
             Some(ParsedCaptureValue::Expression(expression)) => {
-                collect_expression_node_colors(expression, spans, depth)
+                collect_expression_node_colors(input, expression, spans, depth)
             }
             Some(ParsedCaptureValue::Condition(condition)) => {
-                collect_condition_colors(condition, spans, depth)
+                collect_condition_colors(input, condition, spans, depth)
             }
-            Some(ParsedCaptureValue::Effect(effect)) => collect_effect_colors(effect, spans, depth),
+            Some(ParsedCaptureValue::Effect(effect)) => {
+                collect_effect_colors(input, effect, spans, depth)
+            }
             Some(ParsedCaptureValue::Section(section)) => {
-                collect_parsed_capture_colors(&section.parsed_captures, spans, depth)
+                collect_parsed_capture_colors(input, &section.parsed_captures, spans, depth)
             }
             Some(ParsedCaptureValue::Event(_) | ParsedCaptureValue::Raw(_)) | None => {}
         }
@@ -1453,7 +1522,7 @@ fn render_source_colors(input: &str, spans: &[SourceColorSpan]) -> String {
 
 fn effect_report(input: &str, candidate: EffectCandidate, catalog: &Catalog) -> EffectReport {
     let mut source_colors = Vec::new();
-    collect_effect_colors(&candidate, &mut source_colors, 0);
+    collect_effect_colors(input, &candidate, &mut source_colors, 0);
     let EffectCandidate {
         matched,
         parsed_captures,
@@ -1501,9 +1570,14 @@ fn candidate_summary(candidate: EffectCandidate, catalog: &Catalog) -> Candidate
 
 #[derive(Clone, Copy)]
 enum SyntaxCategory {
+    Event,
+    Condition,
     Effect,
     Expression,
+    Type,
+    Function,
     Section,
+    Structure,
 }
 
 const fn effect_syntax_category(kind: MatchSyntaxKind) -> SyntaxCategory {
@@ -1532,19 +1606,68 @@ fn syntax_identity_from_ids(
     catalog: &Catalog,
     category: SyntaxCategory,
 ) -> SyntaxIdentityReport {
-    let common = catalog
+    catalog
         .syntax_by_registration_id(registration_id)
         .into_iter()
-        .filter_map(|syntax| match (category, syntax) {
-            (SyntaxCategory::Effect, Syntax::Effect(value)) => Some(&value.common),
-            (SyntaxCategory::Expression, Syntax::Expression(value)) => Some(&value.common),
-            (SyntaxCategory::Section, Syntax::Section(value)) if value.effect_section => {
-                Some(&value.common)
+        .find_map(|syntax| match (category, syntax) {
+            (SyntaxCategory::Event, Syntax::Event(value)) => {
+                identity_from_matching_common(definition_id, registration_id, &value.common)
+            }
+            (SyntaxCategory::Condition, Syntax::Condition(value)) => {
+                identity_from_matching_common(definition_id, registration_id, &value.common)
+            }
+            (SyntaxCategory::Effect, Syntax::Effect(value)) => {
+                identity_from_matching_common(definition_id, registration_id, &value.common)
+            }
+            (SyntaxCategory::Expression, Syntax::Expression(value)) => {
+                identity_from_matching_common(definition_id, registration_id, &value.common)
+            }
+            (SyntaxCategory::Type, Syntax::Type(value))
+                if value.definition_id.as_str() == definition_id =>
+            {
+                Some(SyntaxIdentityReport {
+                    syntax_id: Some(value.code_name.as_str().to_owned()),
+                    definition_id: definition_id.to_owned(),
+                    registration_id: registration_id.to_owned(),
+                    element_class: None,
+                    addon: Some(AddonReport {
+                        name: value.addon.name.clone(),
+                        version: value.addon.version.clone(),
+                    }),
+                })
+            }
+            (SyntaxCategory::Function, Syntax::Function(value))
+                if value.definition_id.as_str() == definition_id =>
+            {
+                Some(SyntaxIdentityReport {
+                    syntax_id: Some(value.name.clone()),
+                    definition_id: definition_id.to_owned(),
+                    registration_id: registration_id.to_owned(),
+                    element_class: None,
+                    addon: Some(AddonReport {
+                        name: value.addon.name.clone(),
+                        version: value.addon.version.clone(),
+                    }),
+                })
+            }
+            (SyntaxCategory::Section, Syntax::Section(value)) => {
+                identity_from_matching_common(definition_id, registration_id, &value.common)
+            }
+            (SyntaxCategory::Structure, Syntax::Structure(value)) => {
+                identity_from_matching_common(definition_id, registration_id, &value.common)
             }
             _ => None,
         })
-        .find(|common| common.definition_id.as_str() == definition_id);
-    identity_from_common(definition_id, registration_id, common)
+        .unwrap_or_else(|| identity_from_common(definition_id, registration_id, None))
+}
+
+fn identity_from_matching_common(
+    definition_id: &str,
+    registration_id: &str,
+    common: &CommonSyntax,
+) -> Option<SyntaxIdentityReport> {
+    (common.definition_id.as_str() == definition_id)
+        .then(|| identity_from_common(definition_id, registration_id, Some(common)))
 }
 
 fn identity_from_common(
@@ -1963,7 +2086,7 @@ fn default_expression_report(
             "start": span.mapped.virtual_range.start,
             "end": span.mapped.virtual_range.end,
             "origins": span.mapped.origins.iter().map(|origin| serde_json::json!({
-                "kind": format!("{:?}", origin.kind),
+                "kind": native_origin_kind_name(origin.kind),
                 "start": origin.original_range.start, "end": origin.original_range.end,
                 "expansionId": origin.expansion.map(|id| id.get()),
             })).collect::<Vec<_>>(),
@@ -1973,6 +2096,31 @@ fn default_expression_report(
             "sourceDigest": reference.source_digest, "snapshotId": reference.snapshot_id, "document": reference.document, "index": reference.index,
         })).collect::<Vec<_>>(),
     })
+}
+
+pub(crate) fn diagnostic_severity_name(severity: DiagnosticSeverity) -> &'static str {
+    match severity {
+        DiagnosticSeverity::Error => "error",
+        DiagnosticSeverity::Warning => "warning",
+        DiagnosticSeverity::Information => "information",
+        DiagnosticSeverity::Hint => "hint",
+    }
+}
+
+pub(crate) fn wit_origin_kind_name(kind: WitOriginKind) -> &'static str {
+    match kind {
+        WitOriginKind::Exact => "exact",
+        WitOriginKind::Replaced => "replaced",
+        WitOriginKind::Anchored => "anchored",
+    }
+}
+
+pub(crate) fn native_origin_kind_name(kind: NativeOriginKind) -> &'static str {
+    match kind {
+        NativeOriginKind::Exact => "exact",
+        NativeOriginKind::Replaced => "replaced",
+        NativeOriginKind::Anchored => "anchored",
+    }
 }
 
 fn expression_public_data(entries: &[ExpressionPublicData]) -> Vec<ExpressionPublicDataReport> {
@@ -2242,6 +2390,17 @@ fn write_failure(
     color: bool,
     message: &str,
 ) -> io::Result<()> {
+    write_failure_named(writer, source, "effect.sk", failure, color, message)
+}
+
+fn write_failure_named(
+    writer: &mut dyn Write,
+    source: &str,
+    source_name: &str,
+    failure: &FailureReport,
+    color: bool,
+    message: &str,
+) -> io::Result<()> {
     let primary_index = failure
         .reasons
         .iter()
@@ -2292,7 +2451,7 @@ fn write_failure(
         }
     }
     let mut diagnostic = MietteDiagnostic::new(message)
-        .with_code("effectcommandcli::parse")
+        .with_code("skript-repl::parse")
         .with_labels(labels);
     let has_type_failure = matches!(
         primary_index.and_then(|index| failure.reasons.get(index)),
@@ -2343,7 +2502,7 @@ fn write_failure(
         diagnostic = diagnostic.with_help(help.join("\n"));
     }
     let report = miette::Report::new(diagnostic)
-        .with_source_code(NamedSource::new("effect.sk", source.to_owned()));
+        .with_source_code(NamedSource::new(source_name, source.to_owned()));
     let theme = if color {
         GraphicalTheme::unicode()
     } else {
@@ -2845,6 +3004,42 @@ mod tests {
     }
 
     #[test]
+    fn variable_string_delimiters_are_gray_around_the_nested_expression() {
+        let parent = SpanReport { start: 5, end: 21 };
+        let child = SpanReport { start: 13, end: 19 };
+        let mut spans = vec![SourceColorSpan {
+            span: parent,
+            color: SourceColor::Literal,
+            depth: 1,
+            order: 0,
+        }];
+        for delimiter in interpolation_delimiter_spans(r#"send "hello %player%""#, parent, [child])
+        {
+            push_source_color_span(
+                &mut spans,
+                delimiter,
+                SourceColor::InterpolationDelimiter,
+                2,
+            );
+        }
+        push_source_color_span(&mut spans, child, SourceColor::Expression, 2);
+
+        assert_eq!(
+            render_source_colors(r#"send "hello %player%""#, &spans),
+            concat!(
+                "send ",
+                "\x1b[38;2;255;255;255m\"hello ",
+                "\x1b[38;2;176;176;176m%",
+                "\x1b[38;2;131;193;103mplayer",
+                "\x1b[38;2;176;176;176m%",
+                "\x1b[38;2;255;255;255m\"",
+                "\x1b[0m"
+            )
+        );
+        assert!(interpolation_delimiter_spans(r#"send "100%%""#, parent, []).is_empty());
+    }
+
+    #[test]
     fn source_colors_preserve_plain_output_when_disabled() {
         let effect = EffectReport {
             syntax: SyntaxIdentityReport {
@@ -2933,5 +3128,12 @@ mod tests {
         );
         assert_eq!(SourceColor::Variable.ansi_code(), "38;2;0;255;255");
         assert_eq!(SourceColor::Literal.ansi_code(), "38;2;255;255;255");
+        assert_eq!(SourceColor::Structure.ansi_code(), "38;2;154;114;172");
+        assert_eq!(SourceColor::Section.ansi_code(), "38;2;92;208;179");
+        assert_eq!(SourceColor::Event.ansi_code(), "38;2;197;95;115");
+        assert_eq!(
+            SourceColor::InterpolationDelimiter.ansi_code(),
+            "38;2;176;176;176"
+        );
     }
 }

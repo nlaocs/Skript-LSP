@@ -1,7 +1,7 @@
-use effect_command_cli::{
-    AnalysisReport, EXIT_NO_MATCH, EXIT_SUCCESS, EffectCommandSession, OutputFormat, run_with_io,
-};
 use serde_json::Value;
+use skript_repl::{
+    AnalysisReport, EXIT_NO_MATCH, EXIT_SUCCESS, OutputFormat, SkriptSession, run_with_io,
+};
 use std::ffi::OsString;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -20,6 +20,10 @@ fn type_parser_216_fixture() -> PathBuf {
         .join("../../parser-wasm/tests/data/type-parser-versions/skript-2.16.0")
 }
 
+fn text_macro_addon() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/text-macro-addon.wasm")
+}
+
 fn arguments(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()
 }
@@ -31,11 +35,338 @@ fn render_json_and_human(report: AnalysisReport) -> (Value, String) {
     (json, String::from_utf8(human).unwrap())
 }
 
+fn document_json(report: skript_repl::DocumentAnalysisReport) -> Value {
+    serde_json::from_str(&report.to_json().unwrap()).unwrap()
+}
+
+#[test]
+fn parses_a_multiline_event_with_nested_sections_as_one_document_tree() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let source = concat!(
+        "on join:\n",
+        "    send \"hello\" to console\n",
+        "    loop all players:\n",
+        "        send loop-player's name to console\n",
+        "    send stone\n",
+    );
+    let report = session
+        .analyze_document(source)
+        .expect("the shared document parser must complete");
+    assert!(report.matched(), "{}", report.clone().to_json().unwrap());
+    let json = document_json(report);
+
+    assert_eq!(json["schemaVersion"], 1);
+    assert_eq!(json["input"], source);
+    assert_eq!(json["status"], "matched");
+    assert!(json["recoveries"].as_array().unwrap().is_empty());
+    assert!(json["diagnostics"].as_array().unwrap().is_empty());
+
+    let nodes = json["nodes"].as_array().unwrap();
+    for kind in [
+        "Event",
+        "Effect",
+        "Expression",
+        "Type",
+        "Section",
+        "Structure",
+    ] {
+        assert!(
+            nodes.iter().any(|node| node["kind"] == kind),
+            "missing {kind} node in {nodes:?}"
+        );
+    }
+    let root_id = json["roots"][0].as_u64().unwrap();
+    let root = nodes.iter().find(|node| node["id"] == root_id).unwrap();
+    assert_eq!(root["kind"], "Structure");
+    assert!(
+        root["identity"]["elementClass"]
+            .as_str()
+            .unwrap()
+            .ends_with("StructEvent")
+    );
+    let root_children = root["children"].as_array().unwrap();
+    assert!(root_children.len() >= 4);
+
+    let section = nodes.iter().find(|node| node["kind"] == "Section").unwrap();
+    assert!(section["children"].as_array().unwrap().iter().any(|child| {
+        let id = child.as_u64().unwrap();
+        nodes
+            .iter()
+            .any(|node| node["id"] == id && node["kind"] == "Effect")
+    }));
+    assert!(nodes.iter().any(|node| {
+        node["kind"] == "Type"
+            && node["text"] == "\"hello\""
+            && node["identity"]["syntaxId"] == "string"
+    }));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node["semantics"]["defaultExpression"].as_object().is_some() })
+    );
+    assert!(nodes.iter().any(|node| {
+        node["contextOrigin"] == "preserved"
+            && node["span"]["origins"]
+                .as_array()
+                .is_some_and(|origins| origins.iter().any(|origin| origin["kind"] == "exact"))
+    }));
+    assert!(nodes.iter().any(|node| {
+        node["semantics"]["possibleReturnTypesState"] == "complete"
+            && node["semantics"]["multiplicity"] == "single"
+    }));
+}
+
+#[test]
+fn document_report_preserves_text_macro_source_provenance_and_state_accesses() {
+    let addon = text_macro_addon();
+    assert!(
+        addon.is_file(),
+        "build test components before running this test"
+    );
+    let mut session = SkriptSession::load_with_addons(type_parser_216_fixture(), [&addon])
+        .expect("fixture and Text macro addon must load");
+    let report = session
+        .analyze_document("alpha")
+        .expect("macro-expanded document must produce a partial report");
+    let mut human = Vec::new();
+    report.write(OutputFormat::Human, &mut human).unwrap();
+    let json = document_json(report);
+
+    assert_eq!(json["input"], "alpha");
+    assert_eq!(json["virtualSource"], "二段目");
+    assert_eq!(
+        json["macroPipeline"]["text"]["decision"]["kind"],
+        "continueProcessing"
+    );
+    let calls = json["macroPipeline"]["text"]["calls"].as_array().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|call| call["accepted"] == true));
+    assert_eq!(calls[0]["stateAccesses"]["writes"][0]["key"], "text.first");
+    assert_eq!(calls[1]["stateAccesses"]["writes"][0]["key"], "text.second");
+    assert_eq!(
+        json["macroPipeline"]["expansions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let diagnostic = json["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "fixture.generated-source")
+        .expect("macro diagnostic must be retained");
+    assert_eq!(
+        diagnostic["span"]["virtualRange"],
+        serde_json::json!({"start": 0, "end": 9})
+    );
+    assert_eq!(
+        diagnostic["span"]["origins"][0]["originalRange"],
+        serde_json::json!({"start": 0, "end": 5})
+    );
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("expandedSource:"));
+    assert!(human.contains("alpha"));
+    assert!(human.contains("diagnostic over a prior macro expansion"));
+}
+
+#[test]
+fn nested_unclaimed_lines_remain_document_recoveries() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let report = session
+        .analyze_document("on join:\n \tdefinitely not syntax\n    send \"after\" to console\n")
+        .expect("an unclaimed nested line must remain recoverable");
+    let json = document_json(report);
+
+    assert_eq!(json["status"], "incomplete");
+    assert!(
+        json["recoveries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|recovery| {
+                recovery["kind"] == "RawNode" && recovery["source"] == "definitely not syntax"
+            })
+    );
+}
+
+#[test]
+fn human_document_report_explains_section_semantic_rejection() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let report = session
+        .analyze_document("on load:\n    catch runtime errors:\n        send 1 to console\n")
+        .expect("a rejected Section must remain recoverable");
+    let mut output = Vec::new();
+    report.write(OutputFormat::Human, &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+
+    assert!(
+        output.contains("Section candidate is incomplete"),
+        "{output}"
+    );
+    assert!(
+        output.contains("the `catch runtime errors` experiment is not enabled"),
+        "{output}"
+    );
+    assert!(
+        output.contains("Section pattern: catch [run[ ]time] error[s]"),
+        "{output}"
+    );
+    assert!(
+        !output.contains("Section was not claimed by any registered syntax"),
+        "{output}"
+    );
+}
+
+#[test]
+fn document_report_keeps_default_expression_rejection_inside_an_event() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let report = session
+        .analyze_document("on weather change:\n    send stone\n")
+        .expect("default rejection must leave a partial document");
+    let json = document_json(report);
+
+    assert_eq!(json["status"], "incomplete");
+    assert!(
+        json["recoveries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|recovery| {
+                recovery["failure"]["reasons"]
+                    .as_array()
+                    .is_some_and(|reasons| {
+                        reasons.iter().any(|reason| {
+                            reason["kind"] == "defaultExpression" && reason["state"] == "rejected"
+                        })
+                    })
+            })
+    );
+}
+
+#[test]
+fn multiline_document_keeps_partial_tree_and_source_spans_for_invalid_children() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let source = "on join:\n    teleport a to location(b, 2, 3)\n    send \"after\" to console\n";
+    let report = session
+        .analyze_document(source)
+        .expect("recoverable syntax failures must still produce a report");
+    assert!(!report.matched());
+    let json = document_json(report);
+
+    assert_eq!(json["input"], source);
+    assert_eq!(json["status"], "incomplete");
+    assert!(
+        json["roots"]
+            .as_array()
+            .is_some_and(|roots| !roots.is_empty())
+    );
+    assert!(
+        json["nodes"].as_array().unwrap().iter().any(|node| {
+            node["kind"] == "Effect" && node["text"] == "send \"after\" to console"
+        })
+    );
+    assert!(
+        json["recoveries"]
+            .as_array()
+            .is_some_and(|recoveries| !recoveries.is_empty())
+            || json["diagnostics"]
+                .as_array()
+                .is_some_and(|diagnostics| !diagnostics.is_empty())
+    );
+    for diagnostic in json["diagnostics"].as_array().unwrap() {
+        assert!(
+            diagnostic["span"]["virtualRange"]["end"].as_u64().unwrap()
+                <= u64::try_from(source.len()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn multiline_documents_are_self_contained_and_preserve_manual_repl_context() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    session
+        .select_event_header("on join")
+        .expect("manual Event context must parse");
+
+    let document = session
+        .analyze_document("on weather change:\n    send player's name to console\n")
+        .expect("the self-contained document must produce a partial result");
+    assert!(
+        !document.matched(),
+        "a weather Event must not inherit the manually selected join Event"
+    );
+    assert_eq!(
+        session.event_context().map(|event| event.input.as_str()),
+        Some("on join")
+    );
+
+    let one_line = session
+        .analyze_effect("send player's name to console")
+        .expect("the preserved manual Event context must remain usable");
+    assert!(one_line.matched());
+}
+
+#[test]
+fn stream_repl_submits_multiline_source_then_accepts_another_effect() {
+    let snapshot = type_parser_216_fixture();
+    let input = Cursor::new(
+        b"on join:\n    send \"inside\" to console\n\nsend \"after\" to console\n:quit\n".to_vec(),
+    );
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "--repl"]),
+        PathBuf::from("unused"),
+        input,
+        &mut output,
+        &mut error,
+    );
+
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Skript REPL"));
+    assert!(output.contains("skript> "));
+    assert!(output.contains("......> "));
+    assert!(output.contains("  1 | on join:"));
+    assert!(output.contains("  2 |     send \"inside\" to console"));
+    assert!(output.contains("document: matched"));
+    assert!(output.contains("StructEvent"));
+    assert!(output.contains("send \"after\" to console"));
+}
+
+#[test]
+fn stream_repl_cancel_discards_a_draft_and_eof_submits_the_next_one() {
+    let snapshot = type_parser_216_fixture();
+    let input = Cursor::new(
+        b"on join:\n    send \"discarded\" to console\n:cancel\non join:\n    send \"submitted\" to console\n"
+            .to_vec(),
+    );
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&["--snapshot", snapshot.to_str().unwrap(), "--repl"]),
+        PathBuf::from("unused"),
+        input,
+        &mut output,
+        &mut error,
+    );
+
+    assert_eq!(code, EXIT_SUCCESS);
+    assert!(error.is_empty());
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("multiline input discarded"));
+    assert!(!output.contains("send \"discarded\" to console"));
+    assert!(output.contains("send \"submitted\" to console"));
+    assert_eq!(output.matches("document: matched").count(), 1);
+}
+
 #[test]
 fn default_expression_without_event_reports_the_omitted_audience() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
-    let report = session.analyze("send stone").unwrap();
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let report = session.analyze_effect("send stone").unwrap();
     assert!(!report.matched());
     let (json, human) = render_json_and_human(report);
 
@@ -78,10 +409,9 @@ fn default_expression_without_event_reports_the_omitted_audience() {
 
 #[test]
 fn default_expression_on_join_is_an_implicit_child_with_an_anchor() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     session.select_event_header("on join").unwrap();
-    let report = session.analyze("send stone").unwrap();
+    let report = session.analyze_effect("send stone").unwrap();
     assert!(report.matched(), "{}", report.clone().to_json().unwrap());
     let (json, human) = render_json_and_human(report);
 
@@ -141,7 +471,7 @@ fn default_expression_on_join_is_an_implicit_child_with_an_anchor() {
     let origins = default["anchor"]["origins"].as_array().unwrap();
     assert!(!origins.is_empty());
     for origin in origins {
-        assert_eq!(origin["kind"], "Exact");
+        assert_eq!(origin["kind"], "exact");
         assert_eq!(origin["start"], 10);
         assert_eq!(origin["end"], 10);
     }
@@ -195,9 +525,8 @@ fn default_expression_on_join_is_an_implicit_child_with_an_anchor() {
 
 #[test]
 fn default_expression_preserves_an_explicit_console_without_event_context() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
-    let report = session.analyze("send stone to console").unwrap();
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let report = session.analyze_effect("send stone to console").unwrap();
     assert!(report.matched());
     let (json, human) = render_json_and_human(report);
 
@@ -231,10 +560,9 @@ fn default_expression_preserves_an_explicit_console_without_event_context() {
 
 #[test]
 fn default_expression_rejects_weather_events_that_only_provide_a_world() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     session.select_event_header("on weather change").unwrap();
-    let report = session.analyze("send stone").unwrap();
+    let report = session.analyze_effect("send stone").unwrap();
     assert!(!report.matched());
     let (json, human) = render_json_and_human(report);
 
@@ -265,9 +593,9 @@ fn default_expression_rejects_weather_events_that_only_provide_a_world() {
 
 #[test]
 fn legacy_default_expression_without_static_shape_is_unresolved() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
     session.select_event_header("on join").unwrap();
-    let report = session.analyze("send 1").unwrap();
+    let report = session.analyze_effect("send 1").unwrap();
     assert!(!report.matched());
     let (json, human) = render_json_and_human(report);
 
@@ -292,9 +620,9 @@ fn legacy_default_expression_without_static_shape_is_unresolved() {
 
 #[test]
 fn parses_effect_and_reports_literal_and_type_information() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
     let report = session
-        .analyze("send 1 to console")
+        .analyze_effect("send 1 to console")
         .expect("Effect must parse");
     assert!(report.matched());
 
@@ -332,7 +660,7 @@ fn parses_effect_and_reports_literal_and_type_information() {
     assert_eq!(expression["resolved"]["returnType"], "java.lang.Long");
 
     let addon_report = session
-        .analyze("dummy effect registered through wrapper")
+        .analyze_effect("dummy effect registered through wrapper")
         .expect("DummyAddon Effect must parse");
     let addon_json: Value = serde_json::from_str(&addon_report.to_json().unwrap()).unwrap();
     assert_eq!(
@@ -348,9 +676,9 @@ fn parses_effect_and_reports_literal_and_type_information() {
 #[test]
 fn reports_parenthesized_expression_and_its_inner_span() {
     let snapshot = modern_fixture();
-    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let mut session = SkriptSession::load(&snapshot).expect("fixture must load");
     let report = session
-        .analyze("send (1) to console")
+        .analyze_effect("send (1) to console")
         .expect("parenthesized Expression must parse");
     assert!(report.matched());
 
@@ -387,14 +715,13 @@ fn reports_parenthesized_expression_and_its_inner_span() {
 
 #[test]
 fn parses_enchanted_item_type_before_eff_change_delimiter() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("player target needs an Event context");
 
     let report = session
-        .analyze("give a diamond sword of sharpness to player")
+        .analyze_effect("give a diamond sword of sharpness to player")
         .expect("Effect analysis must complete");
     assert!(report.matched());
 
@@ -414,8 +741,7 @@ fn parses_enchanted_item_type_before_eff_change_delimiter() {
 
 #[test]
 fn parses_composite_standard_type_literals_in_effects() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("player expressions need an Event context");
@@ -428,7 +754,7 @@ fn parses_composite_standard_type_literals_in_effects() {
         "send 1 to console if {_a} is a number",
     ] {
         let report = session
-            .analyze(source)
+            .analyze_effect(source)
             .unwrap_or_else(|error| panic!("Effect analysis failed for {source:?}: {error}"));
         assert!(
             report.matched(),
@@ -441,9 +767,9 @@ fn parses_composite_standard_type_literals_in_effects() {
 #[test]
 fn reports_node_local_public_data_as_structured_json() {
     let snapshot = modern_fixture();
-    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let mut session = SkriptSession::load(&snapshot).expect("fixture must load");
     let report = session
-        .analyze("send ({_money}) to console")
+        .analyze_effect("send ({_money}) to console")
         .expect("grouped variable Expression must parse");
     assert!(report.matched());
 
@@ -466,7 +792,7 @@ fn reports_node_local_public_data_as_structured_json() {
     );
 
     let escaped = session
-        .analyze("send {_literal%%percent} to console")
+        .analyze_effect("send {_literal%%percent} to console")
         .expect("escaped percent variable Expression must parse");
     let escaped_json: Value = serde_json::from_str(&escaped.to_json().unwrap()).unwrap();
     let escaped_variable = &escaped_json["result"]["effect"]["elements"][0]["resolved"];
@@ -523,9 +849,9 @@ fn reports_node_local_public_data_as_structured_json() {
 
 #[test]
 fn reports_interpolated_variable_public_data_and_embedded_children() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
     let report = session
-        .analyze("send {_price::%{_key}%} to console")
+        .analyze_effect("send {_price::%{_key}%} to console")
         .expect("interpolated variable Expression must parse");
     assert!(report.matched());
 
@@ -551,9 +877,9 @@ fn reports_interpolated_variable_public_data_and_embedded_children() {
 #[test]
 fn reports_registered_function_identity_and_arguments() {
     let snapshot = modern_fixture();
-    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let mut session = SkriptSession::load(&snapshot).expect("fixture must load");
     let report = session
-        .analyze("send sin(abs(-1)) to console")
+        .analyze_effect("send sin(abs(-1)) to console")
         .expect("nested Function Effect must parse");
     assert!(report.matched());
 
@@ -595,11 +921,10 @@ fn reports_registered_function_identity_and_arguments() {
     assert!(human.contains("base:"));
     assert!(human.contains("omitted: true"));
 
-    let mut legacy =
-        EffectCommandSession::load(legacy_fixture()).expect("legacy fixture must load");
+    let mut legacy = SkriptSession::load(legacy_fixture()).expect("legacy fixture must load");
     let legacy: Value = serde_json::from_str(
         &legacy
-            .analyze("send sin(1) to console")
+            .analyze_effect("send sin(1) to console")
             .expect("2.6.4 Function Effect must parse")
             .to_json()
             .unwrap(),
@@ -614,10 +939,9 @@ fn reports_registered_function_identity_and_arguments() {
 
 #[test]
 fn reports_embedded_registered_expression_inside_variable_string() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     let report = session
-        .analyze(r#"send "players: %size of all players%" to console"#)
+        .analyze_effect(r#"send "players: %size of all players%" to console"#)
         .expect("variable-string Expression must parse");
     assert!(report.matched());
 
@@ -644,9 +968,9 @@ fn reports_embedded_registered_expression_inside_variable_string() {
 #[test]
 fn reports_arithmetic_operations_and_operands() {
     let snapshot = modern_fixture();
-    let mut session = EffectCommandSession::load(&snapshot).expect("fixture must load");
+    let mut session = SkriptSession::load(&snapshot).expect("fixture must load");
     let report = session
-        .analyze("return 1 + 2 * 3")
+        .analyze_effect("return 1 + 2 * 3")
         .expect("arithmetic Effect must parse");
     assert!(report.matched());
 
@@ -679,16 +1003,16 @@ fn reports_arithmetic_operations_and_operands() {
 
 #[test]
 fn parses_boolean_conditions_and_item_alias_literals() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
     for source in ["send 2 to console if true is true", "send stone to console"] {
         let report = session
-            .analyze(source)
+            .analyze_effect(source)
             .expect("Effect analysis must complete");
         assert!(report.matched(), "{source:?} must parse");
     }
 
     let invalid_comparison = session
-        .analyze("send 1 to console if 1 is true")
+        .analyze_effect("send 1 to console if 1 is true")
         .expect("invalid comparison analysis must complete");
     assert!(!invalid_comparison.matched());
     let json = invalid_comparison.to_json().unwrap();
@@ -759,13 +1083,12 @@ fn renders_human_failures_with_a_source_label() {
 
 #[test]
 fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("the competing EffDoIf interpretation has an omitted audience");
     let report = session
-        .analyze("send 1 if a < 5 else 2")
+        .analyze_effect("send 1 if a < 5 else 2")
         .expect("invalid nested condition is a recoverable no-match");
     let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
 
@@ -788,7 +1111,7 @@ fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
     );
 
     let report = session
-        .analyze("send 1 if a < 5 else 2")
+        .analyze_effect("send 1 if a < 5 else 2")
         .expect("repeated analysis must remain deterministic");
     let mut output = Vec::new();
     report
@@ -804,11 +1127,10 @@ fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
 
 #[test]
 fn reports_event_restrictions_and_parses_interface_expressions() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let absorbed = session
-        .analyze("send absorbed blocks to console")
+        .analyze_effect("send absorbed blocks to console")
         .expect("missing Event context must be a normal no-match");
     let absorbed: Value = serde_json::from_str(&absorbed.to_json().unwrap()).unwrap();
     assert_eq!(absorbed["result"]["status"], "incomplete");
@@ -818,7 +1140,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
     );
 
     let offline = session
-        .analyze("set {_m::*} to all offline players")
+        .analyze_effect("set {_m::*} to all offline players")
         .expect("interface return type must parse as Object");
     let offline: Value = serde_json::from_str(&offline.to_json().unwrap()).unwrap();
     assert_eq!(offline["result"]["status"], "matched");
@@ -836,7 +1158,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
     );
 
     let chat = session
-        .analyze("set {_m} to default motd")
+        .analyze_effect("set {_m} to default motd")
         .expect("Component interface return type must parse as Object");
     let chat: Value = serde_json::from_str(&chat.to_json().unwrap()).unwrap();
     assert_eq!(chat["result"]["status"], "matched");
@@ -846,7 +1168,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
     );
 
     let contextual = session
-        .analyze("send player's health to console")
+        .analyze_effect("send player's health to console")
         .expect("missing event context is a normal no-match");
     let contextual: Value = serde_json::from_str(&contextual.to_json().unwrap()).unwrap();
     assert_eq!(contextual["result"]["status"], "incomplete");
@@ -873,7 +1195,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
     );
 
     let teleport = session
-        .analyze("teleport あ to location(1,2,3)")
+        .analyze_effect("teleport あ to location(1,2,3)")
         .expect("an invalid entity must retain the matching Effect candidate");
     let teleport: Value = serde_json::from_str(&teleport.to_json().unwrap()).unwrap();
     assert_eq!(teleport["result"]["status"], "incomplete");
@@ -901,8 +1223,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
 
 #[test]
 fn selected_event_context_enables_event_restricted_expressions() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_event_header("\"on join:\"")
         .expect("quoted Event header with a trailing colon must parse")
@@ -915,23 +1236,23 @@ fn selected_event_context_enables_event_restricted_expressions() {
     assert!(!selected.event_values.is_empty());
 
     let report = session
-        .analyze("send join message to console")
+        .analyze_effect("send join message to console")
         .expect("join-only Expression must parse in an On Join context");
     assert!(report.matched());
     assert!(
         session
-            .analyze("send event-player's health to console")
+            .analyze_effect("send event-player's health to console")
             .expect("event-player properties must use the selected Event values")
             .matched()
     );
     assert!(
         session
-            .analyze("send player's health to console")
+            .analyze_effect("send player's health to console")
             .expect("ExprEntity must allow Skript's optional event- prefix")
             .matched()
     );
     let interpolated = session
-        .analyze("set the player's tab list name to \"<green>%player's name%\"")
+        .analyze_effect("set the player's tab list name to \"<green>%player's name%\"")
         .expect("Event Expressions inside VariableStrings must inherit the selected Event");
     assert!(interpolated.matched());
     let interpolated: Value = serde_json::from_str(&interpolated.to_json().unwrap()).unwrap();
@@ -981,7 +1302,7 @@ fn selected_event_context_enables_event_restricted_expressions() {
     );
     assert!(
         session
-            .analyze("send join message to console")
+            .analyze_effect("send join message to console")
             .expect("a rejected selector must not invalidate the previous Event transaction")
             .matched()
     );
@@ -990,15 +1311,14 @@ fn selected_event_context_enables_event_restricted_expressions() {
         .clear_event_context()
         .expect("the selected Event transaction must close");
     let without_context = session
-        .analyze("send join message to console")
+        .analyze_effect("send join message to console")
         .expect("missing Event context is a recoverable no-match");
     assert!(!without_context.matched());
 }
 
 #[test]
 fn event_headers_accept_articles_for_entity_and_item_literals() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let death = session
         .select_event_header("death of a player")
@@ -1026,7 +1346,7 @@ fn event_headers_accept_articles_for_entity_and_item_literals() {
 
 #[test]
 fn event_header_modifiers_follow_struct_event_semantics() {
-    let mut session = EffectCommandSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
 
     let error = session
         .select_event_header("cancelled join")
@@ -1052,7 +1372,7 @@ fn event_header_modifiers_follow_struct_event_semantics() {
 
 #[test]
 fn legacy_snapshot_uses_the_synthetic_struct_event_path() {
-    let mut session = EffectCommandSession::load(legacy_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(legacy_fixture()).expect("fixture must load");
     let selected = session
         .select_event_header("on join:")
         .expect("Skript 2.6.4 must expose the legacy Event root through CoreLibrary");
@@ -1061,15 +1381,14 @@ fn legacy_snapshot_uses_the_synthetic_struct_event_path() {
         ["org.bukkit.event.player.PlayerJoinEvent"]
     );
     let report = session
-        .analyze("send join message to console")
+        .analyze_effect("send join message to console")
         .expect("event-restricted Expressions must use the legacy Event context");
     assert!(report.matched());
 }
 
 #[test]
 fn section_headers_enable_loop_scoped_effects_and_expressions() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
 
     let without_colon = session
         .select_section_header("loop all players")
@@ -1101,18 +1420,18 @@ fn section_headers_enable_loop_scoped_effects_and_expressions() {
 
     assert!(
         session
-            .analyze("continue")
+            .analyze_effect("continue")
             .expect("continue must inherit the selected loop")
             .matched()
     );
     assert!(
         session
-            .analyze("send loop-player to console")
+            .analyze_effect("send loop-player to console")
             .expect("loop-value Expressions must inherit the selected loop source")
             .matched()
     );
     let loop_index = session
-        .analyze("send loop-index to console")
+        .analyze_effect("send loop-index to console")
         .expect("a non-keyed loop index must be a recoverable parse failure");
     assert!(
         !loop_index.matched(),
@@ -1136,7 +1455,7 @@ fn section_headers_enable_loop_scoped_effects_and_expressions() {
     );
     assert!(
         session
-            .analyze("send loop-index to console")
+            .analyze_effect("send loop-index to console")
             .expect("list variable loops must expose loop-index")
             .matched()
     );
@@ -1144,13 +1463,13 @@ fn section_headers_enable_loop_scoped_effects_and_expressions() {
 
 #[test]
 fn legacy_sec_while_provides_loop_control_without_loop_section_flag() {
-    let mut session = EffectCommandSession::load(legacy_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(legacy_fixture()).expect("fixture must load");
     session
         .select_section_header("while 1 is 1")
         .expect("Skript 2.6.4 SecWhile must establish a Section context");
 
     let report = session
-        .analyze("continue")
+        .analyze_effect("continue")
         .expect("continue must inherit the legacy while loop context");
     assert!(
         report.matched(),
@@ -1161,8 +1480,7 @@ fn legacy_sec_while_provides_loop_control_without_loop_section_flag() {
 
 #[test]
 fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_section_header("loop all players")
         .expect("outer loop must parse");
@@ -1182,21 +1500,21 @@ fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
     let inner_registration = sections[1].frame.registration_id.clone();
     assert!(
         session
-            .analyze("exit 2 sections")
+            .analyze_effect("exit 2 sections")
             .expect("two active Sections must satisfy EffExit")
             .matched()
     );
     for input in ["exit loop", "exit 2 loops", "exit all loops"] {
         assert!(
             session
-                .analyze(input)
+                .analyze_effect(input)
                 .expect("the loop exit form must parse")
                 .matched(),
             "{input}"
         );
     }
     let missing_loop = session
-        .analyze("continue 3rd loop")
+        .analyze_effect("continue 3rd loop")
         .expect("an unavailable loop ordinal is a recoverable incomplete candidate");
     assert!(!missing_loop.matched());
     assert!(
@@ -1219,7 +1537,7 @@ fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
     assert_eq!(sections[1].frame.registration_id, inner_registration);
     assert!(
         session
-            .analyze("continue 1st loop")
+            .analyze_effect("continue 1st loop")
             .expect("a rejected selector must not damage the retained loop stack")
             .matched()
     );
@@ -1235,7 +1553,7 @@ fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
         "loop all players"
     );
     let missing_section = session
-        .analyze("exit 2 sections")
+        .analyze_effect("exit 2 sections")
         .expect("an unavailable Section depth is a recoverable incomplete candidate");
     assert!(!missing_section.matched());
     assert!(
@@ -1251,13 +1569,13 @@ fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
     assert_eq!(session.section_contexts().len(), 0);
     assert!(
         !session
-            .analyze("continue")
+            .analyze_effect("continue")
             .expect("continue without a loop is a recoverable incomplete candidate")
             .matched()
     );
     assert!(
         session
-            .analyze("stop trigger")
+            .analyze_effect("stop trigger")
             .expect("stopping the trigger does not require a Section")
             .matched()
     );
@@ -1265,8 +1583,7 @@ fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
 
 #[test]
 fn conditional_exit_uses_the_registered_section_frame() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     let section = session
         .select_section_header("if true is true:")
         .expect("a SecConditional header must establish a Section context");
@@ -1280,14 +1597,14 @@ fn conditional_exit_uses_the_registered_section_frame() {
     );
     assert!(
         session
-            .analyze("exit conditional")
+            .analyze_effect("exit conditional")
             .expect("EffExit must recognize the conditional frame")
             .matched()
     );
 
     session.clear_section_contexts().unwrap();
     let report = session
-        .analyze("exit conditional")
+        .analyze_effect("exit conditional")
         .expect("missing conditional context must remain recoverable");
     assert!(!report.matched());
     assert_eq!(
@@ -1298,14 +1615,13 @@ fn conditional_exit_uses_the_registered_section_frame() {
 
 #[test]
 fn json_report_preserves_registered_section_identity() {
-    let mut session =
-        EffectCommandSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_section_header("loop all players:")
         .expect("loop Section must parse")
         .clone();
     let report = session
-        .analyze("send loop-player to console")
+        .analyze_effect("send loop-player to console")
         .expect("loop-player must parse in the selected loop");
     assert!(report.matched());
 
@@ -1454,7 +1770,7 @@ fn one_shot_json_uses_stable_no_match_exit_code() {
             "--snapshot",
             snapshot.to_str().unwrap(),
             "--json",
-            "__effectcommandcli_no_match__",
+            "__skript_repl_no_match__",
         ]),
         PathBuf::from("unused"),
         Cursor::new(Vec::<u8>::new()),
@@ -1465,14 +1781,14 @@ fn one_shot_json_uses_stable_no_match_exit_code() {
     assert!(error.is_empty());
     let json: Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(json["result"]["status"], "unknown");
-    assert!(json["result"]["failure"]["reasons"].is_array());
+    assert!(json["result"]["failure"].is_null());
 }
 
 #[test]
 fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let snapshot = legacy_fixture();
     let input = Cursor::new(
-        b"__effectcommandcli_no_match__\n:json on\nsend 1 to console\n:json off\n:reload\nsend 1 to console\n:quit\n"
+        b"__skript_repl_no_match__\n:json on\nsend 1 to console\n:json off\n:reload\nsend 1 to console\n:quit\n"
             .to_vec(),
     );
     let mut output = Vec::new();

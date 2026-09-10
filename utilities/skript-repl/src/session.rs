@@ -3,46 +3,56 @@ use crate::event_context::{
     EventContext, EventContextComponentFailure, EventContextDiagnostic, EventSummary,
     event_summaries, normalize_event_header,
 };
-use crate::report::{AnalysisReport, SnapshotDescription};
+use crate::report::{
+    AnalysisReport, DocumentAnalysisReport, SnapshotDescription, diagnostic_severity_name,
+};
 use crate::section_context::{
     SectionContext, SectionContextComponentFailure, SectionContextDiagnostic,
     normalize_section_header,
 };
-use parser_wasm::ParseTransaction;
 use parser_wasm::host::{
     HostConfig, InvocationContext, ParserHost, RuntimePlugin, RuntimeProfile,
     apply_parser_context_updates,
 };
 use parser_wasm::state::StateSavepoint;
+use parser_wasm::{DocumentParseRequest, DocumentParserConfig, ParseTransaction};
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionParseContext, MappedSource,
     PatternFailureReason, RawNodeKind, RawTreeOptions, SectionParseRequest, SectionParserConfig,
     StructureDocumentNode, StructureParseRequest, StructureParserConfig, parse_raw_tree,
 };
 use std::collections::BTreeMap;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use thiserror::Error;
 
-const PROJECT_URI: &str = "file:///effectcommandcli";
-const DOCUMENT_URI: &str = "file:///effectcommandcli/input.sk";
+const PROJECT_URI: &str = "file:///skript-repl";
+const DOCUMENT_URI: &str = "file:///skript-repl/input.sk";
 const CONTEXT_DOCUMENTS: [&str; 2] = [
-    "file:///effectcommandcli/event-context-0.sk",
-    "file:///effectcommandcli/event-context-1.sk",
+    "file:///skript-repl/event-context-0.sk",
+    "file:///skript-repl/event-context-1.sk",
 ];
-const EVENT_LIST_DOCUMENT: &str = "file:///effectcommandcli/event-list.sk";
+const EVENT_LIST_DOCUMENT: &str = "file:///skript-repl/event-list.sk";
 
 /// Snapshot loading, input or Event-context validation, parser-host, or transaction failure.
 #[derive(Debug, Error)]
-pub enum EffectCommandSessionError {
+pub enum SkriptSessionError {
     /// The SSG snapshot could not be loaded or validated.
     #[error("failed to load SSG snapshot {path}: {source}")]
     Snapshot {
         path: PathBuf,
         #[source]
         source: ssg::SnapshotError,
+    },
+    /// An optional parser addon component could not be read.
+    #[error("failed to read parser addon {path}: {source}")]
+    AddonRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
     },
     /// The manifest does not identify the Skript plugin used for lexical compatibility.
     #[error("SSG snapshot has no enabled Skript plugin entry")]
@@ -60,13 +70,13 @@ pub enum EffectCommandSessionError {
     #[error("invalid Section context: {message}")]
     InvalidSectionContext { message: String },
     /// The parser worker could not be created with its bounded stack.
-    #[error("failed to start Effect parser worker: {source}")]
+    #[error("failed to start parser worker: {source}")]
     ParserThread {
         #[source]
         source: io::Error,
     },
     /// The parser worker panicked instead of returning a typed failure.
-    #[error("Effect parser worker panicked")]
+    #[error("parser worker panicked")]
     ParserThreadPanicked,
     /// CoreLibrary or the transactional parser pipeline failed.
     #[error(transparent)]
@@ -74,18 +84,22 @@ pub enum EffectCommandSessionError {
     /// A parse transaction could not be closed after analysis.
     #[error(transparent)]
     State(#[from] parser_wasm::StateError),
+    /// The end-to-end document pipeline failed before producing a report.
+    #[error(transparent)]
+    Document(#[from] parser_wasm::DocumentParseError),
 }
 
-/// Reusable SSG catalog and WASM parser host for Effect command analysis.
+/// Reusable SSG catalog and WASM parser host for one-line and document analysis.
 ///
 /// Loading performs full schema and digest validation once. Successive calls to
-/// [`Self::analyze`] reuse the catalog and CoreLibrary host. Without a retained
+/// [`Self::analyze_effect`] reuse the catalog and CoreLibrary host. Without a retained
 /// Event or Section context, each analysis uses a new document revision and
 /// cancels its speculative transaction. With a context, it restores a savepoint
 /// in the retained transaction. Both paths discard analysis state before
 /// constructing the report and never execute an Effect.
-pub struct EffectCommandSession {
+pub struct SkriptSession {
     snapshot_path: PathBuf,
+    addon_paths: Vec<PathBuf>,
     snapshot: SnapshotDescription,
     skript_version: (u32, u32),
     catalog: Arc<syntaxes::Catalog>,
@@ -96,26 +110,45 @@ pub struct EffectCommandSession {
     context_transaction: Option<ParseTransaction>,
 }
 
+#[derive(Clone, Copy)]
+enum EffectStatePolicy {
+    Discard,
+    RetainMatched,
+}
+
 struct SelectedSection {
     context: SectionContext,
     baseline: StateSavepoint,
 }
 
-impl EffectCommandSession {
+impl SkriptSession {
     /// Loads and validates an SSG schema 3 through 6 snapshot and initializes CoreLibrary.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, EffectCommandSessionError> {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, SkriptSessionError> {
+        Self::load_with_addons(path, std::iter::empty::<PathBuf>())
+    }
+
+    /// Loads a snapshot and optional parser addon components in argument order.
+    pub fn load_with_addons<P, I, A>(path: P, addons: I) -> Result<Self, SkriptSessionError>
+    where
+        P: AsRef<Path>,
+        I: IntoIterator<Item = A>,
+        A: AsRef<Path>,
+    {
         let snapshot_path = snapshot_directory(path);
-        let loaded =
-            ssg::load(&snapshot_path).map_err(|source| EffectCommandSessionError::Snapshot {
-                path: snapshot_path.clone(),
-                source,
-            })?;
+        let addon_paths = addons
+            .into_iter()
+            .map(|path| path.as_ref().to_owned())
+            .collect::<Vec<_>>();
+        let loaded = ssg::load(&snapshot_path).map_err(|source| SkriptSessionError::Snapshot {
+            path: snapshot_path.clone(),
+            source,
+        })?;
         let manifest = loaded.manifest();
         let skript_plugin = manifest
             .plugins
             .iter()
             .find(|plugin| plugin.enabled && plugin.name.eq_ignore_ascii_case("Skript"))
-            .ok_or(EffectCommandSessionError::MissingSkriptPlugin)?;
+            .ok_or(SkriptSessionError::MissingSkriptPlugin)?;
         let skript_version = parse_skript_version(&skript_plugin.version)?;
         let snapshot = SnapshotDescription {
             snapshot_id: manifest.snapshot_id.clone(),
@@ -150,13 +183,22 @@ impl EffectCommandSession {
             snapshot_capabilities: None,
         };
         let catalog = Arc::new(loaded.into_catalog());
-        let host = skript_lsp::new_parser_host(HostConfig {
+        let mut host = skript_lsp::new_parser_host(HostConfig {
             syntax_catalog: Some(Arc::clone(&catalog)),
             runtime_profile,
             ..HostConfig::default()
         })?;
+        for addon_path in &addon_paths {
+            let component =
+                fs::read(addon_path).map_err(|source| SkriptSessionError::AddonRead {
+                    path: addon_path.clone(),
+                    source,
+                })?;
+            host.load_addon(&component)?;
+        }
         Ok(Self {
             snapshot_path,
+            addon_paths,
             snapshot,
             skript_version,
             catalog,
@@ -169,8 +211,9 @@ impl EffectCommandSession {
     }
 
     /// Reloads the configured snapshot and rebuilds the catalog and parser host.
-    pub fn reload(&mut self) -> Result<(), EffectCommandSessionError> {
-        let replacement = Self::load(self.snapshot_path.clone())?;
+    pub fn reload(&mut self) -> Result<(), SkriptSessionError> {
+        let replacement =
+            Self::load_with_addons(self.snapshot_path.clone(), self.addon_paths.clone())?;
         if let Some(transaction) = &self.context_transaction {
             transaction.cancel()?;
         }
@@ -196,7 +239,7 @@ impl EffectCommandSession {
     }
 
     /// Clears the current Event context.
-    pub fn clear_event_context(&mut self) -> Result<(), EffectCommandSessionError> {
+    pub fn clear_event_context(&mut self) -> Result<(), SkriptSessionError> {
         if let Some(transaction) = &self.context_transaction {
             transaction.cancel()?;
         }
@@ -207,9 +250,7 @@ impl EffectCommandSession {
     }
 
     /// Removes the innermost Section context and rolls back its addon state.
-    pub fn pop_section_context(
-        &mut self,
-    ) -> Result<Option<SectionContext>, EffectCommandSessionError> {
+    pub fn pop_section_context(&mut self) -> Result<Option<SectionContext>, SkriptSessionError> {
         let Some(selected) = self.section_contexts.last() else {
             return Ok(None);
         };
@@ -227,7 +268,7 @@ impl EffectCommandSession {
     }
 
     /// Clears every active Section while retaining the selected Event context.
-    pub fn clear_section_contexts(&mut self) -> Result<(), EffectCommandSessionError> {
+    pub fn clear_section_contexts(&mut self) -> Result<(), SkriptSessionError> {
         let Some(first) = self.section_contexts.first() else {
             return Ok(());
         };
@@ -246,7 +287,7 @@ impl EffectCommandSession {
     }
 
     /// Lists static catalog and dynamically registered Events in parser order.
-    pub fn events(&mut self) -> Result<Vec<EventSummary>, EffectCommandSessionError> {
+    pub fn events(&mut self) -> Result<Vec<EventSummary>, SkriptSessionError> {
         let (transaction, temporary) = if let Some(transaction) = &self.context_transaction {
             (transaction.clone(), false)
         } else {
@@ -271,17 +312,17 @@ impl EffectCommandSession {
     pub fn select_event_header(
         &mut self,
         input: &str,
-    ) -> Result<&EventContext, EffectCommandSessionError> {
+    ) -> Result<&EventContext, SkriptSessionError> {
         let input = normalize_event_header(input).map_err(invalid_event)?;
         let (selected, transaction) = std::thread::scope(|scope| {
             let worker = std::thread::Builder::new()
-                .name("effectcommandcli-event-parser".to_owned())
+                .name("skript-repl-event-parser".to_owned())
                 .stack_size(32 * 1024 * 1024)
                 .spawn_scoped(scope, || self.select_event_header_inner(input))
-                .map_err(|source| EffectCommandSessionError::ParserThread { source })?;
+                .map_err(|source| SkriptSessionError::ParserThread { source })?;
             worker
                 .join()
-                .map_err(|_| EffectCommandSessionError::ParserThreadPanicked)?
+                .map_err(|_| SkriptSessionError::ParserThreadPanicked)?
         })?;
         if let Some(previous) = &self.context_transaction
             && let Err(error) = previous.cancel()
@@ -305,17 +346,17 @@ impl EffectCommandSession {
     pub fn select_section_header(
         &mut self,
         input: &str,
-    ) -> Result<&SectionContext, EffectCommandSessionError> {
+    ) -> Result<&SectionContext, SkriptSessionError> {
         let input = normalize_section_header(input).map_err(invalid_section)?;
         let (selected, baseline, transaction) = std::thread::scope(|scope| {
             let worker = std::thread::Builder::new()
-                .name("effectcommandcli-section-parser".to_owned())
+                .name("skript-repl-section-parser".to_owned())
                 .stack_size(32 * 1024 * 1024)
                 .spawn_scoped(scope, || self.select_section_header_inner(input))
-                .map_err(|source| EffectCommandSessionError::ParserThread { source })?;
+                .map_err(|source| SkriptSessionError::ParserThread { source })?;
             worker
                 .join()
-                .map_err(|_| EffectCommandSessionError::ParserThreadPanicked)?
+                .map_err(|_| SkriptSessionError::ParserThreadPanicked)?
         })?;
         if self.context_transaction.is_none() {
             self.context_transaction = Some(transaction);
@@ -332,22 +373,100 @@ impl EffectCommandSession {
     }
 
     /// Parses one complete simple line as an Effect and returns a display report.
-    pub fn analyze(&mut self, input: &str) -> Result<AnalysisReport, EffectCommandSessionError> {
+    pub fn analyze_effect(&mut self, input: &str) -> Result<AnalysisReport, SkriptSessionError> {
+        self.analyze_effect_with_policy(input, EffectStatePolicy::Discard)
+    }
+
+    /// Parses one REPL Effect and retains state written by its selected branch.
+    ///
+    /// Failed and incomplete candidates are rolled back. A successful parse
+    /// commits a temporary transaction, or keeps its writes in the active
+    /// Event/Section transaction so later REPL inputs can observe them.
+    pub(crate) fn analyze_repl_effect(
+        &mut self,
+        input: &str,
+    ) -> Result<AnalysisReport, SkriptSessionError> {
+        self.analyze_effect_with_policy(input, EffectStatePolicy::RetainMatched)
+    }
+
+    fn analyze_effect_with_policy(
+        &mut self,
+        input: &str,
+        state_policy: EffectStatePolicy,
+    ) -> Result<AnalysisReport, SkriptSessionError> {
         std::thread::scope(|scope| {
             let worker = std::thread::Builder::new()
-                .name("effectcommandcli-parser".to_owned())
+                .name("skript-repl-effect-parser".to_owned())
                 .stack_size(32 * 1024 * 1024)
-                .spawn_scoped(scope, || self.analyze_inner(input))
-                .map_err(|source| EffectCommandSessionError::ParserThread { source })?;
+                .spawn_scoped(scope, || self.analyze_inner(input, state_policy))
+                .map_err(|source| SkriptSessionError::ParserThread { source })?;
             worker
                 .join()
-                .map_err(|_| EffectCommandSessionError::ParserThreadPanicked)?
+                .map_err(|_| SkriptSessionError::ParserThreadPanicked)?
         })
     }
 
-    fn analyze_inner(&mut self, input: &str) -> Result<AnalysisReport, EffectCommandSessionError> {
+    /// Parses and commits one complete Skript document revision.
+    ///
+    /// The same host, project URI, and monotonically increasing document
+    /// revision are reused for the lifetime of this session. This lets parser
+    /// addons retain project/document state between submitted REPL inputs while
+    /// keeping unsubmitted and cancelled drafts outside the parser entirely.
+    pub fn analyze_document(
+        &mut self,
+        input: &str,
+    ) -> Result<DocumentAnalysisReport, SkriptSessionError> {
         if input.trim().is_empty() {
-            return Err(EffectCommandSessionError::InvalidInput {
+            return Err(SkriptSessionError::InvalidInput {
+                message: "Skript document is empty".to_owned(),
+            });
+        }
+        std::thread::scope(|scope| {
+            let worker = std::thread::Builder::new()
+                .name("skript-repl-document-parser".to_owned())
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(scope, || self.analyze_document_inner(input))
+                .map_err(|source| SkriptSessionError::ParserThread { source })?;
+            worker
+                .join()
+                .map_err(|_| SkriptSessionError::ParserThreadPanicked)?
+        })
+    }
+
+    pub(crate) fn raw_tree_options(&self) -> RawTreeOptions {
+        RawTreeOptions::for_skript_version(self.skript_version.0, self.skript_version.1)
+    }
+
+    fn analyze_document_inner(
+        &mut self,
+        input: &str,
+    ) -> Result<DocumentAnalysisReport, SkriptSessionError> {
+        let started = Instant::now();
+        let revision = self.next_revision;
+        self.next_revision = self.next_revision.saturating_add(1);
+        let result = self.host.parse_document(
+            DocumentParseRequest::new(PROJECT_URI, DOCUMENT_URI, revision, input),
+            DocumentParserConfig {
+                raw_tree: Some(self.raw_tree_options()),
+                ..DocumentParserConfig::default()
+            },
+        )?;
+        Ok(DocumentAnalysisReport::from_result(
+            input,
+            &self.snapshot,
+            result,
+            self.catalog.as_ref(),
+            started.elapsed(),
+        ))
+    }
+
+    fn analyze_inner(
+        &mut self,
+        input: &str,
+        state_policy: EffectStatePolicy,
+    ) -> Result<AnalysisReport, SkriptSessionError> {
+        if input.trim().is_empty() {
+            return Err(SkriptSessionError::InvalidInput {
                 message: "Effect text is empty".to_owned(),
             });
         }
@@ -375,13 +494,13 @@ impl EffectCommandSession {
                     tree.roots.len()
                 )
             };
-            return Err(EffectCommandSessionError::InvalidInput { message: detail });
+            return Err(SkriptSessionError::InvalidInput { message: detail });
         }
         let node = tree
             .get(tree.roots[0])
             .expect("RawTree roots always refer to arena nodes");
         if node.kind != RawNodeKind::Simple {
-            return Err(EffectCommandSessionError::InvalidInput {
+            return Err(SkriptSessionError::InvalidInput {
                 message: format!("expected a simple Effect line, found {:?}", node.kind),
             });
         }
@@ -411,12 +530,26 @@ impl EffectCommandSession {
             },
             EffectParserConfig::default(),
         );
-        let close = baseline.map_or_else(
-            || transaction.cancel(),
-            |baseline| transaction.rollback_to(&baseline),
-        );
-        let result = result?;
-        close?;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                baseline.map_or_else(
+                    || transaction.cancel(),
+                    |baseline| transaction.rollback_to(&baseline),
+                )?;
+                return Err(error.into());
+            }
+        };
+        let retain = matches!(state_policy, EffectStatePolicy::RetainMatched)
+            && result.matches.selected.is_some();
+        match (baseline, retain) {
+            (Some(_), true) => {}
+            (Some(baseline), false) => transaction.rollback_to(&baseline)?,
+            (None, true) => {
+                transaction.commit()?;
+            }
+            (None, false) => transaction.cancel()?,
+        }
         let parse_duration = started.elapsed();
         Ok(AnalysisReport::from_result(
             input,
@@ -444,7 +577,7 @@ impl EffectCommandSession {
     fn select_section_header_inner(
         &mut self,
         input: String,
-    ) -> Result<(SectionContext, StateSavepoint, ParseTransaction), EffectCommandSessionError> {
+    ) -> Result<(SectionContext, StateSavepoint, ParseTransaction), SkriptSessionError> {
         let source = MappedSource::identity(format!("{input}:\n"));
         let tree = parse_raw_tree(
             &source,
@@ -506,7 +639,7 @@ impl EffectCommandSession {
             .map(|diagnostic| SectionContextDiagnostic {
                 code: diagnostic.code.clone(),
                 message: diagnostic.message.clone(),
-                severity: format!("{:?}", diagnostic.severity).to_ascii_lowercase(),
+                severity: diagnostic_severity_name(diagnostic.severity).to_owned(),
             })
             .collect::<Vec<_>>();
         let component_failures = result
@@ -564,7 +697,7 @@ impl EffectCommandSession {
     fn select_event_header_inner(
         &mut self,
         input: String,
-    ) -> Result<(EventContext, ParseTransaction), EffectCommandSessionError> {
+    ) -> Result<(EventContext, ParseTransaction), SkriptSessionError> {
         let source = MappedSource::identity(format!("{input}:\n"));
         let tree = parse_raw_tree(
             &source,
@@ -596,7 +729,7 @@ impl EffectCommandSession {
             CONTEXT_DOCUMENTS[0]
         };
         let transaction = self.host.begin_parse(PROJECT_URI, document_id, revision)?;
-        let selected = (|| -> Result<EventContext, EffectCommandSessionError> {
+        let selected = (|| -> Result<EventContext, SkriptSessionError> {
             let result = self.host.parse_structures_in_parse(
                 &transaction,
                 invocation_context(revision, document_id, revision),
@@ -623,7 +756,7 @@ impl EffectCommandSession {
                 .map(|diagnostic| EventContextDiagnostic {
                     code: diagnostic.code.clone(),
                     message: diagnostic.message.clone(),
-                    severity: format!("{:?}", diagnostic.severity).to_ascii_lowercase(),
+                    severity: diagnostic_severity_name(diagnostic.severity).to_owned(),
                 })
                 .collect::<Vec<_>>();
             let component_failures = result
@@ -754,14 +887,14 @@ fn invocation_context(
     }
 }
 
-fn invalid_event(message: impl Into<String>) -> EffectCommandSessionError {
-    EffectCommandSessionError::InvalidEventContext {
+fn invalid_event(message: impl Into<String>) -> SkriptSessionError {
+    SkriptSessionError::InvalidEventContext {
         message: message.into(),
     }
 }
 
-fn invalid_section(message: impl Into<String>) -> EffectCommandSessionError {
-    EffectCommandSessionError::InvalidSectionContext {
+fn invalid_section(message: impl Into<String>) -> SkriptSessionError {
+    SkriptSessionError::InvalidSectionContext {
         message: message.into(),
     }
 }
@@ -775,7 +908,7 @@ fn identifies_event_structure(
     }) || element_class.is_some_and(|class| class.ends_with(".StructEvent"))
 }
 
-fn parse_skript_version(version: &str) -> Result<(u32, u32), EffectCommandSessionError> {
+fn parse_skript_version(version: &str) -> Result<(u32, u32), SkriptSessionError> {
     let numeric = version
         .trim()
         .strip_prefix('v')
@@ -788,7 +921,7 @@ fn parse_skript_version(version: &str) -> Result<(u32, u32), EffectCommandSessio
     let minor = parts.next().and_then(|part| part.parse().ok());
     major
         .zip(minor)
-        .ok_or_else(|| EffectCommandSessionError::InvalidSkriptVersion {
+        .ok_or_else(|| SkriptSessionError::InvalidSkriptVersion {
             version: version.to_owned(),
         })
 }
@@ -807,7 +940,7 @@ mod tests {
     fn rejects_versions_without_major_and_minor() {
         assert!(matches!(
             parse_skript_version("development"),
-            Err(EffectCommandSessionError::InvalidSkriptVersion { .. })
+            Err(SkriptSessionError::InvalidSkriptVersion { .. })
         ));
     }
 

@@ -2,18 +2,19 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 /// Human-readable command usage shared by `--help` and argument errors.
-pub const HELP: &str = r#"Effect Command CLI
+pub const HELP: &str = r#"Skript REPL
 
-Parse one Skript Effect without executing it.
+Inspect one Skript Effect or a multiline Skript document without executing it.
 
 USAGE:
-    effectcommandcli.exe [OPTIONS] [EFFECT]
+    skript-repl.exe [OPTIONS] [EFFECT]
 
 ARGS:
     <EFFECT>                 Effect text to parse. Omit it to start the REPL.
 
 OPTIONS:
     -s, --snapshot <PATH>    SSG schema 3..6 directory, or its Manifest.json
+        --addon <PATH>       Load a parser WASM component; may be repeated
         --event <HEADER>     Parse Effects inside this Event context
         --section <HEADER>   Push a Section context; may be repeated
         --json               Emit structured JSON
@@ -22,12 +23,12 @@ OPTIONS:
     -V, --version            Print version
 
 ENVIRONMENT:
-    EFFECT_COMMAND_CLI_SNAPSHOT
+    SKRIPT_REPL_SNAPSHOT
                              Default snapshot path when --snapshot is absent
 
 REPL COMMANDS:
     :help                    Show REPL commands
-    :reload                  Reload the SSG snapshot
+    :reload                  Reload the SSG snapshot and parser addons
     :event <HEADER>          Select an Event context (`:` is optional)
     :event off               Clear the Event context
     :events                  List available Event registrations
@@ -36,6 +37,8 @@ REPL COMMANDS:
     :section off|clear       Clear all Section contexts
     :context                 Show the active Event and Section contexts
     :json on | :json off     Toggle JSON output
+    :submit                  Parse the current multiline document
+    :cancel                  Discard the current multiline document
     :quit | :exit            Exit the REPL"#;
 
 /// Output representation selected for one-shot or REPL analysis.
@@ -51,7 +54,7 @@ pub enum OutputFormat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunMode {
     /// Parses exactly one Effect and exits.
-    Once(String),
+    OneShotEffect(String),
     /// Reuses one loaded snapshot and parser host for successive lines.
     Repl,
 }
@@ -63,6 +66,8 @@ pub struct CliOptions {
     pub snapshot: PathBuf,
     /// Initial output representation.
     pub output: OutputFormat,
+    /// Optional parser WASM components loaded in command-line order.
+    pub addons: Vec<PathBuf>,
     /// Event header applied before one-shot or REPL parsing.
     pub event: Option<String>,
     /// Section headers pushed from outermost to innermost before parsing.
@@ -91,6 +96,7 @@ impl CliOptions {
     {
         let mut snapshot = default_snapshot;
         let mut output = OutputFormat::Human;
+        let mut addons = Vec::new();
         let mut event = None;
         let mut sections = Vec::new();
         let mut force_repl = false;
@@ -119,6 +125,14 @@ impl CliOptions {
             }
             if value == OsStr::new("--repl") {
                 force_repl = true;
+                continue;
+            }
+            if value == OsStr::new("--addon") {
+                addons.push(PathBuf::from(
+                    values
+                        .next()
+                        .ok_or_else(|| "--addon requires a component path".to_owned())?,
+                ));
                 continue;
             }
             if value == OsStr::new("--event") {
@@ -156,6 +170,16 @@ impl CliOptions {
             }
             if let Some(encoded) = value
                 .to_str()
+                .and_then(|text| text.strip_prefix("--addon="))
+            {
+                if encoded.is_empty() {
+                    return Err("--addon requires a component path".to_owned());
+                }
+                addons.push(PathBuf::from(encoded));
+                continue;
+            }
+            if let Some(encoded) = value
+                .to_str()
                 .and_then(|text| text.strip_prefix("--event="))
             {
                 if encoded.is_empty() {
@@ -186,11 +210,12 @@ impl CliOptions {
         let mode = if force_repl || positional.is_empty() {
             RunMode::Repl
         } else {
-            RunMode::Once(positional.join(" "))
+            RunMode::OneShotEffect(positional.join(" "))
         };
         Ok(CliAction::Run(Self {
             snapshot: snapshot_directory(snapshot),
             output,
+            addons,
             event,
             sections,
             mode,
@@ -227,7 +252,10 @@ mod tests {
         let CliAction::Run(options) = action else {
             panic!("command must run");
         };
-        assert_eq!(options.mode, RunMode::Once("send 1 to player".to_owned()));
+        assert_eq!(
+            options.mode,
+            RunMode::OneShotEffect("send 1 to player".to_owned())
+        );
         assert_eq!(options.event, None);
         assert!(options.sections.is_empty());
     }
@@ -264,7 +292,10 @@ mod tests {
             panic!("command must run");
         };
         assert_eq!(options.event.as_deref(), Some("on join:"));
-        assert_eq!(options.mode, RunMode::Once("send player".to_owned()));
+        assert_eq!(
+            options.mode,
+            RunMode::OneShotEffect("send player".to_owned())
+        );
 
         let action =
             CliOptions::parse(["--repl", "--event=join"], PathBuf::from("snapshot")).unwrap();
@@ -294,6 +325,22 @@ mod tests {
             options.sections,
             ["loop all players:", "if loop-player is online"]
         );
-        assert_eq!(options.mode, RunMode::Once("continue".to_owned()));
+        assert_eq!(options.mode, RunMode::OneShotEffect("continue".to_owned()));
+    }
+
+    #[test]
+    fn preserves_repeated_parser_addons_in_command_line_order() {
+        let action = CliOptions::parse(
+            ["--addon", "first.wasm", "--addon=second.wasm", "--repl"],
+            PathBuf::from("snapshot"),
+        )
+        .unwrap();
+        let CliAction::Run(options) = action else {
+            panic!("command must run");
+        };
+        assert_eq!(
+            options.addons,
+            [PathBuf::from("first.wasm"), PathBuf::from("second.wasm")]
+        );
     }
 }
