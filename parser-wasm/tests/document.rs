@@ -113,6 +113,121 @@ fn parses_and_commits_a_document_with_public_expression_data() {
 }
 
 #[test]
+fn parses_bare_conditions_as_trigger_items() {
+    let mut host = host(current_fixture());
+    let result = host
+        .parse_document(
+            request(2, "on load:\n    1 is 1\n    send \"after\" to console\n"),
+            DocumentParserConfig::default(),
+        )
+        .expect("a bare Condition must be accepted as a TriggerItem");
+    let body = trigger_body(&result);
+
+    assert!(matches!(
+        body.first(),
+        Some(SectionBodyNode::Condition { matches, .. }) if matches.selected.is_some()
+    ));
+    assert!(matches!(
+        body.get(1),
+        Some(SectionBodyNode::Effect(matches)) if matches.selected.is_some()
+    ));
+    assert!(result.syntax.diagnostics.is_empty());
+}
+
+#[test]
+fn owned_metadata_links_conditional_section_siblings() {
+    let mut host = host(current_fixture());
+    let result = host
+        .parse_document(
+            request(
+                2,
+                "on load:\n    if 1 is 1:\n        send \"yes\" to console\n    # comments do not break Skript's conditional chain\n    else if 2 is 2:\n        send \"maybe\" to console\n    else:\n        send \"no\" to console\n",
+            ),
+            DocumentParserConfig::default(),
+        )
+        .expect("conditional document must parse");
+    let conditionals = trigger_body(&result)
+        .iter()
+        .filter_map(|node| match node {
+            SectionBodyNode::Section(matches) => matches.selected.as_ref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let kinds = conditionals
+        .iter()
+        .map(|conditional| {
+            conditional
+                .metadata
+                .get("nlaocs.core-library/conditional-kind")
+                .map(String::as_str)
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(kinds, [Some("if"), Some("else-if"), Some("else")]);
+    assert!(
+        conditionals[2].body.iter().any(|node| matches!(
+            node,
+            SectionBodyNode::Effect(matches) if matches.selected.is_some()
+        )),
+        "the else body must remain attached to the claimed branch"
+    );
+    assert!(result.syntax.diagnostics.is_empty());
+}
+
+#[test]
+fn unclaimed_items_do_not_interrupt_conditional_section_siblings() {
+    let mut host = host(current_fixture());
+    let result = host
+        .parse_document(
+            request(
+                3,
+                "on load:\n    if 1 is 1:\n        send \"yes\" to console\n    this effect does not exist\n    else:\n        send \"no\" to console\n",
+            ),
+            DocumentParserConfig::default(),
+        )
+        .expect("syntax recovery must preserve the conditional chain");
+    let body = trigger_body(&result);
+
+    assert_eq!(
+        body.iter()
+            .filter(|node| matches!(
+                node,
+                SectionBodyNode::Section(matches) if matches.selected.is_some()
+            ))
+            .count(),
+        2,
+        "the invalid Effect is not a TriggerItem and must not orphan else"
+    );
+    assert!(body.iter().any(|node| matches!(
+        node,
+        SectionBodyNode::Effect(matches)
+            if matches.selected.is_none() && matches.unknown.is_some()
+    )));
+}
+
+#[test]
+fn selected_effect_interrupts_conditional_section_siblings() {
+    let mut host = host(current_fixture());
+    let result = host
+        .parse_document(
+            request(
+                4,
+                "on load:\n    if 1 is 1:\n        send \"yes\" to console\n    send \"separator\" to console\n    else:\n        send \"no\" to console\n",
+            ),
+            DocumentParserConfig::default(),
+        )
+        .expect("an orphan else must remain recoverable");
+
+    assert!(trigger_body(&result).iter().any(|node| matches!(
+        node,
+        SectionBodyNode::Section(matches)
+            if matches.selected.is_none()
+                && matches.unknown.as_ref().is_some_and(|unknown| unknown.source == "else")
+    )));
+}
+
+#[test]
 fn parses_tree_macro_generated_effect_text() {
     let mut host = host(modern_fixture());
     let result = host

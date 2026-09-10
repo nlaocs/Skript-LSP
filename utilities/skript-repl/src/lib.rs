@@ -13,11 +13,11 @@ pub use event_context::{
     EventAddon, EventContext, EventContextComponentFailure, EventContextDiagnostic, EventSummary,
     EventValueContext,
 };
-pub use report::AnalysisReport;
+pub use report::{AnalysisReport, DocumentAnalysisReport};
 pub use section_context::{
     SectionContext, SectionContextComponentFailure, SectionContextDiagnostic,
 };
-pub use session::{EffectCommandSession, EffectCommandSessionError};
+pub use session::{SkriptSession, SkriptSessionError};
 
 use std::ffi::OsString;
 use std::io::{self, BufRead, IsTerminal, Write};
@@ -34,26 +34,40 @@ pub const EXIT_FAILURE: u8 = 3;
 
 /// Runs the CLI with process arguments, standard streams, and the configured snapshot default.
 ///
-/// `EFFECT_COMMAND_CLI_SNAPSHOT` takes precedence over the current directory.
+/// `SKRIPT_REPL_SNAPSHOT` takes precedence over the current directory.
 /// The function returns a stable process code instead of terminating, which
 /// keeps the binary entry point small and lets tests exercise the same flow.
 pub fn run_from_environment() -> u8 {
-    let default_snapshot = std::env::var_os("EFFECT_COMMAND_CLI_SNAPSHOT")
+    let default_snapshot = std::env::var_os("SKRIPT_REPL_SNAPSHOT")
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stderr = io::stderr();
-    let color = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    run_with_io_mode(
-        std::env::args_os().skip(1),
-        default_snapshot,
-        stdin.lock(),
-        stdout.lock(),
-        stderr.lock(),
-        color,
-    )
+    let terminal = stdin.is_terminal() && stdout.is_terminal();
+    let color = terminal && std::env::var_os("NO_COLOR").is_none();
+    if terminal {
+        run_with_io_mode(
+            std::env::args_os().skip(1),
+            default_snapshot,
+            io::empty(),
+            stdout,
+            stderr,
+            color,
+            true,
+        )
+    } else {
+        run_with_io_mode(
+            std::env::args_os().skip(1),
+            default_snapshot,
+            stdin.lock(),
+            stdout.lock(),
+            stderr.lock(),
+            color,
+            false,
+        )
+    }
 }
 
 /// Runs the complete command with caller-owned arguments and streams.
@@ -74,7 +88,7 @@ where
     W: Write,
     E: Write,
 {
-    run_with_io_mode(args, default_snapshot, input, output, error, false)
+    run_with_io_mode(args, default_snapshot, input, output, error, false, false)
 }
 
 fn run_with_io_mode<I, S, R, W, E>(
@@ -84,6 +98,7 @@ fn run_with_io_mode<I, S, R, W, E>(
     mut output: W,
     mut error: E,
     color: bool,
+    terminal: bool,
 ) -> u8
 where
     I: IntoIterator<Item = S>,
@@ -107,13 +122,13 @@ where
             return EXIT_SUCCESS;
         }
         CliAction::Version => {
-            let _ = writeln!(output, "effectcommandcli {}", env!("CARGO_PKG_VERSION"));
+            let _ = writeln!(output, "skript-repl {}", env!("CARGO_PKG_VERSION"));
             return EXIT_SUCCESS;
         }
         CliAction::Run(options) => options,
     };
 
-    let mut session = match EffectCommandSession::load(&options.snapshot) {
+    let mut session = match SkriptSession::load_with_addons(&options.snapshot, &options.addons) {
         Ok(session) => session,
         Err(load_error) => {
             let _ = writeln!(error, "error: {load_error}");
@@ -134,7 +149,7 @@ where
     }
 
     match options.mode {
-        RunMode::Once(effect) => match session.analyze(&effect) {
+        RunMode::OneShotEffect(effect) => match session.analyze_effect(&effect) {
             Ok(report) => {
                 let matched = report.matched();
                 if let Err(render_error) =
@@ -150,6 +165,11 @@ where
                 EXIT_FAILURE
             }
         },
-        RunMode::Repl => repl::run(&mut session, options.output, input, output, error, color),
+        RunMode::Repl if terminal => {
+            repl::run_terminal(&mut session, options.output, output, error, color)
+        }
+        RunMode::Repl => {
+            repl::run_stream(&mut session, options.output, input, output, error, color)
+        }
     }
 }

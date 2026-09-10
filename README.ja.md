@@ -19,9 +19,9 @@ document内のFunction宣言も登録して呼び出し解析に利用できま�
 
 ただし、これはparser APIであり、完成したLanguage Serverではありません。ルートの`skript-lsp`
 binaryは埋め込みCoreLibraryのbyte列を参照してsmoke-test用messageを表示するだけで、parser hostの
-初期化やLSP/HTTP transportの公開は行いません。ルートlibraryは`new_parser_host`を提供し、
-`effectcommandcli`は一行Effectを検証できる実行ファイルです。全文解析の統一JSON endpoint、
-複数fileのsymbol service、variableの型flow解析は未実装です。個別構文のhandlerによっては
+初期化やLSP/HTTP transportの公開は行いません。ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
+共通document parserを利用する複数行REPLを提供し、version付きJSON treeも出力します。
+複数fileのsymbol serviceとvariableの型flow解析は未実装です。個別構文のhandlerによっては
 unresolvedなmetadataやpartial resultを返す場合があります。
 
 ## アーキテクチャ
@@ -60,9 +60,9 @@ flowchart LR
 4. `syntax-pattern-parser`がSkriptの登録patternを表現し、`skript-parser`がText/Tree editを
    検証する。合成したSourceMapでmacro展開後sourceとの位置関係を追跡し、commentと
    indentationからlosslessなRawTreeを構築する。
-5. callerはRawTreeを`ParserHost::parse_structures_in_parse`へ渡し、Structure headerと選択された
-   bodyを、nested syntax・source付きdiagnosticまで解析できる。すべてのstageを統合した
-   document serviceとLSP lifecycleの公開は今後の統合作業となる。
+5. `ParserHost::parse_document`は各stageを一つのtransactional document serviceへ統合する。
+   Structure headerと選択済みbody、nested syntax、source付きdiagnostic、partial AST recovery、
+   document内Function登録まで解析できる。LSP lifecycleと複数file indexは今後の統合作業となる。
 
 解析時に動作中のMinecraft・Paper・Java・Skriptは不要で、生成済みsnapshotとWASM componentを
 使用します。ただし利用可能な構文はsnapshotのSkript/addon構成に従い、addon固有の意味処理には
@@ -87,7 +87,7 @@ flowchart LR
 | [effect-addon](./test-components/effect-addon/README.ja.md) | test WASM component | Effect lifecycleの置換、Reject diagnostic、dynamic handler、採用state rollbackを検証します。 |
 | [matching-addon](./test-components/matching-addon/README.ja.md) | test WASM component | 型付きmatching overrideと採用候補だけを残すStateStore rollbackを検証します。 |
 | [`expression-data-addon`](./test-components/expression-data-addon/) | test WASM component | node-localなschema version付きExpression public data、Transform/Overrideによる置換・削除、raw JSON保持を2つのfeature variantで検証します。 |
-| [`effect-command-cli`](./utilities/effect-command-cli/README.ja.md) | 解析utility | SSG snapshotからEffect pattern、Event文脈、capture、再帰Expression、解決typeを単発・REPLで確認する独立実行ファイル`effectcommandcli`を構築します。 |
+| [`skript-repl`](./utilities/skript-repl/README.ja.md) | 解析utility | 共通parserとWASM hostを利用し、単発Effect検証と複数行document REPLを提供する独立実行ファイル`skript-repl`を構築します。 |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/README.ja.md) | developer utility | SkriptHubデータを取得し、parserが拒否したpatternを分類します。 |
 | [`xtask`](./xtask/README.ja.md) | build utility | core Wasm moduleのbuild、Component変換、export検証、local artifactの配置を行います。 |
 

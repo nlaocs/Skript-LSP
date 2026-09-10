@@ -100,7 +100,7 @@ Scoped `DefaultValueData` overrides and custom `DefaultExpression` subclasses st
 unresolved until their owning addon provides semantics. Unknown validators and
 incomplete SSG descriptors are likewise never promoted to verified success.
 
-`effectcommandcli` report schema 7 renders the same shared results. Capture
+`skript-repl` one-line report schema 7 renders the same shared results. Capture
 `state` is `explicit`, `omitted`, `null`, or `default`; implicit Expression reports include
 `defaultExpression`, an empty `source`, and a zero-width anchor. Failure reports
 include the recognized Effect/pattern and a typed `defaultExpression` reason
