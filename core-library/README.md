@@ -172,6 +172,15 @@ inventory is authoritative. If aliases are supported but were not collected,
 CoreLibrary reports the unresolved provider `ssg.aliases`; snapshots that do
 not support aliases do not receive that diagnostic.
 
+The inventory is an exact view of Skript's runtime global `AliasesProvider`,
+not a material-category dictionary inferred by CoreLibrary. For example,
+Skript 2.16 accepts `diamond sword` because that alias is registered, but its
+standard alias pack does not register the bare category `sword`. CoreLibrary
+therefore rejects `sword` unless the loaded snapshot actually contains it.
+Addon aliases and files loaded into the global provider are included. An
+`aliases:` Structure is script-local and is layered by `StructAliases` while
+that document is parsed; it is not expected in the snapshot inventory.
+
 Initialization requires a non-empty, parseable `runtime.skript-version`. When
 `ParserHost::new` receives an SSG-backed `syntax_catalog`, it automatically
 fills missing RuntimeProfile fields from that Catalog before initialization;

@@ -136,6 +136,13 @@ entryだけを登録し、Structureを収集できないsnapshotでは3種類す
 legacy item解析もSSGのalias capabilityに従います。収集済みalias inventoryを確定情報として使い、alias対応版で
 未収集なら`ssg.aliases` providerが未解決だと報告します。alias非対応版ではこのdiagnosticを出しません。
 
+このinventoryはCoreLibraryがMaterial categoryを推測して作る辞書ではなく、Skript実行時のglobal
+`AliasesProvider`をそのまま表したものです。たとえばSkript 2.16では、登録済みの`diamond sword`は使えますが、
+標準alias packに裸のcategoryである`sword`は登録されていません。そのためCoreLibraryも、読み込んだsnapshotに
+実在しない`sword`を受理しません。Addonやglobal providerへ読み込まれたalias fileはinventoryへ含まれます。
+一方、`aliases:` Structureはscript-localであり、そのdocumentを解析するときに`StructAliases`が重ねて扱います。
+snapshot inventoryへ入ることは想定していません。
+
 初期化には空でないparse可能な`runtime.skript-version`が必要です。`ParserHost::new`がSSG由来の
 `syntax_catalog`を受け取ると、初期化前にCatalogから未指定のRuntimeProfile fieldを自動補完するため、callerが
 Skript versionを重複指定する必要はありません。source Catalogも明示的なprofile versionもないdefault configは

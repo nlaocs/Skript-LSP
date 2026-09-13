@@ -1342,6 +1342,19 @@ fn event_headers_accept_articles_for_entity_and_item_literals() {
             .iter()
             .any(|event| event == "org.bukkit.event.player.PlayerInteractEvent")
     );
+
+    let error = session
+        .select_event_header("rightclick on a sheep holding a sword")
+        .expect_err("Skript 2.16 does not register the bare `sword` alias");
+    assert!(
+        error.to_string().contains("Event context") || error.to_string().contains("did not match"),
+        "{error}"
+    );
+
+    let mut legacy = SkriptSession::load(legacy_fixture()).expect("legacy fixture must load");
+    legacy
+        .select_event_header("rightclick holding a diamond sword")
+        .expect("legacy snapshots must use their own collected Alias inventory");
 }
 
 #[test]
