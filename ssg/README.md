@@ -12,44 +12,53 @@ inspect Java classes, or generate snapshots.
 
 ## Supported Format
 
-The loader accepts SSG schema versions 3 through 6. Complete inventories are
+The loader accepts SSG schema versions 3 through 7. Complete inventories are
 schema-specific:
 
 - schemas 3 and 4 have `Manifest.json` plus 18 data files; use
   `LEGACY_DATA_FILES` and `LEGACY_ALL_FILES` for their inventories
 - schemas 5 and 6 have `Manifest.json` plus 19 data files; `Language.json` is required
-  and is included in `DATA_FILES` and `ALL_FILES`
+  and is included in `SCHEMA_5_6_DATA_FILES` and `SCHEMA_5_6_ALL_FILES`
+- schema 7 has `Manifest.json` plus 20 data files; `BlockData.json` is required
+  and is included after `Aliases.json` in the current `DATA_FILES` and
+  `ALL_FILES`
 
 - syntax: Conditions, Effects, Events, Expressions, Functions, Sections,
   Structures, and Types
 - relationships: ClassHierarchy, Converters, Comparators, and EventValues
-- additional registries: Aliases, Differences, Operations, Operators,
+- additional registries: Aliases, BlockData, Differences, Operations, Operators,
   Properties, and PluralRules
 - runtime metadata introduced in schema 5: `Language.json`
 
 `data_files_for_schema` and `all_files_for_schema` return the required inventory
-for a supported schema. `DATA_FILES` and `ALL_FILES` are the current schema 6
-inventory; the `LEGACY_*` constants are the schema 3 and 4 inventory.
+for a supported schema. `DATA_FILES` and `ALL_FILES` are the current schema 7
+inventory, `SCHEMA_5_6_*` covers schemas 5 and 6, and `LEGACY_*` covers schemas
+3 and 4.
 
-Schema 3 through 5 snapshots remain readable for compatibility; schema 6 is the
+Schema 3 through 6 snapshots remain readable for compatibility; schema 7 is the
 current generator format. Schema 6 replaces `defaultExpressionClass` with a
 structured Type default Expression descriptor. Schemas 5 and 6 require
 `methods` in every `ClassHierarchy.json` record, while schema 3 and 4 may omit that metadata.
 `Language.json` must be an object whose values are strings. Feature availability
 is described by Manifest capabilities, so an intentionally unsupported registry
-is different from a missing file or malformed value.
+is different from a missing file or malformed value. Schema 7 additionally
+requires `BlockData.json`: its root records whether block data was collected,
+the `registryProvider` when collected, namespaced block IDs, each block's default state and
+sorted property values, and any collection failures. The loader retains the
+original document through `CatalogSource` without interpreting it as a normalized
+syntax registry.
 
 ## Loading Pipeline
 
 `load(directory)` performs these steps in order:
 
 1. read and deserialize `Manifest.json`
-2. require a supported schema version from 3 through 6
+2. require a supported schema version from 3 through 7
 3. validate the manifest and its complete file inventory
 4. read every schema-required data file
 5. verify the content digest over schema-required serialized files
 6. verify the snapshot ID derived from the manifest
-7. deserialize raw DTOs and schema 5+ language entries with JSON path-aware errors
+7. deserialize raw DTOs, schema 5+ language entries, and schema 7 block data with JSON path-aware errors
 8. validate per-file and cross-file invariants
 9. parse the snapshot's plural rules
 10. convert the raw snapshot into `syntaxes::Catalog`
@@ -81,8 +90,9 @@ path. Checks include:
 - type and Java class references
 - EventValue time range and resolution fields
 - alias target indices and reachability
+- schema 7 BlockData state, `registryProvider`, namespaced IDs, property values, and failures
 
-Unknown JSON fields are accepted for forward-compatible schema 3 through 6
+Unknown JSON fields are accepted for forward-compatible schema 3 through 7
 readers. Unknown fields do not bypass digest verification because the digest
 covers the original serialized files. Typed enum values and required field types
 must still be valid.
@@ -136,6 +146,7 @@ Fixtures cover:
 - unsupported schemas
 - forward-compatible unknown fields
 - exact JSON error paths
+- schema 7 BlockData materialization, source retention, and invalid roots
 
 Fixture directories are complete, unmodified generated snapshots. Their
 provenance is recorded in [`tests/data/README.md`](./tests/data/README.md).

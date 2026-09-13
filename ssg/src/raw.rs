@@ -647,6 +647,38 @@ pub struct AliasItem {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BlockData {
+    pub state: BlockDataState,
+    pub complete: bool,
+    pub registry_provider: Option<String>,
+    pub blocks: BTreeMap<String, BlockDataBlock>,
+    pub failures: Vec<BlockDataFailure>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockDataBlock {
+    pub default_state: String,
+    pub properties: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockDataFailure {
+    pub block: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockDataState {
+    Collected,
+    Unsupported,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PluralRules {
     pub algorithm: PluralAlgorithm,
     pub plural_override_supported: bool,
@@ -699,6 +731,7 @@ pub struct Snapshot {
     pub differences: Vec<Difference>,
     pub classes: Vec<Class>,
     pub aliases: Aliases,
+    pub block_data: Option<BlockData>,
     pub plural_rules: PluralRules,
     /// Effective global language key/value entries for schema 5 snapshots.
     pub language: BTreeMap<String, String>,

@@ -122,7 +122,7 @@ struct SelectedSection {
 }
 
 impl SkriptSession {
-    /// Loads and validates an SSG schema 3 through 6 snapshot and initializes CoreLibrary.
+    /// Loads and validates an SSG schema 3 through 7 snapshot and initializes CoreLibrary.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, SkriptSessionError> {
         Self::load_with_addons(path, std::iter::empty::<PathBuf>())
     }

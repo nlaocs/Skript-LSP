@@ -33,8 +33,8 @@ skript-repl.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator --repl
 
 When `--snapshot` is omitted, `SKRIPT_REPL_SNAPSHOT` is used, followed by the
 current directory. The snapshot is fully validated before CoreLibrary starts.
-SSG schemas 3 through 6 are supported; schemas 5 and 6 require
-`Language.json`, while schemas 3 and 4 do not.
+SSG schemas 3 through 7 are supported. Schemas 5 and later require
+`Language.json`; schema 7 also requires `BlockData.json`.
 
 Additional parser addon Components can be loaded in command-line order:
 
