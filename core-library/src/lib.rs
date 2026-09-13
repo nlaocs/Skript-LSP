@@ -815,7 +815,7 @@ mod tests {
             manifest.subscriptions[9].phase,
             HookPhase::DefaultExpression
         ));
-        assert_eq!(manifest.registered_syntax_handlers.len(), 134);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 135);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",

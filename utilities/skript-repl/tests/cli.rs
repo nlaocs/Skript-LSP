@@ -1462,6 +1462,29 @@ fn section_headers_enable_loop_scoped_effects_and_expressions() {
 }
 
 #[test]
+fn integer_range_keeps_its_long_type_through_shuffle_and_loop_value() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let selected = session
+        .select_section_header("loop shuffled (integers between 0 and 8)")
+        .expect("ExprNumbers must resolve its mark before SecLoop inspects the source");
+
+    assert_eq!(
+        selected
+            .frame
+            .metadata
+            .get("nlaocs.core-library/loop-source-type")
+            .map(String::as_str),
+        Some("java.lang.Long")
+    );
+    assert!(
+        session
+            .analyze_effect("send loop-value to console")
+            .expect("loop-value must inherit the resolved integer element type")
+            .matched()
+    );
+}
+
+#[test]
 fn legacy_sec_while_provides_loop_control_without_loop_section_flag() {
     let mut session = SkriptSession::load(legacy_fixture()).expect("fixture must load");
     session
