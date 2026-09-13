@@ -33,7 +33,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.37.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.38.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -81,8 +81,9 @@ unresolved結果追加で0.30.0へ、runtime Type parser登録metadataの追加�
 host側で索引化するruntime Type pattern照合の追加で0.32.0へ、read-onlyな構造化Section scope stackの
 追加で0.33.0へ、hygiene付きAST macroの追加で0.34.0へ、型付きdefault provider、capture状態、
 implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefaultExpression descriptorの
-追加で0.36.0へ、SSG runtime snapshot capabilityの追加で0.37.0へ変わりました。
-manifestの現在の`abi`値は19.0で、
+追加で0.36.0へ、SSG runtime snapshot capabilityの追加で0.37.0へ、host側の
+完全一致Alias・BlockData検索の追加で0.38.0へ変わりました。
+manifestの現在の`abi`値は20.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -101,7 +102,7 @@ capabilityはclosed enumではなく、安定した文字列IDと独立した整
 
 hostはText macro、Tree macro、AST macroをadvertiseし、実行します。CoreLibraryのmanifestは
 `parser.hooks`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
-`parser.dynamic-syntax`とversion 2の
+`parser.dynamic-syntax`とversion 3の
 `parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
 
 `addon.initialize`には、読み込んだSSG manifestから作った`RuntimeProfile`も渡します。snapshot、server、
@@ -559,6 +560,11 @@ payloadへ複製せず、`catalog-data` importから保持されたsnapshot全�
   正確な`source-digest`を返します。未知のManifest fieldだけが変わった場合もdigestは変化します。
 - `documents`は`Manifest.json`を含む全source fileをpage単位で列挙します。`read-document`は
   保持された原文をrange単位で読み、大きなfileも最後まで取得できます。
+- `resolve-alias`はglobal Skript aliasを1件だけ正規化して返し、component内でregistry全体を
+  転送、decodeする必要をなくします。
+- `block-data-status`はserver固有のBukkit BlockData registryの収集状態を返し、`block-data`は
+  namespaced ID完全一致の1件だけを返します。hostが`BlockData.json`を一度だけparseしてcacheするため、
+  Type parser呼び出しごとにcomponentがregistry全体を転送、decodeすることはありません。
 - `records-by-registration-id`と`records-by-definition-id`は一致する全top-level JSON objectを、
   document名とarray indexの参照としてpage単位で返します。`read-record`は各objectをrange単位で
   読みます。重複IDも意図的に保持し、どの候補を使うかはaddonが判断します。

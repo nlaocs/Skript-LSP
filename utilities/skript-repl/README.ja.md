@@ -32,8 +32,8 @@ skript-repl.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator --repl
 ```
 
 `--snapshot`を省略した場合は`SKRIPT_REPL_SNAPSHOT`、次にcurrent directoryを
-使用します。CoreLibrary起動前にsnapshot全体を検証します。SSG schema 3から6に
-対応し、schema 5と6では`Language.json`が必須、schema 3と4では不要です。
+使用します。CoreLibrary起動前にsnapshot全体を検証します。SSG schema 3から7に
+対応し、schema 5以降では`Language.json`、schema 7ではさらに`BlockData.json`が必須です。
 
 追加のparser addon Componentは、command lineの順序で読み込めます。
 

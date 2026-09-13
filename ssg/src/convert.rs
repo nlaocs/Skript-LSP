@@ -30,6 +30,7 @@ pub(crate) fn catalog(
         differences,
         classes,
         aliases,
+        block_data: _,
         plural_rules: _,
         language,
     } = raw;

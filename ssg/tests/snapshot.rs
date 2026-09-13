@@ -104,7 +104,7 @@ fn loads_schema_four_fixture_without_language_file() {
 }
 
 #[test]
-fn schema_five_loads_language_and_exposes_current_inventory() {
+fn schema_five_loads_language_and_exposes_its_inventory() {
     let language = serde_json::json!({
         "message.empty": "",
         "message.send": "Send",
@@ -113,16 +113,28 @@ fn schema_five_loads_language_and_exposes_current_inventory() {
     let directory = materialize_snapshot(5, Some(language));
     let snapshot = load(directory.path()).expect("schema 5 fixture must load");
 
-    assert_eq!(ssg::DATA_FILES.len(), 19);
-    assert_eq!(ssg::ALL_FILES.len(), 20);
+    assert_eq!(ssg::SCHEMA_5_6_DATA_FILES.len(), 19);
+    assert_eq!(ssg::SCHEMA_5_6_ALL_FILES.len(), 20);
     assert_eq!(ssg::data_files_for_schema(3).unwrap().len(), 18);
     assert_eq!(ssg::all_files_for_schema(4).unwrap().len(), 19);
-    assert_eq!(ssg::data_files_for_schema(5).unwrap(), ssg::DATA_FILES);
-    assert_eq!(ssg::all_files_for_schema(5).unwrap(), ssg::ALL_FILES);
-    assert_eq!(ssg::data_files_for_schema(6).unwrap(), ssg::DATA_FILES);
-    assert_eq!(ssg::all_files_for_schema(6).unwrap(), ssg::ALL_FILES);
+    assert_eq!(
+        ssg::data_files_for_schema(5).unwrap(),
+        ssg::SCHEMA_5_6_DATA_FILES
+    );
+    assert_eq!(
+        ssg::all_files_for_schema(5).unwrap(),
+        ssg::SCHEMA_5_6_ALL_FILES
+    );
+    assert_eq!(
+        ssg::data_files_for_schema(6).unwrap(),
+        ssg::SCHEMA_5_6_DATA_FILES
+    );
+    assert_eq!(
+        ssg::all_files_for_schema(6).unwrap(),
+        ssg::SCHEMA_5_6_ALL_FILES
+    );
 
-    let expected_files = ssg::ALL_FILES
+    let expected_files = ssg::SCHEMA_5_6_ALL_FILES
         .iter()
         .map(|file| (*file).to_owned())
         .collect::<Vec<_>>();
@@ -147,7 +159,7 @@ fn schema_five_loads_language_and_exposes_current_inventory() {
         .expect("SSG-loaded catalogs must retain their source view");
     assert_eq!(
         source.document_names().collect::<Vec<_>>(),
-        ssg::ALL_FILES.to_vec()
+        ssg::SCHEMA_5_6_ALL_FILES.to_vec()
     );
     assert_eq!(
         source.document("Language.json"),
@@ -169,6 +181,126 @@ fn schema_six_loads_structured_default_expression_metadata() {
     assert!(descriptor.literal.is_some());
     assert!(descriptor.return_type.is_some());
     assert!(descriptor.single.is_some());
+}
+
+#[test]
+fn schema_seven_loads_block_data_and_retains_source() {
+    let directory = materialize_snapshot(7, None);
+    let snapshot = load(directory.path()).expect("schema 7 fixture must load");
+
+    assert_eq!(ssg::DATA_FILES.len(), 20);
+    assert_eq!(ssg::ALL_FILES.len(), 21);
+    assert_eq!(ssg::data_files_for_schema(7).unwrap(), ssg::DATA_FILES);
+    assert_eq!(ssg::all_files_for_schema(7).unwrap(), ssg::ALL_FILES);
+    assert_eq!(
+        snapshot.manifest().files,
+        ssg::ALL_FILES
+            .iter()
+            .map(|file| (*file).to_owned())
+            .collect::<Vec<_>>()
+    );
+
+    let block_data: ssg::raw::BlockData =
+        serde_json::from_slice(&fs::read(directory.path().join("BlockData.json")).unwrap())
+            .unwrap();
+    assert_eq!(block_data.state, ssg::raw::BlockDataState::Collected);
+    assert!(block_data.complete);
+    assert_eq!(
+        block_data.registry_provider.as_deref(),
+        Some("Paper registry")
+    );
+    assert_eq!(
+        block_data.blocks["minecraft:oak_log"].properties["axis"],
+        ["x", "y", "z"]
+    );
+
+    let source = snapshot
+        .catalog()
+        .source()
+        .expect("SSG-loaded catalogs must retain their source view");
+    assert_eq!(
+        source.document_names().collect::<Vec<_>>(),
+        ssg::ALL_FILES.to_vec()
+    );
+    let block_data_bytes = fs::read(directory.path().join("BlockData.json")).unwrap();
+    assert_eq!(
+        source.document("BlockData.json"),
+        Some(block_data_bytes.as_slice())
+    );
+}
+
+#[test]
+fn schema_seven_rejects_a_non_object_block_data_root() {
+    let directory = materialize_snapshot(7, None);
+    fs::write(
+        directory.path().join("BlockData.json"),
+        serde_json::to_vec(&serde_json::json!([])).unwrap(),
+    )
+    .unwrap();
+    refresh_manifest(directory.path());
+
+    assert!(matches!(
+        load(directory.path()).unwrap_err(),
+        SnapshotError::Json {
+            file: "BlockData.json",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn schema_seven_validates_block_data_root_contents() {
+    let directory = materialize_snapshot(7, None);
+    let path = directory.path().join("BlockData.json");
+    let mut block_data: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    block_data["registryProvider"] = serde_json::Value::String("  ".to_owned());
+    fs::write(&path, serde_json::to_vec(&block_data).unwrap()).unwrap();
+    refresh_manifest(directory.path());
+
+    assert!(matches!(
+        load(directory.path()).unwrap_err(),
+        SnapshotError::Validation { path, message }
+            if path == "BlockData.json.registryProvider" && message == "value must not be blank"
+    ));
+}
+
+#[test]
+fn schema_seven_rejects_blocks_for_an_unsupported_runtime() {
+    let directory = materialize_snapshot(7, None);
+    let path = directory.path().join("BlockData.json");
+    let mut block_data: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    block_data["state"] = serde_json::Value::String("unsupported".to_owned());
+    block_data["complete"] = serde_json::Value::Bool(false);
+    fs::write(&path, serde_json::to_vec(&block_data).unwrap()).unwrap();
+    refresh_manifest(directory.path());
+
+    assert!(matches!(
+        load(directory.path()).unwrap_err(),
+        SnapshotError::Validation { path, message }
+            if path == "BlockData.json.blocks"
+                && message == "unsupported or unresolved BlockData must not contain blocks"
+    ));
+}
+
+#[test]
+fn schema_seven_rejects_a_blank_default_block_state() {
+    let directory = materialize_snapshot(7, None);
+    let path = directory.path().join("BlockData.json");
+    let mut block_data: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    block_data["blocks"]["minecraft:stone"]["defaultState"] =
+        serde_json::Value::String(" ".to_owned());
+    fs::write(&path, serde_json::to_vec(&block_data).unwrap()).unwrap();
+    refresh_manifest(directory.path());
+
+    assert!(matches!(
+        load(directory.path()).unwrap_err(),
+        SnapshotError::Validation { path, message }
+            if path == "BlockData.json.blocks.minecraft:stone.defaultState"
+                && message == "value must not be blank"
+    ));
 }
 
 #[test]
@@ -310,7 +442,7 @@ fn rejects_unsupported_schema_before_reading_data_files() {
     let mut manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(modern_fixture().join("Manifest.json")).unwrap())
             .unwrap();
-    manifest["schemaVersion"] = 7.into();
+    manifest["schemaVersion"] = 8.into();
     fs::write(
         directory.path().join("Manifest.json"),
         serde_json::to_vec(&manifest).unwrap(),
@@ -322,8 +454,8 @@ fn rejects_unsupported_schema_before_reading_data_files() {
         error,
         SnapshotError::UnsupportedSchema {
             minimum: 3,
-            maximum: 6,
-            actual: 7
+            maximum: 7,
+            actual: 8
         }
     ));
 }
@@ -404,7 +536,7 @@ fn materialize_snapshot(
     schema_version: u32,
     language: Option<serde_json::Value>,
 ) -> tempfile::TempDir {
-    assert!((4..=6).contains(&schema_version));
+    assert!((4..=7).contains(&schema_version));
 
     let directory = tempfile::tempdir().unwrap();
     copy_snapshot(&modern_fixture(), directory.path());
@@ -479,6 +611,14 @@ fn materialize_snapshot(
         fs::write(&path, serde_json::to_vec(&types).unwrap()).unwrap();
     }
 
+    if schema_version >= 7 {
+        fs::write(
+            directory.path().join("BlockData.json"),
+            serde_json::to_vec(&valid_block_data()).unwrap(),
+        )
+        .unwrap();
+    }
+
     let manifest_path = directory.path().join("Manifest.json");
     let mut manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
@@ -492,21 +632,51 @@ fn materialize_snapshot(
             .collect(),
     );
 
+    fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    refresh_manifest(directory.path());
+
+    directory
+}
+
+fn valid_block_data() -> serde_json::Value {
+    serde_json::json!({
+        "state": "collected",
+        "complete": true,
+        "registryProvider": "Paper registry",
+        "blocks": {
+            "minecraft:oak_log": {
+                "defaultState": "minecraft:oak_log[axis=y]",
+                "properties": {
+                    "axis": ["x", "y", "z"]
+                }
+            },
+            "minecraft:stone": {
+                "defaultState": "minecraft:stone",
+                "properties": {}
+            }
+        },
+        "failures": []
+    })
+}
+
+fn refresh_manifest(directory: &Path) {
+    let manifest_path = directory.join("Manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    let schema_version = manifest["schemaVersion"].as_u64().unwrap() as u32;
     let data_files = ssg::data_files_for_schema(schema_version).unwrap();
     let serialized = data_files
         .iter()
         .map(|file| {
             (
                 (*file).to_owned(),
-                fs::read_to_string(directory.path().join(file)).unwrap(),
+                fs::read_to_string(directory.join(file)).unwrap(),
             )
         })
         .collect::<BTreeMap<_, _>>();
     manifest["contentDigest"] = serde_json::Value::String(content_digest(&serialized));
     manifest["snapshotId"] = serde_json::Value::String(snapshot_id(&manifest));
     fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
-
-    directory
 }
 
 fn content_digest(files: &BTreeMap<String, String>) -> String {

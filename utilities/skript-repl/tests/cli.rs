@@ -1342,6 +1342,68 @@ fn event_headers_accept_articles_for_entity_and_item_literals() {
             .iter()
             .any(|event| event == "org.bukkit.event.player.PlayerInteractEvent")
     );
+
+    let error = session
+        .select_event_header("rightclick on a sheep holding a sword")
+        .expect_err("Skript 2.16 does not register the bare `sword` alias");
+    assert!(
+        error.to_string().contains("Event context") || error.to_string().contains("did not match"),
+        "{error}"
+    );
+
+    let mut legacy = SkriptSession::load(legacy_fixture()).expect("legacy fixture must load");
+    legacy
+        .select_event_header("rightclick holding a diamond sword")
+        .expect("legacy snapshots must use their own collected Alias inventory");
+}
+
+#[test]
+fn damage_headers_expose_role_constraints_without_inventing_event_values() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let event = session
+        .select_event_header("on damage of player by zombie")
+        .expect("EvtDamage header literals must parse");
+
+    let captures: serde_json::Value = serde_json::from_str(
+        event
+            .event_metadata
+            .get("parser.event.header-captures")
+            .expect("the host must preserve typed Event captures"),
+    )
+    .expect("typed Event capture metadata must be JSON");
+    assert_eq!(captures["captures"][0]["source"], "player");
+    assert_eq!(captures["captures"][1]["source"], "zombie");
+
+    let constraints = event
+        .structure_metadata
+        .iter()
+        .find_map(|(key, value)| {
+            (key == "event-header-constraints" || key.ends_with("/event-header-constraints"))
+                .then_some(value)
+        })
+        .expect("CoreLibrary must map EvtDamage capture roles");
+    let constraints: serde_json::Value =
+        serde_json::from_str(constraints).expect("role constraints must be JSON");
+    assert_eq!(constraints["constraints"][0]["role"], "event-entity");
+    assert_eq!(
+        constraints["constraints"][0]["className"],
+        "org.bukkit.entity.Player"
+    );
+    assert_eq!(constraints["constraints"][1]["role"], "damager");
+
+    assert!(
+        !session
+            .analyze_effect("send player's health to console")
+            .expect("an invalid EventValue must be a normal no-match")
+            .matched(),
+        "Skript requires attacker/victim in damage events; the header filter must not invent `player`"
+    );
+    assert!(
+        session
+            .analyze_effect("send victim's health to console")
+            .expect("the standard victim Expression must parse")
+            .matched()
+    );
 }
 
 #[test]
@@ -1457,6 +1519,29 @@ fn section_headers_enable_loop_scoped_effects_and_expressions() {
         session
             .analyze_effect("send loop-index to console")
             .expect("list variable loops must expose loop-index")
+            .matched()
+    );
+}
+
+#[test]
+fn integer_range_keeps_its_long_type_through_shuffle_and_loop_value() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let selected = session
+        .select_section_header("loop shuffled (integers between 0 and 8)")
+        .expect("ExprNumbers must resolve its mark before SecLoop inspects the source");
+
+    assert_eq!(
+        selected
+            .frame
+            .metadata
+            .get("nlaocs.core-library/loop-source-type")
+            .map(String::as_str),
+        Some("java.lang.Long")
+    );
+    assert!(
+        session
+            .analyze_effect("send loop-value to console")
+            .expect("loop-value must inherit the resolved integer element type")
             .matched()
     );
 }

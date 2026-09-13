@@ -50,7 +50,7 @@ flowchart LR
 
 想定しているデータの流れは次のとおりです。
 
-1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 6
+1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 7
    snapshotを生成する。
 2. `ssg`がsnapshotを検証し、保存形式に依存しない`syntaxes::Catalog`へ変換する。
    schema 3・4も引き続き読み込める。schema 5では`Language.json`が必須だが、旧schemaでは不要。
@@ -74,7 +74,7 @@ flowchart LR
 | --- | --- | --- |
 | [`skript-lsp`](./) | library / binary | 最上位の統合crate。CoreLibraryを埋め込み、parser hostを構築します。binaryは現時点ではscaffoldです。 |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
-| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜6 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage dataとschema 6のdefault Expression descriptorも含みます。 |
+| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜7 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage data、schema 6のdefault Expression descriptor、schema 7のBlockData registry dataも含みます。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
 | [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、lossless RawTree、登録pattern照合、再帰syntax node、二段階Structure/EntryValidator解析を所有します。 |
 | [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、transactional syntax pipeline、Structure lifecycle、StateStore、dynamic syntax bridgeを実装します。 |

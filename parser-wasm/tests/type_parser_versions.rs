@@ -313,7 +313,8 @@ fn load_snapshot(fixture: &SnapshotFixture) -> ssg::Snapshot {
     );
     assert_eq!(
         manifest.files,
-        ssg::ALL_FILES
+        ssg::all_files_for_schema(fixture.schema_version)
+            .expect("fixture schema must be supported")
             .iter()
             .map(|file| (*file).to_owned())
             .collect::<Vec<_>>(),
@@ -365,7 +366,9 @@ fn load_snapshot(fixture: &SnapshotFixture) -> ssg::Snapshot {
     assert_eq!(source.snapshot_id, fixture.snapshot_id, "{}", fixture.name);
     assert_eq!(
         source.document_names().collect::<Vec<_>>(),
-        ssg::ALL_FILES.to_vec(),
+        ssg::all_files_for_schema(fixture.schema_version)
+            .expect("fixture schema must be supported")
+            .to_vec(),
         "{}",
         fixture.name
     );
