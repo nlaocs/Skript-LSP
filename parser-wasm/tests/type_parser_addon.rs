@@ -1,13 +1,14 @@
 use parser_wasm::host::{HookCall, HostConfig, InvocationContext, ParserHost, RuntimeProfile};
 use skript_parser::{
     ExpressionExpectedType, ExpressionNode, ExpressionNodeKind, ExpressionParseContext,
-    ExpressionParseRequest, ExpressionParserConfig, MappedSource, TextRange,
+    ExpressionParseRequest, ExpressionParserConfig, ExpressionRootMode, MappedSource, TextRange,
 };
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use syntax_pattern_parser::syntax;
 use syntaxes::{
-    Catalog, CatalogParts, ClassName, DefinitionId, Multiplicity, Pattern,
+    Catalog, CatalogParts, CatalogSource, ClassName, DefinitionId, Multiplicity, Pattern,
     PossibleReturnTypesState, RegistrationId, ResolutionState, ReturnTypeState, Syntax,
 };
 
@@ -63,8 +64,39 @@ fn fixture() -> PathBuf {
 }
 
 fn catalog() -> Arc<Catalog> {
+    catalog_with_block_data(None)
+}
+
+fn catalog_with_block_data(block_data: Option<serde_json::Value>) -> Arc<Catalog> {
     let snapshot = ssg::load(fixture()).expect("schema 3 SSG fixture must load");
     let source = snapshot.catalog();
+    let raw_source = source
+        .source()
+        .expect("fixture must retain source documents");
+    let source_view = if let Some(block_data) = block_data {
+        let mut documents = raw_source
+            .document_names()
+            .map(|name| {
+                (
+                    name.to_owned(),
+                    raw_source.document(name).expect("listed document").to_vec(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        documents.insert(
+            "BlockData.json".to_owned(),
+            serde_json::to_vec(&block_data).unwrap(),
+        );
+        CatalogSource::from_json_documents(
+            raw_source.format.clone(),
+            7,
+            raw_source.snapshot_id.clone(),
+            documents,
+        )
+        .expect("test source documents must be valid JSON")
+    } else {
+        raw_source.clone()
+    };
     let mut syntaxes = source.syntaxes().to_vec();
     let mut found_number = false;
     let mut found_enchantment = false;
@@ -145,23 +177,26 @@ fn catalog() -> Arc<Catalog> {
     nested_expression.return_type_multiplicity = Some(Multiplicity::Single);
     nested_expression.return_type_multiplicity_state = ResolutionState::Resolved;
     syntaxes.push(Syntax::Expression(nested_expression));
-    Arc::new(Catalog::new(CatalogParts {
-        syntaxes,
-        converters: source.converters().to_vec(),
-        comparators: source.comparators().to_vec(),
-        event_values: source.event_values().to_vec(),
-        properties: source.properties().to_vec(),
-        operators: source.operators().to_vec(),
-        operations: source.operations().clone(),
-        differences: source.differences().to_vec(),
-        classes: source.classes().to_vec(),
-        aliases: source.aliases().clone(),
-        plural_rules: source.plural_rules().clone(),
-        language: source
-            .language_entries()
-            .map(|(key, value)| (key.to_owned(), value.to_owned()))
-            .collect(),
-    }))
+    Arc::new(
+        Catalog::new(CatalogParts {
+            syntaxes,
+            converters: source.converters().to_vec(),
+            comparators: source.comparators().to_vec(),
+            event_values: source.event_values().to_vec(),
+            properties: source.properties().to_vec(),
+            operators: source.operators().to_vec(),
+            operations: source.operations().clone(),
+            differences: source.differences().to_vec(),
+            classes: source.classes().to_vec(),
+            aliases: source.aliases().clone(),
+            plural_rules: source.plural_rules().clone(),
+            language: source
+                .language_entries()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+        })
+        .with_unchecked_source(source_view),
+    )
 }
 
 fn context(revision: u64) -> InvocationContext {
@@ -214,10 +249,18 @@ fn parser_host(addon: bool) -> ParserHost {
 }
 
 fn parser_host_version(skript_version: &str, addon: bool) -> ParserHost {
+    parser_host_with_catalog(catalog(), skript_version, addon)
+}
+
+fn parser_host_with_catalog(
+    catalog: Arc<Catalog>,
+    skript_version: &str,
+    addon: bool,
+) -> ParserHost {
     let mut host = ParserHost::new(
         CORE_LIBRARY,
         HostConfig {
-            syntax_catalog: Some(catalog()),
+            syntax_catalog: Some(catalog),
             runtime_profile: RuntimeProfile {
                 skript_version: Some(skript_version.to_owned()),
                 ..RuntimeProfile::default()
@@ -240,6 +283,24 @@ fn parse_typed_in_transaction(
     expected_classes: &[&str],
     revision: u64,
 ) -> parser_wasm::WasmExpressionParseResult {
+    parse_typed_in_transaction_with_config(
+        host,
+        transaction,
+        text,
+        expected_classes,
+        revision,
+        ExpressionParserConfig::default(),
+    )
+}
+
+fn parse_typed_in_transaction_with_config(
+    host: &mut ParserHost,
+    transaction: &parser_wasm::state::ParseTransaction,
+    text: &str,
+    expected_classes: &[&str],
+    revision: u64,
+    config: ExpressionParserConfig,
+) -> parser_wasm::WasmExpressionParseResult {
     let source = MappedSource::identity(text);
     host.parse_expression_in_parse(
         transaction,
@@ -259,7 +320,7 @@ fn parse_typed_in_transaction(
                 ..ExpressionParseContext::default()
             },
         },
-        ExpressionParserConfig::default(),
+        config,
     )
     .expect("typed expression parsing must complete")
 }
@@ -619,30 +680,169 @@ fn external_type_parser_reports_a_required_provider_without_rejecting_the_type()
 
 #[test]
 fn exact_parser_backed_types_without_an_addon_report_their_registration_route() {
-    for (revision, input, class) in [
-        (5, BLOCK_DATA_INPUT, BLOCK_DATA_CLASS),
-        (6, LOOT_TABLE_INPUT, LOOT_TABLE_CLASS),
-    ] {
-        let result = parse_typed(input, class, revision, false);
-        assert!(result.matches.selected.is_none());
-        let trace = result
-            .matches
-            .failure
-            .as_ref()
-            .and_then(|failure| failure.trace.as_ref())
-            .expect("a parser-backed Type without a provider must be diagnosable");
-        assert!(trace.root_cause().failure.reasons.iter().any(|reason| {
-            matches!(
+    let block_data = parse_typed(BLOCK_DATA_INPUT, BLOCK_DATA_CLASS, 5, false);
+    assert!(block_data.matches.selected.is_none());
+    let trace = block_data
+        .matches
+        .failure
+        .as_ref()
+        .and_then(|failure| failure.trace.as_ref())
+        .expect("missing BlockData source must be diagnosable");
+    assert!(trace.root_cause().failure.reasons.iter().any(|reason| {
+        matches!(
+            reason,
+            skript_parser::PatternFailureReason::TypeParserUnresolved {
+                required_provider: Some(provider),
                 reason,
-                skript_parser::PatternFailureReason::TypeParserUnresolved {
-                    required_provider: Some(provider),
-                    reason,
-                    ..
-                } if provider.starts_with("type-parser/type:skript:")
-                    && reason.contains("no WASM Type parser")
-            )
-        }));
-    }
+                ..
+            } if provider == "ssg.block-data-registry"
+                && reason.contains("BlockData.json")
+        )
+    }));
+
+    let loot_table = parse_typed(LOOT_TABLE_INPUT, LOOT_TABLE_CLASS, 6, false);
+    assert!(loot_table.matches.selected.is_none());
+    let trace = loot_table
+        .matches
+        .failure
+        .as_ref()
+        .and_then(|failure| failure.trace.as_ref())
+        .expect("a parser-backed Type without a provider must be diagnosable");
+    assert!(trace.root_cause().failure.reasons.iter().any(|reason| {
+        matches!(
+            reason,
+            skript_parser::PatternFailureReason::TypeParserUnresolved {
+                required_provider: Some(provider),
+                reason,
+                ..
+            } if provider.starts_with("type-parser/type:skript:")
+                && reason.contains("no WASM Type parser")
+        )
+    }));
+}
+
+#[test]
+fn core_block_data_parser_uses_the_schema_seven_runtime_registry() {
+    let catalog = catalog_with_block_data(Some(serde_json::json!({
+        "state": "collected",
+        "complete": true,
+        "registryProvider": "bukkit-runtime-registry",
+        "blocks": {
+            "minecraft:chest": {
+                "defaultState": "minecraft:chest[facing=north]",
+                "properties": {"facing": ["east", "north", "south", "west"]}
+            }
+        },
+        "failures": []
+    })));
+    let mut host = parser_host_with_catalog(catalog, "2.16.0", false);
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/type-parser.sk", 50)
+        .expect("parse must begin");
+
+    let matched = parse_typed_in_transaction(
+        &mut host,
+        &transaction,
+        "a chest[facing=west]",
+        &[BLOCK_DATA_CLASS],
+        50,
+    );
+    let node = selected_node(matched, "valid runtime BlockData");
+    assert!(matches!(
+        &node.kind,
+        ExpressionNodeKind::Literal { parser_id } if parser_id == "core.type.block-data"
+    ));
+    assert_eq!(
+        node.metadata
+            .get("nlaocs.core-library/literal-canonical")
+            .map(String::as_str),
+        Some("minecraft:chest[facing=west]")
+    );
+
+    let simple =
+        parse_typed_in_transaction(&mut host, &transaction, "chest", &[BLOCK_DATA_CLASS], 50);
+    let node = selected_node(simple, "BlockData without explicit properties");
+    assert_eq!(
+        node.metadata
+            .get("nlaocs.core-library/literal-canonical")
+            .map(String::as_str),
+        Some("minecraft:chest")
+    );
+
+    let invalid = parse_typed_in_transaction(
+        &mut host,
+        &transaction,
+        "chest[facing=sideways]",
+        &[BLOCK_DATA_CLASS],
+        50,
+    );
+    assert!(invalid.matches.selected.is_none());
+    let unknown_property = parse_typed_in_transaction(
+        &mut host,
+        &transaction,
+        "chest[unknown=north]",
+        &[BLOCK_DATA_CLASS],
+        50,
+    );
+    assert!(unknown_property.matches.selected.is_none());
+
+    let expressions_only = parse_typed_in_transaction_with_config(
+        &mut host,
+        &transaction,
+        "chest[facing=west]",
+        &[BLOCK_DATA_CLASS],
+        50,
+        ExpressionParserConfig {
+            root_mode: ExpressionRootMode::ExpressionsOnly,
+            ..ExpressionParserConfig::default()
+        },
+    );
+    assert!(
+        expressions_only.matches.selected.is_none(),
+        "BlockData literals must respect ExpressionsOnly mode"
+    );
+    transaction.cancel().expect("test parse may be cancelled");
+}
+
+#[test]
+fn core_block_data_parser_reports_an_unsupported_runtime() {
+    let catalog = catalog_with_block_data(Some(serde_json::json!({
+        "state": "unsupported",
+        "complete": false,
+        "registryProvider": null,
+        "blocks": {},
+        "failures": []
+    })));
+    let mut host = parser_host_with_catalog(catalog, "2.6.4", false);
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/type-parser.sk", 51)
+        .expect("parse must begin");
+    let result = parse_typed_in_transaction(
+        &mut host,
+        &transaction,
+        "chest[facing=north]",
+        &[BLOCK_DATA_CLASS],
+        51,
+    );
+    assert!(result.matches.selected.is_none());
+    let trace = result
+        .matches
+        .failure
+        .as_ref()
+        .and_then(|failure| failure.trace.as_ref())
+        .expect("unsupported BlockData must remain diagnosable");
+    assert!(trace.root_cause().failure.reasons.iter().any(|reason| {
+        matches!(
+            reason,
+            skript_parser::PatternFailureReason::TypeParserUnresolved {
+                required_provider: Some(provider),
+                reason,
+                ..
+            } if provider == "ssg.block-data-registry"
+                && reason.contains("does not expose Bukkit BlockData")
+        )
+    }));
+    transaction.cancel().expect("test parse may be cancelled");
 }
 
 #[test]

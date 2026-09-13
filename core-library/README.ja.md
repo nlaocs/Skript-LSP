@@ -16,7 +16,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.37.0`とABI `19.0`
+- WIT package `nlaocs:skript-parser-addon@0.38.0`とABI `20.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -24,7 +24,24 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 - hook、text macro、tree macro、AST macro interfaceの型付きexport
 
 manifestは`parser.hooks`、`parser.default-expression`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
-`parser.dynamic-syntax`とversion 2の`parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
+`parser.dynamic-syntax`とversion 3の`parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
+
+runtime依存のType parserは`catalog-data`の索引queryを利用します。特にBlockData検証では、WASM内へ
+JSON全体を読み込まず、hostがcacheしたschema 7 registryから要求されたnamespaced blockだけを取得します。
+
+### BlockData Type解析
+
+`core.type.block-data`は、Skript 2.16の
+[`BlockUtils.createBlockData`](https://github.com/SkriptLang/Skript/blob/8265733261c6f10f9fbbdb44105328f9abaf54ab/src/main/java/ch/njol/skript/util/BlockUtils.java#L79-L111)
+と同じ正規化を行います。セミコロンをproperty区切りへ変換し、角括弧内外の不要な空白を除去し、
+material名の空白をunderscoreへ変換します。まずBukkitのblock IDとして解決し、stateの角括弧が
+ある場合だけSSGのglobal alias registryへfallbackします。
+
+block ID、property名、property値はschema 7の`BlockData.json`で検証します。受理したleafは
+provider `core.type.block-data`を使い、canonical値、default state、選択されたproperty、registry
+provider、Type registration IDをmetadataへ保持します。registryが欠落、未対応、部分的、または
+runtimeと不一致なら`ssg.block-data-registry`を必要providerとするunresolved結果を返し、Minecraftの
+state表を推測しません。
 
 health hookはtarget、phase、payloadを検証したあと、documentを変更せず処理を継続します。
 

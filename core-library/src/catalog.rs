@@ -848,6 +848,116 @@ fn catalog_source_digest() -> Result<String, String> {
     Ok("native-tests".to_owned())
 }
 
+pub(crate) struct AliasMaterial {
+    pub(crate) material: String,
+    pub(crate) minecraft_id: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    allow(
+        dead_code,
+        reason = "non-collected states are supplied by the WIT host"
+    )
+)]
+pub(crate) enum BlockDataRegistryState {
+    Collected,
+    Unsupported,
+    Unresolved,
+}
+
+pub(crate) struct BlockDataStatus {
+    pub(crate) state: BlockDataRegistryState,
+    pub(crate) complete: bool,
+    pub(crate) registry_provider: Option<String>,
+    pub(crate) first_failure: Option<String>,
+}
+
+pub(crate) struct BlockDataEntry {
+    pub(crate) default_state: String,
+    pub(crate) properties: BTreeMap<String, Vec<String>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn alias_materials(input: &str) -> Result<Option<Vec<AliasMaterial>>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::resolve_alias(input)
+        .map_err(|error| error.message)
+        .map(|target| {
+            target.map(|target| {
+                target
+                    .types
+                    .into_iter()
+                    .map(|item| AliasMaterial {
+                        material: item.material,
+                        minecraft_id: item.minecraft_id,
+                    })
+                    .collect()
+            })
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn alias_materials(_input: &str) -> Result<Option<Vec<AliasMaterial>>, String> {
+    Ok(None)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn block_data_status() -> Result<Option<BlockDataStatus>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::block_data_status()
+        .map_err(|error| error.message)
+        .map(|status| {
+            status.map(|status| BlockDataStatus {
+                state: match status.state {
+                    catalog_data::CatalogBlockDataState::Collected => {
+                        BlockDataRegistryState::Collected
+                    }
+                    catalog_data::CatalogBlockDataState::Unsupported => {
+                        BlockDataRegistryState::Unsupported
+                    }
+                    catalog_data::CatalogBlockDataState::Unresolved => {
+                        BlockDataRegistryState::Unresolved
+                    }
+                },
+                complete: status.complete,
+                registry_provider: status.registry_provider,
+                first_failure: status.first_failure,
+            })
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn block_data_status() -> Result<Option<BlockDataStatus>, String> {
+    Ok(None)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn block_data(id: &str) -> Result<Option<BlockDataEntry>, String> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+
+    catalog_data::block_data(id)
+        .map_err(|error| error.message)
+        .map(|entry| {
+            entry.map(|entry| BlockDataEntry {
+                default_state: entry.default_state,
+                properties: entry
+                    .properties
+                    .into_iter()
+                    .map(|property| (property.name, property.values))
+                    .collect(),
+            })
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn block_data(_id: &str) -> Result<Option<BlockDataEntry>, String> {
+    Ok(None)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn registration_records(_registration_id: &str) -> Result<Vec<SourceRecord>, String> {
     Ok(Vec::new())

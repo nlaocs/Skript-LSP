@@ -16,7 +16,7 @@ behavior that must use the same addon ABI as third-party parser addons.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.37.0` and ABI `19.0`
+- WIT package `nlaocs:skript-parser-addon@0.38.0` and ABI `20.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -28,8 +28,28 @@ The component currently provides the integration foundation:
 
 The manifest requires `parser.hooks`, `parser.default-expression`, the five syntax-parser capabilities,
 Tree macros, and `parser.state-store`. It optionally consumes
-`parser.dynamic-syntax` and `parser.catalog-data` version 2; Text and AST macro
+`parser.dynamic-syntax` and `parser.catalog-data` version 3; Text and AST macro
 capabilities are not requirements.
+
+Runtime-backed Type parsers use indexed `catalog-data` queries. In particular,
+BlockData validation reads only the requested namespaced block from the host's
+cached schema 7 registry instead of loading the complete JSON document in WASM.
+
+### BlockData Type Parsing
+
+`core.type.block-data` follows Skript 2.16's
+[`BlockUtils.createBlockData`](https://github.com/SkriptLang/Skript/blob/8265733261c6f10f9fbbdb44105328f9abaf54ab/src/main/java/ch/njol/skript/util/BlockUtils.java#L79-L111)
+normalization: semicolons become property separators, whitespace around bracketed
+states is removed, and spaces in the material name become underscores. It first
+resolves a Bukkit block ID and only falls back to the SSG global-alias registry
+when state brackets are present.
+
+The parser validates the block ID, property names, and property values against
+schema 7 `BlockData.json`. Accepted leaves use provider `core.type.block-data`
+and retain the canonical value, default state, selected properties, registry
+provider, and Type registration IDs as metadata. Missing, unsupported, partial,
+or runtime-mismatched registry data is reported as unresolved through
+`ssg.block-data-registry`; the parser does not guess a Minecraft state table.
 
 The health hook validates its target, phase, and payload, then continues
 without modifying the document.

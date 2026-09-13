@@ -1,3 +1,4 @@
+mod block_data;
 mod boolean;
 mod class_info;
 mod color;
@@ -32,6 +33,7 @@ const PARSERS: &[TypeParser] = &[
     string_literal::PARSER,
     number::PARSER,
     boolean::PARSER,
+    block_data::PARSER,
     time::PARSER,
     time_period::PARSER,
     color::PARSER,
