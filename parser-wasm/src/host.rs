@@ -22,7 +22,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     mem,
     sync::{
-        Arc, LazyLock, Mutex,
+        Arc, LazyLock, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
@@ -30,6 +30,7 @@ use std::{
 };
 
 use fancy_regex::Regex;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use skript_parser::{
     AstExpansion, ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
@@ -487,6 +488,17 @@ impl HostConfig {
                     field: "schema version",
                     profile: profile_schema_version.to_string(),
                     catalog: source.schema_version.to_string(),
+                });
+            }
+            if let (Some(profile_minecraft_version), Some(runtime)) = (
+                self.runtime_profile.minecraft_version.as_deref(),
+                source.runtime.as_ref(),
+            ) && profile_minecraft_version != runtime.minecraft_version
+            {
+                return Err(HostError::CatalogProfileMismatch {
+                    field: "Minecraft version",
+                    profile: profile_minecraft_version.to_owned(),
+                    catalog: runtime.minecraft_version.clone(),
                 });
             }
             if let (Some(profile_capabilities), Some(runtime)) = (
@@ -997,6 +1009,38 @@ struct StoreData {
     language_patterns: HashMap<String, Option<Regex>>,
     type_user_input_matchers: Arc<[TypeUserInputMatcher]>,
     max_catalog_response_bytes: usize,
+    block_data_registry: OnceLock<Result<Option<CatalogBlockDataDocument>, String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogBlockDataDocument {
+    state: CatalogBlockDataState,
+    complete: bool,
+    registry_provider: Option<String>,
+    blocks: BTreeMap<String, CatalogBlockDataEntry>,
+    #[serde(default)]
+    failures: Vec<CatalogBlockDataFailure>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CatalogBlockDataState {
+    Collected,
+    Unsupported,
+    Unresolved,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogBlockDataEntry {
+    default_state: String,
+    properties: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct CatalogBlockDataFailure {
+    message: String,
 }
 
 struct TypeUserInputMatcher {
@@ -1024,6 +1068,81 @@ impl wit_catalog_data::Host for StoreData {
         Ok(catalog
             .type_by_class_name(&class_name)
             .map(|value| expression_type_option(Some(catalog), value)))
+    }
+
+    fn resolve_alias(
+        &mut self,
+        input: String,
+    ) -> Result<Option<wit_catalog_data::CatalogAliasTarget>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog
+            .alias(&input)
+            .map(|target| wit_catalog_data::CatalogAliasTarget {
+                amount: target.amount,
+                all: target.all,
+                types: target
+                    .types
+                    .iter()
+                    .map(|item| wit_catalog_data::CatalogAliasItem {
+                        material: item.material.clone(),
+                        minecraft_id: item.minecraft_id.clone(),
+                    })
+                    .collect(),
+            }))
+    }
+
+    fn block_data_status(
+        &mut self,
+    ) -> Result<Option<wit_catalog_data::CatalogBlockDataStatus>, wit_catalog_data::CatalogError>
+    {
+        Ok(self
+            .block_data_registry()?
+            .map(|registry| wit_catalog_data::CatalogBlockDataStatus {
+                state: match registry.state {
+                    CatalogBlockDataState::Collected => {
+                        wit_catalog_data::CatalogBlockDataState::Collected
+                    }
+                    CatalogBlockDataState::Unsupported => {
+                        wit_catalog_data::CatalogBlockDataState::Unsupported
+                    }
+                    CatalogBlockDataState::Unresolved => {
+                        wit_catalog_data::CatalogBlockDataState::Unresolved
+                    }
+                },
+                complete: registry.complete,
+                registry_provider: registry.registry_provider.clone(),
+                first_failure: registry
+                    .failures
+                    .first()
+                    .map(|failure| failure.message.clone()),
+            }))
+    }
+
+    fn block_data(
+        &mut self,
+        id: String,
+    ) -> Result<Option<wit_catalog_data::CatalogBlockDataEntry>, wit_catalog_data::CatalogError>
+    {
+        if id.trim().is_empty() {
+            return Err(invalid_catalog_input("BlockData ID must not be blank"));
+        }
+        Ok(self
+            .block_data_registry()?
+            .and_then(|registry| registry.blocks.get(&id))
+            .map(|entry| wit_catalog_data::CatalogBlockDataEntry {
+                id,
+                default_state: entry.default_state.clone(),
+                properties: entry
+                    .properties
+                    .iter()
+                    .map(
+                        |(name, values)| wit_catalog_data::CatalogBlockDataProperty {
+                            name: name.clone(),
+                            values: values.clone(),
+                        },
+                    )
+                    .collect(),
+            }))
     }
 
     fn source(
@@ -2014,6 +2133,27 @@ impl StoreData {
                 kind: wit_catalog_data::CatalogErrorKind::Unavailable,
                 message: "catalog data requires an SSG Catalog".to_owned(),
             })
+    }
+
+    fn block_data_registry(
+        &self,
+    ) -> Result<Option<&CatalogBlockDataDocument>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        self.block_data_registry
+            .get_or_init(|| {
+                let Some(bytes) = catalog
+                    .source()
+                    .and_then(|source| source.document("BlockData.json"))
+                else {
+                    return Ok(None);
+                };
+                serde_json::from_slice(bytes)
+                    .map(Some)
+                    .map_err(|error| format!("invalid BlockData.json: {error}"))
+            })
+            .as_ref()
+            .map(Option::as_ref)
+            .map_err(|message| invalid_catalog_input(message.clone()))
     }
 
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
@@ -11075,7 +11215,7 @@ fn configured_host_capabilities(
 ) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
     if catalog_source_available {
-        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 2));
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 3));
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
@@ -12118,6 +12258,7 @@ fn create_store(
             language_patterns: HashMap::new(),
             type_user_input_matchers,
             max_catalog_response_bytes: config.max_catalog_response_bytes,
+            block_data_registry: OnceLock::new(),
         },
     );
     store.limiter(|data| &mut data.limits);

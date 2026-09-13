@@ -1,11 +1,61 @@
-package nlaocs:skript-parser-addon@0.37.0;
+package nlaocs:skript-parser-addon@0.38.0;
 
 /// Read-only access to the complete retained SSG source and host type relations.
 interface catalog-data {
     use types.{accepted-change-mode, catalog-record-ref, expression-literal-option, expression-type-option};
 
+    /// One material entry in a normalized Skript alias target.
+    record catalog-alias-item {
+        material: string,
+        minecraft-id: option<string>,
+    }
+
+    /// The normalized target selected by an exact Skript alias lookup.
+    record catalog-alias-target {
+        amount: s32,
+        all: bool,
+        types: list<catalog-alias-item>,
+    }
+
+    /// Collection state of the server-specific Bukkit BlockData registry.
+    enum catalog-block-data-state {
+        collected,
+        unsupported,
+        unresolved,
+    }
+
+    /// Availability metadata for the server-specific Bukkit BlockData registry.
+    record catalog-block-data-status {
+        state: catalog-block-data-state,
+        complete: bool,
+        registry-provider: option<string>,
+        first-failure: option<string>,
+    }
+
+    /// One accepted value set for a Bukkit BlockData property.
+    record catalog-block-data-property {
+        name: string,
+        values: list<string>,
+    }
+
+    /// One exact Bukkit BlockData registry entry.
+    record catalog-block-data-entry {
+        id: string,
+        default-state: string,
+        properties: list<catalog-block-data-property>,
+    }
+
     /// Indexed lookup of the first registered Type for an exact Java class.
     type-for-class: func(class-name: string) -> result<option<expression-type-option>, catalog-error>;
+
+    /// Resolves one global Skript alias without transferring the complete registry.
+    resolve-alias: func(input: string) -> result<option<catalog-alias-target>, catalog-error>;
+
+    /// Returns BlockData registry availability without transferring every block.
+    block-data-status: func() -> result<option<catalog-block-data-status>, catalog-error>;
+
+    /// Looks up one exact namespaced BlockData ID in the host-side registry index.
+    block-data: func(id: string) -> result<option<catalog-block-data-entry>, catalog-error>;
 
     enum catalog-error-kind {
         unavailable,

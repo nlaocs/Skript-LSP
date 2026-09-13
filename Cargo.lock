@@ -1019,6 +1019,7 @@ dependencies = [
  "directories",
  "fancy-regex",
  "redb",
+ "serde",
  "serde_json",
  "sha2",
  "skript-parser",
