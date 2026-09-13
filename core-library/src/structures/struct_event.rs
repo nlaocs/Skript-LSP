@@ -4,12 +4,16 @@ use crate::nlaocs::skript_parser_addon::types::{
     InvocationContext, MetadataEntry, ParseResultStatus, RegisteredSyntaxHandler,
     StructureBodyMode, StructurePayload, StructureTiming,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 const CLASS_SUFFIX: &str = ".StructEvent";
 pub(super) const HANDLER_ID: &str = "core.structure.struct-event";
 const EVENT_PRIORITIES: [&str; 6] = ["lowest", "low", "normal", "high", "highest", "monitor"];
 const INTRODUCED_IN: (u64, u64) = (2, 8);
 const FIRST_UNSUPPORTED_MINOR: (u64, u64) = (2, 17);
+const EVENT_HEADER_CAPTURES_KEY: &str = "parser.event.header-captures";
+const EVENT_HEADER_CONSTRAINTS_KEY: &str = "core.structure.event.header-constraints";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     register_handler(
@@ -120,6 +124,46 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
             );
         }
     };
+    let header_captures = match summary_metadata(event, EVENT_HEADER_CAPTURES_KEY) {
+        MetadataLookup::Value(metadata) if !metadata.value.trim().is_empty() => {
+            Some(metadata.value)
+        }
+        MetadataLookup::Missing | MetadataLookup::Value(_) => None,
+        MetadataLookup::Conflict => {
+            return unresolved_structure(
+                payload,
+                "core.struct-event.conflicting-metadata",
+                "the Event capture supplied conflicting typed-header metadata; StructEvent semantics are unresolved",
+            );
+        }
+    };
+    let header_constraints = match header_captures.as_deref() {
+        Some(captures) => match event_header_constraints(
+            event
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.element_class.as_deref()),
+            event
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.definition_id.as_deref()),
+            event
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.registration_id.as_deref()),
+            captures,
+        ) {
+            Ok(constraints) => constraints,
+            Err(reason) => {
+                return unresolved_structure(
+                    payload,
+                    "core.struct-event.invalid-header-captures",
+                    &reason,
+                );
+            }
+        },
+        None => None,
+    };
     let (listening_behavior, priority) = match event_options(&payload) {
         Ok(options) => options,
         Err(reason) => return crate::reject(&reason),
@@ -160,6 +204,9 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
         "event-priority-supported",
         priority_supported_state,
     );
+    if let Some(header_constraints) = header_constraints.as_deref() {
+        push_metadata(&mut payload, "event-header-constraints", header_constraints);
+    }
     let mut context_updates = vec![
         ContextUpdate {
             syntax_context: context.syntax_context,
@@ -199,6 +246,20 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
             value: Some(reference_classes.as_bytes().to_vec()),
         });
     }
+    if let Some(header_captures) = header_captures {
+        context_updates.push(ContextUpdate {
+            syntax_context: context.syntax_context,
+            key: EVENT_HEADER_CAPTURES_KEY.to_owned(),
+            value: Some(header_captures.into_bytes()),
+        });
+    }
+    if let Some(header_constraints) = header_constraints {
+        context_updates.push(ContextUpdate {
+            syntax_context: context.syntax_context,
+            key: EVENT_HEADER_CONSTRAINTS_KEY.to_owned(),
+            value: Some(header_constraints.into_bytes()),
+        });
+    }
     HookOutput {
         decision: HookDecision::ContinueProcessing,
         replacement: Some(HookPayload::Structure(payload)),
@@ -209,6 +270,131 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
             parse_results: Vec::new(),
         },
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventHeaderCaptures {
+    schema_version: u32,
+    captures: Vec<EventHeaderCapture>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventHeaderCapture {
+    capture_index: u64,
+    source: String,
+    resolution: Option<EventHeaderResolution>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EventHeaderResolution {
+    #[serde(default)]
+    metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct EventHeaderConstraints {
+    schema_version: u32,
+    event_definition_id: Option<String>,
+    event_registration_id: Option<String>,
+    constraints: Vec<EventHeaderConstraint>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct EventHeaderConstraint {
+    role: &'static str,
+    capture_index: u64,
+    source: String,
+    class_name: String,
+    plural: Option<bool>,
+}
+
+fn event_header_constraints(
+    element_class: Option<&str>,
+    definition_id: Option<&str>,
+    registration_id: Option<&str>,
+    encoded_captures: &str,
+) -> Result<Option<String>, String> {
+    if !element_class.is_some_and(|class| class.ends_with(".EvtDamage")) {
+        return Ok(None);
+    }
+    let captures: EventHeaderCaptures = serde_json::from_str(encoded_captures)
+        .map_err(|error| format!("the Event header capture payload is invalid: {error}"))?;
+    if captures.schema_version != 1 {
+        return Err(format!(
+            "unsupported Event header capture schema version {}",
+            captures.schema_version
+        ));
+    }
+
+    // Skript's EvtDamage stores `of` as argument 0 and `by` as argument 1.
+    // These are runtime event filters, not permission to invent a new EventValue
+    // expression. The facts remain informational until another handler uses them.
+    let mut constraints = Vec::new();
+    for capture in captures.captures {
+        let role = match capture.capture_index {
+            0 => "event-entity",
+            1 => "damager",
+            _ => continue,
+        };
+        let Some(resolution) = capture.resolution else {
+            continue;
+        };
+        let Some(class_name) = metadata_value(&resolution.metadata, "entity-class")? else {
+            continue;
+        };
+        let plural = metadata_value(&resolution.metadata, "entity-plural")?
+            .map(|value| {
+                value.parse::<bool>().map_err(|_| {
+                    "the Event header contains an invalid entity plural state".to_owned()
+                })
+            })
+            .transpose()?;
+        constraints.push(EventHeaderConstraint {
+            role,
+            capture_index: capture.capture_index,
+            source: capture.source,
+            class_name: class_name.to_owned(),
+            plural,
+        });
+    }
+    if constraints.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_string(&EventHeaderConstraints {
+        schema_version: 1,
+        event_definition_id: definition_id.map(str::to_owned),
+        event_registration_id: registration_id.map(str::to_owned),
+        constraints,
+    })
+    .map(Some)
+    .map_err(|error| format!("failed to encode Event header constraints: {error}"))
+}
+
+fn metadata_value<'a>(
+    metadata: &'a BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<&'a str>, String> {
+    let mut selected = None;
+    for (candidate, value) in metadata {
+        if candidate != key
+            && !candidate
+                .rsplit_once('/')
+                .is_some_and(|(_, suffix)| suffix == key)
+        {
+            continue;
+        }
+        if selected.is_some_and(|selected| selected != value) {
+            return Err(format!(
+                "the Event header contains conflicting {key} metadata"
+            ));
+        }
+        selected = Some(value.as_str());
+    }
+    Ok(selected)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,9 +536,10 @@ fn push_metadata(payload: &mut StructurePayload, key: &str, value: &str) {
 mod tests {
     use super::{
         EventMetadata, FIRST_UNSUPPORTED_MINOR, MetadataLookup, VersionSupport,
-        event_options_from_tags, metadata_lookup, version_support_for,
+        event_header_constraints, event_options_from_tags, metadata_lookup, version_support_for,
     };
     use crate::nlaocs::skript_parser_addon::types::MetadataEntry;
+    use serde_json::Value;
 
     #[test]
     fn event_options_preserve_skript_defaults_and_explicit_values() {
@@ -410,6 +597,75 @@ mod tests {
         assert_eq!(
             metadata_lookup(&entries, "parser.event.cancellable"),
             MetadataLookup::Conflict
+        );
+    }
+
+    #[test]
+    fn damage_header_constraints_preserve_of_and_by_roles() {
+        let encoded = r#"{
+            "schemaVersion": 1,
+            "captures": [
+                {
+                    "captureIndex": 0,
+                    "source": "player",
+                    "resolution": {
+                        "metadata": {
+                            "nlaocs.core-library/entity-class": "org.bukkit.entity.Player",
+                            "nlaocs.core-library/entity-plural": "false"
+                        }
+                    }
+                },
+                {
+                    "captureIndex": 1,
+                    "source": "zombies",
+                    "resolution": {
+                        "metadata": {
+                            "nlaocs.core-library/entity-class": "org.bukkit.entity.Zombie",
+                            "nlaocs.core-library/entity-plural": "true"
+                        }
+                    }
+                }
+            ]
+        }"#;
+        let constraints = event_header_constraints(
+            Some("ch.njol.skript.events.EvtDamage"),
+            Some("event:skript:damage"),
+            Some("event:skript:damage:registration"),
+            encoded,
+        )
+        .expect("valid header captures must decode")
+        .expect("EvtDamage captures must produce role facts");
+        let value: Value = serde_json::from_str(&constraints).expect("constraints are JSON");
+        assert_eq!(value["constraints"][0]["role"], "event-entity");
+        assert_eq!(
+            value["constraints"][0]["className"],
+            "org.bukkit.entity.Player"
+        );
+        assert_eq!(value["constraints"][1]["role"], "damager");
+        assert_eq!(
+            value["constraints"][1]["className"],
+            "org.bukkit.entity.Zombie"
+        );
+    }
+
+    #[test]
+    fn event_header_roles_are_not_guessed_for_addon_events() {
+        let encoded = r#"{
+            "schemaVersion": 1,
+            "captures": [{
+                "captureIndex": 0,
+                "source": "player",
+                "resolution": {"metadata": {"entity-class": "org.bukkit.entity.Player"}}
+            }]
+        }"#;
+        assert_eq!(
+            event_header_constraints(
+                Some("example.addon.CustomEvent"),
+                Some("event:addon:custom"),
+                Some("event:addon:custom:registration"),
+                encoded,
+            ),
+            Ok(None)
         );
     }
 

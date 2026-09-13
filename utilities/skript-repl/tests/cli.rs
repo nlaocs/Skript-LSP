@@ -1345,6 +1345,55 @@ fn event_headers_accept_articles_for_entity_and_item_literals() {
 }
 
 #[test]
+fn damage_headers_expose_role_constraints_without_inventing_event_values() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let event = session
+        .select_event_header("on damage of player by zombie")
+        .expect("EvtDamage header literals must parse");
+
+    let captures: serde_json::Value = serde_json::from_str(
+        event
+            .event_metadata
+            .get("parser.event.header-captures")
+            .expect("the host must preserve typed Event captures"),
+    )
+    .expect("typed Event capture metadata must be JSON");
+    assert_eq!(captures["captures"][0]["source"], "player");
+    assert_eq!(captures["captures"][1]["source"], "zombie");
+
+    let constraints = event
+        .structure_metadata
+        .iter()
+        .find_map(|(key, value)| {
+            (key == "event-header-constraints" || key.ends_with("/event-header-constraints"))
+                .then_some(value)
+        })
+        .expect("CoreLibrary must map EvtDamage capture roles");
+    let constraints: serde_json::Value =
+        serde_json::from_str(constraints).expect("role constraints must be JSON");
+    assert_eq!(constraints["constraints"][0]["role"], "event-entity");
+    assert_eq!(
+        constraints["constraints"][0]["className"],
+        "org.bukkit.entity.Player"
+    );
+    assert_eq!(constraints["constraints"][1]["role"], "damager");
+
+    assert!(
+        !session
+            .analyze_effect("send player's health to console")
+            .expect("an invalid EventValue must be a normal no-match")
+            .matched(),
+        "Skript requires attacker/victim in damage events; the header filter must not invent `player`"
+    );
+    assert!(
+        session
+            .analyze_effect("send victim's health to console")
+            .expect("the standard victim Expression must parse")
+            .matched()
+    );
+}
+
+#[test]
 fn event_header_modifiers_follow_struct_event_semantics() {
     let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
 
