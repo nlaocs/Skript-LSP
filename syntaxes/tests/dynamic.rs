@@ -360,6 +360,66 @@ fn unloading_a_component_preserves_frozen_snapshots_but_removes_future_entries()
 }
 
 #[test]
+fn abort_restores_document_definitions_after_freeze_and_preserves_initial_definitions() {
+    let registry = DynamicSyntaxRegistry::new(catalog());
+    let mut initial = registry.begin_initial_update("test.addon", 0).unwrap();
+    initial
+        .register(dynamic_effect("initial", "initial"))
+        .unwrap();
+    initial.commit().unwrap();
+    registry.begin_document("file:///test.sk", 1).unwrap();
+    let savepoint = registry.savepoint("file:///test.sk", 1).unwrap();
+    let mut update = registry
+        .begin_document_update("test.addon", 0, "file:///test.sk", 1)
+        .unwrap();
+    update
+        .register(dynamic_effect("temporary", "temporary"))
+        .unwrap();
+    update.commit().unwrap();
+    let frozen = registry.freeze("file:///test.sk", 1).unwrap();
+    assert_eq!(frozen.definitions.len(), 2);
+    assert!(matches!(
+        registry.rollback_to(&savepoint),
+        Err(DynamicRegistryError::Frozen { .. })
+    ));
+
+    registry.abort_document_to(&savepoint).unwrap();
+    let restored = registry.freeze("file:///test.sk", 1).unwrap();
+    assert_eq!(
+        dynamic_candidates(&restored),
+        ["dynamic:test.addon/initial"]
+    );
+    assert_eq!(frozen.definitions.len(), 2);
+    registry.begin_document("file:///other.sk", 1).unwrap();
+    assert_eq!(
+        dynamic_candidates(&registry.freeze("file:///other.sk", 1).unwrap()),
+        ["dynamic:test.addon/initial"]
+    );
+}
+
+#[test]
+fn stale_abort_cannot_change_a_newer_frozen_revision() {
+    let registry = DynamicSyntaxRegistry::new(catalog());
+    registry.begin_document("file:///test.sk", 1).unwrap();
+    let savepoint = registry.savepoint("file:///test.sk", 1).unwrap();
+    registry.begin_document("file:///test.sk", 2).unwrap();
+    let mut update = registry
+        .begin_document_update("test.addon", 0, "file:///test.sk", 2)
+        .unwrap();
+    update.register(dynamic_effect("newer", "newer")).unwrap();
+    update.commit().unwrap();
+    let newer = registry.freeze("file:///test.sk", 2).unwrap();
+    assert!(matches!(
+        registry.abort_document_to(&savepoint),
+        Err(DynamicRegistryError::StaleDocumentRevision { .. })
+    ));
+    assert_eq!(
+        dynamic_candidates(&registry.freeze("file:///test.sk", 2).unwrap()),
+        dynamic_candidates(&newer)
+    );
+}
+
+#[test]
 fn stale_document_revisions_are_rejected() {
     let registry = DynamicSyntaxRegistry::new(catalog());
     registry.begin_document("file:///test.sk", 2).unwrap();

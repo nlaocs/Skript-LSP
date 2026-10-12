@@ -301,12 +301,13 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .begin_semantic_candidate()
-            .map_err(|message| ExpressionParseError::Environment { message })?;
-        session
-            .activate_pattern_candidate(&matched)
-            .map_err(|message| ExpressionParseError::Environment { message })?;
-        let candidate =
-            effect_candidate(raw_node_id, matched, resolved_order, session, range, depth);
+            .map_err(|message| session.environment_error(message))?;
+        let candidate = (|| {
+            session
+                .activate_pattern_candidate(&matched)
+                .map_err(|message| session.environment_error(message))?;
+            effect_candidate(raw_node_id, matched, resolved_order, session, range, depth)
+        })();
         let keep = candidate.as_ref().is_ok_and(|candidate| {
             matches!(candidate, EffectCandidateResolution::Accepted(_)) && accepted.is_empty()
         });
@@ -315,7 +316,7 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .finish_semantic_candidate(keep)
-            .map_err(|message| ExpressionParseError::Environment { message })?;
+            .map_err(|message| session.environment_error(message))?;
         match candidate? {
             EffectCandidateResolution::Accepted(candidate) => {
                 accepted.push(candidate);
@@ -582,9 +583,7 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             mark: Some(matched.matched.mark),
             dynamic_handler,
         })
-        .map_err(|message| {
-            EffectParseError::Expression(ExpressionParseError::Environment { message })
-        })?;
+        .map_err(|message| EffectParseError::Expression(session.environment_error(message)))?;
     let children = matched
         .matched
         .captures
@@ -631,18 +630,18 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             HOST_EXPRESSION_PARSER_ID => {
                 let context =
                     capture_context(session.context(), binding, &children).map_err(|message| {
-                        EffectParseError::Expression(ExpressionParseError::Environment { message })
+                        EffectParseError::Expression(session.environment_error(message))
                     })?;
                 let expected = capture_expression_expected_types(binding).map_err(|message| {
-                    EffectParseError::Expression(ExpressionParseError::Environment { message })
+                    EffectParseError::Expression(session.environment_error(message))
                 })?;
                 let capture_time =
                     capture_expression_time_state(binding, 0).map_err(|message| {
-                        EffectParseError::Expression(ExpressionParseError::Environment { message })
+                        EffectParseError::Expression(session.environment_error(message))
                     })?;
                 let (allow_literals, allow_expressions) = capture_expression_flags(binding)
                     .map_err(|message| {
-                        EffectParseError::Expression(ExpressionParseError::Environment { message })
+                        EffectParseError::Expression(session.environment_error(message))
                     })?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed = session.parse_prefixes_detailed(
@@ -707,7 +706,7 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             }
             HOST_CONDITION_PARSER_ID => {
                 let context = session.capture_context(binding).map_err(|message| {
-                    EffectParseError::Expression(ExpressionParseError::Environment { message })
+                    EffectParseError::Expression(session.environment_error(message))
                 })?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed =
@@ -762,7 +761,7 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             }
             HOST_EFFECT_PARSER_ID => {
                 let context = session.capture_context(binding).map_err(|message| {
-                    EffectParseError::Expression(ExpressionParseError::Environment { message })
+                    EffectParseError::Expression(session.environment_error(message))
                 })?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed =
@@ -875,9 +874,7 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
             context: &context,
             candidate: &candidate,
         })
-        .map_err(|message| {
-            EffectParseError::Expression(ExpressionParseError::Environment { message })
-        })?;
+        .map_err(|message| EffectParseError::Expression(session.environment_error(message)))?;
     match decision {
         EffectSemanticDecision::UseCandidate => {}
         EffectSemanticDecision::Accepted {

@@ -450,6 +450,27 @@ impl DynamicSyntaxRegistry {
         Ok(())
     }
 
+    /// Aborts an owned document parse, including an already frozen syntax stage.
+    /// Normal updates and `rollback_to` remain forbidden after freeze.
+    pub fn abort_document_to(
+        &self,
+        savepoint: &DynamicSyntaxSavepoint,
+    ) -> Result<(), DynamicRegistryError> {
+        let mut inner = self.lock()?;
+        let document = document_mut(
+            &mut inner,
+            &savepoint.document_id,
+            savepoint.document_revision,
+        )?;
+        document.components.clone_from(&savepoint.components);
+        document.frozen = None;
+        inner.revision = inner
+            .revision
+            .max(savepoint.registry_revision)
+            .saturating_add(1);
+        Ok(())
+    }
+
     /// Validates and deterministically ranks a revision into an immutable snapshot.
     pub fn freeze(
         &self,

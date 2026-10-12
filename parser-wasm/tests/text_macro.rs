@@ -157,7 +157,7 @@ fn rejects_invalid_utf8_edits_without_committing_their_state() {
                 source: MappedSource::identity(original),
             },
         )
-        .expect("one invalid macro must not abort later macros");
+        .expect("invalid output is returned as a component failure");
 
     assert_eq!(result.source.virtual_source(), original);
     assert_eq!(result.failures.len(), 1);
@@ -166,8 +166,8 @@ fn rejects_invalid_utf8_edits_without_committing_their_state() {
         HostError::InvalidTextMacroOutput { .. }
     ));
     assert!(!result.calls[0].accepted);
-    assert!(result.calls[1].accepted);
-    assert_eq!(written_keys(&transaction), ["text.second"]);
+    assert_eq!(result.calls.len(), 1);
+    assert!(written_keys(&transaction).is_empty());
     transaction.cancel().expect("test parse may be cancelled");
 }
 
@@ -186,7 +186,7 @@ fn rejects_invalid_diagnostic_spans_without_committing_their_state() {
                 source: MappedSource::identity(original),
             },
         )
-        .expect("one invalid diagnostic must not abort later macros");
+        .expect("invalid diagnostic output is returned as a component failure");
 
     assert_eq!(result.source.virtual_source(), original);
     assert!(result.effects.diagnostics.is_empty());
@@ -196,8 +196,8 @@ fn rejects_invalid_diagnostic_spans_without_committing_their_state() {
         HostError::InvalidTextMacroOutput { .. }
     ));
     assert!(!result.calls[0].accepted);
-    assert!(result.calls[1].accepted);
-    assert_eq!(written_keys(&transaction), ["text.second"]);
+    assert_eq!(result.calls.len(), 1);
+    assert!(written_keys(&transaction).is_empty());
     transaction.cancel().expect("test parse may be cancelled");
 }
 
@@ -216,7 +216,7 @@ fn rejects_invalid_parse_request_spans_without_committing_their_state() {
                 source: MappedSource::identity(original),
             },
         )
-        .expect("one invalid parse request must not abort later macros");
+        .expect("invalid parse-request output is returned as a component failure");
 
     assert_eq!(result.source.virtual_source(), original);
     assert!(result.effects.parse_requests.is_empty());
@@ -226,8 +226,8 @@ fn rejects_invalid_parse_request_spans_without_committing_their_state() {
         HostError::InvalidTextMacroOutput { .. }
     ));
     assert!(!result.calls[0].accepted);
-    assert!(result.calls[1].accepted);
-    assert_eq!(written_keys(&transaction), ["text.second"]);
+    assert_eq!(result.calls.len(), 1);
+    assert!(written_keys(&transaction).is_empty());
     transaction.cancel().expect("test parse may be cancelled");
 }
 

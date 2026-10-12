@@ -48,6 +48,7 @@ const CORE_COMPONENT_ID: &str = "nlaocs.core-library";
 const VARIABLE_PARSER_ID: &str = "core.variable";
 
 #[cfg(not(feature = "addon-b"))]
+const SPOOF_METADATA_INPUT: &str = "{spoof-core-metadata::*}";
 const EDIT_INPUT: &str = "{_balances::*}";
 #[cfg(not(feature = "addon-b"))]
 const ROLLBACK_INPUT: &str = "{rollback::*}";
@@ -308,7 +309,10 @@ fn invoke_expression(
 ) -> Result<HookOutput, AddonError> {
     match subscription_id {
         EDIT_SUBSCRIPTION_ID => {
-            if expression_text(&payload) != Some(EDIT_INPUT) {
+            if !matches!(
+                expression_text(&payload),
+                Some(EDIT_INPUT | SPOOF_METADATA_INPUT)
+            ) {
                 return Ok(noop());
             }
             let Some(candidate) = variable_candidate(&mut payload) else {
@@ -323,7 +327,7 @@ fn invoke_expression(
             Ok(replace(payload))
         }
         METADATA_SUBSCRIPTION_ID => {
-            if expression_text(&payload) != Some(EDIT_INPUT) {
+            if expression_text(&payload) != Some(SPOOF_METADATA_INPUT) {
                 return Ok(noop());
             }
             let Some(candidate) = variable_candidate(&mut payload) else {

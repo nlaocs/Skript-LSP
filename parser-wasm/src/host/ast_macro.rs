@@ -231,15 +231,35 @@ impl ParserHost {
         )
         .expect("a resolved AST node ID must exist");
         let candidates = matching_ast_candidates(&self.registry, node);
+        let target_state = transaction.savepoint()?;
+        let target_effects = pipeline.effects.clone();
+        let failure_count = pipeline.failures.len();
         let mut stop_current_node = false;
         for candidate in &candidates {
+            if pipeline.failures.len() > failure_count {
+                transaction.rollback_to(&target_state)?;
+                restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
+                return Ok(AstWalk::Continue { sibling_count: 1 });
+            }
             if stop_current_node {
                 break;
             }
-            if self.components[candidate.component_index].disabled
-                || self.components[candidate.component_index].unloaded
-            {
+            if self.components[candidate.component_index].unloaded {
                 continue;
+            }
+            if self.components[candidate.component_index].disabled {
+                let entry = &self.components[candidate.component_index];
+                let node = ast_node(tree, ast_node_at_path(tree, path).expect("validated path"))
+                    .expect("validated node");
+                pipeline.failures.push(ComponentFailure {
+                    affected_span: Some(node.span.clone()),
+                    component_id: entry.manifest.component_id.clone(),
+                    subscription_id: candidate.subscription.id.clone(),
+                    error: unavailable_error(entry),
+                });
+                transaction.rollback_to(&target_state)?;
+                restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
+                return Ok(AstWalk::Continue { sibling_count: 1 });
             }
             if pipeline.calls.len() >= self.config.max_ast_macro_calls {
                 return Err(HostError::AstMacroCallQuotaExceeded {
@@ -272,6 +292,7 @@ impl ParserHost {
                     state_accesses: StateReadWriteSet::default(),
                 });
                 pipeline.failures.push(ComponentFailure {
+                    affected_span: Some(node.span.clone()),
                     component_id: component_id.clone(),
                     subscription_id: subscription_id.clone(),
                     error: HostError::AstMacroCycleDetected {
@@ -363,6 +384,7 @@ impl ParserHost {
                         Ok(()) => {
                             pipeline.effects.diagnostics.extend(addon_error.diagnostics);
                             HostError::AddonFailure {
+                                kind: addon_error.kind,
                                 component_id: component_id.clone(),
                                 message: addon_error.message,
                             }
@@ -374,6 +396,7 @@ impl ParserHost {
                         },
                     };
                     pipeline.failures.push(ComponentFailure {
+                        affected_span: Some(node.span.clone()),
                         component_id,
                         subscription_id,
                         error,
@@ -386,9 +409,8 @@ impl ParserHost {
                     let error = classify_wasmtime_error(component_id.clone(), "AST macro", error);
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
-                        if let Some(registry) = &self.dynamic_syntax_registry {
-                            registry.remove_component(&component_id)?;
-                        }
+                        self.components[candidate.component_index].disabled_reason =
+                            Some(error.clone());
                     }
                     pipeline.calls.push(AstMacroCall {
                         component_id: component_id.clone(),
@@ -399,6 +421,7 @@ impl ParserHost {
                         state_accesses: accesses,
                     });
                     pipeline.failures.push(ComponentFailure {
+                        affected_span: Some(node.span.clone()),
                         component_id,
                         subscription_id,
                         error,
@@ -578,6 +601,11 @@ impl ParserHost {
             });
         }
 
+        if pipeline.failures.len() > failure_count {
+            transaction.rollback_to(&target_state)?;
+            restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
+            return Ok(AstWalk::Continue { sibling_count: 1 });
+        }
         let Some(target) = ast_node_at_path(tree, path) else {
             return Ok(AstWalk::Continue { sibling_count: 0 });
         };
@@ -1460,10 +1488,11 @@ fn record_invalid_ast_output(
             "component {component_id} returned invalid AST macro output for {subscription_id}: {message}"
         ),
         severity: DiagnosticSeverity::Error,
-        span,
+        span: span.clone(),
         related: Vec::new(),
     });
     pipeline.failures.push(ComponentFailure {
+        affected_span: Some(span.clone()),
         component_id: component_id.clone(),
         subscription_id: subscription_id.clone(),
         error: HostError::InvalidAstMacroOutput {

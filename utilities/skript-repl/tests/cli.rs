@@ -1966,3 +1966,98 @@ fn manifest_path_is_accepted_by_the_complete_cli() {
     assert!(output.contains("EffMessage"));
     assert!(output.contains("java.lang.Long"));
 }
+
+#[test]
+fn document_fault_regions_survive_json_and_human_reports() {
+    let addon =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/expression-data-addon-a.wasm");
+    for (source, start, end, healthy) in [
+        (
+            "on load:\n    if {invalid-json::*} is set:\n        send 1 to console\n    send 2 to console\n",
+            13,
+            41,
+            "send 2 to console",
+        ),
+        (
+            "on load:\n    set {invalid-summary::*} to 1\n    send 1 to console\n",
+            13,
+            42,
+            "send 1 to console",
+        ),
+    ] {
+        let mut session = SkriptSession::load_with_addons(modern_fixture(), [&addon]).unwrap();
+        let report = session.analyze_document(source).unwrap();
+        let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+        let mut human = Vec::new();
+        report.write(OutputFormat::Human, &mut human).unwrap();
+        let human = String::from_utf8(human).unwrap();
+        assert_eq!(json["status"], "incomplete");
+        let fault = &json["faultRegions"][0];
+        assert_eq!(fault["componentId"], "test.expression-data-a");
+        assert!(
+            fault["subscriptionId"]
+                .as_str()
+                .is_some_and(|id| !id.is_empty())
+        );
+        assert_eq!(fault["code"], "parser.extension-invalid-output");
+        assert!(
+            fault["phase"]
+                .as_str()
+                .is_some_and(|phase| !phase.is_empty())
+        );
+        assert!(
+            fault["target"]
+                .as_str()
+                .is_some_and(|target| !target.is_empty())
+        );
+        assert_eq!(fault["span"]["virtualRange"]["start"], start);
+        assert_eq!(fault["span"]["virtualRange"]["end"], end);
+        assert_eq!(fault["span"]["origins"][0]["originalRange"]["start"], start);
+        assert_eq!(fault["span"]["origins"][0]["originalRange"]["end"], end);
+        assert!(json["componentFailures"].as_array().unwrap().iter().any(
+            |failure| failure["affectedSpan"]["virtualRange"]["start"] == start
+                && failure["affectedSpan"]["virtualRange"]["end"] == end
+        ));
+        assert_eq!(
+            json["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|diagnostic| diagnostic["code"] == "parser.structure.extension-fault")
+                .count(),
+            1
+        );
+        assert!(
+            json["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|node| node["kind"] == "Effect" && node["text"] == healthy)
+        );
+        assert!(human.contains("extensionFaults:"));
+        assert!(human.contains("parser.extension-invalid-output"));
+        assert!(human.contains(&format!(
+            "test.expression-data-a/{}",
+            fault["subscriptionId"].as_str().unwrap()
+        )));
+        assert!(human.contains(&format!("virtual={start}..{end}")));
+        assert!(human.contains(fault["message"].as_str().unwrap()));
+    }
+}
+
+#[test]
+fn document_root_diagnostics_are_not_duplicated() {
+    let mut session = SkriptSession::load(modern_fixture()).unwrap();
+    let report = session
+        .analyze_document("on load:\n    unknown fixture command\n")
+        .unwrap();
+    let json = document_json(report);
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    for (index, diagnostic) in diagnostics.iter().enumerate() {
+        assert!(
+            !diagnostics[..index].contains(diagnostic),
+            "duplicate root diagnostic: {diagnostic}"
+        );
+    }
+    assert!(json["faultRegions"].as_array().unwrap().is_empty());
+}

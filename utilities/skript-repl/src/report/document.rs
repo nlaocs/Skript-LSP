@@ -62,17 +62,41 @@ impl DocumentAnalysisReport {
         let recoveries = recoveries(&result.syntax, &result.raw_tree, catalog);
         let mut diagnostics = raw_diagnostics(&result.raw_tree);
         collect_structure_diagnostics(&result.syntax.roots, &mut diagnostics);
+        diagnostics.extend(result.syntax.diagnostics.iter().map(structure_diagnostic));
         diagnostics.extend(result.effects.diagnostics.iter().map(hook_diagnostic));
+        let mut unique_diagnostics = Vec::with_capacity(diagnostics.len());
+        for diagnostic in diagnostics {
+            if !unique_diagnostics.contains(&diagnostic) {
+                unique_diagnostics.push(diagnostic);
+            }
+        }
+        let diagnostics = unique_diagnostics;
+        let fault_regions = result
+            .fault_regions
+            .iter()
+            .map(|region| DocumentFaultRegionReport {
+                component_id: region.fault.component_id.clone(),
+                subscription_id: region.fault.subscription_id.clone(),
+                phase: region.fault.phase.clone(),
+                target: region.fault.target.clone(),
+                code: region.fault.code.clone(),
+                message: region.fault.message.clone(),
+                span: wit_span(&region.span),
+            })
+            .collect::<Vec<_>>();
         let component_failures = result
             .component_failures
             .iter()
-            .map(|failure| ComponentFailureReport {
+            .map(|failure| DocumentComponentFailureReport {
                 component_id: failure.component_id.clone(),
                 subscription_id: failure.subscription_id.clone(),
                 message: failure.error.to_string(),
+                affected_span: failure.affected_span.as_ref().map(wit_span),
             })
             .collect::<Vec<_>>();
-        let status = if recoveries.is_empty()
+        let status = if result.execution_status
+            == parser_wasm::host::DocumentExecutionStatus::Complete
+            && recoveries.is_empty()
             && component_failures.is_empty()
             && diagnostics
                 .iter()
@@ -102,6 +126,7 @@ impl DocumentAnalysisReport {
                 recoveries,
                 diagnostics,
                 component_failures,
+                fault_regions,
                 functions: result.functions.len(),
                 state: DocumentStateReport {
                     writes: result.state.writes,
@@ -219,6 +244,33 @@ impl DocumentAnalysisReport {
             }
             write_document_diagnostic(writer, &self.data.input, diagnostic, color)?;
         }
+        if !self.data.fault_regions.is_empty() {
+            writeln!(writer, "extensionFaults:")?;
+            for fault in &self.data.fault_regions {
+                writeln!(
+                    writer,
+                    "  - {}/{} phase={} target={} virtual={}..{}",
+                    fault.component_id,
+                    fault.subscription_id,
+                    fault.phase,
+                    fault.target,
+                    fault.span.virtual_range.start,
+                    fault.span.virtual_range.end
+                )?;
+                write_document_diagnostic(
+                    writer,
+                    &self.data.input,
+                    &DocumentDiagnosticReport {
+                        code: fault.code.clone(),
+                        message: fault.message.clone(),
+                        severity: "error".to_owned(),
+                        span: fault.span.clone(),
+                        related: Vec::new(),
+                    },
+                    color,
+                )?;
+            }
+        }
         if !self.data.component_failures.is_empty() {
             writeln!(writer, "componentFailures:")?;
             for failure in &self.data.component_failures {
@@ -227,6 +279,13 @@ impl DocumentAnalysisReport {
                     "  - {}/{}: {}",
                     failure.component_id, failure.subscription_id, failure.message
                 )?;
+                if let Some(span) = &failure.affected_span {
+                    writeln!(
+                        writer,
+                        "    affected virtual={}..{}",
+                        span.virtual_range.start, span.virtual_range.end
+                    )?;
+                }
             }
         }
         if self.data.macro_pipeline.has_activity() {
@@ -316,6 +375,27 @@ impl DocumentAnalysisReport {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct DocumentComponentFailureReport {
+    component_id: String,
+    subscription_id: String,
+    message: String,
+    affected_span: Option<MappedSpanReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentFaultRegionReport {
+    component_id: String,
+    subscription_id: String,
+    phase: String,
+    target: String,
+    code: String,
+    message: String,
+    span: MappedSpanReport,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DocumentReportData {
     schema_version: u32,
     input: String,
@@ -327,7 +407,8 @@ struct DocumentReportData {
     nodes: Vec<DocumentNodeReport>,
     recoveries: Vec<RecoveryReport>,
     diagnostics: Vec<DocumentDiagnosticReport>,
-    component_failures: Vec<ComponentFailureReport>,
+    component_failures: Vec<DocumentComponentFailureReport>,
+    fault_regions: Vec<DocumentFaultRegionReport>,
     functions: usize,
     state: DocumentStateReport,
     macro_pipeline: DocumentMacroPipelineReport,
@@ -442,7 +523,7 @@ struct RecoveryReport {
     failure: Option<FailureReport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct DocumentDiagnosticReport {
     code: String,
     message: String,
@@ -451,26 +532,26 @@ struct DocumentDiagnosticReport {
     related: Vec<DocumentRelatedDiagnosticReport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct DocumentRelatedDiagnosticReport {
     message: String,
     span: MappedSpanReport,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct MappedSpanReport {
     virtual_range: DocumentTextRange,
     origins: Vec<DocumentOriginReport>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub(super) struct DocumentTextRange {
     pub(super) start: u64,
     pub(super) end: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct DocumentOriginReport {
     original_range: DocumentTextRange,
@@ -1086,6 +1167,21 @@ fn raw_diagnostics(tree: &skript_parser::RawTree) -> Vec<DocumentDiagnosticRepor
         .collect()
 }
 
+fn structure_diagnostic(
+    diagnostic: &skript_parser::StructureDiagnostic,
+) -> DocumentDiagnosticReport {
+    DocumentDiagnosticReport {
+        code: format!(
+            "parser.structure.{}",
+            structure_diagnostic_kind(diagnostic.kind)
+        ),
+        message: diagnostic.message.clone(),
+        severity: "error".to_owned(),
+        span: native_span(&diagnostic.span.mapped),
+        related: Vec::new(),
+    }
+}
+
 fn collect_structure_diagnostics(
     roots: &[StructureDocumentNode],
     output: &mut Vec<DocumentDiagnosticReport>,
@@ -1094,21 +1190,7 @@ fn collect_structure_diagnostics(
         let StructureDocumentNode::Structure(matches) = root else {
             continue;
         };
-        output.extend(
-            matches
-                .diagnostics
-                .iter()
-                .map(|diagnostic| DocumentDiagnosticReport {
-                    code: format!(
-                        "parser.structure.{}",
-                        structure_diagnostic_kind(diagnostic.kind)
-                    ),
-                    message: diagnostic.message.clone(),
-                    severity: "error".to_owned(),
-                    span: native_span(&diagnostic.span.mapped),
-                    related: Vec::new(),
-                }),
-        );
+        output.extend(matches.diagnostics.iter().map(structure_diagnostic));
         if let Some(selected) = &matches.selected {
             collect_body_diagnostics(&selected.body, output);
         }
@@ -1495,6 +1577,7 @@ fn raw_diagnostic_severity(severity: RawDiagnosticSeverity) -> &'static str {
 
 fn structure_diagnostic_kind(kind: StructureDiagnosticKind) -> &'static str {
     match kind {
+        StructureDiagnosticKind::ExtensionFault => "extension-fault",
         StructureDiagnosticKind::Unclaimed => "unclaimed",
         StructureDiagnosticKind::MultipleClaims => "multiple-claims",
         StructureDiagnosticKind::MissingRequiredEntry => "missing-required-entry",
@@ -1506,6 +1589,7 @@ fn structure_diagnostic_kind(kind: StructureDiagnosticKind) -> &'static str {
 
 fn section_diagnostic_kind(kind: SectionDiagnosticKind) -> &'static str {
     match kind {
+        SectionDiagnosticKind::ExtensionFault => "extension-fault",
         SectionDiagnosticKind::Unclaimed => "unclaimed",
         SectionDiagnosticKind::MultipleClaims => "multiple-claims",
     }
@@ -1513,6 +1597,9 @@ fn section_diagnostic_kind(kind: SectionDiagnosticKind) -> &'static str {
 
 fn section_diagnostic_message(kind: SectionDiagnosticKind) -> &'static str {
     match kind {
+        SectionDiagnosticKind::ExtensionFault => {
+            "Extension execution failed; see component failures"
+        }
         SectionDiagnosticKind::Unclaimed => "Section was not claimed by any registered syntax",
         SectionDiagnosticKind::MultipleClaims => {
             "Section was claimed by more than one registered syntax"
