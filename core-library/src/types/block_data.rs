@@ -186,17 +186,19 @@ fn parse_syntax(text: &str) -> Option<ParsedSyntax> {
 
     let mut properties = BTreeMap::new();
     if let Some(body) = body {
-        let body = body.trim();
-        if !body.is_empty() {
-            // Bukkit accepts an empty list and one delimiter before the closing bracket.
-            let body = body.strip_suffix([',', ';']).unwrap_or(body);
-            for assignment in body.split([',', ';']) {
-                let (name, value) = assignment.split_once('=')?;
-                let name = name.trim().to_owned();
-                let value = value.trim().to_owned();
-                if name.is_empty() || value.is_empty() || properties.insert(name, value).is_some() {
-                    return None;
-                }
+        // BlockUtils removes ASCII spaces throughout states before Bukkit reads tokens.
+        let normalized = body.replace(';', ",").replace(' ', "");
+        let mut remaining = normalized.trim();
+        while !remaining.is_empty() {
+            let name = read_state_token(&mut remaining)?;
+            remaining = remaining.trim_start().strip_prefix('=')?;
+            let value = read_state_token(&mut remaining)?;
+            if name.is_empty() || value.is_empty() || properties.insert(name, value).is_some() {
+                return None;
+            }
+            remaining = remaining.trim_start();
+            if !remaining.is_empty() {
+                remaining = remaining.strip_prefix(',')?.trim_start();
             }
         }
     }
@@ -205,6 +207,42 @@ fn parse_syntax(text: &str) -> Option<ParsedSyntax> {
         properties,
         has_states: body.is_some(),
     })
+}
+
+fn read_state_token(input: &mut &str) -> Option<String> {
+    let text = input.trim_start();
+    let quote = text.chars().next()?;
+    if matches!(quote, '\'' | '"') {
+        let mut value = String::new();
+        let mut escaped = false;
+        for (offset, character) in text.char_indices().skip(1) {
+            if escaped {
+                if character != quote && character != '\\' {
+                    return None;
+                }
+                value.push(character);
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == quote {
+                *input = &text[offset + character.len_utf8()..];
+                return Some(value);
+            } else {
+                value.push(character);
+            }
+        }
+        return None;
+    }
+    let end = text
+        .find(|character: char| {
+            !character.is_ascii_alphanumeric() && !matches!(character, '_' | '-' | '.' | '+')
+        })
+        .unwrap_or(text.len());
+    if end == 0 {
+        return None;
+    }
+    *input = &text[end..];
+    Some(text[..end].to_owned())
 }
 
 fn resolve_block(
@@ -395,5 +433,81 @@ mod tests {
             );
         }
         assert_eq!(super::normalize_id("CHEST"), "minecraft:CHEST");
+    }
+
+    #[test]
+    fn normalizes_internal_spaces_and_quoted_state_tokens() {
+        for (input, expected) in [
+            ("chest[fa cing=no rth]", "minecraft:chest[facing=north]"),
+            (
+                "chest[water logged=fa lse]",
+                "minecraft:chest[waterlogged=false]",
+            ),
+            (r#"chest[facing="north"]"#, "minecraft:chest[facing=north]"),
+            (r#"chest["facing"=north]"#, "minecraft:chest[facing=north]"),
+            (
+                r#"chest["facing"="north"]"#,
+                "minecraft:chest[facing=north]",
+            ),
+            ("chest['facing'='north']", "minecraft:chest[facing=north]"),
+            (
+                r#"chest["fa cing"="no rth";]"#,
+                "minecraft:chest[facing=north]",
+            ),
+            ("chest[facing=\tnorth]", "minecraft:chest[facing=north]"),
+        ] {
+            let syntax = parse_syntax(input).unwrap();
+            assert!(
+                super::valid_properties(&chest(), &syntax.properties),
+                "{input}"
+            );
+            assert_eq!(
+                canonical(&ParsedBlockData {
+                    id: "minecraft:chest".to_owned(),
+                    properties: syntax.properties
+                }),
+                expected,
+                "{input}"
+            );
+        }
+        for input in [
+            r#"chest[facing="NORTH"]"#,
+            r#"chest["Facing"="north"]"#,
+            r#"chest[facing="nor\"th"]"#,
+        ] {
+            assert!(
+                !super::valid_properties(&chest(), &parse_syntax(input).unwrap().properties),
+                "{input}"
+            );
+        }
+        for input in [
+            r#"chest[facing="north"x]"#,
+            r#"chest[facing="north]"#,
+            r#"chest[facing="no\rth"]"#,
+            r#"chest[facing=north;"facing"=south]"#,
+            r#"chest[facing="north";;]"#,
+            "chest[facing='north\"]",
+            "chest[fa\tcing=north]",
+        ] {
+            assert!(parse_syntax(input).is_none(), "{input}");
+        }
+    }
+
+    #[test]
+    fn state_tokens_only_escape_the_matching_quote_or_backslash() {
+        for (mut input, expected, rest) in [
+            (r#""a\"b\\c",rest"#, r#"a"b\c"#, ",rest"),
+            (r"'a\'b\\c',rest", r"a'b\c", ",rest"),
+            (r#"""=rest"#, "", "=rest"),
+        ] {
+            assert_eq!(
+                super::read_state_token(&mut input).as_deref(),
+                Some(expected)
+            );
+            assert_eq!(input, rest);
+        }
+        for mut input in [r#""a\q""#, r#""a\""#, r#""unterminated"#] {
+            assert!(super::read_state_token(&mut input).is_none());
+        }
     }
 }

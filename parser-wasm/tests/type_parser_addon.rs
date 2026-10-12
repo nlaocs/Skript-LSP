@@ -773,8 +773,11 @@ fn core_block_data_parser_uses_the_schema_seven_runtime_registry() {
         "registryProvider": "bukkit-runtime-registry",
         "blocks": {
             "minecraft:chest": {
-                "defaultState": "minecraft:chest[facing=north]",
-                "properties": {"facing": ["east", "north", "south", "west"]}
+                "defaultState": "minecraft:chest[facing=north,waterlogged=false]",
+                "properties": {
+                    "facing": ["east", "north", "south", "west"],
+                    "waterlogged": ["false", "true"]
+                }
             }
         },
         "failures": []
@@ -840,10 +843,50 @@ fn core_block_data_parser_uses_the_schema_seven_runtime_registry() {
             parse_typed_in_transaction(&mut host, &transaction, input, &[BLOCK_DATA_CLASS], 50);
         assert!(result.matches.selected.is_some(), "{input}");
     }
+    for (input, expected) in [
+        ("chest[fa cing=no rth]", "minecraft:chest[facing=north]"),
+        (
+            "chest[water logged=fa lse]",
+            "minecraft:chest[waterlogged=false]",
+        ),
+        (r#"chest[facing="north"]"#, "minecraft:chest[facing=north]"),
+        (r#"chest["facing"=north]"#, "minecraft:chest[facing=north]"),
+        (
+            r#"chest["facing"="north"]"#,
+            "minecraft:chest[facing=north]",
+        ),
+        ("chest['facing'='north']", "minecraft:chest[facing=north]"),
+        (
+            r#"chest["fa cing"="no rth";]"#,
+            "minecraft:chest[facing=north]",
+        ),
+        ("chest[facing=\tnorth]", "minecraft:chest[facing=north]"),
+    ] {
+        let result =
+            parse_typed_in_transaction(&mut host, &transaction, input, &[BLOCK_DATA_CLASS], 50);
+        let node = selected_node(result, input);
+        assert_eq!(
+            node.metadata
+                .get("nlaocs.core-library/literal-canonical")
+                .map(String::as_str),
+            Some(expected),
+            "{input}"
+        );
+    }
     for input in [
         "chest[Facing=north]",
         "chest[facing=NORTH]",
         "chest[facing=north,,]",
+        r#"chest[facing="NORTH"]"#,
+        r#"chest["Facing"="north"]"#,
+        r#"chest[facing="north"x]"#,
+        r#"chest[facing="north]"#,
+        r#"chest[facing="no\rth"]"#,
+        r#"chest[facing=north;"facing"=south]"#,
+        r#"chest[facing="north";;]"#,
+        "chest[facing='north\"]",
+        r#"chest[facing="nor\"th"]"#,
+        "chest[fa\tcing=north]",
     ] {
         let result =
             parse_typed_in_transaction(&mut host, &transaction, input, &[BLOCK_DATA_CLASS], 50);
@@ -991,7 +1034,13 @@ fn core_block_data_boundaries_reach_effect_and_document_parsing_from_ssg_runtime
             ("chest[waterlogged=false;]", true),
             ("chest[waterlogged=FALSE]", false),
             ("chest[Waterlogged=false]", false),
+            ("chest[water logged=fa lse]", true),
+            (r#"chest["waterlogged"="false"]"#, true),
+            (r#"chest["waterlogged"="fa lse";]"#, true),
+            (r#"chest[waterlogged="FALSE"]"#, false),
+            (r#"chest[waterlogged="fa\lse"]"#, false),
             ("oak stairs[facing=north;]", true),
+            (r#"oak stairs["fa cing"="no rth"]"#, true),
             ("water[level=15]", true),
             ("water[level=16]", false),
         ]
