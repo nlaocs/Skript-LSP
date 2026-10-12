@@ -318,7 +318,7 @@ fn event_header_constraints(
     registration_id: Option<&str>,
     encoded_captures: &str,
 ) -> Result<Option<String>, String> {
-    if !element_class.is_some_and(|class| class.ends_with(".EvtDamage")) {
+    if element_class != Some("ch.njol.skript.events.EvtDamage") {
         return Ok(None);
     }
     let captures: EventHeaderCaptures = serde_json::from_str(encoded_captures)
@@ -658,15 +658,17 @@ mod tests {
                 "resolution": {"metadata": {"entity-class": "org.bukkit.entity.Player"}}
             }]
         }"#;
-        assert_eq!(
-            event_header_constraints(
-                Some("example.addon.CustomEvent"),
-                Some("event:addon:custom"),
-                Some("event:addon:custom:registration"),
-                encoded,
-            ),
-            Ok(None)
-        );
+        for class in ["example.addon.CustomEvent", "example.addon.EvtDamage"] {
+            assert_eq!(
+                event_header_constraints(
+                    Some(class),
+                    Some("event:addon:custom"),
+                    Some("event:addon:custom:registration"),
+                    encoded,
+                ),
+                Ok(None)
+            );
+        }
     }
 
     #[test]
