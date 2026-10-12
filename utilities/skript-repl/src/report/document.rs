@@ -196,6 +196,7 @@ impl DocumentAnalysisReport {
                         &self.data.input,
                         "repl.sk",
                         failure,
+                        true,
                         color,
                         &format!("{} candidate is incomplete", recovery.kind),
                     )?;
@@ -458,15 +459,15 @@ struct DocumentRelatedDiagnosticReport {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MappedSpanReport {
+pub(super) struct MappedSpanReport {
     virtual_range: DocumentTextRange,
     origins: Vec<DocumentOriginReport>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
-struct DocumentTextRange {
-    start: u64,
-    end: u64,
+pub(super) struct DocumentTextRange {
+    pub(super) start: u64,
+    pub(super) end: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1194,7 +1195,7 @@ fn native_range(range: skript_parser::TextRange) -> DocumentTextRange {
     }
 }
 
-fn native_span(span: &MappedSpan) -> MappedSpanReport {
+pub(super) fn native_span(span: &MappedSpan) -> MappedSpanReport {
     MappedSpanReport {
         virtual_range: DocumentTextRange {
             start: u64::try_from(span.virtual_range.start).unwrap_or(u64::MAX),
@@ -1215,7 +1216,7 @@ fn native_span(span: &MappedSpan) -> MappedSpanReport {
     }
 }
 
-fn display_range(span: &MappedSpanReport) -> DocumentTextRange {
+pub(super) fn display_range(span: &MappedSpanReport) -> DocumentTextRange {
     span.origins
         .first()
         .map(|origin| origin.original_range)

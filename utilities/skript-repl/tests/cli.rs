@@ -192,6 +192,54 @@ fn nested_unclaimed_lines_remain_document_recoveries() {
 }
 
 #[test]
+fn document_failure_after_length_changing_options_uses_original_coordinates() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let source = format!(
+        "options:\n    prefix: {}\non join:\n    send \"{{@prefix}}\" to console\n    teleport a to location(b, 2, 3)\n",
+        "expanded".repeat(25),
+    );
+    let report = session
+        .analyze_document(&source)
+        .expect("document must parse recoverably");
+    let json = document_json(report.clone());
+    let failure = json["recoveries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|recovery| recovery["source"] == "teleport a to location(b, 2, 3)")
+        .expect("teleport must have a detailed recovery")["failure"]
+        .clone();
+    let original_start = source.find("teleport a").unwrap() + "teleport ".len();
+    assert_eq!(
+        failure["mappedSpan"]["origins"][0]["originalRange"],
+        serde_json::json!({"start": original_start, "end": original_start + 1})
+    );
+    assert!(failure["span"]["start"].as_u64().unwrap() > original_start as u64);
+    assert!(
+        failure["contexts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|context| context["mappedSpan"]["origins"].is_array())
+    );
+    assert!(
+        failure["related"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|related| related["mappedSpan"]["origins"].is_array())
+    );
+    let mut human = Vec::new();
+    report.write(OutputFormat::Human, &mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(
+        human.contains("if \"a\" is a variable, write {a}"),
+        "{human}"
+    );
+    assert!(human.contains("repl.sk:5:14"), "{human}");
+}
+
+#[test]
 fn human_document_report_explains_section_semantic_rejection() {
     let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
     let report = session
