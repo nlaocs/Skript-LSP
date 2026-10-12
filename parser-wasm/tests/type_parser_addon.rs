@@ -1,7 +1,9 @@
 use parser_wasm::host::{HookCall, HostConfig, InvocationContext, ParserHost, RuntimeProfile};
 use skript_parser::{
-    ExpressionExpectedType, ExpressionNode, ExpressionNodeKind, ExpressionParseContext,
-    ExpressionParseRequest, ExpressionParserConfig, ExpressionRootMode, MappedSource, TextRange,
+    EffectParseRequest, EffectParserConfig, ExpressionExpectedType, ExpressionNode,
+    ExpressionNodeKind, ExpressionParseContext, ExpressionParseRequest, ExpressionParserConfig,
+    ExpressionRootMode, MappedSource, RawTreeOptions, SectionBodyNode, StructureBody,
+    StructureDocumentNode, TextRange, parse_raw_tree,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -57,6 +59,7 @@ const DEFERRED_TYPE_STATE_KEY: &str = "deferred-type";
 const DEFERRED_TYPE_DIAGNOSTIC_CODE: &str = "type-parser-test.deferred-type";
 const NESTED_EXPRESSION_INPUT: &str = "wrapped shared-type-input";
 const NESTED_EXPRESSION_REGISTRATION_ID: &str = "expression:test.type-parser-addon:nested:0";
+const BLOCK_DATA_EFFECT_REGISTRATION_ID: &str = "effect:test.block-data:0";
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -68,7 +71,15 @@ fn catalog() -> Arc<Catalog> {
 }
 
 fn catalog_with_block_data(block_data: Option<serde_json::Value>) -> Arc<Catalog> {
-    let snapshot = ssg::load(fixture()).expect("schema 3 SSG fixture must load");
+    catalog_from_fixture(fixture(), block_data)
+}
+
+fn current_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.16.0")
+}
+
+fn catalog_from_fixture(path: PathBuf, block_data: Option<serde_json::Value>) -> Arc<Catalog> {
+    let snapshot = ssg::load(path).expect("SSG fixture must load");
     let source = snapshot.catalog();
     let raw_source = source
         .source()
@@ -177,6 +188,39 @@ fn catalog_with_block_data(block_data: Option<serde_json::Value>) -> Arc<Catalog
     nested_expression.return_type_multiplicity = Some(Multiplicity::Single);
     nested_expression.return_type_multiplicity_state = ResolutionState::Resolved;
     syntaxes.push(Syntax::Expression(nested_expression));
+    let mut block_data_effect = source
+        .effects()
+        .find(|effect| {
+            effect.common.element_class.as_str()
+                == "org.skriptlang.skript.bukkit.text.elements.effects.EffBroadcast"
+        })
+        .expect("fixture must contain a broadcast Effect")
+        .clone();
+    block_data_effect.common.definition_id = DefinitionId("effect:test.block-data".to_owned());
+    block_data_effect.common.registration_id =
+        RegistrationId(BLOCK_DATA_EFFECT_REGISTRATION_ID.to_owned());
+    block_data_effect.common.patterns = vec![Pattern {
+        source: "fixture block %blockdata%".to_owned(),
+        parsed: syntax::parse("fixture block %blockdata%", source.plural_rules()).unwrap(),
+    }];
+    syntaxes.push(Syntax::Effect(block_data_effect));
+    let mut addon_event = source
+        .events()
+        .find(|event| event.common.element_class.as_str() == "ch.njol.skript.events.EvtDamage")
+        .expect("fixture must contain the damage Event")
+        .clone();
+    addon_event.common.definition_id = DefinitionId("event:example.addon:damage".to_owned());
+    addon_event.common.registration_id = RegistrationId("event:example.addon:damage:0".to_owned());
+    addon_event.common.element_class = ClassName("example.addon.EvtDamage".to_owned());
+    addon_event.common.patterns = vec![Pattern {
+        source: "fixture damage [of %-entitydatas%] [by %-entitydatas%]".to_owned(),
+        parsed: syntax::parse(
+            "fixture damage [of %-entitydatas%] [by %-entitydatas%]",
+            source.plural_rules(),
+        )
+        .unwrap(),
+    }];
+    syntaxes.push(Syntax::Event(addon_event));
     Arc::new(
         Catalog::new(CatalogParts {
             syntaxes,
@@ -786,6 +830,26 @@ fn core_block_data_parser_uses_the_schema_seven_runtime_registry() {
     );
     assert!(unknown_property.matches.selected.is_none());
 
+    for input in [
+        "chest[]",
+        "chest[facing=north,]",
+        "chest[facing=north;]",
+        "chest[facing = north]",
+    ] {
+        let result =
+            parse_typed_in_transaction(&mut host, &transaction, input, &[BLOCK_DATA_CLASS], 50);
+        assert!(result.matches.selected.is_some(), "{input}");
+    }
+    for input in [
+        "chest[Facing=north]",
+        "chest[facing=NORTH]",
+        "chest[facing=north,,]",
+    ] {
+        let result =
+            parse_typed_in_transaction(&mut host, &transaction, input, &[BLOCK_DATA_CLASS], 50);
+        assert!(result.matches.selected.is_none(), "{input}");
+    }
+
     let expressions_only = parse_typed_in_transaction_with_config(
         &mut host,
         &transaction,
@@ -843,6 +907,173 @@ fn core_block_data_parser_reports_an_unsupported_runtime() {
         )
     }));
     transaction.cancel().expect("test parse may be cancelled");
+}
+
+#[test]
+fn addon_evt_damage_keeps_typed_captures_without_standard_role_metadata() {
+    let mut host = parser_host_with_catalog(
+        catalog_from_fixture(current_fixture(), None),
+        "2.16.0",
+        false,
+    );
+    let document = host
+        .parse_document(
+            parser_wasm::DocumentParseRequest::new(
+                "file:///workspace",
+                "file:///workspace/addon-event.sk",
+                99,
+                "on fixture damage of player by zombie:\n    send 1 to console\n".to_owned(),
+            ),
+            parser_wasm::DocumentParserConfig::default(),
+        )
+        .unwrap();
+    assert!(document.component_failures.is_empty());
+    let event = document
+        .ast
+        .nodes
+        .iter()
+        .filter_map(|node| node.summary.as_ref())
+        .find(|summary| summary.element_class.as_deref() == Some("example.addon.EvtDamage"))
+        .unwrap_or_else(|| {
+            panic!(
+                "addon Event must remain in the document AST: diagnostics={:?}, classes={:?}",
+                document.syntax.diagnostics,
+                document
+                    .ast
+                    .nodes
+                    .iter()
+                    .filter_map(|node| node
+                        .summary
+                        .as_ref()
+                        .and_then(|summary| summary.element_class.as_ref()))
+                    .collect::<Vec<_>>()
+            )
+        });
+    let captures: serde_json::Value = serde_json::from_str(
+        event
+            .metadata
+            .iter()
+            .find_map(|entry| {
+                (entry.key == "parser.event.header-captures").then_some(entry.value.as_str())
+            })
+            .expect("generic Event captures must remain public"),
+    )
+    .unwrap();
+    assert_eq!(captures["captures"][0]["source"], "player");
+    assert_eq!(captures["captures"][1]["source"], "zombie");
+    assert!(
+        document
+            .ast
+            .nodes
+            .iter()
+            .filter_map(|node| node.summary.as_ref())
+            .all(|summary| summary
+                .metadata
+                .iter()
+                .all(|entry| !entry.key.ends_with("event-header-constraints")))
+    );
+}
+
+#[test]
+fn core_block_data_boundaries_reach_effect_and_document_parsing_from_ssg_runtime_fixtures() {
+    for registry in [
+        include_str!("data/block-data-registry/property-probe-1.18.2.json"),
+        include_str!("data/block-data-registry/property-probe-1.20.2.json"),
+        include_str!("data/block-data-registry/property-probe-1.21.11.json"),
+    ] {
+        let catalog = catalog_from_fixture(
+            current_fixture(),
+            Some(serde_json::from_str(registry).unwrap()),
+        );
+        let mut host = parser_host_with_catalog(catalog, "2.16.0", false);
+        for (index, (input, accepted)) in [
+            ("chest[]", true),
+            ("chest[waterlogged=false;]", true),
+            ("chest[waterlogged=FALSE]", false),
+            ("chest[Waterlogged=false]", false),
+            ("oak stairs[facing=north;]", true),
+            ("water[level=15]", true),
+            ("water[level=16]", false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let revision = index as u64 + 100;
+            let transaction = host
+                .begin_parse(
+                    "file:///workspace",
+                    "file:///workspace/type-parser.sk",
+                    revision,
+                )
+                .unwrap();
+            let typed = parse_typed_in_transaction(
+                &mut host,
+                &transaction,
+                input,
+                &[BLOCK_DATA_CLASS],
+                revision,
+            );
+            assert_eq!(typed.matches.selected.is_some(), accepted, "Type: {input}");
+            let effect = format!("fixture block {input}");
+            let source = MappedSource::identity(effect.as_str());
+            let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 16));
+            let mut invocation = context(revision);
+            invocation.syntax_context = 0;
+            let result = host
+                .parse_effect_in_parse(
+                    &transaction,
+                    invocation,
+                    EffectParseRequest {
+                        source: &source,
+                        node: tree.get(tree.roots[0]).unwrap(),
+                        context: ExpressionParseContext::default(),
+                    },
+                    EffectParserConfig::default(),
+                )
+                .unwrap();
+            assert_eq!(
+                result.matches.selected.is_some(),
+                accepted,
+                "Effect: {input}"
+            );
+            transaction.cancel().unwrap();
+            let document = host
+                .parse_document(
+                    parser_wasm::DocumentParseRequest::new(
+                        "file:///workspace",
+                        "file:///workspace/block-data-document.sk",
+                        revision + 1000,
+                        format!("on join:\n    {effect}\n"),
+                    ),
+                    parser_wasm::DocumentParserConfig::default(),
+                )
+                .unwrap();
+            assert!(document.component_failures.is_empty());
+            let body = document
+                .syntax
+                .roots
+                .iter()
+                .find_map(|root| match root {
+                    StructureDocumentNode::Structure(matches) => {
+                        matches.selected.as_ref().and_then(|node| match &node.body {
+                            StructureBody::Trigger(body) => Some(body),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })
+                .expect("event must have a trigger body");
+            let document_matched = body.iter().any(|node| {
+                let SectionBodyNode::Effect(matches) = node else {
+                    return false;
+                };
+                matches.selected.as_ref().is_some_and(|node| {
+                    node.matched.registration_id == BLOCK_DATA_EFFECT_REGISTRATION_ID
+                })
+            });
+            assert_eq!(document_matched, accepted, "Document: {input}");
+        }
+    }
 }
 
 #[test]
