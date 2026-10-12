@@ -1,0 +1,507 @@
+{
+  "format": 1,
+  "fixtures": [
+    {
+      "id": "skript-2.15.4",
+      "path": "../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4",
+      "schema": 5,
+      "snapshot_id": "a57b3b7f9bf384fc356a82c276a97410d76e9518ac8eaf862f35c008ae217a4a",
+      "collection_evidence": "historical snapshot; collection completeness not recertified",
+      "converters": null
+    },
+    {
+      "id": "skript-2.16.0",
+      "path": "../../parser-wasm/tests/data/type-parser-versions/skript-2.16.0",
+      "schema": 6,
+      "snapshot_id": "8b164811497583c1d5cefbe0abe2ca8e79a5b7234e17d1c1058e5cdf21608477",
+      "collection_evidence": "historical snapshot; collection completeness not recertified",
+      "converters": null
+    },
+    {
+      "id": "skript-2.16.2-java25",
+      "path": "../../parser-wasm/tests/data/type-parser-versions/skript-2.16.2-java25",
+      "schema": 7,
+      "snapshot_id": "0e896c28e8d83a5124f1e66f8a71f4cea2bf384e9c611aba3022de8544c11c5f",
+      "collection_evidence": "Java25 paired direct registry/export (SSG #9)",
+      "converters": 50
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2",
+      "path": "../../parser-wasm/tests/data/type-parser-versions/skript-2.6.4-mc-1.12.2",
+      "schema": 5,
+      "snapshot_id": "8f8223a8f71a5e73fba2b6f12ebd5a52989b47b41fcdf9be1dc4edbbb9fc48c1",
+      "collection_evidence": "historical snapshot; collection completeness not recertified",
+      "converters": null
+    }
+  ],
+  "cases": [
+    {
+      "id": "skript-2.15.4/number",
+      "fixture": "skript-2.15.4",
+      "mode": "expression",
+      "input": "1",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/nested-function",
+      "fixture": "skript-2.15.4",
+      "mode": "expression",
+      "input": "sin(abs(-1))",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/omitted-function-argument",
+      "fixture": "skript-2.15.4",
+      "mode": "expression",
+      "input": "log(8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/doc-message-event",
+      "fixture": "skript-2.15.4",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/doc-message-no-event",
+      "fixture": "skript-2.15.4",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/explicit-message",
+      "fixture": "skript-2.15.4",
+      "mode": "effect",
+      "input": "send \"hello\" to console",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": "Short explicit-audience control derived from the documented message"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/doc-teleport-event",
+      "fixture": "skript-2.15.4",
+      "mode": "effect",
+      "input": "teleport the player to {home::%uuid of player%}",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba",
+        "registration_id": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba:45361cc9ced72cebde42eca1dc32d5a05d24b968890e8aaa49c726f71df39f0d:0",
+        "example_index": 0,
+        "raw_example": "teleport the player to {home::%uuid of player%}",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/named-function-arguments",
+      "fixture": "skript-2.15.4",
+      "mode": "expression",
+      "input": "log(base: 2, n: 8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.15.4/list-function-argument",
+      "fixture": "skript-2.15.4",
+      "mode": "expression",
+      "input": "clamp((1,2), 3, 4)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/number",
+      "fixture": "skript-2.16.0",
+      "mode": "expression",
+      "input": "1",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/nested-function",
+      "fixture": "skript-2.16.0",
+      "mode": "expression",
+      "input": "sin(abs(-1))",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/omitted-function-argument",
+      "fixture": "skript-2.16.0",
+      "mode": "expression",
+      "input": "log(8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/doc-message-event",
+      "fixture": "skript-2.16.0",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/doc-message-no-event",
+      "fixture": "skript-2.16.0",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/explicit-message",
+      "fixture": "skript-2.16.0",
+      "mode": "effect",
+      "input": "send \"hello\" to console",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": "Short explicit-audience control derived from the documented message"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/doc-teleport-event",
+      "fixture": "skript-2.16.0",
+      "mode": "effect",
+      "input": "teleport the player to {home::%uuid of player%}",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+        "registration_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0",
+        "example_index": 0,
+        "raw_example": "teleport the player to {home::%uuid of player%}",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/named-function-arguments",
+      "fixture": "skript-2.16.0",
+      "mode": "expression",
+      "input": "log(base: 2, n: 8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.0/list-function-argument",
+      "fixture": "skript-2.16.0",
+      "mode": "expression",
+      "input": "clamp((1,2), 3, 4)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/number",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "expression",
+      "input": "1",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/nested-function",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "expression",
+      "input": "sin(abs(-1))",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/omitted-function-argument",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "expression",
+      "input": "log(8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/doc-message-event",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/doc-message-no-event",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/explicit-message",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "effect",
+      "input": "send \"hello\" to console",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "registration_id": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": "Short explicit-audience control derived from the documented message"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/doc-teleport-event",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "effect",
+      "input": "teleport the player to {home::%uuid of player%}",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+        "registration_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0",
+        "example_index": 0,
+        "raw_example": "teleport the player to {home::%uuid of player%}",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/named-function-arguments",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "expression",
+      "input": "log(base: 2, n: 8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/list-function-argument",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "expression",
+      "input": "clamp((1,2), 3, 4)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/short-teleport",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "effect",
+      "input": "teleport \"nlaocs\" parsed as player to location(1, 2, 3, world \"world\", 0, 0)",
+      "event": "on load",
+      "source": {
+        "definition_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+        "registration_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0",
+        "example_index": 0,
+        "raw_example": "teleport the player to {home::%uuid of player%}",
+        "adaptation": "Replace event entity and variable destination with explicit parsed player and six function arguments"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.16.2-java25/research-teleport",
+      "fixture": "skript-2.16.2-java25",
+      "mode": "effect",
+      "input": "teleport \"nlaocs\" parsed as player to location(\"nlaocs\" parsed as player's location's x-coord,\"nlaocs\" parsed as player's location's y-coord, \"nlaocs\" parsed as player's location's z-coord, \"nlaocs\" parsed as player's world, \"nlaocs\" parsed as player's yaw, \"nlaocs\" parsed as player's pitch)",
+      "event": "on load",
+      "source": {
+        "definition_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+        "registration_id": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0",
+        "example_index": 0,
+        "raw_example": "teleport the player to {home::%uuid of player%}",
+        "adaptation": "Exact user research input; upstream selected trace establishes root/local facts, not final graph"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/number",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "expression",
+      "input": "1",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/nested-function",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "expression",
+      "input": "sin(abs(-1))",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/omitted-function-argument",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "expression",
+      "input": "log(8)",
+      "event": null,
+      "source": {
+        "reference": "parser-wasm/tests/function.rs"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/doc-message-event",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+        "registration_id": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/doc-message-no-event",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "effect",
+      "input": "message \"This message is a distraction. Mwahaha!\"",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+        "registration_id": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/explicit-message",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "effect",
+      "input": "send \"hello\" to console",
+      "event": null,
+      "source": {
+        "definition_id": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+        "registration_id": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0",
+        "example_index": 1,
+        "raw_example": "message \"This message is a distraction. Mwahaha!\"",
+        "adaptation": "Short explicit-audience control derived from the documented message"
+      },
+      "upstream_final_graph": "unknown"
+    },
+    {
+      "id": "skript-2.6.4-mc-1.12.2/doc-teleport-event",
+      "fixture": "skript-2.6.4-mc-1.12.2",
+      "mode": "effect",
+      "input": "teleport the player to {homes.%player%}",
+      "event": "on join",
+      "source": {
+        "definition_id": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba",
+        "registration_id": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba:ec481af6232b34ea01da61c7b8c990783eea35cebe829e043f37402a9be33ffc:0",
+        "example_index": 0,
+        "raw_example": "teleport the player to {homes.%player%}",
+        "adaptation": null
+      },
+      "upstream_final_graph": "unknown"
+    }
+  ]
+}

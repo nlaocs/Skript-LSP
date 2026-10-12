@@ -1,0 +1,3595 @@
+{
+  "state" : "unresolved",
+  "complete" : false,
+  "registryProvider" : "bukkit-runtime-registry",
+  "blocks" : { },
+  "failures" : [ {
+    "block" : "minecraft:acacia_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:acacia_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:activator_rail",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:air",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:allium",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:amethyst_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:amethyst_cluster",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:ancient_debris",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:andesite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:andesite_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:andesite_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:andesite_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:anvil",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:attached_melon_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:attached_pumpkin_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:azalea",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:azalea_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:azure_bluet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_mosaic",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_mosaic_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_mosaic_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bamboo_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:barrel",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:barrier",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:basalt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:beacon",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bedrock",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bee_nest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:beehive",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:beetroots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bell",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:big_dripleaf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:big_dripleaf_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:birch_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:black_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blackstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blackstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blackstone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blackstone_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blast_furnace",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_ice",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_orchid",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:blue_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bone_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bookshelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brain_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brain_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brain_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brain_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brewing_stand",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_mushroom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_mushroom_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:brown_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bubble_column",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bubble_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bubble_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bubble_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bubble_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:budding_amethyst",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cactus",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cactus_flower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:calcite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:calibrated_sculk_sensor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:campfire",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:carrots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cartography_table",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:carved_pumpkin",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cauldron",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cave_air",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cave_vines",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cave_vines_plant",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chain_command_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cherry_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chipped_anvil",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_bookshelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_cinnabar",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_deepslate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_nether_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_polished_blackstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_quartz_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_red_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_resin_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_sulfur",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_tuff",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chiseled_tuff_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chorus_flower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:chorus_plant",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cinnabar_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:clay",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:closed_eyeblossom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:coal_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:coal_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:coarse_dirt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobbled_deepslate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobbled_deepslate_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobbled_deepslate_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobbled_deepslate_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobblestone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobblestone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobblestone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobblestone_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cobweb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cocoa",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:command_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:comparator",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:composter",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:conduit",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:copper_wall_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cornflower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cracked_deepslate_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cracked_deepslate_tiles",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cracked_nether_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cracked_polished_blackstone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cracked_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crafter",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crafting_table",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:creaking_heart",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:creeper_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:creeper_wall_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_fungus",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_hyphae",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_nylium",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crimson_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:crying_obsidian",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_red_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_red_sandstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cut_sandstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:cyan_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:damaged_anvil",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dandelion",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_oak_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_prismarine",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_prismarine_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dark_prismarine_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:daylight_detector",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_brain_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_brain_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_brain_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_brain_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_bubble_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_bubble_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_bubble_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_bubble_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_fire_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_fire_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_fire_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_fire_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_horn_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_horn_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_horn_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_horn_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_tube_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_tube_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_tube_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dead_tube_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:decorated_pot",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_coal_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_copper_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_diamond_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_emerald_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_gold_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_iron_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_lapis_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_redstone_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_tile_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_tile_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_tile_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:deepslate_tiles",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:detector_rail",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:diamond_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:diamond_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:diorite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:diorite_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:diorite_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:diorite_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dirt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dirt_path",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dispenser",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dragon_egg",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dragon_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dragon_wall_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dried_ghast",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dried_kelp_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dripstone_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:dropper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:emerald_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:emerald_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:enchanting_table",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_gateway",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_portal",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_portal_frame",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_stone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_stone_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_stone_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_stone_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:end_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:ender_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:exposed_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:farmland",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fire",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fire_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fire_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fire_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fire_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:firefly_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:fletching_table",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:flower_pot",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:flowering_azalea",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:flowering_azalea_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:frogspawn",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:frosted_ice",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:furnace",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gilded_blackstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:glow_lichen",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:glowstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gold_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gold_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:golden_dandelion",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:granite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:granite_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:granite_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:granite_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:grass_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gravel",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:gray_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:green_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:grindstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:hanging_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:hay_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:heavy_core",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:heavy_weighted_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:honey_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:honeycomb_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:hopper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:horn_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:horn_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:horn_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:horn_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:ice",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_chiseled_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_cobblestone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_cracked_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_deepslate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_mossy_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_stone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:infested_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:iron_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:iron_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:iron_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:iron_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:iron_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:iron_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jack_o_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jigsaw",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jukebox",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:jungle_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:kelp",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:kelp_plant",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:ladder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lapis_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lapis_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:large_amethyst_bud",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:large_fern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lava",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lava_cauldron",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:leaf_litter",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lectern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lever",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_blue_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_gray_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:light_weighted_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lilac",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lily_of_the_valley",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lily_pad",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lime_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:lodestone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:loom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magenta_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:magma_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_propagule",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mangrove_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:medium_amethyst_bud",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:melon",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:melon_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:moss_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:moss_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_cobblestone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_cobblestone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_cobblestone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_cobblestone_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_stone_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_stone_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_stone_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mossy_stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:moving_piston",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mud",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mud_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mud_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mud_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mud_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:muddy_mangrove_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mushroom_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:mycelium",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_brick_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_gold_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_portal",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_quartz_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_sprouts",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_wart",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:nether_wart_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:netherite_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:netherrack",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:note_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oak_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:observer",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:obsidian",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:ochre_froglight",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:open_eyeblossom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:orange_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxeye_daisy",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:oxidized_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:packed_ice",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:packed_mud",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_hanging_moss",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_moss_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_moss_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pale_oak_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pearlescent_froglight",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:peony",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:petrified_oak_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:piglin_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:piglin_wall_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_petals",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pink_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:piston",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:piston_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pitcher_crop",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pitcher_plant",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:player_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:player_wall_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:podzol",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pointed_dripstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_andesite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_andesite_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_andesite_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_basalt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_blackstone_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_cinnabar",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_cinnabar_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_cinnabar_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_cinnabar_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_deepslate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_deepslate_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_deepslate_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_deepslate_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_diorite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_diorite_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_diorite_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_granite",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_granite_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_granite_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_sulfur",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_sulfur_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_sulfur_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_sulfur_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_tuff",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_tuff_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_tuff_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:polished_tuff_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:poppy",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potatoes",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potent_sulfur",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_acacia_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_allium",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_azalea_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_azure_bluet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_bamboo",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_birch_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_blue_orchid",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_brown_mushroom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_cactus",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_cherry_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_closed_eyeblossom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_cornflower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_crimson_fungus",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_crimson_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_dandelion",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_dark_oak_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_dead_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_fern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_flowering_azalea_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_golden_dandelion",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_jungle_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_lily_of_the_valley",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_mangrove_propagule",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_oak_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_open_eyeblossom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_orange_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_oxeye_daisy",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_pale_oak_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_pink_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_poppy",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_red_mushroom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_red_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_spruce_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_torchflower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_warped_fungus",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_warped_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_white_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:potted_wither_rose",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:powder_snow",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:powder_snow_cauldron",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:powered_rail",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:prismarine_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pumpkin",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:pumpkin_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purple_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purpur_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purpur_pillar",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purpur_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:purpur_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:quartz_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:quartz_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:quartz_pillar",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:quartz_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:quartz_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:rail",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:raw_copper_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:raw_gold_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:raw_iron_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_mushroom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_mushroom_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_nether_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_nether_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_nether_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_nether_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_sand",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_sandstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_sandstone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_sandstone_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:red_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:redstone_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:redstone_lamp",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:redstone_ore",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:redstone_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:redstone_wall_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:redstone_wire",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:reinforced_deepslate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:repeater",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:repeating_command_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:resin_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:resin_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:resin_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:resin_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:resin_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:resin_clump",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:respawn_anchor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:rooted_dirt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:rose_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sand",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sandstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sandstone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sandstone_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:scaffolding",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sculk",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sculk_catalyst",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sculk_sensor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sculk_shrieker",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sculk_vein",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sea_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sea_pickle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:seagrass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:short_dry_grass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:short_grass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:shroomlight",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:skeleton_skull",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:skeleton_wall_skull",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:slime_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:small_amethyst_bud",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:small_dripleaf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smithing_table",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smoker",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_basalt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_quartz",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_quartz_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_quartz_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_red_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_red_sandstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_red_sandstone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_sandstone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_sandstone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_sandstone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_stone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:smooth_stone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sniffer_egg",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:snow",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:snow_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_campfire",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_fire",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_sand",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_soil",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:soul_wall_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spawner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sponge",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spore_blossom",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_leaves",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_sapling",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:spruce_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sticky_piston",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stone_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stonecutter",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_acacia_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_acacia_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_bamboo_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_birch_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_birch_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_cherry_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_cherry_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_crimson_hyphae",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_crimson_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_dark_oak_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_dark_oak_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_jungle_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_jungle_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_mangrove_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_mangrove_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_oak_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_oak_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_pale_oak_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_pale_oak_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_spruce_log",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_spruce_wood",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_warped_hyphae",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:stripped_warped_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:structure_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:structure_void",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sugar_cane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_spike",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sulfur_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sunflower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:suspicious_gravel",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:suspicious_sand",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:sweet_berry_bush",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tall_dry_grass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tall_grass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tall_seagrass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:target",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:test_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:test_instance_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tinted_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tnt",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:torchflower",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:torchflower_crop",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:trapped_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:trial_spawner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tripwire",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tripwire_hook",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tube_coral",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tube_coral_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tube_coral_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tube_coral_wall_fan",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_brick_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_brick_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_brick_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_bricks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:tuff_wall",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:turtle_egg",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:twisting_vines",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:twisting_vines_plant",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:vault",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:verdant_froglight",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:vine",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:void_air",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wall_torch",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_button",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_fence",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_fence_gate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_fungus",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_hyphae",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_nylium",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_planks",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_pressure_plate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_roots",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_shelf",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_stem",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_wall_hanging_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_wall_sign",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:warped_wart_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:water",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:water_cauldron",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_block",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_exposed_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_oxidized_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:waxed_weathered_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_chiseled_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_bars",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_bulb",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_chain",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_chest",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_door",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_golem_statue",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_grate",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_lantern",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_copper_trapdoor",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_cut_copper",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_cut_copper_slab",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_cut_copper_stairs",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weathered_lightning_rod",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weeping_vines",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:weeping_vines_plant",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wet_sponge",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wheat",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_tulip",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:white_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wildflowers",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wither_rose",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wither_skeleton_skull",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:wither_skeleton_wall_skull",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_bed",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_candle",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_candle_cake",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_carpet",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_concrete",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_concrete_powder",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_glazed_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_shulker_box",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_stained_glass",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_stained_glass_pane",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_terracotta",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_wall_banner",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:yellow_wool",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:zombie_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  }, {
+    "block" : "minecraft:zombie_wall_head",
+    "message" : "IllegalStateException: Cannot read the Minecraft BlockState property map"
+  } ]
+}

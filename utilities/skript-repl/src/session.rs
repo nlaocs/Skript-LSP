@@ -927,6 +927,10 @@ fn parse_skript_version(version: &str) -> Result<(u32, u32), SkriptSessionError>
 }
 
 #[cfg(test)]
+#[path = "../tests/corpus/runner.rs"]
+mod corpus;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

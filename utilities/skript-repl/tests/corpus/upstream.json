@@ -1,0 +1,2284 @@
+{
+  "stage": "actual outer loadItems returned objects inspected after validateScript return",
+  "snapshot_id": "0e896c28e8d83a5124f1e66f8a71f4cea2bf384e9c611aba3022de8544c11c5f",
+  "skript_jar_sha256": "8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3",
+  "ssg_jar_sha256": "03b9591d40bf786af0a7f60eb66980131503d1156f92544fc8dea38883c3dedb",
+  "observations": [
+    {
+      "case_id": "skript-2.16.2-java25/nested-function",
+      "graph_index": 0,
+      "expression_wrapper": true,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/returnType",
+          "mode": "value",
+          "expected": "java.lang.Number"
+        },
+        {
+          "path": "/root/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Number"
+          ]
+        },
+        {
+          "path": "/root/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/function/name",
+          "mode": "value",
+          "expected": "sin"
+        },
+        {
+          "path": "/root/function/arguments",
+          "mode": "length",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "n"
+        },
+        {
+          "path": "/root/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Number"
+        },
+        {
+          "path": "/root/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Number"
+          ]
+        },
+        {
+          "path": "/root/children/0/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/children/0/function/name",
+          "mode": "value",
+          "expected": "abs"
+        },
+        {
+          "path": "/root/children/0/function/arguments",
+          "mode": "length",
+          "expected": 1
+        },
+        {
+          "path": "/root/children/0/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "n"
+        },
+        {
+          "path": "/root/children/0/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/children/0/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/children/0/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/children/0/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/children/0/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/0/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/0/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/0/children/0/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/0/children/0/span",
+          "mode": "sourceNumber",
+          "expected": -1.0
+        }
+      ],
+      "known_differences": [],
+      "unknown": []
+    },
+    {
+      "case_id": "skript-2.16.2-java25/omitted-function-argument",
+      "graph_index": 1,
+      "expression_wrapper": true,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/returnType",
+          "mode": "value",
+          "expected": "java.lang.Number"
+        },
+        {
+          "path": "/root/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Number"
+          ]
+        },
+        {
+          "path": "/root/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/function/name",
+          "mode": "value",
+          "expected": "log"
+        },
+        {
+          "path": "/root/function/arguments",
+          "mode": "length",
+          "expected": 2
+        },
+        {
+          "path": "/root/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "n"
+        },
+        {
+          "path": "/root/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/0/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/0/span",
+          "mode": "sourceNumber",
+          "expected": 8.0
+        },
+        {
+          "path": "/root/function/arguments/1/parameter",
+          "mode": "value",
+          "expected": "base"
+        },
+        {
+          "path": "/root/function/arguments/1/omitted",
+          "mode": "value",
+          "expected": true
+        },
+        {
+          "path": "/root/function/arguments/1/childStart",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/1/childCount",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/function/arguments/1/suppliedName",
+          "mode": "value",
+          "expected": null
+        }
+      ],
+      "known_differences": [],
+      "unknown": []
+    },
+    {
+      "case_id": "skript-2.16.2-java25/doc-message-event",
+      "graph_index": 2,
+      "expression_wrapper": false,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/selected/identity/class",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage"
+        },
+        {
+          "path": "/root/selected/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures",
+          "mode": "length",
+          "expected": 2
+        },
+        {
+          "path": "/root/captures/0/index",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/0/state",
+          "mode": "value",
+          "expected": "Explicit"
+        },
+        {
+          "path": "/root/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/1/index",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/1/state",
+          "mode": "value",
+          "expected": "Default"
+        },
+        {
+          "path": "/root/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.command.CommandSender"
+        },
+        {
+          "path": "/root/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.command.CommandSender"
+          ]
+        },
+        {
+          "path": "/root/captures/1/resolved/expression/kind",
+          "mode": "value",
+          "expected": "default"
+        }
+      ],
+      "known_differences": [],
+      "unknown": [
+        "/root/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "2: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "3: no known child adapter for ch.njol.skript.expressions.base.EventValueExpression"
+      ]
+    },
+    {
+      "case_id": "skript-2.16.2-java25/named-function-arguments",
+      "graph_index": 3,
+      "expression_wrapper": true,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/returnType",
+          "mode": "value",
+          "expected": "java.lang.Number"
+        },
+        {
+          "path": "/root/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Number"
+          ]
+        },
+        {
+          "path": "/root/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/function/name",
+          "mode": "value",
+          "expected": "log"
+        },
+        {
+          "path": "/root/function/arguments",
+          "mode": "length",
+          "expected": 2
+        },
+        {
+          "path": "/root/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "n"
+        },
+        {
+          "path": "/root/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": "n"
+        },
+        {
+          "path": "/root/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/0/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/0/span",
+          "mode": "sourceNumber",
+          "expected": 8.0
+        },
+        {
+          "path": "/root/function/arguments/1/parameter",
+          "mode": "value",
+          "expected": "base"
+        },
+        {
+          "path": "/root/function/arguments/1/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/1/childStart",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/1/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/1/suppliedName",
+          "mode": "value",
+          "expected": "base"
+        },
+        {
+          "path": "/root/children/1/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/1/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/1/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/1/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/1/span",
+          "mode": "sourceNumber",
+          "expected": 2.0
+        }
+      ],
+      "known_differences": [],
+      "unknown": []
+    },
+    {
+      "case_id": "skript-2.16.2-java25/list-function-argument",
+      "graph_index": 4,
+      "expression_wrapper": true,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/returnType",
+          "mode": "value",
+          "expected": "java.lang.Number"
+        },
+        {
+          "path": "/root/multiplicity",
+          "mode": "value",
+          "expected": "Multiple"
+        },
+        {
+          "path": "/root/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Number"
+          ]
+        },
+        {
+          "path": "/root/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/function/name",
+          "mode": "value",
+          "expected": "clamp"
+        },
+        {
+          "path": "/root/function/arguments",
+          "mode": "length",
+          "expected": 3
+        },
+        {
+          "path": "/root/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "values"
+        },
+        {
+          "path": "/root/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 2
+        },
+        {
+          "path": "/root/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/0/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/0/span",
+          "mode": "sourceNumber",
+          "expected": 1.0
+        },
+        {
+          "path": "/root/children/1/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/1/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/1/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/1/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/1/span",
+          "mode": "sourceNumber",
+          "expected": 2.0
+        },
+        {
+          "path": "/root/function/arguments/1/parameter",
+          "mode": "value",
+          "expected": "min"
+        },
+        {
+          "path": "/root/function/arguments/1/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/1/childStart",
+          "mode": "value",
+          "expected": 2
+        },
+        {
+          "path": "/root/function/arguments/1/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/1/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/children/2/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/2/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/2/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/2/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/2/span",
+          "mode": "sourceNumber",
+          "expected": 3.0
+        },
+        {
+          "path": "/root/function/arguments/2/parameter",
+          "mode": "value",
+          "expected": "max"
+        },
+        {
+          "path": "/root/function/arguments/2/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/function/arguments/2/childStart",
+          "mode": "value",
+          "expected": 3
+        },
+        {
+          "path": "/root/function/arguments/2/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/function/arguments/2/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/children/3/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/children/3/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/children/3/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/children/3/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/children/3/span",
+          "mode": "sourceNumber",
+          "expected": 4.0
+        }
+      ],
+      "known_differences": [],
+      "unknown": []
+    },
+    {
+      "case_id": "skript-2.16.2-java25/short-teleport",
+      "graph_index": 5,
+      "expression_wrapper": false,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/selected/identity/class",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport"
+        },
+        {
+          "path": "/root/selected/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures",
+          "mode": "length",
+          "expected": 4
+        },
+        {
+          "path": "/root/captures/0/index",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/0/state",
+          "mode": "value",
+          "expected": "Explicit"
+        },
+        {
+          "path": "/root/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/1/index",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/1/state",
+          "mode": "value",
+          "expected": "Default"
+        },
+        {
+          "path": "/root/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "ch.njol.skript.util.Direction"
+        },
+        {
+          "path": "/root/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "ch.njol.skript.util.Direction"
+          ]
+        },
+        {
+          "path": "/root/captures/1/resolved/expression/kind",
+          "mode": "value",
+          "expected": "default"
+        },
+        {
+          "path": "/root/captures/2/index",
+          "mode": "value",
+          "expected": 2
+        },
+        {
+          "path": "/root/captures/2/state",
+          "mode": "value",
+          "expected": "Explicit"
+        },
+        {
+          "path": "/root/captures/2/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.Location"
+        },
+        {
+          "path": "/root/captures/2/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.Location"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/name",
+          "mode": "value",
+          "expected": "location"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments",
+          "mode": "length",
+          "expected": 6
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "x"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/span",
+          "mode": "sourceNumber",
+          "expected": 1.0
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/parameter",
+          "mode": "value",
+          "expected": "y"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/childStart",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/span",
+          "mode": "sourceNumber",
+          "expected": 2.0
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/parameter",
+          "mode": "value",
+          "expected": "z"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/childStart",
+          "mode": "value",
+          "expected": 2
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/returnType",
+          "mode": "value",
+          "expected": "java.lang.Long"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Long"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/span",
+          "mode": "sourceNumber",
+          "expected": 3.0
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/parameter",
+          "mode": "value",
+          "expected": "world"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/childStart",
+          "mode": "value",
+          "expected": 3
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.World"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.World"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprWorldFromName"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/parameter",
+          "mode": "value",
+          "expected": "yaw"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/childStart",
+          "mode": "value",
+          "expected": 4
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/returnType",
+          "mode": "value",
+          "expected": "java.lang.Float"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Float"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/span",
+          "mode": "sourceNumber",
+          "expected": 0.0
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/parameter",
+          "mode": "value",
+          "expected": "pitch"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/childStart",
+          "mode": "value",
+          "expected": 5
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/returnType",
+          "mode": "value",
+          "expected": "java.lang.Float"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Float"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/expression/kind",
+          "mode": "value",
+          "expected": "literal"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/span",
+          "mode": "sourceNumber",
+          "expected": 0.0
+        },
+        {
+          "path": "/root/captures/3/index",
+          "mode": "value",
+          "expected": 3
+        },
+        {
+          "path": "/root/captures/3/state",
+          "mode": "value",
+          "expected": "Null"
+        },
+        {
+          "path": "/root/captures/3/resolved",
+          "mode": "value",
+          "expected": null
+        }
+      ],
+      "known_differences": [
+        {
+          "path": "/root/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        }
+      ],
+      "unknown": [
+        "/root/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/3/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "11: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "14: no known child adapter for ch.njol.skript.util.Direction$1",
+        "3: no known child adapter for ch.njol.skript.lang.LiteralString"
+      ]
+    },
+    {
+      "case_id": "skript-2.16.2-java25/research-teleport",
+      "graph_index": 6,
+      "expression_wrapper": false,
+      "coverage": "partial observed fields only",
+      "checks": [
+        {
+          "path": "/root/selected/identity/class",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport"
+        },
+        {
+          "path": "/root/selected/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures",
+          "mode": "length",
+          "expected": 4
+        },
+        {
+          "path": "/root/captures/0/index",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/0/state",
+          "mode": "value",
+          "expected": "Explicit"
+        },
+        {
+          "path": "/root/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/1/index",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/1/state",
+          "mode": "value",
+          "expected": "Default"
+        },
+        {
+          "path": "/root/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "ch.njol.skript.util.Direction"
+        },
+        {
+          "path": "/root/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "ch.njol.skript.util.Direction"
+          ]
+        },
+        {
+          "path": "/root/captures/1/resolved/expression/kind",
+          "mode": "value",
+          "expected": "default"
+        },
+        {
+          "path": "/root/captures/2/index",
+          "mode": "value",
+          "expected": 2
+        },
+        {
+          "path": "/root/captures/2/state",
+          "mode": "value",
+          "expected": "Explicit"
+        },
+        {
+          "path": "/root/captures/2/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.Location"
+        },
+        {
+          "path": "/root/captures/2/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.Location"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/expression/kind",
+          "mode": "value",
+          "expected": "function"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/name",
+          "mode": "value",
+          "expected": "location"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments",
+          "mode": "length",
+          "expected": 6
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/parameter",
+          "mode": "value",
+          "expected": "x"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/childStart",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/0/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/returnType",
+          "mode": "value",
+          "expected": "java.lang.Double"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Double"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/expression/class",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.Location"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.Location"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprLocationOf"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/parameter",
+          "mode": "value",
+          "expected": "y"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/childStart",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/1/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/returnType",
+          "mode": "value",
+          "expected": "java.lang.Double"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Double"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/expression/class",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.Location"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.Location"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprLocationOf"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/parameter",
+          "mode": "value",
+          "expected": "z"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/childStart",
+          "mode": "value",
+          "expected": 2
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/2/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/returnType",
+          "mode": "value",
+          "expected": "java.lang.Double"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Double"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/expression/class",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.Location"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.Location"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprLocationOf"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/parameter",
+          "mode": "value",
+          "expected": "world"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/childStart",
+          "mode": "value",
+          "expected": 3
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/3/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.World"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.World"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprWorld"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/parameter",
+          "mode": "value",
+          "expected": "yaw"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/childStart",
+          "mode": "value",
+          "expected": 4
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/4/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/returnType",
+          "mode": "value",
+          "expected": "java.lang.Float"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Float"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprYawPitch"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/parameter",
+          "mode": "value",
+          "expected": "pitch"
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/omitted",
+          "mode": "value",
+          "expected": false
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/childStart",
+          "mode": "value",
+          "expected": 5
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/childCount",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/function/arguments/5/suppliedName",
+          "mode": "value",
+          "expected": null
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/returnType",
+          "mode": "value",
+          "expected": "java.lang.Float"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.Float"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprYawPitch"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 1
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "org.bukkit.entity.Player"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.bukkit.entity.Player"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/expression/class",
+          "mode": "value",
+          "expected": "ch.njol.skript.expressions.ExprParse"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/expression/identity/patternIndex",
+          "mode": "value",
+          "expected": 0
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/0/resolved/returnType",
+          "mode": "value",
+          "expected": "java.lang.String"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/0/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/0/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/1/resolved/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
+          "path": "/root/captures/3/index",
+          "mode": "value",
+          "expected": 3
+        },
+        {
+          "path": "/root/captures/3/state",
+          "mode": "value",
+          "expected": "Null"
+        },
+        {
+          "path": "/root/captures/3/resolved",
+          "mode": "value",
+          "expected": null
+        }
+      ],
+      "known_differences": [
+        {
+          "path": "/root/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/multiplicity",
+          "mode": "value",
+          "expected": "Single",
+          "current_native": "Both",
+          "reason": "Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/multiplicity",
+          "mode": "value",
+          "expected": "Single",
+          "current_native": "Both",
+          "reason": "Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/multiplicity",
+          "mode": "value",
+          "expected": "Single",
+          "current_native": "Both",
+          "reason": "Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/1/resolved/returnType",
+          "mode": "value",
+          "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+          "current_native": "ch.njol.skript.classes.ClassInfo",
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/1/resolved/possibleTypes",
+          "mode": "value",
+          "expected": [
+            "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          ],
+          "current_native": [
+            "ch.njol.skript.classes.ClassInfo"
+          ],
+          "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
+        }
+      ],
+      "unknown": [
+        "/root/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/0/captures/0/resolved/captures/0/resolved: physical conversion consumed type/path not represented natively; source expression compared separately",
+        "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/1/captures/0/resolved/captures/0/resolved: physical conversion consumed type/path not represented natively; source expression compared separately",
+        "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/2/captures/0/resolved/captures/0/resolved: physical conversion consumed type/path not represented natively; source expression compared separately",
+        "/root/captures/2/resolved/children/3/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/2/resolved/children/3/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/4/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/2/resolved/children/4/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "/root/captures/2/resolved/children/5/captures/0/resolved/captures/0/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.LiteralString",
+        "/root/captures/2/resolved/children/5/captures/0/resolved/captures/1/resolved: deeper child/identity normalization unknown for ch.njol.skript.lang.util.SimpleLiteral",
+        "11: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "17: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "23: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "27: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "31: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "35: no known child adapter for ch.njol.skript.lang.LiteralString",
+        "37: no known child adapter for ch.njol.skript.util.Direction$1",
+        "3: no known child adapter for ch.njol.skript.lang.LiteralString"
+      ]
+    }
+  ]
+}

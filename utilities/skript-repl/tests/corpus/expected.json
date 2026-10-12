@@ -1,0 +1,5068 @@
+{
+  "skript-2.15.4/doc-message-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Unresolved, reason: \"audience DefaultExpression has no statically verified return type\" }"
+        ],
+        "span": [
+          49,
+          49
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.15.4/doc-message-no-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Unresolved, reason: \"audience DefaultExpression has no statically verified return type\" }"
+        ],
+        "span": [
+          49,
+          49
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.15.4/doc-teleport-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba",
+        "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba:45361cc9ced72cebde42eca1dc32d5a05d24b968890e8aaa49c726f71df39f0d:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"direction\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Unresolved, reason: \"direction DefaultExpression has no statically verified return type\" }"
+        ],
+        "span": [
+          20,
+          20
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.15.4/explicit-message": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            28,
+            37
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "kind": "literal",
+              "parser": "core.literal.string"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "java.lang.String"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "java.lang.String",
+            "span": [
+              5,
+              12
+            ],
+            "tags": []
+          },
+          "source": "\"hello\"",
+          "span": [
+            5,
+            12
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            42,
+            53
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.literals.LitConsole",
+              "identity": {
+                "class": "ch.njol.skript.literals.LitConsole",
+                "definition": "expression:skript:be54e9ebb7bc7d21e94deaa357df1c330e2fe7097accb26c5510d209ea68f661",
+                "pattern": "[the] (console|server)",
+                "patternIndex": 0,
+                "registration": "expression:skript:be54e9ebb7bc7d21e94deaa357df1c330e2fe7097accb26c5510d209ea68f661:8796035118f82d80e7dfca7f026a3ad17478cc064690550e33ba83e455bd4a10:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Both",
+            "possibleTypes": [
+              "org.bukkit.command.ConsoleCommandSender"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.command.ConsoleCommandSender",
+            "span": [
+              16,
+              23
+            ],
+            "tags": []
+          },
+          "source": "console",
+          "span": [
+            16,
+            23
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+          "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+          "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        23
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.15.4/list-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            7,
+            8
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            9,
+            10
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            13,
+            14
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            16,
+            17
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 2,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "values",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 1,
+            "childStart": 2,
+            "omitted": false,
+            "parameter": "min",
+            "parameterIndex": 1,
+            "suppliedName": null
+          },
+          {
+            "childCount": 1,
+            "childStart": 3,
+            "omitted": false,
+            "parameter": "max",
+            "parameterIndex": 2,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:7390182ff37e1f445b20e90c0c1367de85474917c7f6e25114f00e09156d4ab7",
+        "name": "clamp",
+        "registration": "function:skript:79e061cd3aba6481d7885cb825cec3f483bf5d8aac1a17d8d2b786bc4ba98b18"
+      },
+      "mark": 0,
+      "multiplicity": "Multiple",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        18
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.15.4/named-function-arguments": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            16,
+            17
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            10,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": "n"
+          },
+          {
+            "childCount": 1,
+            "childStart": 1,
+            "omitted": false,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": "base"
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        18
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.15.4/nested-function": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [
+            {
+              "captures": [],
+              "children": [],
+              "expression": {
+                "kind": "literal",
+                "parser": "core.literal.number"
+              },
+              "function": null,
+              "mark": 0,
+              "multiplicity": "Single",
+              "possibleTypes": [
+                "java.lang.Long"
+              ],
+              "possibleTypesState": "Complete",
+              "returnType": "java.lang.Long",
+              "span": [
+                8,
+                10
+              ],
+              "tags": []
+            }
+          ],
+          "expression": {
+            "kind": "function",
+            "parser": "core.function"
+          },
+          "function": {
+            "arguments": [
+              {
+                "childCount": 1,
+                "childStart": 0,
+                "omitted": false,
+                "parameter": "n",
+                "parameterIndex": 0,
+                "suppliedName": null
+              }
+            ],
+            "definition": "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8",
+            "name": "abs",
+            "registration": "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d"
+          },
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Number"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Number",
+          "span": [
+            4,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5",
+        "name": "sin",
+        "registration": "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        12
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.15.4/number": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [],
+      "expression": {
+        "kind": "literal",
+        "parser": "core.literal.number"
+      },
+      "function": null,
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Long"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Long",
+      "span": [
+        0,
+        1
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.15.4/omitted-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            4,
+            5
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 0,
+            "childStart": 1,
+            "omitted": true,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        6
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/doc-message-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            28,
+            37
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "kind": "literal",
+              "parser": "core.literal.string"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "java.lang.String"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "java.lang.String",
+            "span": [
+              8,
+              49
+            ],
+            "tags": []
+          },
+          "source": "\"This message is a distraction. Mwahaha!\"",
+          "span": [
+            8,
+            49
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            42,
+            53
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "anchor": [
+                49,
+                49
+              ],
+              "captureIndex": 1,
+              "component": "nlaocs.core-library",
+              "expression": "%audiences%",
+              "kind": "default",
+              "literal": false,
+              "plural": true,
+              "provider": "core.default-expression.skript",
+              "requestedType": "net.kyori.adventure.audience.Audience",
+              "time": 0,
+              "typeDefinition": "type:skript:8b81548f783d5509f5a72e08f2ac5d3a6a4fe7b459724c9e3f1fa52ac0f224cd",
+              "typeRegistration": "type:skript:8b81548f783d5509f5a72e08f2ac5d3a6a4fe7b459724c9e3f1fa52ac0f224cd"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.command.CommandSender"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.command.CommandSender",
+            "span": [
+              49,
+              49
+            ],
+            "tags": []
+          },
+          "source": "",
+          "span": [
+            49,
+            49
+          ],
+          "state": "Default",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+          "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+          "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        49
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/doc-message-no-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Rejected, reason: \"omitted audience requires an Event providing org.bukkit.command.CommandSender; no Event context is active\" }"
+        ],
+        "span": [
+          49,
+          49
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.16.0/doc-teleport-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            18,
+            28
+          ],
+          "resolved": {
+            "captures": [
+              {
+                "groups": [],
+                "index": 0,
+                "parser": null,
+                "patternSpan": [
+                  14,
+                  18
+                ],
+                "resolved": null,
+                "source": "player",
+                "span": [
+                  4,
+                  10
+                ],
+                "state": "regex",
+                "status": null
+              }
+            ],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.expressions.ExprEntity",
+              "identity": {
+                "class": "ch.njol.skript.expressions.ExprEntity",
+                "definition": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d",
+                "pattern": "[the] [event-]<.+>",
+                "patternIndex": 0,
+                "registration": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d:d6eb4f6f396b1232640dc776007f9a17dba17d71dfb6ac8e0f6a834e09c14099:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.entity.Player"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.entity.Player",
+            "span": [
+              9,
+              19
+            ],
+            "tags": []
+          },
+          "source": "the player",
+          "span": [
+            9,
+            19
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"entity\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            33,
+            44
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "anchor": [
+                20,
+                20
+              ],
+              "captureIndex": 1,
+              "component": "nlaocs.core-library",
+              "expression": "%direction%",
+              "kind": "default",
+              "literal": true,
+              "plural": false,
+              "provider": "core.default-expression.skript",
+              "requestedType": "ch.njol.skript.util.Direction",
+              "time": 0,
+              "typeDefinition": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6",
+              "typeRegistration": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "ch.njol.skript.util.Direction"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "ch.njol.skript.util.Direction",
+            "span": [
+              20,
+              20
+            ],
+            "tags": []
+          },
+          "source": "",
+          "span": [
+            20,
+            20
+          ],
+          "state": "Default",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"direction\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 2,
+          "parser": "host.expression",
+          "patternSpan": [
+            46,
+            56
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      17,
+                      49
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "groups": [],
+                          "index": 0,
+                          "parser": null,
+                          "patternSpan": [
+                            14,
+                            18
+                          ],
+                          "resolved": null,
+                          "source": "player",
+                          "span": [
+                            39,
+                            45
+                          ],
+                          "state": "regex",
+                          "status": null
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprEntity",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprEntity",
+                          "definition": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d",
+                          "pattern": "[the] [event-]<.+>",
+                          "patternIndex": 0,
+                          "registration": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d:d6eb4f6f396b1232640dc776007f9a17dba17d71dfb6ac8e0f6a834e09c14099:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.entity.Player"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.entity.Player",
+                      "span": [
+                        39,
+                        45
+                      ],
+                      "tags": []
+                    },
+                    "source": "player",
+                    "span": [
+                      39,
+                      45
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"offlineplayer\", plural: true }, PatternTypeAlternative { name: \"world\", plural: true }, PatternTypeAlternative { name: \"entity\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "ch.njol.skript.expressions.ExprUUID",
+                  "identity": {
+                    "class": "ch.njol.skript.expressions.ExprUUID",
+                    "definition": "expression:skript:1683fe5814b5931cb123a0f8284fac16335b40b64f15f69ff0fac10da0f9c95c",
+                    "pattern": "[the] uuid[s] of %offlineplayers/worlds/entities%",
+                    "patternIndex": 0,
+                    "registration": "expression:skript:1683fe5814b5931cb123a0f8284fac16335b40b64f15f69ff0fac10da0f9c95c:7fd34d6d68d75ff1a3b9ec463c5c5a4984f8ededc12e7953ea5782d771c64fba:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Both",
+                "possibleTypes": [
+                  "java.util.UUID"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.util.UUID",
+                "span": [
+                  31,
+                  45
+                ],
+                "tags": []
+              }
+            ],
+            "expression": {
+              "kind": "variable",
+              "parser": "core.variable"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.Location"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.Location",
+            "span": [
+              23,
+              47
+            ],
+            "tags": []
+          },
+          "source": "{home::%uuid of player%}",
+          "span": [
+            23,
+            47
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": null,
+          "index": 3,
+          "parser": null,
+          "patternSpan": [
+            76,
+            92
+          ],
+          "resolved": null,
+          "source": "",
+          "span": [
+            47,
+            47
+          ],
+          "state": "Null",
+          "status": null,
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"teleportflag\", plural: true }], nullable: true, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport",
+          "definition": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+          "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        47
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/explicit-message": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            28,
+            37
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "kind": "literal",
+              "parser": "core.literal.string"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "java.lang.String"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "java.lang.String",
+            "span": [
+              5,
+              12
+            ],
+            "tags": []
+          },
+          "source": "\"hello\"",
+          "span": [
+            5,
+            12
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            42,
+            53
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.literals.LitConsole",
+              "identity": {
+                "class": "ch.njol.skript.literals.LitConsole",
+                "definition": "expression:skript:be54e9ebb7bc7d21e94deaa357df1c330e2fe7097accb26c5510d209ea68f661",
+                "pattern": "[the] (console|server)",
+                "patternIndex": 0,
+                "registration": "expression:skript:be54e9ebb7bc7d21e94deaa357df1c330e2fe7097accb26c5510d209ea68f661:8796035118f82d80e7dfca7f026a3ad17478cc064690550e33ba83e455bd4a10:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Both",
+            "possibleTypes": [
+              "org.bukkit.command.ConsoleCommandSender"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.command.ConsoleCommandSender",
+            "span": [
+              16,
+              23
+            ],
+            "tags": []
+          },
+          "source": "console",
+          "span": [
+            16,
+            23
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+          "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+          "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        23
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/list-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            7,
+            8
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            9,
+            10
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            13,
+            14
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            16,
+            17
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 2,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "values",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 1,
+            "childStart": 2,
+            "omitted": false,
+            "parameter": "min",
+            "parameterIndex": 1,
+            "suppliedName": null
+          },
+          {
+            "childCount": 1,
+            "childStart": 3,
+            "omitted": false,
+            "parameter": "max",
+            "parameterIndex": 2,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:7390182ff37e1f445b20e90c0c1367de85474917c7f6e25114f00e09156d4ab7",
+        "name": "clamp",
+        "registration": "function:skript:79e061cd3aba6481d7885cb825cec3f483bf5d8aac1a17d8d2b786bc4ba98b18"
+      },
+      "mark": 0,
+      "multiplicity": "Multiple",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        18
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/named-function-arguments": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            16,
+            17
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            10,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": "n"
+          },
+          {
+            "childCount": 1,
+            "childStart": 1,
+            "omitted": false,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": "base"
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        18
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/nested-function": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [
+            {
+              "captures": [],
+              "children": [],
+              "expression": {
+                "kind": "literal",
+                "parser": "core.literal.number"
+              },
+              "function": null,
+              "mark": 0,
+              "multiplicity": "Single",
+              "possibleTypes": [
+                "java.lang.Long"
+              ],
+              "possibleTypesState": "Complete",
+              "returnType": "java.lang.Long",
+              "span": [
+                8,
+                10
+              ],
+              "tags": []
+            }
+          ],
+          "expression": {
+            "kind": "function",
+            "parser": "core.function"
+          },
+          "function": {
+            "arguments": [
+              {
+                "childCount": 1,
+                "childStart": 0,
+                "omitted": false,
+                "parameter": "n",
+                "parameterIndex": 0,
+                "suppliedName": null
+              }
+            ],
+            "definition": "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8",
+            "name": "abs",
+            "registration": "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d"
+          },
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Number"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Number",
+          "span": [
+            4,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5",
+        "name": "sin",
+        "registration": "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        12
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/number": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [],
+      "expression": {
+        "kind": "literal",
+        "parser": "core.literal.number"
+      },
+      "function": null,
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Long"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Long",
+      "span": [
+        0,
+        1
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.0/omitted-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            4,
+            5
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 0,
+            "childStart": 1,
+            "omitted": true,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        6
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/doc-message-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            28,
+            37
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "kind": "literal",
+              "parser": "core.literal.string"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "java.lang.String"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "java.lang.String",
+            "span": [
+              8,
+              49
+            ],
+            "tags": []
+          },
+          "source": "\"This message is a distraction. Mwahaha!\"",
+          "span": [
+            8,
+            49
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            42,
+            53
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "anchor": [
+                49,
+                49
+              ],
+              "captureIndex": 1,
+              "component": "nlaocs.core-library",
+              "expression": "%audiences%",
+              "kind": "default",
+              "literal": false,
+              "plural": true,
+              "provider": "core.default-expression.skript",
+              "requestedType": "net.kyori.adventure.audience.Audience",
+              "time": 0,
+              "typeDefinition": "type:skript:8b81548f783d5509f5a72e08f2ac5d3a6a4fe7b459724c9e3f1fa52ac0f224cd",
+              "typeRegistration": "type:skript:8b81548f783d5509f5a72e08f2ac5d3a6a4fe7b459724c9e3f1fa52ac0f224cd"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.command.CommandSender"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.command.CommandSender",
+            "span": [
+              49,
+              49
+            ],
+            "tags": []
+          },
+          "source": "",
+          "span": [
+            49,
+            49
+          ],
+          "state": "Default",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+          "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+          "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        49
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/doc-message-no-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Rejected, reason: \"omitted audience requires an Event providing org.bukkit.command.CommandSender; no Event context is active\" }"
+        ],
+        "span": [
+          49,
+          49
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.16.2-java25/doc-teleport-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            18,
+            28
+          ],
+          "resolved": {
+            "captures": [
+              {
+                "groups": [],
+                "index": 0,
+                "parser": null,
+                "patternSpan": [
+                  14,
+                  18
+                ],
+                "resolved": null,
+                "source": "player",
+                "span": [
+                  4,
+                  10
+                ],
+                "state": "regex",
+                "status": null
+              }
+            ],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.expressions.ExprEntity",
+              "identity": {
+                "class": "ch.njol.skript.expressions.ExprEntity",
+                "definition": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d",
+                "pattern": "[the] [event-]<.+>",
+                "patternIndex": 0,
+                "registration": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d:d6eb4f6f396b1232640dc776007f9a17dba17d71dfb6ac8e0f6a834e09c14099:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.entity.Player"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.entity.Player",
+            "span": [
+              9,
+              19
+            ],
+            "tags": []
+          },
+          "source": "the player",
+          "span": [
+            9,
+            19
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"entity\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            33,
+            44
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "anchor": [
+                20,
+                20
+              ],
+              "captureIndex": 1,
+              "component": "nlaocs.core-library",
+              "expression": "%direction%",
+              "kind": "default",
+              "literal": true,
+              "plural": false,
+              "provider": "core.default-expression.skript",
+              "requestedType": "ch.njol.skript.util.Direction",
+              "time": 0,
+              "typeDefinition": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6",
+              "typeRegistration": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "ch.njol.skript.util.Direction"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "ch.njol.skript.util.Direction",
+            "span": [
+              20,
+              20
+            ],
+            "tags": []
+          },
+          "source": "",
+          "span": [
+            20,
+            20
+          ],
+          "state": "Default",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"direction\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 2,
+          "parser": "host.expression",
+          "patternSpan": [
+            46,
+            56
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      17,
+                      49
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "groups": [],
+                          "index": 0,
+                          "parser": null,
+                          "patternSpan": [
+                            14,
+                            18
+                          ],
+                          "resolved": null,
+                          "source": "player",
+                          "span": [
+                            39,
+                            45
+                          ],
+                          "state": "regex",
+                          "status": null
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprEntity",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprEntity",
+                          "definition": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d",
+                          "pattern": "[the] [event-]<.+>",
+                          "patternIndex": 0,
+                          "registration": "expression:skript:939e3c88a0d02951fe764913631e5c868b6d3951c2698156c1971a90bb50458d:d6eb4f6f396b1232640dc776007f9a17dba17d71dfb6ac8e0f6a834e09c14099:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.entity.Player"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.entity.Player",
+                      "span": [
+                        39,
+                        45
+                      ],
+                      "tags": []
+                    },
+                    "source": "player",
+                    "span": [
+                      39,
+                      45
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"offlineplayer\", plural: true }, PatternTypeAlternative { name: \"world\", plural: true }, PatternTypeAlternative { name: \"entity\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "ch.njol.skript.expressions.ExprUUID",
+                  "identity": {
+                    "class": "ch.njol.skript.expressions.ExprUUID",
+                    "definition": "expression:skript:1683fe5814b5931cb123a0f8284fac16335b40b64f15f69ff0fac10da0f9c95c",
+                    "pattern": "[the] uuid[s] of %offlineplayers/worlds/entities%",
+                    "patternIndex": 0,
+                    "registration": "expression:skript:1683fe5814b5931cb123a0f8284fac16335b40b64f15f69ff0fac10da0f9c95c:7fd34d6d68d75ff1a3b9ec463c5c5a4984f8ededc12e7953ea5782d771c64fba:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Both",
+                "possibleTypes": [
+                  "java.util.UUID"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.util.UUID",
+                "span": [
+                  31,
+                  45
+                ],
+                "tags": []
+              }
+            ],
+            "expression": {
+              "kind": "variable",
+              "parser": "core.variable"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.Location"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.Location",
+            "span": [
+              23,
+              47
+            ],
+            "tags": []
+          },
+          "source": "{home::%uuid of player%}",
+          "span": [
+            23,
+            47
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": null,
+          "index": 3,
+          "parser": null,
+          "patternSpan": [
+            76,
+            92
+          ],
+          "resolved": null,
+          "source": "",
+          "span": [
+            47,
+            47
+          ],
+          "state": "Null",
+          "status": null,
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"teleportflag\", plural: true }], nullable: true, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport",
+          "definition": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+          "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        47
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/explicit-message": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            28,
+            37
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "kind": "literal",
+              "parser": "core.literal.string"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "java.lang.String"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "java.lang.String",
+            "span": [
+              5,
+              12
+            ],
+            "tags": []
+          },
+          "source": "\"hello\"",
+          "span": [
+            5,
+            12
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            42,
+            53
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.literals.LitConsole",
+              "identity": {
+                "class": "ch.njol.skript.literals.LitConsole",
+                "definition": "expression:skript:be54e9ebb7bc7d21e94deaa357df1c330e2fe7097accb26c5510d209ea68f661",
+                "pattern": "[the] (console|server)",
+                "patternIndex": 0,
+                "registration": "expression:skript:be54e9ebb7bc7d21e94deaa357df1c330e2fe7097accb26c5510d209ea68f661:8796035118f82d80e7dfca7f026a3ad17478cc064690550e33ba83e455bd4a10:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Both",
+            "possibleTypes": [
+              "org.bukkit.command.ConsoleCommandSender"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.command.ConsoleCommandSender",
+            "span": [
+              16,
+              23
+            ],
+            "tags": []
+          },
+          "source": "console",
+          "span": [
+            16,
+            23
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"audience\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+          "definition": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47",
+          "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:7db4467a7f5f2e09ac050e0952592d92af0c1c358e65a5530a51033c16229d47:1b01c43e5da11e350ee69bc369aaa3873b652f0b61a7e7f298d8a18e9e5b8615:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "(message|send [message[s]]) %objects% [to %audiences%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        23
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/list-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            7,
+            8
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            9,
+            10
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            13,
+            14
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            16,
+            17
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 2,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "values",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 1,
+            "childStart": 2,
+            "omitted": false,
+            "parameter": "min",
+            "parameterIndex": 1,
+            "suppliedName": null
+          },
+          {
+            "childCount": 1,
+            "childStart": 3,
+            "omitted": false,
+            "parameter": "max",
+            "parameterIndex": 2,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:7390182ff37e1f445b20e90c0c1367de85474917c7f6e25114f00e09156d4ab7",
+        "name": "clamp",
+        "registration": "function:skript:79e061cd3aba6481d7885cb825cec3f483bf5d8aac1a17d8d2b786bc4ba98b18"
+      },
+      "mark": 0,
+      "multiplicity": "Multiple",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        18
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/named-function-arguments": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            16,
+            17
+          ],
+          "tags": []
+        },
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            10,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": "n"
+          },
+          {
+            "childCount": 1,
+            "childStart": 1,
+            "omitted": false,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": "base"
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        18
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/nested-function": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [
+            {
+              "captures": [],
+              "children": [],
+              "expression": {
+                "kind": "literal",
+                "parser": "core.literal.number"
+              },
+              "function": null,
+              "mark": 0,
+              "multiplicity": "Single",
+              "possibleTypes": [
+                "java.lang.Long"
+              ],
+              "possibleTypesState": "Complete",
+              "returnType": "java.lang.Long",
+              "span": [
+                8,
+                10
+              ],
+              "tags": []
+            }
+          ],
+          "expression": {
+            "kind": "function",
+            "parser": "core.function"
+          },
+          "function": {
+            "arguments": [
+              {
+                "childCount": 1,
+                "childStart": 0,
+                "omitted": false,
+                "parameter": "n",
+                "parameterIndex": 0,
+                "suppliedName": null
+              }
+            ],
+            "definition": "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8",
+            "name": "abs",
+            "registration": "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d"
+          },
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Number"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Number",
+          "span": [
+            4,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5",
+        "name": "sin",
+        "registration": "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        12
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/number": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [],
+      "expression": {
+        "kind": "literal",
+        "parser": "core.literal.number"
+      },
+      "function": null,
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Long"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Long",
+      "span": [
+        0,
+        1
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/omitted-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            4,
+            5
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 0,
+            "childStart": 1,
+            "omitted": true,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        6
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/research-teleport": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:d4743519a13a96c7b9b3f71ede3ef8dd28c6b5dca0003c9fef704754dfdcac65",
+      "events": [
+        "ch.njol.skript.events.bukkit.ScriptEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:d4743519a13a96c7b9b3f71ede3ef8dd28c6b5dca0003c9fef704754dfdcac65:00f7713b25cb8236596bcba8688947ed5f625a682f5eb99328a5a0b3c959ca9e:0"
+    },
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            18,
+            28
+          ],
+          "resolved": {
+            "captures": [
+              {
+                "alternativeIndex": 0,
+                "index": 0,
+                "parser": "host.expression",
+                "patternSpan": [
+                  0,
+                  8
+                ],
+                "resolved": {
+                  "captures": [],
+                  "children": [],
+                  "expression": {
+                    "kind": "literal",
+                    "parser": "core.literal.string"
+                  },
+                  "function": null,
+                  "mark": 0,
+                  "multiplicity": "Single",
+                  "possibleTypes": [
+                    "java.lang.String"
+                  ],
+                  "possibleTypesState": "Complete",
+                  "returnType": "java.lang.String",
+                  "span": [
+                    9,
+                    17
+                  ],
+                  "tags": []
+                },
+                "source": "\"nlaocs\"",
+                "span": [
+                  0,
+                  8
+                ],
+                "state": "Explicit",
+                "status": "Success",
+                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+              },
+              {
+                "alternativeIndex": 0,
+                "index": 1,
+                "parser": "host.expression",
+                "patternSpan": [
+                  20,
+                  33
+                ],
+                "resolved": {
+                  "captures": [],
+                  "children": [],
+                  "expression": {
+                    "kind": "literal",
+                    "parser": "core.literal.class-info"
+                  },
+                  "function": null,
+                  "mark": 0,
+                  "multiplicity": "Single",
+                  "possibleTypes": [
+                    "ch.njol.skript.classes.ClassInfo"
+                  ],
+                  "possibleTypesState": "Complete",
+                  "returnType": "ch.njol.skript.classes.ClassInfo",
+                  "span": [
+                    28,
+                    34
+                  ],
+                  "tags": []
+                },
+                "source": "player",
+                "span": [
+                  19,
+                  25
+                ],
+                "state": "Explicit",
+                "status": "Success",
+                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+              }
+            ],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.expressions.ExprParse",
+              "identity": {
+                "class": "ch.njol.skript.expressions.ExprParse",
+                "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                "patternIndex": 0,
+                "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.entity.Player"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.entity.Player",
+            "span": [
+              9,
+              34
+            ],
+            "tags": []
+          },
+          "source": "\"nlaocs\" parsed as player",
+          "span": [
+            9,
+            34
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"entity\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            33,
+            44
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "anchor": [
+                35,
+                35
+              ],
+              "captureIndex": 1,
+              "component": "nlaocs.core-library",
+              "expression": "%direction%",
+              "kind": "default",
+              "literal": true,
+              "plural": false,
+              "provider": "core.default-expression.skript",
+              "requestedType": "ch.njol.skript.util.Direction",
+              "time": 0,
+              "typeDefinition": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6",
+              "typeRegistration": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "ch.njol.skript.util.Direction"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "ch.njol.skript.util.Direction",
+            "span": [
+              35,
+              35
+            ],
+            "tags": []
+          },
+          "source": "",
+          "span": [
+            35,
+            35
+          ],
+          "state": "Default",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"direction\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 2,
+          "parser": "host.expression",
+          "patternSpan": [
+            46,
+            56
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      0,
+                      9
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "alternativeIndex": 0,
+                          "index": 0,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            0,
+                            10
+                          ],
+                          "resolved": {
+                            "captures": [
+                              {
+                                "alternativeIndex": 0,
+                                "index": 0,
+                                "parser": "host.expression",
+                                "patternSpan": [
+                                  0,
+                                  8
+                                ],
+                                "resolved": {
+                                  "captures": [],
+                                  "children": [],
+                                  "expression": {
+                                    "kind": "literal",
+                                    "parser": "core.literal.string"
+                                  },
+                                  "function": null,
+                                  "mark": 0,
+                                  "multiplicity": "Single",
+                                  "possibleTypes": [
+                                    "java.lang.String"
+                                  ],
+                                  "possibleTypesState": "Complete",
+                                  "returnType": "java.lang.String",
+                                  "span": [
+                                    47,
+                                    55
+                                  ],
+                                  "tags": []
+                                },
+                                "source": "\"nlaocs\"",
+                                "span": [
+                                  0,
+                                  8
+                                ],
+                                "state": "Explicit",
+                                "status": "Success",
+                                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                              },
+                              {
+                                "alternativeIndex": 0,
+                                "index": 1,
+                                "parser": "host.expression",
+                                "patternSpan": [
+                                  20,
+                                  33
+                                ],
+                                "resolved": {
+                                  "captures": [],
+                                  "children": [],
+                                  "expression": {
+                                    "kind": "literal",
+                                    "parser": "core.literal.class-info"
+                                  },
+                                  "function": null,
+                                  "mark": 0,
+                                  "multiplicity": "Single",
+                                  "possibleTypes": [
+                                    "ch.njol.skript.classes.ClassInfo"
+                                  ],
+                                  "possibleTypesState": "Complete",
+                                  "returnType": "ch.njol.skript.classes.ClassInfo",
+                                  "span": [
+                                    66,
+                                    72
+                                  ],
+                                  "tags": []
+                                },
+                                "source": "player",
+                                "span": [
+                                  19,
+                                  25
+                                ],
+                                "state": "Explicit",
+                                "status": "Success",
+                                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+                              }
+                            ],
+                            "children": [],
+                            "expression": {
+                              "class": "ch.njol.skript.expressions.ExprParse",
+                              "identity": {
+                                "class": "ch.njol.skript.expressions.ExprParse",
+                                "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                                "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                                "patternIndex": 0,
+                                "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+                              },
+                              "kind": "registered"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "org.bukkit.entity.Player"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "org.bukkit.entity.Player",
+                            "span": [
+                              47,
+                              72
+                            ],
+                            "tags": []
+                          },
+                          "source": "\"nlaocs\" parsed as player",
+                          "span": [
+                            0,
+                            25
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprLocationOf",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprLocationOf",
+                          "definition": "expression:skript:97e69b556ed21cd99cb1f43d7b5c74726c03aa62857da707fdc63b71cad6e2af",
+                          "pattern": "%location%'[s] (location|position)",
+                          "patternIndex": 1,
+                          "registration": "expression:skript:97e69b556ed21cd99cb1f43d7b5c74726c03aa62857da707fdc63b71cad6e2af:061fa37653aa21423aacdeb978265533e2f3e9addc4ded0a2c508c535c99d0c4:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.Location"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.Location",
+                      "span": [
+                        47,
+                        83
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"nlaocs\" parsed as player's location",
+                    "span": [
+                      0,
+                      36
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+                  "identity": {
+                    "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+                    "definition": "expression:skript:ac0dd75d1b4bdbfa44ddee653d88464a68e5c35cda4f12cccc6a8ee804a9d394",
+                    "pattern": "%objects%'[s] (:x|:y|:z|:w)( |-)[component[s]|coord[inate][s]|dep:(pos[ition[s]]|loc[ation][s])]",
+                    "patternIndex": 1,
+                    "registration": "expression:skript:ac0dd75d1b4bdbfa44ddee653d88464a68e5c35cda4f12cccc6a8ee804a9d394:379b3526a494ce53926db13bdd1cf28740e4b7d23a56824b2bc9f26056f334cf:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Double"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Double",
+                "span": [
+                  47,
+                  93
+                ],
+                "tags": [
+                  "x"
+                ]
+              },
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      0,
+                      9
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "alternativeIndex": 0,
+                          "index": 0,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            0,
+                            10
+                          ],
+                          "resolved": {
+                            "captures": [
+                              {
+                                "alternativeIndex": 0,
+                                "index": 0,
+                                "parser": "host.expression",
+                                "patternSpan": [
+                                  0,
+                                  8
+                                ],
+                                "resolved": {
+                                  "captures": [],
+                                  "children": [],
+                                  "expression": {
+                                    "kind": "literal",
+                                    "parser": "core.literal.string"
+                                  },
+                                  "function": null,
+                                  "mark": 0,
+                                  "multiplicity": "Single",
+                                  "possibleTypes": [
+                                    "java.lang.String"
+                                  ],
+                                  "possibleTypesState": "Complete",
+                                  "returnType": "java.lang.String",
+                                  "span": [
+                                    94,
+                                    102
+                                  ],
+                                  "tags": []
+                                },
+                                "source": "\"nlaocs\"",
+                                "span": [
+                                  0,
+                                  8
+                                ],
+                                "state": "Explicit",
+                                "status": "Success",
+                                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                              },
+                              {
+                                "alternativeIndex": 0,
+                                "index": 1,
+                                "parser": "host.expression",
+                                "patternSpan": [
+                                  20,
+                                  33
+                                ],
+                                "resolved": {
+                                  "captures": [],
+                                  "children": [],
+                                  "expression": {
+                                    "kind": "literal",
+                                    "parser": "core.literal.class-info"
+                                  },
+                                  "function": null,
+                                  "mark": 0,
+                                  "multiplicity": "Single",
+                                  "possibleTypes": [
+                                    "ch.njol.skript.classes.ClassInfo"
+                                  ],
+                                  "possibleTypesState": "Complete",
+                                  "returnType": "ch.njol.skript.classes.ClassInfo",
+                                  "span": [
+                                    113,
+                                    119
+                                  ],
+                                  "tags": []
+                                },
+                                "source": "player",
+                                "span": [
+                                  19,
+                                  25
+                                ],
+                                "state": "Explicit",
+                                "status": "Success",
+                                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+                              }
+                            ],
+                            "children": [],
+                            "expression": {
+                              "class": "ch.njol.skript.expressions.ExprParse",
+                              "identity": {
+                                "class": "ch.njol.skript.expressions.ExprParse",
+                                "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                                "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                                "patternIndex": 0,
+                                "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+                              },
+                              "kind": "registered"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "org.bukkit.entity.Player"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "org.bukkit.entity.Player",
+                            "span": [
+                              94,
+                              119
+                            ],
+                            "tags": []
+                          },
+                          "source": "\"nlaocs\" parsed as player",
+                          "span": [
+                            0,
+                            25
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprLocationOf",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprLocationOf",
+                          "definition": "expression:skript:97e69b556ed21cd99cb1f43d7b5c74726c03aa62857da707fdc63b71cad6e2af",
+                          "pattern": "%location%'[s] (location|position)",
+                          "patternIndex": 1,
+                          "registration": "expression:skript:97e69b556ed21cd99cb1f43d7b5c74726c03aa62857da707fdc63b71cad6e2af:061fa37653aa21423aacdeb978265533e2f3e9addc4ded0a2c508c535c99d0c4:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.Location"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.Location",
+                      "span": [
+                        94,
+                        130
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"nlaocs\" parsed as player's location",
+                    "span": [
+                      0,
+                      36
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+                  "identity": {
+                    "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+                    "definition": "expression:skript:ac0dd75d1b4bdbfa44ddee653d88464a68e5c35cda4f12cccc6a8ee804a9d394",
+                    "pattern": "%objects%'[s] (:x|:y|:z|:w)( |-)[component[s]|coord[inate][s]|dep:(pos[ition[s]]|loc[ation][s])]",
+                    "patternIndex": 1,
+                    "registration": "expression:skript:ac0dd75d1b4bdbfa44ddee653d88464a68e5c35cda4f12cccc6a8ee804a9d394:379b3526a494ce53926db13bdd1cf28740e4b7d23a56824b2bc9f26056f334cf:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Double"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Double",
+                "span": [
+                  94,
+                  140
+                ],
+                "tags": [
+                  "y"
+                ]
+              },
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      0,
+                      9
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "alternativeIndex": 0,
+                          "index": 0,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            0,
+                            10
+                          ],
+                          "resolved": {
+                            "captures": [
+                              {
+                                "alternativeIndex": 0,
+                                "index": 0,
+                                "parser": "host.expression",
+                                "patternSpan": [
+                                  0,
+                                  8
+                                ],
+                                "resolved": {
+                                  "captures": [],
+                                  "children": [],
+                                  "expression": {
+                                    "kind": "literal",
+                                    "parser": "core.literal.string"
+                                  },
+                                  "function": null,
+                                  "mark": 0,
+                                  "multiplicity": "Single",
+                                  "possibleTypes": [
+                                    "java.lang.String"
+                                  ],
+                                  "possibleTypesState": "Complete",
+                                  "returnType": "java.lang.String",
+                                  "span": [
+                                    142,
+                                    150
+                                  ],
+                                  "tags": []
+                                },
+                                "source": "\"nlaocs\"",
+                                "span": [
+                                  0,
+                                  8
+                                ],
+                                "state": "Explicit",
+                                "status": "Success",
+                                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                              },
+                              {
+                                "alternativeIndex": 0,
+                                "index": 1,
+                                "parser": "host.expression",
+                                "patternSpan": [
+                                  20,
+                                  33
+                                ],
+                                "resolved": {
+                                  "captures": [],
+                                  "children": [],
+                                  "expression": {
+                                    "kind": "literal",
+                                    "parser": "core.literal.class-info"
+                                  },
+                                  "function": null,
+                                  "mark": 0,
+                                  "multiplicity": "Single",
+                                  "possibleTypes": [
+                                    "ch.njol.skript.classes.ClassInfo"
+                                  ],
+                                  "possibleTypesState": "Complete",
+                                  "returnType": "ch.njol.skript.classes.ClassInfo",
+                                  "span": [
+                                    161,
+                                    167
+                                  ],
+                                  "tags": []
+                                },
+                                "source": "player",
+                                "span": [
+                                  19,
+                                  25
+                                ],
+                                "state": "Explicit",
+                                "status": "Success",
+                                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+                              }
+                            ],
+                            "children": [],
+                            "expression": {
+                              "class": "ch.njol.skript.expressions.ExprParse",
+                              "identity": {
+                                "class": "ch.njol.skript.expressions.ExprParse",
+                                "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                                "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                                "patternIndex": 0,
+                                "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+                              },
+                              "kind": "registered"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "org.bukkit.entity.Player"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "org.bukkit.entity.Player",
+                            "span": [
+                              142,
+                              167
+                            ],
+                            "tags": []
+                          },
+                          "source": "\"nlaocs\" parsed as player",
+                          "span": [
+                            0,
+                            25
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprLocationOf",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprLocationOf",
+                          "definition": "expression:skript:97e69b556ed21cd99cb1f43d7b5c74726c03aa62857da707fdc63b71cad6e2af",
+                          "pattern": "%location%'[s] (location|position)",
+                          "patternIndex": 1,
+                          "registration": "expression:skript:97e69b556ed21cd99cb1f43d7b5c74726c03aa62857da707fdc63b71cad6e2af:061fa37653aa21423aacdeb978265533e2f3e9addc4ded0a2c508c535c99d0c4:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.Location"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.Location",
+                      "span": [
+                        142,
+                        178
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"nlaocs\" parsed as player's location",
+                    "span": [
+                      0,
+                      36
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+                  "identity": {
+                    "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+                    "definition": "expression:skript:ac0dd75d1b4bdbfa44ddee653d88464a68e5c35cda4f12cccc6a8ee804a9d394",
+                    "pattern": "%objects%'[s] (:x|:y|:z|:w)( |-)[component[s]|coord[inate][s]|dep:(pos[ition[s]]|loc[ation][s])]",
+                    "patternIndex": 1,
+                    "registration": "expression:skript:ac0dd75d1b4bdbfa44ddee653d88464a68e5c35cda4f12cccc6a8ee804a9d394:379b3526a494ce53926db13bdd1cf28740e4b7d23a56824b2bc9f26056f334cf:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Double"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Double",
+                "span": [
+                  142,
+                  188
+                ],
+                "tags": [
+                  "z"
+                ]
+              },
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      0,
+                      26
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "alternativeIndex": 0,
+                          "index": 0,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            0,
+                            8
+                          ],
+                          "resolved": {
+                            "captures": [],
+                            "children": [],
+                            "expression": {
+                              "kind": "literal",
+                              "parser": "core.literal.string"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "java.lang.String"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "java.lang.String",
+                            "span": [
+                              190,
+                              198
+                            ],
+                            "tags": []
+                          },
+                          "source": "\"nlaocs\"",
+                          "span": [
+                            0,
+                            8
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                        },
+                        {
+                          "alternativeIndex": 0,
+                          "index": 1,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            20,
+                            33
+                          ],
+                          "resolved": {
+                            "captures": [],
+                            "children": [],
+                            "expression": {
+                              "kind": "literal",
+                              "parser": "core.literal.class-info"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "ch.njol.skript.classes.ClassInfo"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "ch.njol.skript.classes.ClassInfo",
+                            "span": [
+                              209,
+                              215
+                            ],
+                            "tags": []
+                          },
+                          "source": "player",
+                          "span": [
+                            19,
+                            25
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprParse",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprParse",
+                          "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                          "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                          "patternIndex": 0,
+                          "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.entity.Player"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.entity.Player",
+                      "span": [
+                        190,
+                        215
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"nlaocs\" parsed as player",
+                    "span": [
+                      0,
+                      25
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: true }, PatternTypeAlternative { name: \"entity\", plural: true }, PatternTypeAlternative { name: \"chunk\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "ch.njol.skript.expressions.ExprWorld",
+                  "identity": {
+                    "class": "ch.njol.skript.expressions.ExprWorld",
+                    "definition": "expression:skript:a6ea29813df45e50aba22229ac2282f9377c53ee11893f0a166453ac6378f576",
+                    "pattern": "%locations/entities/chunk%'[s] world",
+                    "patternIndex": 1,
+                    "registration": "expression:skript:a6ea29813df45e50aba22229ac2282f9377c53ee11893f0a166453ac6378f576:4d8f18697dcdfaa6fd9a1a6086341ff0a8cb89d93225b9224ad189653d325881:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Both",
+                "possibleTypes": [
+                  "org.bukkit.World"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "org.bukkit.World",
+                "span": [
+                  190,
+                  223
+                ],
+                "tags": []
+              },
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      0,
+                      28
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "alternativeIndex": 0,
+                          "index": 0,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            0,
+                            8
+                          ],
+                          "resolved": {
+                            "captures": [],
+                            "children": [],
+                            "expression": {
+                              "kind": "literal",
+                              "parser": "core.literal.string"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "java.lang.String"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "java.lang.String",
+                            "span": [
+                              225,
+                              233
+                            ],
+                            "tags": []
+                          },
+                          "source": "\"nlaocs\"",
+                          "span": [
+                            0,
+                            8
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                        },
+                        {
+                          "alternativeIndex": 0,
+                          "index": 1,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            20,
+                            33
+                          ],
+                          "resolved": {
+                            "captures": [],
+                            "children": [],
+                            "expression": {
+                              "kind": "literal",
+                              "parser": "core.literal.class-info"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "ch.njol.skript.classes.ClassInfo"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "ch.njol.skript.classes.ClassInfo",
+                            "span": [
+                              244,
+                              250
+                            ],
+                            "tags": []
+                          },
+                          "source": "player",
+                          "span": [
+                            19,
+                            25
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprParse",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprParse",
+                          "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                          "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                          "patternIndex": 0,
+                          "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.entity.Player"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.entity.Player",
+                      "span": [
+                        225,
+                        250
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"nlaocs\" parsed as player",
+                    "span": [
+                      0,
+                      25
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"entity\", plural: true }, PatternTypeAlternative { name: \"location\", plural: true }, PatternTypeAlternative { name: \"vector\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "ch.njol.skript.expressions.ExprYawPitch",
+                  "identity": {
+                    "class": "ch.njol.skript.expressions.ExprYawPitch",
+                    "definition": "expression:skript:82af4868d47ab7675a940230e22d1bd1ee57d5d0c69b338fe24939dfbb1843b0",
+                    "pattern": "%entities/locations/vectors%'[s] (:yaw|pitch)",
+                    "patternIndex": 1,
+                    "registration": "expression:skript:82af4868d47ab7675a940230e22d1bd1ee57d5d0c69b338fe24939dfbb1843b0:3f30c85fd0870756648331ad61bbfb4a488ec62171474479d7a7140a8473c5df:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Both",
+                "possibleTypes": [
+                  "java.lang.Float"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Float",
+                "span": [
+                  225,
+                  256
+                ],
+                "tags": [
+                  "yaw"
+                ]
+              },
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      0,
+                      28
+                    ],
+                    "resolved": {
+                      "captures": [
+                        {
+                          "alternativeIndex": 0,
+                          "index": 0,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            0,
+                            8
+                          ],
+                          "resolved": {
+                            "captures": [],
+                            "children": [],
+                            "expression": {
+                              "kind": "literal",
+                              "parser": "core.literal.string"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "java.lang.String"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "java.lang.String",
+                            "span": [
+                              258,
+                              266
+                            ],
+                            "tags": []
+                          },
+                          "source": "\"nlaocs\"",
+                          "span": [
+                            0,
+                            8
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                        },
+                        {
+                          "alternativeIndex": 0,
+                          "index": 1,
+                          "parser": "host.expression",
+                          "patternSpan": [
+                            20,
+                            33
+                          ],
+                          "resolved": {
+                            "captures": [],
+                            "children": [],
+                            "expression": {
+                              "kind": "literal",
+                              "parser": "core.literal.class-info"
+                            },
+                            "function": null,
+                            "mark": 0,
+                            "multiplicity": "Single",
+                            "possibleTypes": [
+                              "ch.njol.skript.classes.ClassInfo"
+                            ],
+                            "possibleTypesState": "Complete",
+                            "returnType": "ch.njol.skript.classes.ClassInfo",
+                            "span": [
+                              277,
+                              283
+                            ],
+                            "tags": []
+                          },
+                          "source": "player",
+                          "span": [
+                            19,
+                            25
+                          ],
+                          "state": "Explicit",
+                          "status": "Success",
+                          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+                        }
+                      ],
+                      "children": [],
+                      "expression": {
+                        "class": "ch.njol.skript.expressions.ExprParse",
+                        "identity": {
+                          "class": "ch.njol.skript.expressions.ExprParse",
+                          "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                          "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                          "patternIndex": 0,
+                          "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+                        },
+                        "kind": "registered"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "org.bukkit.entity.Player"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "org.bukkit.entity.Player",
+                      "span": [
+                        258,
+                        283
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"nlaocs\" parsed as player",
+                    "span": [
+                      0,
+                      25
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"entity\", plural: true }, PatternTypeAlternative { name: \"location\", plural: true }, PatternTypeAlternative { name: \"vector\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "ch.njol.skript.expressions.ExprYawPitch",
+                  "identity": {
+                    "class": "ch.njol.skript.expressions.ExprYawPitch",
+                    "definition": "expression:skript:82af4868d47ab7675a940230e22d1bd1ee57d5d0c69b338fe24939dfbb1843b0",
+                    "pattern": "%entities/locations/vectors%'[s] (:yaw|pitch)",
+                    "patternIndex": 1,
+                    "registration": "expression:skript:82af4868d47ab7675a940230e22d1bd1ee57d5d0c69b338fe24939dfbb1843b0:3f30c85fd0870756648331ad61bbfb4a488ec62171474479d7a7140a8473c5df:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Both",
+                "possibleTypes": [
+                  "java.lang.Float"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Float",
+                "span": [
+                  258,
+                  291
+                ],
+                "tags": []
+              }
+            ],
+            "expression": {
+              "kind": "function",
+              "parser": "core.function"
+            },
+            "function": {
+              "arguments": [
+                {
+                  "childCount": 1,
+                  "childStart": 0,
+                  "omitted": false,
+                  "parameter": "x",
+                  "parameterIndex": 0,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 1,
+                  "omitted": false,
+                  "parameter": "y",
+                  "parameterIndex": 1,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 2,
+                  "omitted": false,
+                  "parameter": "z",
+                  "parameterIndex": 2,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 3,
+                  "omitted": false,
+                  "parameter": "world",
+                  "parameterIndex": 3,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 4,
+                  "omitted": false,
+                  "parameter": "yaw",
+                  "parameterIndex": 4,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 5,
+                  "omitted": false,
+                  "parameter": "pitch",
+                  "parameterIndex": 5,
+                  "suppliedName": null
+                }
+              ],
+              "definition": "function:skript:bcce62d2f1bace8261f0175932caa4b361d291af345f948f575c21f1914f2347",
+              "name": "location",
+              "registration": "function:skript:3815ae559ecd5055e475c36e52995c5c50db913306c13d61ef9edc7a0534f729"
+            },
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.Location"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.Location",
+            "span": [
+              38,
+              292
+            ],
+            "tags": []
+          },
+          "source": "location(\"nlaocs\" parsed as player's location's x-coord,\"nlaocs\" parsed as player's location's y-coord, \"nlaocs\" parsed as player's location's z-coord, \"nlaocs\" parsed as player's world, \"nlaocs\" parsed as player's yaw, \"nlaocs\" parsed as player's pitch)",
+          "span": [
+            38,
+            292
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": null,
+          "index": 3,
+          "parser": null,
+          "patternSpan": [
+            76,
+            92
+          ],
+          "resolved": null,
+          "source": "",
+          "span": [
+            292,
+            292
+          ],
+          "state": "Null",
+          "status": null,
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"teleportflag\", plural: true }], nullable: true, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport",
+          "definition": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+          "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        292
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.16.2-java25/short-teleport": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:d4743519a13a96c7b9b3f71ede3ef8dd28c6b5dca0003c9fef704754dfdcac65",
+      "events": [
+        "ch.njol.skript.events.bukkit.ScriptEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:d4743519a13a96c7b9b3f71ede3ef8dd28c6b5dca0003c9fef704754dfdcac65:00f7713b25cb8236596bcba8688947ed5f625a682f5eb99328a5a0b3c959ca9e:0"
+    },
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            18,
+            28
+          ],
+          "resolved": {
+            "captures": [
+              {
+                "alternativeIndex": 0,
+                "index": 0,
+                "parser": "host.expression",
+                "patternSpan": [
+                  0,
+                  8
+                ],
+                "resolved": {
+                  "captures": [],
+                  "children": [],
+                  "expression": {
+                    "kind": "literal",
+                    "parser": "core.literal.string"
+                  },
+                  "function": null,
+                  "mark": 0,
+                  "multiplicity": "Single",
+                  "possibleTypes": [
+                    "java.lang.String"
+                  ],
+                  "possibleTypesState": "Complete",
+                  "returnType": "java.lang.String",
+                  "span": [
+                    9,
+                    17
+                  ],
+                  "tags": []
+                },
+                "source": "\"nlaocs\"",
+                "span": [
+                  0,
+                  8
+                ],
+                "state": "Explicit",
+                "status": "Success",
+                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+              },
+              {
+                "alternativeIndex": 0,
+                "index": 1,
+                "parser": "host.expression",
+                "patternSpan": [
+                  20,
+                  33
+                ],
+                "resolved": {
+                  "captures": [],
+                  "children": [],
+                  "expression": {
+                    "kind": "literal",
+                    "parser": "core.literal.class-info"
+                  },
+                  "function": null,
+                  "mark": 0,
+                  "multiplicity": "Single",
+                  "possibleTypes": [
+                    "ch.njol.skript.classes.ClassInfo"
+                  ],
+                  "possibleTypesState": "Complete",
+                  "returnType": "ch.njol.skript.classes.ClassInfo",
+                  "span": [
+                    28,
+                    34
+                  ],
+                  "tags": []
+                },
+                "source": "player",
+                "span": [
+                  19,
+                  25
+                ],
+                "state": "Explicit",
+                "status": "Success",
+                "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"classinfo\", plural: false }], nullable: true, allow_literals: true, allow_expressions: false, time: 0 }"
+              }
+            ],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.expressions.ExprParse",
+              "identity": {
+                "class": "ch.njol.skript.expressions.ExprParse",
+                "definition": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6",
+                "pattern": "%string% parsed as (%-*classinfo%|\"<.*>\")",
+                "patternIndex": 0,
+                "registration": "expression:skript:0b5c7e0b4bcd9698a495492650d3c2cc213bb0cf91b94c10704de0bf8a1a35c6:fa4bd3cd9db6f2019aec7b810b603677cbaeef047a84eb9244e8bb7343d19d28:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.entity.Player"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.entity.Player",
+            "span": [
+              9,
+              34
+            ],
+            "tags": []
+          },
+          "source": "\"nlaocs\" parsed as player",
+          "span": [
+            9,
+            34
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"entity\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            33,
+            44
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "anchor": [
+                35,
+                35
+              ],
+              "captureIndex": 1,
+              "component": "nlaocs.core-library",
+              "expression": "%direction%",
+              "kind": "default",
+              "literal": true,
+              "plural": false,
+              "provider": "core.default-expression.skript",
+              "requestedType": "ch.njol.skript.util.Direction",
+              "time": 0,
+              "typeDefinition": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6",
+              "typeRegistration": "type:skript:aa651da0a4df81187f371b705dacc059015b6ae2a9df964772776bbec889b2b6"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "ch.njol.skript.util.Direction"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "ch.njol.skript.util.Direction",
+            "span": [
+              35,
+              35
+            ],
+            "tags": []
+          },
+          "source": "",
+          "span": [
+            35,
+            35
+          ],
+          "state": "Default",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"direction\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 2,
+          "parser": "host.expression",
+          "patternSpan": [
+            46,
+            56
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [
+              {
+                "captures": [],
+                "children": [],
+                "expression": {
+                  "kind": "literal",
+                  "parser": "core.literal.number"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Long"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Long",
+                "span": [
+                  47,
+                  48
+                ],
+                "tags": []
+              },
+              {
+                "captures": [],
+                "children": [],
+                "expression": {
+                  "kind": "literal",
+                  "parser": "core.literal.number"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Long"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Long",
+                "span": [
+                  50,
+                  51
+                ],
+                "tags": []
+              },
+              {
+                "captures": [],
+                "children": [],
+                "expression": {
+                  "kind": "literal",
+                  "parser": "core.literal.number"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Long"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Long",
+                "span": [
+                  53,
+                  54
+                ],
+                "tags": []
+              },
+              {
+                "captures": [
+                  {
+                    "alternativeIndex": 0,
+                    "index": 0,
+                    "parser": "host.expression",
+                    "patternSpan": [
+                      32,
+                      40
+                    ],
+                    "resolved": {
+                      "captures": [],
+                      "children": [],
+                      "expression": {
+                        "kind": "literal",
+                        "parser": "core.literal.string"
+                      },
+                      "function": null,
+                      "mark": 0,
+                      "multiplicity": "Single",
+                      "possibleTypes": [
+                        "java.lang.String"
+                      ],
+                      "possibleTypesState": "Complete",
+                      "returnType": "java.lang.String",
+                      "span": [
+                        62,
+                        69
+                      ],
+                      "tags": []
+                    },
+                    "source": "\"world\"",
+                    "span": [
+                      6,
+                      13
+                    ],
+                    "state": "Explicit",
+                    "status": "Success",
+                    "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"string\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+                  }
+                ],
+                "children": [],
+                "expression": {
+                  "class": "ch.njol.skript.expressions.ExprWorldFromName",
+                  "identity": {
+                    "class": "ch.njol.skript.expressions.ExprWorldFromName",
+                    "definition": "expression:skript:8f134aeddf421eeeaf5081d02dc034aa31182fe87c5b190b26a9e3c7ace5d746",
+                    "pattern": "[the] world [(named|with name)] %string%",
+                    "patternIndex": 0,
+                    "registration": "expression:skript:8f134aeddf421eeeaf5081d02dc034aa31182fe87c5b190b26a9e3c7ace5d746:0c0225fe819ce1cc79f918e1c5f0475e7dee8707e0b7b429e2aa294f3ae17dad:0"
+                  },
+                  "kind": "registered"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "org.bukkit.World"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "org.bukkit.World",
+                "span": [
+                  56,
+                  69
+                ],
+                "tags": []
+              },
+              {
+                "captures": [],
+                "children": [],
+                "expression": {
+                  "kind": "literal",
+                  "parser": "core.literal.number"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Float"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Float",
+                "span": [
+                  71,
+                  72
+                ],
+                "tags": []
+              },
+              {
+                "captures": [],
+                "children": [],
+                "expression": {
+                  "kind": "literal",
+                  "parser": "core.literal.number"
+                },
+                "function": null,
+                "mark": 0,
+                "multiplicity": "Single",
+                "possibleTypes": [
+                  "java.lang.Float"
+                ],
+                "possibleTypesState": "Complete",
+                "returnType": "java.lang.Float",
+                "span": [
+                  74,
+                  75
+                ],
+                "tags": []
+              }
+            ],
+            "expression": {
+              "kind": "function",
+              "parser": "core.function"
+            },
+            "function": {
+              "arguments": [
+                {
+                  "childCount": 1,
+                  "childStart": 0,
+                  "omitted": false,
+                  "parameter": "x",
+                  "parameterIndex": 0,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 1,
+                  "omitted": false,
+                  "parameter": "y",
+                  "parameterIndex": 1,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 2,
+                  "omitted": false,
+                  "parameter": "z",
+                  "parameterIndex": 2,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 3,
+                  "omitted": false,
+                  "parameter": "world",
+                  "parameterIndex": 3,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 4,
+                  "omitted": false,
+                  "parameter": "yaw",
+                  "parameterIndex": 4,
+                  "suppliedName": null
+                },
+                {
+                  "childCount": 1,
+                  "childStart": 5,
+                  "omitted": false,
+                  "parameter": "pitch",
+                  "parameterIndex": 5,
+                  "suppliedName": null
+                }
+              ],
+              "definition": "function:skript:bcce62d2f1bace8261f0175932caa4b361d291af345f948f575c21f1914f2347",
+              "name": "location",
+              "registration": "function:skript:3815ae559ecd5055e475c36e52995c5c50db913306c13d61ef9edc7a0534f729"
+            },
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "org.bukkit.Location"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.Location",
+            "span": [
+              38,
+              76
+            ],
+            "tags": []
+          },
+          "source": "location(1, 2, 3, world \"world\", 0, 0)",
+          "span": [
+            38,
+            76
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"location\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": null,
+          "index": 3,
+          "parser": null,
+          "patternSpan": [
+            76,
+            92
+          ],
+          "resolved": null,
+          "source": "",
+          "span": [
+            76,
+            76
+          ],
+          "state": "Null",
+          "status": null,
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"teleportflag\", plural: true }], nullable: true, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport",
+          "definition": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b",
+          "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:57ad44be100ba7de9f148130a02a4d223a69587f20f9934310b940118ea0935b:fb2af0b52432653fbf55e1f34875dce05722673ab13f43a1436cf75b8ca99501:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "[:force] teleport %entities% (to|%direction%) %location% [[while] retaining %-teleportflags%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        76
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.6.4-mc-1.12.2/doc-message-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+        "pattern": "(message|send [message[s]]) %objects% [to %commandsenders%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"commandsender\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Unresolved, reason: \"commandsender DefaultExpression has no statically verified return type\" }"
+        ],
+        "span": [
+          49,
+          49
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.6.4-mc-1.12.2/doc-message-no-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+        "pattern": "(message|send [message[s]]) %objects% [to %commandsenders%]",
+        "patternIndex": 0,
+        "registration": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"commandsender\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Unresolved, reason: \"commandsender DefaultExpression has no statically verified return type\" }"
+        ],
+        "span": [
+          49,
+          49
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.6.4-mc-1.12.2/doc-teleport-event": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": {
+      "definition": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c",
+      "events": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "patternIndex": 0,
+      "registration": "event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0"
+    },
+    "diagnostics": [],
+    "failure": {
+      "recognized": {
+        "definition": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba",
+        "pattern": "[(1¦force)] teleport %entities% (to|%direction%) %location%",
+        "patternIndex": 0,
+        "registration": "effect:skript:32926fd40499ca9e81da006259cb72890d891cc66ac87417716ac3305b7f60ba:ec481af6232b34ea01da61c7b8c990783eea35cebe829e043f37402a9be33ffc:0"
+      },
+      "trace": {
+        "eventRestricted": false,
+        "reasons": [
+          "DefaultExpression { capture_index: 1, expression: PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"direction\", plural: false }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }, kind: Unresolved, reason: \"direction DefaultExpression has no statically verified return type\" }"
+        ],
+        "span": [
+          20,
+          20
+        ]
+      }
+    },
+    "root": null,
+    "status": "incomplete"
+  },
+  "skript-2.6.4-mc-1.12.2/explicit-message": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [
+        {
+          "alternativeIndex": 0,
+          "index": 0,
+          "parser": "host.expression",
+          "patternSpan": [
+            28,
+            37
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "kind": "literal",
+              "parser": "core.literal.string"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Single",
+            "possibleTypes": [
+              "java.lang.String"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "java.lang.String",
+            "span": [
+              5,
+              12
+            ],
+            "tags": []
+          },
+          "source": "\"hello\"",
+          "span": [
+            5,
+            12
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"object\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        },
+        {
+          "alternativeIndex": 0,
+          "index": 1,
+          "parser": "host.expression",
+          "patternSpan": [
+            42,
+            58
+          ],
+          "resolved": {
+            "captures": [],
+            "children": [],
+            "expression": {
+              "class": "ch.njol.skript.expressions.LitConsole",
+              "identity": {
+                "class": "ch.njol.skript.expressions.LitConsole",
+                "definition": "expression:skript:8360969cd0d5943a753f8789370e0dc1ae386dac91696c6c3969325fc4ae87ff",
+                "pattern": "[the] (console|server)",
+                "patternIndex": 0,
+                "registration": "expression:skript:8360969cd0d5943a753f8789370e0dc1ae386dac91696c6c3969325fc4ae87ff:bded2674636f247706cbb76cadeff6159506ad46828ac5d85b6ff8d0fff74e93:0"
+              },
+              "kind": "registered"
+            },
+            "function": null,
+            "mark": 0,
+            "multiplicity": "Both",
+            "possibleTypes": [
+              "org.bukkit.command.ConsoleCommandSender"
+            ],
+            "possibleTypesState": "Complete",
+            "returnType": "org.bukkit.command.ConsoleCommandSender",
+            "span": [
+              16,
+              23
+            ],
+            "tags": []
+          },
+          "source": "console",
+          "span": [
+            16,
+            23
+          ],
+          "state": "Explicit",
+          "status": "Success",
+          "typeExpression": "PatternTypeExpr { alternatives: [PatternTypeAlternative { name: \"commandsender\", plural: true }], nullable: false, allow_literals: true, allow_expressions: true, time: 0 }"
+        }
+      ],
+      "selected": {
+        "identity": {
+          "class": "ch.njol.skript.effects.EffMessage",
+          "definition": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead",
+          "pattern": "(message|send [message[s]]) %objects% [to %commandsenders%]",
+          "patternIndex": 0,
+          "registration": "effect:skript:7aec06f88bd13743445b7764687c6acc3f8b95d175e520324a1f95ae60472ead:449ff1a405df3e54f607092e39177c1f38420d44a63b0a5cf4ede1862ff5f910:0"
+        },
+        "kind": "Effect",
+        "mark": 0,
+        "pattern": "(message|send [message[s]]) %objects% [to %commandsenders%]",
+        "tags": []
+      },
+      "span": [
+        0,
+        23
+      ]
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.6.4-mc-1.12.2/nested-function": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [
+            {
+              "captures": [],
+              "children": [],
+              "expression": {
+                "kind": "literal",
+                "parser": "core.literal.number"
+              },
+              "function": null,
+              "mark": 0,
+              "multiplicity": "Single",
+              "possibleTypes": [
+                "java.lang.Long"
+              ],
+              "possibleTypesState": "Complete",
+              "returnType": "java.lang.Long",
+              "span": [
+                8,
+                10
+              ],
+              "tags": []
+            }
+          ],
+          "expression": {
+            "kind": "function",
+            "parser": "core.function"
+          },
+          "function": {
+            "arguments": [
+              {
+                "childCount": 1,
+                "childStart": 0,
+                "omitted": false,
+                "parameter": "n",
+                "parameterIndex": 0,
+                "suppliedName": null
+              }
+            ],
+            "definition": "function:skript:b0c2d4ba117583c420e33a79da0454f6d6c1c6bedfbd0352a4604c7b63c809e8",
+            "name": "abs",
+            "registration": "function:skript:690ba211bf1f86df1039bd55ffdb1cfb6a69553fe5068b97cffa1395b110cd7d"
+          },
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Number"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Number",
+          "span": [
+            4,
+            11
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:a51aa1de2b0b75fd701e4f7813a8861c60f6511021313c4d46e27593ce0ab2e5",
+        "name": "sin",
+        "registration": "function:skript:0f27a8b6150025fa29b7b3fb96c4a144c28b5d02e6542451cb303b148cdade7e"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        12
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.6.4-mc-1.12.2/number": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [],
+      "expression": {
+        "kind": "literal",
+        "parser": "core.literal.number"
+      },
+      "function": null,
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Long"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Long",
+      "span": [
+        0,
+        1
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  },
+  "skript-2.6.4-mc-1.12.2/omitted-function-argument": {
+    "comparison": {
+      "conversionPath": "unknown",
+      "nativeSelected": "completeForProjectedFields",
+      "simplifiedImplementationClass": "unknown",
+      "upstreamFinalGraph": "unknown"
+    },
+    "context": null,
+    "diagnostics": [],
+    "failure": null,
+    "root": {
+      "captures": [],
+      "children": [
+        {
+          "captures": [],
+          "children": [],
+          "expression": {
+            "kind": "literal",
+            "parser": "core.literal.number"
+          },
+          "function": null,
+          "mark": 0,
+          "multiplicity": "Single",
+          "possibleTypes": [
+            "java.lang.Long"
+          ],
+          "possibleTypesState": "Complete",
+          "returnType": "java.lang.Long",
+          "span": [
+            4,
+            5
+          ],
+          "tags": []
+        }
+      ],
+      "expression": {
+        "kind": "function",
+        "parser": "core.function"
+      },
+      "function": {
+        "arguments": [
+          {
+            "childCount": 1,
+            "childStart": 0,
+            "omitted": false,
+            "parameter": "n",
+            "parameterIndex": 0,
+            "suppliedName": null
+          },
+          {
+            "childCount": 0,
+            "childStart": 1,
+            "omitted": true,
+            "parameter": "base",
+            "parameterIndex": 1,
+            "suppliedName": null
+          }
+        ],
+        "definition": "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
+        "name": "log",
+        "registration": "function:skript:296e4b07677a3ad690d87becee2c2bb64dd19aa2f7dbb1ca1dd37a7d0ea3a5c9"
+      },
+      "mark": 0,
+      "multiplicity": "Single",
+      "possibleTypes": [
+        "java.lang.Number"
+      ],
+      "possibleTypesState": "Complete",
+      "returnType": "java.lang.Number",
+      "span": [
+        0,
+        6
+      ],
+      "tags": []
+    },
+    "status": "matchedClean"
+  }
+}
