@@ -212,7 +212,7 @@ impl InputBuffer {
                         self.cancel();
                         return InputAction::ExitWithDiscard;
                     }
-                    _ if input.starts_with(':') => {
+                    _ if input.trim().starts_with(':') => {
                         return InputAction::CommandWhileCollecting(input);
                     }
                     _ if input.trim().is_empty() => {
@@ -230,7 +230,7 @@ impl InputBuffer {
         if input.trim().is_empty() {
             return InputAction::Ignore;
         }
-        if !input.contains(['\r', '\n']) && input.starts_with(':') {
+        if !input.contains(['\r', '\n']) && input.trim().starts_with(':') {
             return InputAction::Command(input);
         }
         if starts_document(&input, options) {
@@ -718,6 +718,35 @@ mod tests {
         assert_eq!(buffer.suggested_indent(options()), "        ");
         buffer.accept("    send \"done\"".to_owned(), options());
         assert_eq!(buffer.suggested_indent(options()), "    ");
+    }
+
+    #[test]
+    fn indented_meta_commands_do_not_change_the_document_draft() {
+        for command in [
+            ":help",
+            ":context",
+            ":json on",
+            ":event off",
+            ":reload",
+            ":events",
+            ":section pop",
+        ] {
+            let mut buffer = InputBuffer::default();
+            let input = format!("    {command}");
+            assert_eq!(
+                buffer.accept(input.clone(), options()),
+                InputAction::Command(input.clone())
+            );
+            buffer.accept("on join:".to_owned(), options());
+            assert_eq!(
+                buffer.accept(input.clone(), options()),
+                InputAction::CommandWhileCollecting(input)
+            );
+            assert_eq!(
+                buffer.accept("    :submit".to_owned(), options()),
+                InputAction::AnalyzeDocument("on join:".to_owned())
+            );
+        }
     }
 
     #[test]
