@@ -188,17 +188,19 @@ fn parse_syntax(text: &str) -> Option<ParsedSyntax> {
     if let Some(body) = body {
         // BlockUtils removes ASCII spaces throughout states before Bukkit reads tokens.
         let normalized = body.replace(';', ",").replace(' ', "");
-        let mut remaining = normalized.trim();
+        let mut remaining = normalized.trim_start_matches(is_state_whitespace);
         while !remaining.is_empty() {
             let name = read_state_token(&mut remaining)?;
-            remaining = remaining.trim_start().strip_prefix('=')?;
+            remaining = remaining
+                .trim_start_matches(is_state_whitespace)
+                .strip_prefix('=')?;
             let value = read_state_token(&mut remaining)?;
             if name.is_empty() || value.is_empty() || properties.insert(name, value).is_some() {
                 return None;
             }
-            remaining = remaining.trim_start();
+            remaining = remaining.trim_start_matches(is_state_whitespace);
             if !remaining.is_empty() {
-                remaining = remaining.strip_prefix(',')?.trim_start();
+                remaining = remaining.strip_prefix(',')?;
             }
         }
     }
@@ -209,8 +211,17 @@ fn parse_syntax(text: &str) -> Option<ParsedSyntax> {
     })
 }
 
+// Brigadier uses Java Character.isWhitespace, which excludes nonbreaking spaces.
+fn is_state_whitespace(character: char) -> bool {
+    matches!(character,
+        '\u{0009}'..='\u{000D}' | '\u{001C}'..='\u{0020}' | '\u{1680}' |
+        '\u{2000}'..='\u{2006}' | '\u{2008}'..='\u{200A}' |
+        '\u{2028}'..='\u{2029}' | '\u{205F}' | '\u{3000}'
+    )
+}
+
 fn read_state_token(input: &mut &str) -> Option<String> {
-    let text = input.trim_start();
+    let text = input.trim_start_matches(is_state_whitespace);
     let quote = text.chars().next()?;
     if matches!(quote, '\'' | '"') {
         let mut value = String::new();
@@ -345,7 +356,7 @@ fn canonical(value: &ParsedBlockData) -> String {
 #[cfg(test)]
 mod tests {
     use super::{AliasMaterial, BlockDataEntry, ParsedBlockData, canonical, parse_syntax};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn chest() -> BlockDataEntry {
         BlockDataEntry {
@@ -508,6 +519,88 @@ mod tests {
         }
         for mut input in [r#""a\q""#, r#""a\""#, r#""unterminated"#] {
             assert!(super::read_state_token(&mut input).is_none());
+        }
+    }
+
+    #[test]
+    fn state_whitespace_and_token_positions_match_the_java_paper_matrix() {
+        let cases = include_str!("../../tests/data/block-data-state-whitespace.tsv")
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(|line| {
+                let fields = line.split('\t').collect::<Vec<_>>();
+                let codepoint = u32::from_str_radix(fields[0], 16).unwrap();
+                (
+                    codepoint,
+                    fields[1] == "true",
+                    u32::from_str_radix(fields[2], 16).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let whitespace = cases
+            .iter()
+            .filter(|(_, whitespace, _)| *whitespace)
+            .map(|(codepoint, _, _)| *codepoint)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(whitespace.len(), 25);
+        for codepoint in 0..=0x10FFFF {
+            if let Some(character) = char::from_u32(codepoint) {
+                assert_eq!(
+                    super::is_state_whitespace(character),
+                    whitespace.contains(&codepoint),
+                    "U+{codepoint:04X}"
+                );
+            }
+        }
+        // Ordered exactly as the independent Paper probe that produced the masks.
+        let placements = [
+            ("chest[@facing=north]", "minecraft:chest[facing=north]"),
+            ("chest[facing@=north]", "minecraft:chest[facing=north]"),
+            (r#"chest["facing"@=north]"#, "minecraft:chest[facing=north]"),
+            ("chest[facing=@north]", "minecraft:chest[facing=north]"),
+            (r#"chest[facing=@"north"]"#, "minecraft:chest[facing=north]"),
+            ("chest[facing=north@]", "minecraft:chest[facing=north]"),
+            (r#"chest[facing="north"@]"#, "minecraft:chest[facing=north]"),
+            (
+                "chest[facing=north@,waterlogged=false]",
+                "minecraft:chest[facing=north,waterlogged=false]",
+            ),
+            (
+                "chest[facing=north,@waterlogged=false]",
+                "minecraft:chest[facing=north,waterlogged=false]",
+            ),
+            ("chest[@]", "minecraft:chest"),
+            ("chest[facing=north,@]", "minecraft:chest[facing=north]"),
+            ("chest[fa@cing=north]", "minecraft:chest[facing=north]"),
+            ("chest[facing=no@rth]", "minecraft:chest[facing=north]"),
+            (r#"chest["fa@cing"=north]"#, "minecraft:chest[facing=north]"),
+            (r#"chest[facing="no@rth"]"#, "minecraft:chest[facing=north]"),
+            (r#"chest["@facing"=north]"#, "minecraft:chest[facing=north]"),
+            (r#"chest["facing@"=north]"#, "minecraft:chest[facing=north]"),
+            (r#"chest[facing="@north"]"#, "minecraft:chest[facing=north]"),
+            (r#"chest[facing="north@"]"#, "minecraft:chest[facing=north]"),
+            ("chest[facing='north'@]", "minecraft:chest[facing=north]"),
+        ];
+        assert_eq!(cases.len(), 302);
+        for (codepoint, _, mask) in cases {
+            let marker = char::from_u32(codepoint).unwrap().to_string();
+            for (index, (template, expected)) in placements.iter().enumerate() {
+                let input = template.replace('@', &marker);
+                let actual = parse_syntax(&input).and_then(|syntax| {
+                    super::valid_properties(&chest(), &syntax.properties).then(|| {
+                        canonical(&ParsedBlockData {
+                            id: "minecraft:chest".to_owned(),
+                            properties: syntax.properties,
+                        })
+                    })
+                });
+                let expected = (mask & (1 << index) != 0).then_some(*expected);
+                assert_eq!(
+                    actual.as_deref(),
+                    expected,
+                    "U+{codepoint:04X} position={index}"
+                );
+            }
         }
     }
 }

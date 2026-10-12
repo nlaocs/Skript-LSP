@@ -893,6 +893,55 @@ fn core_block_data_parser_uses_the_schema_seven_runtime_registry() {
         assert!(result.matches.selected.is_none(), "{input}");
     }
 
+    for (marker, whitespace) in [
+        ('\t', true),
+        ('\u{001C}', true),
+        ('\u{001D}', true),
+        ('\u{001E}', true),
+        ('\u{001F}', true),
+        ('\u{2000}', true),
+        ('\u{0085}', false),
+        ('\u{00A0}', false),
+        ('\u{2007}', false),
+        ('\u{202F}', false),
+    ] {
+        for input in [
+            format!("chest[facing={marker}north]"),
+            format!("chest[facing=\"north\"{marker}]"),
+        ] {
+            let result = parse_typed_in_transaction(
+                &mut host,
+                &transaction,
+                &input,
+                &[BLOCK_DATA_CLASS],
+                50,
+            );
+            assert_eq!(result.matches.selected.is_some(), whitespace, "{input:?}");
+            if whitespace {
+                let node = selected_node(result, &input);
+                assert_eq!(
+                    node.metadata
+                        .get("nlaocs.core-library/literal-canonical")
+                        .map(String::as_str),
+                    Some("minecraft:chest[facing=north]")
+                );
+            }
+        }
+        for input in [
+            format!("chest[facing=\"no{marker}rth\"]"),
+            format!("chest[facing=north,{marker}]"),
+        ] {
+            let result = parse_typed_in_transaction(
+                &mut host,
+                &transaction,
+                &input,
+                &[BLOCK_DATA_CLASS],
+                50,
+            );
+            assert!(result.matches.selected.is_none(), "{input:?}");
+        }
+    }
+
     let expressions_only = parse_typed_in_transaction_with_config(
         &mut host,
         &transaction,
@@ -1039,6 +1088,13 @@ fn core_block_data_boundaries_reach_effect_and_document_parsing_from_ssg_runtime
             (r#"chest["waterlogged"="fa lse";]"#, true),
             (r#"chest[waterlogged="FALSE"]"#, false),
             (r#"chest[waterlogged="fa\lse"]"#, false),
+            ("chest[waterlogged=\u{001C}false]", true),
+            ("chest[waterlogged=\"false\"\u{00A0}]", false),
+            ("chest[waterlogged=\"false\"\u{2007}]", false),
+            ("chest[waterlogged=\"false\"\u{202F}]", false),
+            ("chest[waterlogged=\"false\"\u{0085}]", false),
+            ("chest[waterlogged=false,\t]", false),
+            ("chest[\u{2000}waterlogged=false]", true),
             ("oak stairs[facing=north;]", true),
             (r#"oak stairs["fa cing"="no rth"]"#, true),
             ("water[level=15]", true),
