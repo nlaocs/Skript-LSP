@@ -1076,6 +1076,8 @@ struct MarkReport {
 struct FailureReport {
     offset: usize,
     span: SpanReport,
+    #[serde(rename = "mappedSpan", skip_serializing_if = "Option::is_none")]
+    mapped_span: Option<document::MappedSpanReport>,
     reasons: Vec<FailureReasonReport>,
     contexts: Vec<FailureContextReport>,
     related: Vec<FailureReport>,
@@ -1092,6 +1094,7 @@ struct FailureContextReport {
     pattern: String,
     role: FailureContextRoleReport,
     span: SpanReport,
+    mapped_span: document::MappedSpanReport,
     pattern_span: Option<SpanReport>,
 }
 
@@ -1124,6 +1127,7 @@ struct FailureInterpretationReport {
     pattern_index: Option<usize>,
     pattern: Option<String>,
     span: SpanReport,
+    mapped_span: document::MappedSpanReport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2204,6 +2208,7 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
     FailureReport {
         offset: span.start,
         span,
+        mapped_span: Some(document::native_span(&failure.span.mapped)),
         reasons: failure
             .reasons
             .into_iter()
@@ -2300,6 +2305,9 @@ fn candidate_failure_report(
             pattern_index: alternative.matched.pattern_index,
             pattern: alternative.matched.pattern.clone(),
             span: match_span(&alternative.matched.trace.root_cause().failure.span),
+            mapped_span: document::native_span(
+                &alternative.matched.trace.root_cause().failure.span.mapped,
+            ),
         })
         .collect();
     report
@@ -2340,6 +2348,7 @@ fn failure_contexts(trace: &FailureTrace) -> Vec<FailureContextReport> {
                     }
                 },
                 span: match_span(&frame.input_span),
+                mapped_span: document::native_span(&frame.input_span.mapped),
                 pattern_span: frame.pattern_span.map(pattern_span),
             });
         }
@@ -2390,7 +2399,22 @@ fn write_failure(
     color: bool,
     message: &str,
 ) -> io::Result<()> {
-    write_failure_named(writer, source, "effect.sk", failure, color, message)
+    write_failure_named(writer, source, "effect.sk", failure, false, color, message)
+}
+
+fn failure_display_span(
+    span: SpanReport,
+    mapped: Option<&document::MappedSpanReport>,
+    original: bool,
+) -> SpanReport {
+    if original && let Some(mapped) = mapped {
+        let range = document::display_range(mapped);
+        return SpanReport {
+            start: usize::try_from(range.start).unwrap_or(usize::MAX),
+            end: usize::try_from(range.end).unwrap_or(usize::MAX),
+        };
+    }
+    span
 }
 
 fn write_failure_named(
@@ -2398,6 +2422,7 @@ fn write_failure_named(
     source: &str,
     source_name: &str,
     failure: &FailureReport,
+    original: bool,
     color: bool,
     message: &str,
 ) -> io::Result<()> {
@@ -2410,13 +2435,15 @@ fn write_failure_named(
         .and_then(|index| failure.reasons.get(index))
         .map(FailureReasonReport::human)
         .unwrap_or_else(|| "Effect parsing stopped here".to_owned());
-    let start = failure.span.start.min(source.len());
-    let end = failure.span.end.min(source.len()).max(start);
+    let span = failure_display_span(failure.span, failure.mapped_span.as_ref(), original);
+    let start = span.start.min(source.len());
+    let end = span.end.min(source.len()).max(start);
     let mut labels = vec![LabeledSpan::new(Some(primary), start, end - start)];
     let mut labeled_spans = vec![(start, end)];
     for related in &failure.related {
-        let related_start = related.span.start.min(source.len());
-        let related_end = related.span.end.min(source.len()).max(related_start);
+        let span = failure_display_span(related.span, related.mapped_span.as_ref(), original);
+        let related_start = span.start.min(source.len());
+        let related_end = span.end.min(source.len()).max(related_start);
         if labeled_spans.contains(&(related_start, related_end)) {
             continue;
         }
@@ -2435,8 +2462,9 @@ fn write_failure_named(
         labeled_spans.push((related_start, related_end));
     }
     for context in failure.contexts.iter().rev() {
-        let context_start = context.span.start.min(source.len());
-        let context_end = context.span.end.min(source.len()).max(context_start);
+        let span = failure_display_span(context.span, Some(&context.mapped_span), original);
+        let context_start = span.start.min(source.len());
+        let context_end = span.end.min(source.len()).max(context_start);
         if labeled_spans.contains(&(context_start, context_end)) {
             continue;
         }
@@ -2914,6 +2942,7 @@ mod tests {
         let start = source.find('あ').unwrap();
         let failure = FailureReport {
             offset: start,
+            mapped_span: None,
             span: SpanReport {
                 start,
                 end: start + 'あ'.len_utf8(),
@@ -2941,6 +2970,7 @@ mod tests {
         let source = "teleport a to location(b, 2, 3)";
         let failure = FailureReport {
             offset: 9,
+            mapped_span: None,
             span: SpanReport { start: 9, end: 10 },
             reasons: vec![FailureReasonReport::TypeExpression {
                 expected: vec!["entities".to_owned()],
@@ -2948,6 +2978,7 @@ mod tests {
             contexts: Vec::new(),
             related: vec![FailureReport {
                 offset: 14,
+                mapped_span: None,
                 span: SpanReport { start: 14, end: 31 },
                 reasons: vec![FailureReasonReport::TypeExpression {
                     expected: vec!["number".to_owned()],
