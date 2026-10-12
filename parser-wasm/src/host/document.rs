@@ -2,8 +2,9 @@
 //!
 //! This module owns the transaction boundary that the individual host methods
 //! intentionally leave to their callers. Syntax errors remain data in the
-//! returned partial document; host failures, cancellation, and stale revisions
-//! roll back both StateStore writes and document-scoped dynamic syntax.
+//! returned partial document. Extension faults retain their cause and uncertain
+//! regions; fatal host failures, cancellation, and stale revisions roll back
+//! both StateStore writes and document-scoped dynamic syntax.
 
 use std::{
     fmt,
@@ -23,9 +24,10 @@ use crate::state::{CommitSummary, ParseTransaction, StateError};
 
 use super::{
     AstMacroCall, AstMacroRequest, AstMacroResult, AstTree, ComponentFailure, HookCall,
-    HookDecision, HookEffects, HostError, InvocationContext, ParserHost, TextMacroCall,
-    TextMacroRequest, TextMacroResult, TreeMacroCall, TreeMacroRequest, TreeMacroResult,
-    WasmStructureParseResult, ast_tree, empty_effects, merge_effects,
+    HookDecision, HookEffects, HostError, InvocationContext, MappedSpan, MatchSpan, ParserHost,
+    ParserTextRange, TextMacroCall, TextMacroRequest, TextMacroResult, TreeMacroCall,
+    TreeMacroRequest, TreeMacroResult, WasmStructureParseResult, ast_tree, empty_effects,
+    extension_failure, mapped_span_to_wit, merge_effects,
 };
 
 /// Cooperative cancellation shared by the caller and one document parse.
@@ -193,13 +195,29 @@ impl Default for DocumentParserConfig {
 }
 
 /// Fully parsed partial AST and every accepted side effect for one committed revision.
+/// Execution completeness is independent of ordinary input syntax errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentExecutionStatus {
+    Complete,
+    Partial,
+}
+
+/// Known data can be retained here without certifying the affected region's meaning.
+#[derive(Debug, Clone)]
+pub struct ExtensionFaultRegion {
+    pub span: MappedSpan,
+    pub fault: skript_parser::ExtensionFault,
+}
+
 #[derive(Debug)]
 pub struct DocumentParseResult {
+    pub execution_status: DocumentExecutionStatus,
+    pub fault_regions: Vec<ExtensionFaultRegion>,
     pub source: MappedSource,
     pub raw_tree: RawTree,
     /// Native parser trace including unknown and recovered nodes.
     pub syntax: StructureDocument,
-    /// Canonical data-only AST after every accepted AST macro.
+    /// Data-only AST; `fault_regions` identify semantics that remain uncertain.
     pub ast: AstTree,
     pub functions: FunctionRegistrySnapshot,
     pub effects: HookEffects,
@@ -215,6 +233,7 @@ pub struct DocumentParseResult {
 }
 
 struct UncommittedDocument {
+    fault_regions: Vec<ExtensionFaultRegion>,
     source: MappedSource,
     raw_tree: RawTree,
     syntax: StructureDocument,
@@ -322,6 +341,12 @@ impl ParserHost {
         };
 
         Ok(DocumentParseResult {
+            execution_status: if parsed.fault_regions.is_empty() {
+                DocumentExecutionStatus::Complete
+            } else {
+                DocumentExecutionStatus::Partial
+            },
+            fault_regions: parsed.fault_regions,
             source: parsed.source,
             raw_tree: parsed.raw_tree,
             syntax: parsed.syntax,
@@ -346,6 +371,18 @@ impl ParserHost {
         request: &DocumentParseRequest,
         config: &DocumentParserConfig,
     ) -> Result<UncommittedDocument, DocumentParseError> {
+        let document_state = transaction.savepoint().map_err(HostError::from)?;
+        let document_dynamic = self
+            .dynamic_syntax_registry
+            .as_ref()
+            .map(|registry| {
+                registry.savepoint(
+                    &request.context.document_id,
+                    request.context.document_revision,
+                )
+            })
+            .transpose()
+            .map_err(HostError::from)?;
         check_cancelled(
             &request.context,
             &config.cancellation,
@@ -365,6 +402,17 @@ impl ParserHost {
             },
         )?;
 
+        let global_macro_fault = !text_failures.is_empty();
+        if global_macro_fault {
+            transaction
+                .rollback_to(&document_state)
+                .map_err(HostError::from)?;
+            if let (Some(registry), Some(savepoint)) =
+                (&self.dynamic_syntax_registry, &document_dynamic)
+            {
+                registry.rollback_to(savepoint).map_err(HostError::from)?;
+            }
+        }
         check_cancelled(
             &request.context,
             &config.cancellation,
@@ -387,22 +435,50 @@ impl ParserHost {
             effects: tree_effects,
             calls: tree_macro_calls,
             failures: tree_failures,
-        } = self.expand_tree_in_parse(
-            transaction,
-            TreeMacroRequest {
-                context: request.context.clone(),
+        } = if global_macro_fault {
+            TreeMacroResult {
+                decision: HookDecision::ContinueProcessing,
                 source,
                 tree: raw_tree,
-            },
-        )?;
+                effects: empty_effects(),
+                calls: Vec::new(),
+                failures: Vec::new(),
+            }
+        } else {
+            self.expand_tree_in_parse(
+                transaction,
+                TreeMacroRequest {
+                    context: request.context.clone(),
+                    source,
+                    tree: raw_tree,
+                },
+            )?
+        };
 
         check_cancelled(
             &request.context,
             &config.cancellation,
             DocumentParseStage::Syntax,
         )?;
+        let mut fault_regions = document_fault_regions(&source, &text_failures, "Preprocess")?;
+        fault_regions.extend(document_fault_regions(
+            &source,
+            &tree_failures,
+            "TreeMacro",
+        )?);
+        let mut syntax_tree = raw_tree.clone();
+        for node in &mut syntax_tree.nodes {
+            let node_span = mapped_span_to_wit(node.span.clone());
+            if global_macro_fault
+                || fault_regions
+                    .iter()
+                    .any(|region| fault_contains(&region.span, &node_span))
+            {
+                node.kind = skript_parser::RawNodeKind::Invalid;
+            }
+        }
         let WasmStructureParseResult {
-            document: syntax,
+            document: mut syntax,
             functions,
             effects: syntax_effects,
             calls: syntax_calls,
@@ -412,7 +488,7 @@ impl ParserHost {
             request.context.clone(),
             StructureParseRequest {
                 source: &source,
-                tree: &raw_tree,
+                tree: &syntax_tree,
                 context: ExpressionParseContext::default(),
             },
             config.structure.clone(),
@@ -423,6 +499,27 @@ impl ParserHost {
             &config.cancellation,
             DocumentParseStage::AstMacro,
         )?;
+        for region in &fault_regions {
+            let range = ParserTextRange::new(
+                region.span.virtual_range.start as usize,
+                region.span.virtual_range.end as usize,
+            );
+            if range.is_valid_for(source.virtual_source()) {
+                syntax.diagnostics.push(skript_parser::StructureDiagnostic {
+                    raw_node_id: None,
+                    kind: skript_parser::StructureDiagnosticKind::ExtensionFault,
+                    span: MatchSpan {
+                        local_range: range,
+                        mapped: source.map_range(range).map_err(|error| {
+                            HostError::SourceMapping {
+                                message: error.to_string(),
+                            }
+                        })?,
+                    },
+                    message: region.fault.to_string(),
+                });
+            }
+        }
         let ast = ast_tree::from_structure_document(&source, &syntax);
         let AstMacroResult {
             decision: ast_macro_decision,
@@ -431,20 +528,33 @@ impl ParserHost {
             effects: ast_effects,
             calls: ast_macro_calls,
             failures: ast_failures,
-        } = self.expand_ast_in_parse(
-            transaction,
-            AstMacroRequest {
-                context: request.context.clone(),
+        } = if global_macro_fault {
+            AstMacroResult {
+                decision: HookDecision::ContinueProcessing,
                 source,
                 tree: ast,
-            },
-        )?;
+                effects: empty_effects(),
+                calls: Vec::new(),
+                failures: Vec::new(),
+            }
+        } else {
+            self.expand_ast_in_parse(
+                transaction,
+                AstMacroRequest {
+                    context: request.context.clone(),
+                    source,
+                    tree: ast,
+                },
+            )?
+        };
 
         check_cancelled(
             &request.context,
             &config.cancellation,
             DocumentParseStage::AstMacro,
         )?;
+        fault_regions.extend(document_fault_regions(&source, &syntax_failures, "Syntax")?);
+        fault_regions.extend(document_fault_regions(&source, &ast_failures, "AstMacro")?);
         let mut effects = empty_effects();
         merge_effects(&mut effects, text_effects);
         merge_effects(&mut effects, tree_effects);
@@ -455,7 +565,16 @@ impl ParserHost {
         component_failures.extend(syntax_failures);
         component_failures.extend(ast_failures);
 
+        if global_macro_fault {
+            transaction
+                .rollback_to(&document_state)
+                .map_err(HostError::from)?;
+            effects.context_updates.clear();
+            effects.parse_requests.clear();
+            effects.parse_results.clear();
+        }
         Ok(UncommittedDocument {
+            fault_regions,
             source,
             raw_tree,
             syntax,
@@ -479,7 +598,7 @@ impl ParserHost {
         dynamic_savepoint: Option<&DynamicSyntaxSavepoint>,
     ) -> Result<(), HostError> {
         let dynamic_result = match (&self.dynamic_syntax_registry, dynamic_savepoint) {
-            (Some(registry), Some(savepoint)) => registry.rollback_to(savepoint),
+            (Some(registry), Some(savepoint)) => registry.abort_document_to(savepoint),
             _ => Ok(()),
         };
         let state_result = transaction.cancel();
@@ -516,4 +635,154 @@ fn raw_tree_options_for_runtime(version: Option<&str>) -> RawTreeOptions {
         return RawTreeOptions::for_skript_version(2, 9);
     };
     RawTreeOptions::for_skript_version(major, minor)
+}
+
+fn document_fault_regions(
+    source: &MappedSource,
+    failures: &[ComponentFailure],
+    phase: &str,
+) -> Result<Vec<ExtensionFaultRegion>, HostError> {
+    let mut regions = Vec::new();
+    for failure in failures {
+        let span = match &failure.affected_span {
+            Some(span) => span.clone(),
+            None => mapped_span_to_wit(
+                source
+                    .map_range(ParserTextRange::new(0, source.virtual_source().len()))
+                    .map_err(|error| HostError::SourceMapping {
+                        message: error.to_string(),
+                    })?,
+            ),
+        };
+        regions.push(ExtensionFaultRegion {
+            fault: extension_failure(failure, phase.to_owned(), "source region".to_owned()),
+            span,
+        });
+    }
+    Ok(regions)
+}
+
+fn fault_contains(fault: &MappedSpan, node: &MappedSpan) -> bool {
+    fault.origins.iter().any(|affected| {
+        node.origins.iter().any(|origin| {
+            affected.original_range.start <= origin.original_range.start
+                && origin.original_range.end <= affected.original_range.end
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::HostConfig;
+
+    #[test]
+    fn cancellation_after_syntax_freeze_closes_state_and_restores_registry() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let catalog = Arc::new(ssg::load(fixture).unwrap().into_catalog());
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig {
+                syntax_catalog: Some(catalog),
+                ..HostConfig::default()
+            },
+        )
+        .unwrap();
+        host.state_store
+            .register_component(
+                "test.cleanup",
+                &[crate::state::NamespaceDeclaration::private(
+                    "cancel-test",
+                    "test.cancel.v1",
+                    1,
+                )],
+            )
+            .unwrap();
+        let request = DocumentParseRequest::new(
+            "file:///workspace",
+            "file:///cancel.sk",
+            1,
+            "on load:\n    send 1 to console\n".to_owned(),
+        );
+        let config = DocumentParserConfig::default();
+        let transaction = host
+            .begin_parse(&request.project_uri, &request.context.document_id, 1)
+            .unwrap();
+        let registry = host.dynamic_syntax_registry.as_ref().unwrap().clone();
+        let savepoint = registry.savepoint(&request.context.document_id, 1).unwrap();
+        host.parse_document_uncommitted(&transaction, &request, &config)
+            .unwrap();
+        assert!(matches!(
+            registry.rollback_to(&savepoint),
+            Err(DynamicRegistryError::Frozen { .. })
+        ));
+        let mut invocation = transaction.begin_invocation("test.cleanup").unwrap();
+        invocation
+            .put(
+                crate::state::StateScope::Document,
+                crate::state::NamespaceVisibility::Private,
+                "cancel-test",
+                "value",
+                crate::state::StateValue::new(
+                    "test.cancel.v1",
+                    crate::state::StateEncoding::Raw,
+                    b"pending".to_vec(),
+                ),
+            )
+            .unwrap();
+        invocation.commit().unwrap();
+        assert!(!transaction.read_write_set().unwrap().writes.is_empty());
+        config.cancellation.cancel();
+        assert!(matches!(
+            check_cancelled(
+                &request.context,
+                &config.cancellation,
+                DocumentParseStage::Commit
+            ),
+            Err(DocumentParseError::Cancelled {
+                stage: DocumentParseStage::Commit,
+                ..
+            })
+        ));
+        host.rollback_document(&transaction, Some(&savepoint))
+            .unwrap();
+        assert!(matches!(
+            transaction.commit(),
+            Err(StateError::TransactionClosed)
+        ));
+        registry
+            .begin_document_update("test.cleanup", 0, &request.context.document_id, 1)
+            .unwrap();
+        host.parse_document(
+            DocumentParseRequest::new(
+                "file:///workspace",
+                "file:///cancel.sk",
+                2,
+                "on load:\n    send 1 to console\n".to_owned(),
+            ),
+            DocumentParserConfig::default(),
+        )
+        .unwrap();
+        let probe = host
+            .begin_parse("file:///workspace", "file:///cancel.sk", 3)
+            .unwrap();
+        let mut invocation = probe.begin_invocation("test.cleanup").unwrap();
+        assert!(
+            invocation
+                .get(
+                    crate::state::StateScope::Document,
+                    crate::state::NamespaceVisibility::Private,
+                    "cancel-test",
+                    "value"
+                )
+                .unwrap()
+                .is_none()
+        );
+        invocation.rollback();
+        probe.cancel().unwrap();
+    }
 }

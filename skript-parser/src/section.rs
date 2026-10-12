@@ -150,6 +150,7 @@ pub enum SectionBodyNode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SectionDiagnosticKind {
+    ExtensionFault,
     Unclaimed,
     MultipleClaims,
 }
@@ -300,11 +301,11 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .begin_semantic_candidate()
-            .map_err(|message| SectionParseError::Environment { message })?;
-        session
-            .activate_pattern_candidate(&matched)
-            .map_err(|message| SectionParseError::Environment { message })?;
+            .map_err(|message| session.environment_error(message))?;
         let attempt: SectionCandidateAttempt = (|| {
+            session
+                .activate_pattern_candidate(&matched)
+                .map_err(|message| session.environment_error(message))?;
             let Some(mut candidate) =
                 section_candidate(session, node.id, matched, range.start, depth)?
             else {
@@ -322,7 +323,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             let decision = session
                 .environment_mut()
                 .enter_section_children(request)
-                .map_err(|message| SectionParseError::Environment { message })?;
+                .map_err(|message| session.environment_error(message))?;
             let (mut child_context, body_mode, metadata) = match decision {
                 SectionChildrenDecision::Accept {
                     context,
@@ -374,7 +375,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             match session
                 .environment_mut()
                 .exit_section_children(request)
-                .map_err(|message| SectionParseError::Environment { message })?
+                .map_err(|message| session.environment_error(message))?
             {
                 SectionExitDecision::Accept {
                     mut context,
@@ -402,7 +403,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             .is_ok_and(|attempt| matches!(attempt, Some(Ok((_candidate, _diagnostics)))));
         session
             .finish_semantic_candidate(accepted)
-            .map_err(|message| SectionParseError::Environment { message })?;
+            .map_err(|message| session.environment_error(message))?;
         match attempt? {
             Some(Ok((candidate, child_diagnostics))) => {
                 diagnostics.extend(child_diagnostics);
@@ -506,7 +507,7 @@ fn section_candidate<E: ExpressionParseEnvironment>(
             mark: Some(matched.matched.mark),
             dynamic_handler,
         })
-        .map_err(|message| SectionParseError::Environment { message })?;
+        .map_err(|message| session.environment_error(message))?;
     let mut parsed_captures = Vec::new();
     for capture in &matched.matched.captures {
         let capture_index = capture.capture_index();
@@ -534,7 +535,7 @@ fn section_candidate<E: ExpressionParseEnvironment>(
             HOST_CONDITION_PARSER_ID => {
                 let context = session
                     .capture_context(binding)
-                    .map_err(|message| SectionParseError::Environment { message })?;
+                    .map_err(|message| session.environment_error(message))?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed =
                     crate::condition::parse_condition_with_session(session, range, depth + 1);
@@ -564,7 +565,7 @@ fn section_candidate<E: ExpressionParseEnvironment>(
             HOST_EFFECT_PARSER_ID => {
                 let context = session
                     .capture_context(binding)
-                    .map_err(|message| SectionParseError::Environment { message })?;
+                    .map_err(|message| session.environment_error(message))?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed = crate::effect::parse_effect_range_with_session(
                     session,
@@ -850,12 +851,24 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                 };
                 match body_mode {
                     SectionBodyMode::Trigger => {
-                        let effect_matches = crate::effect::parse_effect_range_with_session(
+                        let effect_matches = recover_body_fault(
                             session,
-                            code_span.virtual_range,
-                            child.id,
-                            depth,
+                            child,
+                            &mut body,
+                            &mut diagnostics,
+                            |session| {
+                                crate::effect::parse_effect_range_with_session(
+                                    session,
+                                    code_span.virtual_range,
+                                    child.id,
+                                    depth,
+                                )
+                                .map_err(SectionParseError::from)
+                            },
                         )?;
+                        let Some(effect_matches) = effect_matches else {
+                            continue;
+                        };
                         if effect_matches.selected.is_some() {
                             preceding_sections.clear();
                             extend_match_diagnostics(
@@ -869,11 +882,23 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                             continue;
                         }
 
-                        let condition_matches = crate::condition::parse_condition_with_session(
+                        let condition_matches = recover_body_fault(
                             session,
-                            code_span.virtual_range,
-                            depth,
+                            child,
+                            &mut body,
+                            &mut diagnostics,
+                            |session| {
+                                crate::condition::parse_condition_with_session(
+                                    session,
+                                    code_span.virtual_range,
+                                    depth,
+                                )
+                                .map_err(SectionParseError::from)
+                            },
                         )?;
+                        let Some(condition_matches) = condition_matches else {
+                            continue;
+                        };
                         if condition_matches.selected.is_some() {
                             // Conditions are TriggerItems too and interrupt an if/else sibling chain.
                             preceding_sections.clear();
@@ -895,11 +920,23 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                         body.push(SectionBodyNode::Effect(Box::new(effect_matches)));
                     }
                     SectionBodyMode::Conditions => {
-                        let matches = crate::condition::parse_condition_with_session(
+                        let matches = recover_body_fault(
                             session,
-                            code_span.virtual_range,
-                            depth,
+                            child,
+                            &mut body,
+                            &mut diagnostics,
+                            |session| {
+                                crate::condition::parse_condition_with_session(
+                                    session,
+                                    code_span.virtual_range,
+                                    depth,
+                                )
+                                .map_err(SectionParseError::from)
+                            },
                         )?;
+                        let Some(matches) = matches else {
+                            continue;
+                        };
                         extend_match_diagnostics(
                             session,
                             child,
@@ -931,15 +968,21 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                     .find(|node| !matches!(node.kind, RawNodeKind::Blank | RawNodeKind::Comment))
                     .map(|node| raw_node_summary(session, node))
                     .transpose()?;
-                let matches = parse_section_with_session(
-                    session,
-                    tree,
-                    child,
-                    depth,
-                    &preceding_sections,
-                    next_sibling.as_ref(),
-                    SectionRootLifecycle::Complete,
-                )?;
+                let matches =
+                    recover_body_fault(session, child, &mut body, &mut diagnostics, |session| {
+                        parse_section_with_session(
+                            session,
+                            tree,
+                            child,
+                            depth,
+                            &preceding_sections,
+                            next_sibling.as_ref(),
+                            SectionRootLifecycle::Complete,
+                        )
+                    })?;
+                let Some(matches) = matches else {
+                    continue;
+                };
                 diagnostics.extend(matches.diagnostics.iter().cloned());
                 if let Some(selected) = matches.selected.as_ref() {
                     preceding_sections.push(section_sibling_summary(session, selected)?);
@@ -957,6 +1000,46 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
         }
     }
     Ok((body, diagnostics))
+}
+
+fn recover_body_fault<E: ExpressionParseEnvironment, T>(
+    session: &mut ExpressionSession<'_, E>,
+    node: &RawNode,
+    body: &mut Vec<SectionBodyNode>,
+    diagnostics: &mut Vec<SectionDiagnostic>,
+    parse: impl FnOnce(&mut ExpressionSession<'_, E>) -> Result<T, SectionParseError>,
+) -> Result<Option<T>, SectionParseError> {
+    let context = session.context().clone();
+    let checkpoint = session
+        .begin_recovery_scope()
+        .map_err(|message| session.environment_error(message))?;
+    let result = parse(session);
+    session
+        .finish_recovery_scope(checkpoint, result.is_ok())
+        .map_err(|message| session.environment_error(message))?;
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if crate::extension_fault(&error).is_some() => {
+            let fault = crate::extension_fault(&error).expect("guard checked fault");
+            let span = session.map_range(
+                node.code_span
+                    .as_ref()
+                    .map_or(node.span.virtual_range, |span| span.virtual_range),
+            )?;
+            session
+                .environment_mut()
+                .observe_extension_fault(fault, span.mapped);
+            session.replace_context(context);
+            body.push(SectionBodyNode::Unclaimed(node.id));
+            diagnostics.push(section_diagnostic(
+                session,
+                node,
+                SectionDiagnosticKind::ExtensionFault,
+            )?);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn extend_match_diagnostics<E: ExpressionParseEnvironment>(

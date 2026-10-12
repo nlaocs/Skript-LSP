@@ -19,9 +19,10 @@ pub mod state;
 
 #[cfg(feature = "host")]
 pub use host::{
-    AstMacroCall, AstMacroRequest, AstMacroResult, DocumentCancellationToken, DocumentParseError,
-    DocumentParseRequest, DocumentParseResult, DocumentParseStage, DocumentParserConfig,
-    HostConfig, HostError, ParserHost, RuntimeAliasCapabilities, RuntimePlugin, RuntimeProfile,
+    AstMacroCall, AstMacroRequest, AstMacroResult, DocumentCancellationToken,
+    DocumentExecutionStatus, DocumentParseError, DocumentParseRequest, DocumentParseResult,
+    DocumentParseStage, DocumentParserConfig, ExtensionFaultRegion, HostConfig, HostError,
+    ParserHost, RuntimeAliasCapabilities, RuntimePlugin, RuntimeProfile,
     RuntimeSnapshotCapabilities, RuntimeSyntaxKindCapabilities, TreeMacroCall, TreeMacroRequest,
     TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult, WasmExpressionParseResult,
     WasmPatternMatchResult, WasmSectionParseResult, WasmStructureParseResult,

@@ -208,79 +208,85 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
         }
         session
             .begin_semantic_candidate()
-            .map_err(|message| ExpressionParseError::Environment { message })?;
-        session
-            .activate_pattern_candidate(&matched)
-            .map_err(|message| ExpressionParseError::Environment { message })?;
-        let mut candidate = condition_candidate(session, matched, trimmed)?;
-        let mut accepted_semantically = true;
-        let input = trimmed
-            .slice(session.source().virtual_source())
-            .ok_or(ConditionParseError::InvalidInputRange { range: trimmed })?;
-        let context = session.context().clone();
-        match session
-            .environment_mut()
-            .resolve_condition_candidate(ConditionSemanticRequest {
-                input,
-                context: &context,
-                candidate: &candidate,
-            })
-            .map_err(|message| ExpressionParseError::Environment { message })?
-        {
-            ConditionSemanticDecision::UseCandidate => {}
-            ConditionSemanticDecision::Accepted {
-                context,
-                handler,
-                metadata,
-            } => {
-                session.replace_context(context);
-                candidate.node.handler = handler;
-                candidate.node.metadata = metadata;
-            }
-            ConditionSemanticDecision::Reject {
-                reason,
-                diagnostics,
-            } => {
-                accepted_semantically = false;
-                let candidate_span = candidate.node.span.clone();
-                let span = crate::failure::semantic_failure_span(&candidate_span, &diagnostics);
-                let mut trace = FailureTrace::leaf(PatternFailure {
-                    span: span.clone(),
-                    reasons: vec![PatternFailureReason::HookRejected { reason }],
-                });
-                if let ConditionNodeKind::Registered {
-                    definition_id,
-                    registration_id,
-                    pattern_index,
-                    pattern,
-                    ..
-                } = &candidate.node.kind
-                {
-                    trace = trace.with_parent(FailureFrame {
-                        kind: MatchSyntaxKind::Condition,
-                        definition_id: definition_id.clone(),
-                        registration_id: registration_id.clone(),
-                        pattern_index: *pattern_index,
-                        pattern: pattern.clone(),
-                        element_path: Vec::new(),
-                        pattern_span: None,
-                        input_span: candidate_span,
-                        role: FailureFrameRole::SemanticCandidate,
-                    });
+            .map_err(|message| session.environment_error(message))?;
+        let attempt: Result<_, ConditionParseError> = (|| {
+            session
+                .activate_pattern_candidate(&matched)
+                .map_err(|message| session.environment_error(message))?;
+            let mut candidate = condition_candidate(session, matched, trimmed)?;
+            let mut accepted_semantically = true;
+            let input = trimmed
+                .slice(session.source().virtual_source())
+                .ok_or(ConditionParseError::InvalidInputRange { range: trimmed })?;
+            let context = session.context().clone();
+            match session
+                .environment_mut()
+                .resolve_condition_candidate(ConditionSemanticRequest {
+                    input,
+                    context: &context,
+                    candidate: &candidate,
+                })
+                .map_err(|message| session.environment_error(message))?
+            {
+                ConditionSemanticDecision::UseCandidate => {}
+                ConditionSemanticDecision::Accepted {
+                    context,
+                    handler,
+                    metadata,
+                } => {
+                    session.replace_context(context);
+                    candidate.node.handler = handler;
+                    candidate.node.metadata = metadata;
                 }
-                failure = crate::choose_failure_trace(
-                    failure,
-                    Some(trace.with_semantic_diagnostics(diagnostics)),
-                );
+                ConditionSemanticDecision::Reject {
+                    reason,
+                    diagnostics,
+                } => {
+                    accepted_semantically = false;
+                    let candidate_span = candidate.node.span.clone();
+                    let span = crate::failure::semantic_failure_span(&candidate_span, &diagnostics);
+                    let mut trace = FailureTrace::leaf(PatternFailure {
+                        span: span.clone(),
+                        reasons: vec![PatternFailureReason::HookRejected { reason }],
+                    });
+                    if let ConditionNodeKind::Registered {
+                        definition_id,
+                        registration_id,
+                        pattern_index,
+                        pattern,
+                        ..
+                    } = &candidate.node.kind
+                    {
+                        trace = trace.with_parent(FailureFrame {
+                            kind: MatchSyntaxKind::Condition,
+                            definition_id: definition_id.clone(),
+                            registration_id: registration_id.clone(),
+                            pattern_index: *pattern_index,
+                            pattern: pattern.clone(),
+                            element_path: Vec::new(),
+                            pattern_span: None,
+                            input_span: candidate_span,
+                            role: FailureFrameRole::SemanticCandidate,
+                        });
+                    }
+                    failure = crate::choose_failure_trace(
+                        failure.take(),
+                        Some(trace.with_semantic_diagnostics(diagnostics)),
+                    );
+                }
             }
-        }
-        let keep = accepted_semantically && accepted.is_empty();
+            Ok((candidate, accepted_semantically))
+        })();
+        let keep = attempt
+            .as_ref()
+            .is_ok_and(|(_, accepted_semantically)| *accepted_semantically && accepted.is_empty());
         if keep {
             selected_context = Some(session.context().clone());
         }
         session
             .finish_semantic_candidate(keep)
-            .map_err(|message| ExpressionParseError::Environment { message })?;
+            .map_err(|message| session.environment_error(message))?;
+        let (candidate, accepted_semantically) = attempt?;
         if accepted_semantically {
             accepted.push(candidate);
             break;

@@ -170,6 +170,8 @@ pub enum StructureEntryValue {
 /// Recoverable problem found while claiming a Structure or validating its body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StructureDiagnosticKind {
+    /// An extension failed; syntax adoption is not determined for this node.
+    ExtensionFault,
     /// No registered Structure or EntryData accepted the node.
     Unclaimed,
     /// More than one registration accepted the same header.
@@ -341,8 +343,37 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
             }
             RawNodeKind::Simple | RawNodeKind::Section => {
                 let parent_context = session.context().clone();
-                let (matches, selected_context, body_mode) =
-                    parse_structure_header(&mut session, request.tree, node)?;
+                let checkpoint = session
+                    .begin_recovery_scope()
+                    .map_err(|message| session.environment_error(message))?;
+                let header = parse_structure_header(&mut session, request.tree, node);
+                session
+                    .finish_recovery_scope(checkpoint, header.is_ok())
+                    .map_err(|message| session.environment_error(message))?;
+                let (matches, selected_context, body_mode) = match header {
+                    Ok(value) => value,
+                    Err(error) if crate::extension_fault(&error).is_some() => {
+                        let fault = crate::extension_fault(&error).expect("guard checked fault");
+                        let span = session.map_range(
+                            node.code_span
+                                .as_ref()
+                                .map_or(node.span.virtual_range, |span| span.virtual_range),
+                        )?;
+                        session
+                            .environment_mut()
+                            .observe_extension_fault(fault, span.mapped);
+                        session.replace_context(parent_context);
+                        diagnostics.push(node_diagnostic(
+                            &session,
+                            node,
+                            StructureDiagnosticKind::ExtensionFault,
+                            &error.to_string(),
+                        )?);
+                        roots.push(StructureDocumentNode::Unclaimed(node.id));
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 diagnostics.extend(matches.diagnostics.iter().cloned());
                 let root_index = roots.len();
                 roots.push(StructureDocumentNode::Structure(Box::new(matches)));
@@ -398,7 +429,8 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
             session.replace_context(document_context.clone());
             session
                 .begin_semantic_candidate()
-                .map_err(|message| StructureParseError::Environment { message })?;
+                .map_err(|message| session.environment_error(message))?;
+            let provisional_candidate = candidate.clone();
             let attempt: StructureBodyAttempt = (|| {
                 let (context, body_mode) = if let Some(initialized) = initialized {
                     initialized
@@ -417,7 +449,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                     match session
                         .environment_mut()
                         .enter_structure(enter)
-                        .map_err(|message| StructureParseError::Environment { message })?
+                        .map_err(|message| session.environment_error(message))?
                     {
                         StructureHookDecision::Accept {
                             context,
@@ -466,7 +498,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 let rejection = match session
                     .environment_mut()
                     .exit_structure(exit)
-                    .map_err(|message| StructureParseError::Environment { message })?
+                    .map_err(|message| session.environment_error(message))?
                 {
                     StructureExitDecision::Accept => None,
                     StructureExitDecision::Reject {
@@ -481,14 +513,41 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 .is_ok_and(|(_, _, rejection)| rejection.is_none());
             session
                 .finish_semantic_candidate(accepted)
-                .map_err(|message| StructureParseError::Environment { message })?;
+                .map_err(|message| session.environment_error(message))?;
             session.replace_context(document_context.clone());
-            let (candidate, body_diagnostics, rejection) = attempt?;
+            let (candidate, body_diagnostics, rejection) = match attempt {
+                Ok(value) => value,
+                Err(error) if crate::extension_fault(&error).is_some() => {
+                    session
+                        .environment_mut()
+                        .discard_structure_candidate(&provisional_candidate)
+                        .map_err(|message| session.environment_error(message))?;
+                    let fault = crate::extension_fault(&error).expect("guard checked fault");
+                    let span = session.map_range(
+                        node.code_span
+                            .as_ref()
+                            .map_or(node.span.virtual_range, |span| span.virtual_range),
+                    )?;
+                    session
+                        .environment_mut()
+                        .observe_extension_fault(fault, span.mapped);
+                    diagnostics.push(node_diagnostic(
+                        &session,
+                        node,
+                        StructureDiagnosticKind::ExtensionFault,
+                        &error.to_string(),
+                    )?);
+                    matches.selected = None;
+                    matches.alternatives.clear();
+                    break;
+                }
+                Err(error) => return Err(error),
+            };
             if let Some((reason, semantic_diagnostics)) = rejection {
                 session
                     .environment_mut()
                     .discard_structure_candidate(&candidate)
-                    .map_err(|message| StructureParseError::Environment { message })?;
+                    .map_err(|message| session.environment_error(message))?;
                 best_rejection.get_or_insert((
                     candidate,
                     body_diagnostics,
@@ -607,67 +666,74 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
         session.replace_context(initial_context.clone());
         session
             .begin_semantic_candidate()
-            .map_err(|message| StructureParseError::Environment { message })?;
-        session
-            .activate_pattern_candidate(&matched)
-            .map_err(|message| StructureParseError::Environment { message })?;
-        let mut candidate =
-            structure_candidate(session, node.id, actual_node_type, matched, range.start, 0);
+            .map_err(|message| session.environment_error(message))?;
         let selected_candidate = accepted.is_empty();
-        let mut accepted_semantically = false;
-        if let Ok(Some(candidate)) = candidate.as_mut() {
-            let default_body_mode = default_body_mode(session, candidate);
-            let context = session.context().clone();
-            let request = StructureHookRequest {
-                input: session.source().virtual_source(),
-                tree,
-                timing: StructureHookTiming::EnterBody,
-                candidate,
-                context: &context,
-                default_body_mode,
-            };
-            match session
-                .environment_mut()
-                .enter_structure(request)
-                .map_err(|message| StructureParseError::Environment { message })?
-            {
-                StructureHookDecision::Accept {
-                    context,
-                    body_mode,
-                    metadata,
-                } => {
-                    accepted_semantically = true;
-                    if selected_candidate {
-                        // A bodyless Structure is a document directive. Its context
-                        // changes apply to following roots; body-bearing Structures
-                        // keep their context scoped to their own body.
-                        if body_mode == StructureBodyMode::None {
-                            session.replace_context(context.clone());
+        let attempt: Result<_, StructureParseError> = (|| {
+            session
+                .activate_pattern_candidate(&matched)
+                .map_err(|message| session.environment_error(message))?;
+            let mut candidate =
+                structure_candidate(session, node.id, actual_node_type, matched, range.start, 0)?;
+            let mut accepted_semantically = false;
+            if let Some(candidate) = candidate.as_mut() {
+                let default_body_mode = default_body_mode(session, candidate);
+                let context = session.context().clone();
+                let request = StructureHookRequest {
+                    input: session.source().virtual_source(),
+                    tree,
+                    timing: StructureHookTiming::EnterBody,
+                    candidate,
+                    context: &context,
+                    default_body_mode,
+                };
+                match session
+                    .environment_mut()
+                    .enter_structure(request)
+                    .map_err(|message| session.environment_error(message))?
+                {
+                    StructureHookDecision::Accept {
+                        context,
+                        body_mode,
+                        metadata,
+                    } => {
+                        accepted_semantically = true;
+                        if selected_candidate {
+                            // A bodyless Structure is a document directive. Its context
+                            // changes apply to following roots; body-bearing Structures
+                            // keep their context scoped to their own body.
+                            if body_mode == StructureBodyMode::None {
+                                session.replace_context(context.clone());
+                            }
+                            selected_context = Some(context);
+                            selected_body_mode = Some(body_mode);
                         }
-                        selected_context = Some(context);
-                        selected_body_mode = Some(body_mode);
+                        candidate.metadata = metadata;
                     }
-                    candidate.metadata = metadata;
-                }
-                StructureHookDecision::Reject {
-                    reason,
-                    diagnostics,
-                } => {
-                    failure = crate::choose_failure_trace(
-                        failure,
-                        Some(structure_semantic_rejection(
-                            &candidate.matched,
-                            reason,
-                            diagnostics,
-                        )),
-                    );
+                    StructureHookDecision::Reject {
+                        reason,
+                        diagnostics,
+                    } => {
+                        failure = crate::choose_failure_trace(
+                            failure.take(),
+                            Some(structure_semantic_rejection(
+                                &candidate.matched,
+                                reason,
+                                diagnostics,
+                            )),
+                        );
+                    }
                 }
             }
-        }
+            Ok((candidate, accepted_semantically))
+        })();
+        let keep = attempt
+            .as_ref()
+            .is_ok_and(|(_, accepted)| selected_candidate && *accepted);
         session
-            .finish_semantic_candidate(selected_candidate && accepted_semantically)
-            .map_err(|message| StructureParseError::Environment { message })?;
-        if let Some(candidate) = candidate?
+            .finish_semantic_candidate(keep)
+            .map_err(|message| session.environment_error(message))?;
+        let (candidate, accepted_semantically) = attempt?;
+        if let Some(candidate) = candidate
             && accepted_semantically
         {
             accepted.push(candidate);
@@ -763,7 +829,7 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
             mark: Some(matched.matched.mark),
             dynamic_handler,
         })
-        .map_err(|message| StructureParseError::Environment { message })?;
+        .map_err(|message| session.environment_error(message))?;
     let mut parsed_captures = Vec::new();
     for capture in &matched.matched.captures {
         let capture_index = capture.capture_index();
@@ -791,9 +857,7 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
             HOST_EVENT_PARSER_ID => {
                 let parsed =
                     crate::event::parse_event_range_with_session(session, range, depth + 1)
-                        .map_err(|error| StructureParseError::Body {
-                            message: error.to_string(),
-                        })?;
+                        .map_err(nested_structure_error)?;
                 match parsed.selected {
                     Some(selected) => {
                         crate::event_parsed_capture(capture_index, binding.clone(), selected)
@@ -813,16 +877,14 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
             HOST_CONDITION_PARSER_ID => {
                 let context = session
                     .capture_context(binding)
-                    .map_err(|message| StructureParseError::Environment { message })?;
+                    .map_err(|message| session.environment_error(message))?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed =
                     crate::condition::parse_condition_with_session(session, range, depth + 1);
                 if let Some(previous) = previous {
                     session.replace_context(previous);
                 }
-                let parsed = parsed.map_err(|error| StructureParseError::Body {
-                    message: error.to_string(),
-                })?;
+                let parsed = parsed.map_err(nested_structure_error)?;
                 match parsed.selected {
                     Some(selected) => {
                         let mut capture =
@@ -845,7 +907,7 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
             HOST_EFFECT_PARSER_ID => {
                 let context = session
                     .capture_context(binding)
-                    .map_err(|message| StructureParseError::Environment { message })?;
+                    .map_err(|message| session.environment_error(message))?;
                 let previous = context.map(|context| session.replace_context(context));
                 let parsed = crate::effect::parse_effect_range_with_session(
                     session,
@@ -856,9 +918,7 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
                 if let Some(previous) = previous {
                     session.replace_context(previous);
                 }
-                let parsed = parsed.map_err(|error| StructureParseError::Body {
-                    message: error.to_string(),
-                })?;
+                let parsed = parsed.map_err(nested_structure_error)?;
                 match parsed.selected {
                     Some(selected) => ParsedCapture {
                         capture_index,
@@ -971,9 +1031,7 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
                 crate::SectionBodyMode::Trigger,
                 depth,
             )
-            .map_err(|error| StructureParseError::Body {
-                message: error.to_string(),
-            })?;
+            .map_err(nested_structure_error)?;
             Ok(ParsedStructureBody {
                 body: StructureBody::Trigger(body),
                 diagnostics: diagnostics
@@ -1163,9 +1221,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
                 crate::SectionBodyMode::Trigger,
                 depth,
             )
-            .map_err(|error| StructureParseError::Body {
-                message: error.to_string(),
-            })?;
+            .map_err(nested_structure_error)?;
             diagnostics.extend(
                 section_diagnostics
                     .into_iter()
@@ -1403,10 +1459,20 @@ fn section_diagnostic_to_structure(value: SectionDiagnostic) -> StructureDiagnos
     StructureDiagnostic {
         raw_node_id: Some(value.raw_node_id),
         kind: match value.kind {
+            crate::SectionDiagnosticKind::ExtensionFault => StructureDiagnosticKind::ExtensionFault,
             crate::SectionDiagnosticKind::Unclaimed => StructureDiagnosticKind::Unclaimed,
             crate::SectionDiagnosticKind::MultipleClaims => StructureDiagnosticKind::MultipleClaims,
         },
         span: value.span,
         message: "Structure trigger child could not be parsed uniquely".to_owned(),
+    }
+}
+
+fn nested_structure_error(error: impl std::error::Error + 'static) -> StructureParseError {
+    match crate::extension_fault(&error).cloned() {
+        Some(fault) => ExpressionParseError::ExtensionFault(fault).into(),
+        None => StructureParseError::Body {
+            message: error.to_string(),
+        },
     }
 }

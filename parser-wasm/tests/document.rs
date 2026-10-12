@@ -543,3 +543,145 @@ fn stale_document_revision_cannot_commit_or_poison_a_newer_parse() {
     )
     .expect("a stale revision must not poison a later revision");
 }
+
+#[test]
+fn extension_fault_preserves_an_independent_later_line_and_its_cause() {
+    let mut host = host(modern_fixture());
+    host.load_addon(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../artifacts/expression-data-addon-a.wasm"
+    )))
+    .unwrap();
+    let result = host
+        .parse_document(
+            request(
+                50,
+                "on load:\n    set {invalid-json::*} to 1\n    send 1 to console\n",
+            ),
+            DocumentParserConfig::default(),
+        )
+        .expect("recover execution faults at the affected raw node");
+    assert_eq!(
+        result.execution_status,
+        parser_wasm::host::DocumentExecutionStatus::Partial
+    );
+    assert!(
+        trigger_body(&result)
+            .iter()
+            .any(|node| matches!(node, SectionBodyNode::Unclaimed(_)))
+    );
+    assert!(trigger_body(&result).iter().any(
+        |node| matches!(node, SectionBodyNode::Effect(matches) if matches.selected.is_some())
+    ));
+    assert!(
+        result
+            .component_failures
+            .iter()
+            .any(|failure| failure.component_id == "test.expression-data-a"
+                && failure.subscription_id == "expression-data.a.invalid")
+    );
+    assert!(
+        result
+            .fault_regions
+            .iter()
+            .any(|region| region.fault.code == "parser.extension-invalid-output")
+    );
+}
+
+#[test]
+fn text_macro_trap_returns_known_source_without_certifying_standard_syntax() {
+    let mut host = host(modern_fixture());
+    host.load_addon(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../artifacts/text-macro-addon.wasm"
+    )))
+    .unwrap();
+    let source = "on load:\n    # trap\n    send 1 to console\n";
+    let result = host
+        .parse_document(request(51, source), DocumentParserConfig::default())
+        .expect("source is available as a partial result");
+    assert_eq!(result.source.virtual_source(), source);
+    assert_eq!(
+        result.execution_status,
+        parser_wasm::host::DocumentExecutionStatus::Partial
+    );
+    assert!(result.syntax.roots.iter().all(|node| !matches!(node, StructureDocumentNode::Structure(matches) if matches.selected.is_some())));
+    assert!(
+        result
+            .fault_regions
+            .iter()
+            .any(|region| region.fault.code == "parser.extension-trap")
+    );
+    let later = host
+        .parse_document(
+            request(52, "on load:\n    send 1 to console\n"),
+            DocumentParserConfig::default(),
+        )
+        .expect("disabled component remains distinguishable from unsupported syntax");
+    assert_eq!(
+        later.execution_status,
+        parser_wasm::host::DocumentExecutionStatus::Partial
+    );
+    assert!(
+        later
+            .fault_regions
+            .iter()
+            .any(|region| region.fault.code == "parser.extension-unavailable")
+    );
+}
+
+#[test]
+fn extension_fault_in_one_root_preserves_an_independent_later_root() {
+    let mut host = host(modern_fixture());
+    host.load_addon(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../artifacts/expression-data-addon-a.wasm"
+    )))
+    .unwrap();
+    let result = host
+        .parse_document(
+            request(
+                53,
+                "on load:\n    set {invalid-json::*} to 1\non load:\n    send 1 to console\n",
+            ),
+            DocumentParserConfig::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        result.execution_status,
+        parser_wasm::host::DocumentExecutionStatus::Partial
+    );
+    let bodies: Vec<_> = result
+        .syntax
+        .roots
+        .iter()
+        .filter_map(|root| match root {
+            StructureDocumentNode::Structure(matches) => {
+                matches
+                    .selected
+                    .as_ref()
+                    .and_then(|selected| match &selected.body {
+                        StructureBody::Trigger(body) => Some(body),
+                        _ => None,
+                    })
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(bodies.len(), 2);
+    assert!(
+        bodies[0]
+            .iter()
+            .any(|node| matches!(node, SectionBodyNode::Unclaimed(_)))
+    );
+    assert!(bodies[1].iter().any(
+        |node| matches!(node, SectionBodyNode::Effect(matches) if matches.selected.is_some())
+    ));
+    assert!(
+        result
+            .component_failures
+            .iter()
+            .any(|failure| failure.component_id == "test.expression-data-a"
+                && failure.subscription_id == "expression-data.a.invalid")
+    );
+}

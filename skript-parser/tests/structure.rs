@@ -952,3 +952,467 @@ fn unknown_addon_entry_data_keeps_raw_value_without_rejecting_structure() {
             .any(|diagnostic| diagnostic.kind == StructureDiagnosticKind::UnknownEntryData)
     );
 }
+
+mod extension_fault_recovery {
+    use super::*;
+    use skript_parser::*;
+
+    #[derive(Default)]
+    struct FaultEnvironment {
+        fault_at: &'static str,
+        capture_owner: Option<SyntaxKind>,
+        capture_parser: &'static str,
+        pending: Option<ExtensionFault>,
+        frames: Vec<(bool, Vec<String>, Vec<String>)>,
+        writes: Vec<String>,
+        declarations: Vec<String>,
+        failed_capture: Option<String>,
+        capture_id: usize,
+        faulted: bool,
+        observed: Vec<ExtensionFault>,
+    }
+
+    impl FaultEnvironment {
+        fn fault(&mut self, phase: &str) -> String {
+            self.faulted = true;
+            self.failed_capture = self.writes.last().cloned();
+            self.pending = Some(ExtensionFault {
+                component_id: "test.injected".into(),
+                subscription_id: "test.fault".into(),
+                phase: phase.into(),
+                target: "candidate".into(),
+                code: "parser.extension-trap".into(),
+                message: "controlled fault".into(),
+            });
+            "controlled fault".into()
+        }
+    }
+
+    impl PatternMatchEnvironment for FaultEnvironment {
+        fn take_extension_fault(&mut self) -> Option<ExtensionFault> {
+            self.pending.take()
+        }
+        fn resolve_type(
+            &mut self,
+            _: TypeExpressionRequest<'_>,
+        ) -> Result<TypeExpressionOutcome, String> {
+            Ok(TypeExpressionOutcome::default())
+        }
+        fn dispatch_hook(&mut self, _: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+            Ok(PatternHookControl::Continue)
+        }
+        fn allows_regex_pattern(
+            &mut self,
+            _: MatchSyntaxKind,
+            _: &str,
+            _: usize,
+        ) -> Result<bool, String> {
+            Ok(true)
+        }
+        fn take_pattern_candidate_state(&mut self) -> Option<ExpressionEffects> {
+            self.capture_id += 1;
+            Some(ExpressionEffects::new(format!(
+                "capture-{}",
+                self.capture_id
+            )))
+        }
+        fn restore_pattern_candidate_state(
+            &mut self,
+            state: &ExpressionEffects,
+        ) -> Result<(), String> {
+            let id = state.downcast_ref::<String>().unwrap().clone();
+            self.writes.push(id.clone());
+            self.declarations.push(id);
+            if !self.faulted
+                && ((self.fault_at == "activate-header" && self.capture_id == 1)
+                    || (self.fault_at == "activate-child" && self.capture_id == 2))
+            {
+                return Err(self.fault("Matching"));
+            }
+            Ok(())
+        }
+    }
+
+    impl ExpressionParseEnvironment for FaultEnvironment {
+        fn parse_expression_leaf(
+            &mut self,
+            _: ExpressionLeafRequest<'_>,
+        ) -> Result<ExpressionLeafParse, String> {
+            Ok(ExpressionLeafParse::default())
+        }
+        fn state_revision(&self) -> Result<u64, String> {
+            Ok(0)
+        }
+        fn registered_capture_bindings(
+            &self,
+            request: RegisteredSyntaxIdentity<'_>,
+        ) -> Result<Vec<RegisteredCaptureBinding>, String> {
+            Ok(
+                if self.capture_owner == Some(request.kind)
+                    && request
+                        .pattern_source
+                        .is_some_and(|pattern| pattern.contains("<.+>"))
+                {
+                    vec![RegisteredCaptureBinding {
+                        capture_index: 0,
+                        parser_id: self.capture_parser.into(),
+                        required: true,
+                        options: BTreeMap::new(),
+                    }]
+                } else {
+                    Vec::new()
+                },
+            )
+        }
+        fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+            self.frames
+                .push((false, self.writes.clone(), self.declarations.clone()));
+            Ok(())
+        }
+        fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+            let (expression, writes, declarations) =
+                self.frames.pop().ok_or("unbalanced candidate")?;
+            assert!(!expression, "semantic frame closed out of order");
+            if !accepted {
+                self.writes = writes;
+                self.declarations = declarations;
+            }
+            Ok(())
+        }
+        fn begin_expression_candidate(&mut self) -> Result<(), String> {
+            self.frames
+                .push((true, self.writes.clone(), self.declarations.clone()));
+            Ok(())
+        }
+        fn defer_expression_candidate(
+            &mut self,
+            accepted: bool,
+        ) -> Result<Option<ExpressionEffects>, String> {
+            let (expression, writes, declarations) =
+                self.frames.pop().ok_or("unbalanced expression")?;
+            assert!(expression, "expression frame closed out of order");
+            if !accepted {
+                self.writes = writes;
+                self.declarations = declarations;
+            }
+            Ok(None)
+        }
+        fn enter_structure(
+            &mut self,
+            request: StructureHookRequest<'_>,
+        ) -> Result<StructureHookDecision, String> {
+            if self.fault_at == "header" && !self.faulted {
+                return Err(self.fault("Structure"));
+            }
+            Ok(StructureHookDecision::Accept {
+                context: request.context.clone(),
+                body_mode: StructureBodyMode::Trigger,
+                metadata: request.candidate.metadata.clone(),
+            })
+        }
+        fn resolve_condition_candidate(
+            &mut self,
+            _: ConditionSemanticRequest<'_>,
+        ) -> Result<ConditionSemanticDecision, String> {
+            if self.fault_at == "condition" && !self.faulted {
+                return Err(self.fault("Condition"));
+            }
+            if self.fault_at == "fatal-condition" {
+                return Err("ordinary internal failure".into());
+            }
+            Ok(ConditionSemanticDecision::UseCandidate)
+        }
+        fn resolve_effect_candidate(
+            &mut self,
+            _: EffectSemanticRequest<'_>,
+        ) -> Result<EffectSemanticDecision, String> {
+            if self.fault_at == "effect" && !self.faulted {
+                return Err(self.fault("Effect"));
+            }
+            Ok(EffectSemanticDecision::UseCandidate)
+        }
+        fn observe_extension_fault(&mut self, fault: &ExtensionFault, _: MappedSpan) {
+            self.observed.push(fault.clone());
+        }
+    }
+
+    fn fixture_syntaxes() -> Vec<Syntax> {
+        vec![
+            structure(0, "root", NodeType::Section, None),
+            structure(1, "probe <.+>", NodeType::Section, None),
+            Syntax::Condition(syntaxes::Condition {
+                common: common_structure(2, "condition", "condition", "condition"),
+            }),
+            Syntax::Effect(syntaxes::Effect {
+                common: common_structure(3, "effect", "effect", "effect"),
+            }),
+            Syntax::Section(syntaxes::Section {
+                common: common_structure(4, "section", "section", "section <.+>"),
+                loop_section: false,
+                effect_section: false,
+            }),
+        ]
+    }
+    fn fixture() -> Catalog {
+        catalog(fixture_syntaxes())
+    }
+
+    fn run(
+        source: &str,
+        environment: &mut FaultEnvironment,
+    ) -> Result<StructureDocument, StructureParseError> {
+        let source = MappedSource::identity(source);
+        let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+        parse_structures(
+            &fixture(),
+            StructureParseRequest {
+                source: &source,
+                tree: &tree,
+                context: ExpressionParseContext::default(),
+            },
+            environment,
+            StructureParserConfig::default(),
+        )
+    }
+
+    fn assert_recovered(environment: &FaultEnvironment, expected_writes: usize) {
+        assert!(
+            environment.frames.is_empty(),
+            "candidate frames remain open"
+        );
+        assert_eq!(
+            environment.writes.len(),
+            expected_writes,
+            "{:?}",
+            environment.writes
+        );
+        assert_eq!(environment.declarations, environment.writes);
+        assert!(
+            !environment
+                .writes
+                .contains(environment.failed_capture.as_ref().expect("fault ran"))
+        );
+        assert_eq!(environment.observed.len(), 1);
+        assert_eq!(environment.observed[0].code, "parser.extension-trap");
+    }
+
+    #[test]
+    fn condition_fault_discards_applied_capture_before_independent_sibling() {
+        let mut env = FaultEnvironment {
+            fault_at: "condition",
+            ..Default::default()
+        };
+        let document = run("root:\n    condition\n    condition\n", &mut env).unwrap();
+        assert_recovered(&env, 2);
+        let StructureDocumentNode::Structure(root) = &document.roots[0] else {
+            panic!()
+        };
+        let StructureBody::Trigger(body) = &root.selected.as_ref().unwrap().body else {
+            panic!()
+        };
+        assert!(matches!(body[0], SectionBodyNode::Unclaimed(_)));
+        assert!(
+            matches!(&body[1], SectionBodyNode::Condition { matches, .. } if matches.selected.is_some())
+        );
+    }
+
+    #[test]
+    fn effect_fault_and_activation_fault_discard_capture_before_independent_sibling() {
+        for fault_at in ["effect", "activate-child"] {
+            let mut env = FaultEnvironment {
+                fault_at,
+                ..Default::default()
+            };
+            let document = run("root:\n    effect\n    effect\n", &mut env).unwrap();
+            assert_recovered(&env, 2);
+            let StructureDocumentNode::Structure(root) = &document.roots[0] else {
+                panic!()
+            };
+            let StructureBody::Trigger(body) = &root.selected.as_ref().unwrap().body else {
+                panic!()
+            };
+            assert!(matches!(body[0], SectionBodyNode::Unclaimed(_)));
+            assert!(
+                matches!(&body[1], SectionBodyNode::Effect(matches) if matches.selected.is_some())
+            );
+        }
+    }
+
+    #[test]
+    fn header_fault_and_activation_fault_discard_capture_before_independent_root() {
+        for fault_at in ["header", "activate-header"] {
+            let mut env = FaultEnvironment {
+                fault_at,
+                ..Default::default()
+            };
+            let document = run("root:\n    # first\nroot:\n    # later\n", &mut env).unwrap();
+            assert_recovered(&env, 1);
+            assert!(matches!(
+                document.roots[0],
+                StructureDocumentNode::Unclaimed(_)
+            ));
+            assert!(
+                matches!(&document.roots[1], StructureDocumentNode::Structure(matches) if matches.selected.is_some())
+            );
+        }
+    }
+
+    #[test]
+    fn structure_condition_and_effect_capture_faults_keep_cause_and_later_root() {
+        for (capture_parser, fault_at, text) in [
+            (HOST_CONDITION_PARSER_ID, "condition", "condition"),
+            (HOST_EFFECT_PARSER_ID, "effect", "effect"),
+        ] {
+            let mut env = FaultEnvironment {
+                fault_at,
+                capture_owner: Some(SyntaxKind::Structure),
+                capture_parser,
+                ..Default::default()
+            };
+            let document = run(
+                &format!("probe {text}:\n    # first\nroot:\n    # later\n"),
+                &mut env,
+            )
+            .unwrap();
+            assert_recovered(&env, 1);
+            assert!(matches!(
+                document.roots[0],
+                StructureDocumentNode::Unclaimed(_)
+            ));
+            assert!(
+                matches!(&document.roots[1], StructureDocumentNode::Structure(matches) if matches.selected.is_some())
+            );
+            assert!(
+                document
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.kind == StructureDiagnosticKind::ExtensionFault)
+            );
+        }
+    }
+
+    #[test]
+    fn section_condition_and_effect_capture_faults_discard_nested_state() {
+        for (capture_parser, fault_at, text) in [
+            (HOST_CONDITION_PARSER_ID, "condition", "condition"),
+            (HOST_EFFECT_PARSER_ID, "effect", "effect"),
+        ] {
+            let mut env = FaultEnvironment {
+                fault_at,
+                capture_owner: Some(SyntaxKind::Section),
+                capture_parser,
+                ..Default::default()
+            };
+            let document = run(
+                &format!("root:\n    section {text}:\n        # first\n    effect\n"),
+                &mut env,
+            )
+            .unwrap();
+            assert_recovered(&env, 2);
+            let StructureDocumentNode::Structure(root) = &document.roots[0] else {
+                panic!()
+            };
+            let StructureBody::Trigger(body) = &root.selected.as_ref().unwrap().body else {
+                panic!()
+            };
+            assert!(matches!(body[0], SectionBodyNode::Unclaimed(_)));
+            assert!(
+                matches!(&body[1], SectionBodyNode::Effect(matches) if matches.selected.is_some())
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_internal_capture_error_remains_fatal_and_closes_scopes() {
+        let mut env = FaultEnvironment {
+            fault_at: "fatal-condition",
+            capture_owner: Some(SyntaxKind::Structure),
+            capture_parser: HOST_CONDITION_PARSER_ID,
+            ..Default::default()
+        };
+        let error = run(
+            "probe condition:\n    # first\nroot:\n    # later\n",
+            &mut env,
+        )
+        .unwrap_err();
+        assert!(extension_fault(&error).is_none());
+        assert!(matches!(error, StructureParseError::Body { .. }));
+        assert!(env.frames.is_empty());
+        assert!(env.writes.is_empty());
+        assert!(env.observed.is_empty());
+    }
+
+    #[test]
+    fn registered_expression_capture_fault_unwinds_expression_and_semantic_frames() {
+        let source_catalog = ssg::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4"),
+        )
+        .unwrap()
+        .into_catalog();
+        let mut expression = source_catalog.expressions().next().unwrap().clone();
+        expression.common = common_structure(
+            5,
+            "nested-expression",
+            "nested-expression",
+            "expression <.+>",
+        );
+        expression.return_type = Some(ClassName("java.lang.Object".into()));
+        expression.return_type_state = syntaxes::ReturnTypeState::Static;
+        expression.possible_return_types = vec![ClassName("java.lang.Object".into())];
+        expression.possible_return_types_state = syntaxes::PossibleReturnTypesState::Complete;
+        expression.return_type_multiplicity = Some(syntaxes::Multiplicity::Single);
+        expression.return_type_multiplicity_state = syntaxes::ResolutionState::Resolved;
+        let mut syntaxes = fixture_syntaxes();
+        syntaxes.extend(source_catalog.types().cloned().map(Syntax::Type));
+        syntaxes.push(Syntax::Expression(expression));
+        syntaxes.push(Syntax::Condition(syntaxes::Condition {
+            common: common_structure(6, "check", "check", "check %object%"),
+        }));
+        let catalog = Catalog::new(CatalogParts {
+            syntaxes,
+            converters: Vec::new(),
+            comparators: Vec::new(),
+            event_values: Vec::new(),
+            properties: Vec::new(),
+            operators: Vec::new(),
+            operations: BTreeMap::new(),
+            differences: Vec::new(),
+            classes: source_catalog.classes().to_vec(),
+            aliases: AliasRegistry {
+                aliases: BTreeMap::new(),
+                targets: Vec::new(),
+            },
+            plural_rules: plural_rules(),
+            language: BTreeMap::new(),
+        });
+        let source = MappedSource::identity("root:\n    check expression condition\n    effect\n");
+        let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+        let mut env = FaultEnvironment {
+            fault_at: "condition",
+            capture_owner: Some(SyntaxKind::Expression),
+            capture_parser: HOST_CONDITION_PARSER_ID,
+            ..Default::default()
+        };
+        let document = parse_structures(
+            &catalog,
+            StructureParseRequest {
+                source: &source,
+                tree: &tree,
+                context: ExpressionParseContext::default(),
+            },
+            &mut env,
+            StructureParserConfig::default(),
+        )
+        .unwrap();
+        assert_recovered(&env, 2);
+        let StructureDocumentNode::Structure(root) = &document.roots[0] else {
+            panic!()
+        };
+        let StructureBody::Trigger(body) = &root.selected.as_ref().unwrap().body else {
+            panic!()
+        };
+        assert!(matches!(body[0], SectionBodyNode::Unclaimed(_)));
+        assert!(matches!(&body[1], SectionBodyNode::Effect(matches) if matches.selected.is_some()));
+    }
+}
