@@ -256,11 +256,13 @@ fn metadata(key: &str, value: &str) -> MetadataEntry {
 
 fn annotate(payload: &mut EffectPayload, key: &str, value: &str) {
     if let Some(candidate) = payload.candidate.as_mut() {
-        if let Some(entry) = candidate
-            .metadata
-            .iter_mut()
-            .rfind(|entry| entry.key == key)
-        {
+        if let Some(entry) = candidate.metadata.iter_mut().rfind(|entry| {
+            entry.key == key
+                && entry
+                    .owner_component_id
+                    .as_deref()
+                    .is_none_or(|owner| owner == crate::COMPONENT_ID)
+        }) {
             entry.value = value.to_owned();
         } else {
             candidate.metadata.push(metadata(key, value));
@@ -269,21 +271,8 @@ fn annotate(payload: &mut EffectPayload, key: &str, value: &str) {
 }
 
 fn mark_unresolved(payload: &mut EffectPayload, code: &str) {
-    let Some(candidate) = payload.candidate.as_mut() else {
-        return;
-    };
-    if !candidate
-        .metadata
-        .iter()
-        .any(|entry| entry.key == "semantic-state" && entry.value == "unresolved")
-    {
-        candidate
-            .metadata
-            .push(metadata("semantic-state", "unresolved"));
-    }
-    candidate
-        .metadata
-        .push(metadata("semantic-unresolved", code));
+    annotate(payload, "semantic-state", "unresolved");
+    annotate(payload, "semantic-unresolved", code);
 }
 
 fn warning(code: &str, message: impl Into<String>, span: MappedSpan) -> Diagnostic {
@@ -447,9 +436,110 @@ fn controls_loop(frame: &crate::nlaocs::skript_parser_addon::types::SectionScope
 
 #[cfg(test)]
 mod tests {
-    use super::{ContractVerdict, accepted_types_verdict, event_relation};
+    use super::{
+        ContractVerdict, accepted_types_verdict, event_relation, mark_unresolved, metadata,
+    };
     use crate::catalog::{AcceptedChangeType, TypeRelation};
-    use crate::nlaocs::skript_parser_addon::types::ParseContext;
+    use crate::nlaocs::skript_parser_addon::types::{
+        EffectCandidate, EffectPayload, EffectTiming, MappedSpan, ParseContext, TextRange,
+    };
+
+    #[test]
+    fn unresolved_reasons_keep_foreign_metadata_and_unique_core_keys() {
+        for existing_core in [false, true] {
+            let span = MappedSpan {
+                virtual_range: TextRange { start: 0, end: 6 },
+                origins: Vec::new(),
+            };
+            let mut entries = Vec::new();
+            if existing_core {
+                for (key, value) in [
+                    ("semantic-state", "resolved"),
+                    ("semantic-unresolved", "old"),
+                ] {
+                    let mut entry = metadata(key, value);
+                    entry.owner_component_id = Some(crate::COMPONENT_ID.to_owned());
+                    entries.push(entry);
+                }
+            }
+            for (key, value) in [
+                ("semantic-state", "foreign-state"),
+                ("semantic-unresolved", "foreign-reason"),
+            ] {
+                let mut entry = metadata(key, value);
+                entry.owner_component_id = Some("addon.other".to_owned());
+                entries.push(entry);
+            }
+            let mut payload = EffectPayload {
+                input: "return".to_owned(),
+                context: ParseContext {
+                    syntax_context: 0,
+                    event_classes: Vec::new(),
+                    section_stack: Vec::new(),
+                    values: Vec::new(),
+                },
+                raw_node_id: 0,
+                span: span.clone(),
+                timing: EffectTiming::After,
+                candidate: Some(EffectCandidate {
+                    raw_node_id: 0,
+                    definition_id: String::new(),
+                    registration_id: String::new(),
+                    element_class: None,
+                    priority: 0,
+                    registration_order: 0,
+                    pattern_index: 0,
+                    pattern: String::new(),
+                    span,
+                    captures: Vec::new(),
+                    tags: Vec::new(),
+                    mark: 0,
+                    marks: Vec::new(),
+                    handler: None,
+                    metadata: entries,
+                    parsed_captures: Vec::new(),
+                }),
+                alternatives: Vec::new(),
+                failure: None,
+                near_match: None,
+            };
+
+            mark_unresolved(&mut payload, "first-reason");
+            mark_unresolved(&mut payload, "second-reason");
+
+            let entries = &payload.candidate.unwrap().metadata;
+            assert_eq!(entries.len(), 4);
+            let keys = entries
+                .iter()
+                .map(|entry| (entry.owner_component_id.as_deref(), entry.key.as_str()))
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(keys.len(), entries.len());
+            let foreign = entries
+                .iter()
+                .filter(|entry| entry.owner_component_id.as_deref() == Some("addon.other"))
+                .map(|entry| (entry.key.as_str(), entry.value.as_str()))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                foreign,
+                [
+                    ("semantic-state", "foreign-state"),
+                    ("semantic-unresolved", "foreign-reason")
+                ]
+            );
+            let owned = entries
+                .iter()
+                .filter(|entry| entry.owner_component_id.as_deref() != Some("addon.other"))
+                .map(|entry| (entry.key.as_str(), entry.value.as_str()))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                owned,
+                [
+                    ("semantic-state", "unresolved"),
+                    ("semantic-unresolved", "second-reason")
+                ]
+            );
+        }
+    }
 
     #[test]
     fn an_empty_event_stack_is_outside_every_event() {

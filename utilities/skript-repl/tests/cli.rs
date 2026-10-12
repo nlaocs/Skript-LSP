@@ -1023,6 +1023,12 @@ fn reports_arithmetic_operations_and_operands() {
     assert!(report.matched());
 
     let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let effect = &json["result"]["effect"];
+    assert_eq!(
+        effect["syntax"]["elementClass"],
+        "org.skriptlang.reflect.syntax.expression.elements.EffReturn"
+    );
+    assert!(json["componentFailures"].as_array().unwrap().is_empty());
     let arithmetic = &json["result"]["effect"]["elements"][0]["resolved"];
     assert_eq!(arithmetic["expression"]["kind"], "arithmetic");
     assert_eq!(arithmetic["expression"]["operator"], "+");
@@ -1047,6 +1053,42 @@ fn reports_arithmetic_operations_and_operands() {
     assert!(!human.contains('\x1b'));
     assert!(human.contains("resolved: arithmetic (+)"));
     assert!(human.contains("operands:"));
+}
+
+#[test]
+fn unresolved_return_keeps_all_reasons_without_component_failure() {
+    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let report = session
+        .analyze_effect("return 1 + 2 * 3")
+        .expect("an unresolved return contract must not become an extension fault");
+    assert!(report.matched());
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    let effect = &json["result"]["effect"];
+    assert_eq!(
+        effect["syntax"]["elementClass"],
+        "ch.njol.skript.effects.EffReturn"
+    );
+    assert_eq!(
+        effect["metadata"]["nlaocs.core-library/semantic-state"],
+        "unresolved"
+    );
+    assert_eq!(
+        effect["metadata"]["nlaocs.core-library/semantic-unresolved"],
+        "core.eff-return.unresolved-return-type"
+    );
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    for code in [
+        "core.eff-return.unresolved-handler",
+        "core.eff-return.unresolved-return-type",
+    ] {
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic["code"] == code),
+            "missing diagnostic {code}"
+        );
+    }
+    assert!(json["componentFailures"].as_array().unwrap().is_empty());
 }
 
 #[test]
