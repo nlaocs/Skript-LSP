@@ -24,10 +24,11 @@ and a two-pass lifecycle with document-local Function registration.
 These are parser APIs, not a finished language server. The root `skript-lsp`
 binary only references the bundled CoreLibrary bytes and prints a smoke-test
 message; it does not initialize a parser host or expose an LSP/HTTP transport.
-The root library provides `new_parser_host`, and `effectcommandcli` is a working
-one-line Effect inspector. There is no unified whole-document JSON endpoint,
-cross-file symbol service, or variable type-flow analysis yet. Individual
-syntax handlers may still return unresolved metadata or partial results.
+The root library provides `new_parser_host`. The `skript-repl` utility exposes
+both the existing one-line Effect inspector and a multiline frontend for the
+shared whole-document parser, including a versioned JSON tree. There is no
+cross-file symbol service or variable type-flow analysis yet. Individual syntax
+handlers may still return unresolved metadata or partial results.
 
 ## Architecture
 
@@ -68,11 +69,11 @@ The intended data flow is:
    `skript-parser` validates Text and Tree edits, tracks original and
    macro-expanded ranges through composed SourceMaps, and builds a lossless
    RawTree from comments and indentation.
-5. Callers can pass the resulting RawTree to
-   `ParserHost::parse_structures_in_parse` to parse Structure headers and their
-   selected bodies, including nested syntax and source-mapped diagnostics.
-   Composing every stage into a single public document service and LSP
-   lifecycle remains integration work.
+5. `ParserHost::parse_document` composes those stages into one transactional
+   document service. It parses Structure headers and selected bodies, including
+   nested syntax, source-mapped diagnostics, partial AST recovery, and
+   document-local Function registration. LSP lifecycle and cross-file indexing
+   remain integration work.
 
 Parsing uses a prepared snapshot and WASM components, not a running Minecraft,
 Paper, Java, or Skript instance. The snapshot still determines the available
@@ -97,7 +98,7 @@ Skript/addon syntax; addon-specific semantics may also require a WASM addon.
 | [effect-addon](./test-components/effect-addon/) | test WASM component | Exercises Effect lifecycle replacement, rejection diagnostics, dynamic handlers, and selected-state rollback. |
 | [matching-addon](./test-components/matching-addon/) | test WASM component | Exercises typed matching overrides and selected-candidate StateStore rollback. |
 | [`expression-data-addon`](./test-components/expression-data-addon/) | test WASM component | Exercises node-local schema-versioned Expression public data, Transform/Override replacement and removal, and lossless raw JSON across two feature variants. |
-| [`effect-command-cli`](./utilities/effect-command-cli/) | analysis utility | Builds `effectcommandcli`, a standalone one-shot and REPL inspector for Effect patterns, Event contexts, captures, recursive Expressions, and resolved types from an SSG snapshot. |
+| [`skript-repl`](./utilities/skript-repl/) | analysis utility | Builds `skript-repl`, a standalone one-shot Effect inspector and multiline document REPL backed by the shared parser and WASM host. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |
 | [`xtask`](./xtask/) | build utility | Builds core Wasm modules, converts them to Components, validates exports, and publishes local artifacts. |
 

@@ -1,4 +1,4 @@
-use effect_command_cli::run_from_environment;
+use skript_repl::run_from_environment;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {

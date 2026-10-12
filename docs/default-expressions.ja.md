@@ -88,7 +88,7 @@ Skript固有の挙動を維持します。
 標準providerは、より具体的なaddon/providerの後に実行します。Sectionなどの
 `DefaultValueData` override、独自`DefaultExpression` subclass、未知のvalidator、静的shapeが
 不足したdescriptorは、所有addonが意味論を提供するまでunresolvedのままです。
-`effectcommandcli`のreport schema 7は同じ共通結果を描画します。captureの`state`は
+`skript-repl`の一行report schema 7は同じ共通結果を描画します。captureの`state`は
 `explicit`、`omitted`、`null`、`default`で、implicit Expressionは`defaultExpression`、空の`source`、
 ゼロ幅anchorを持ちます。失敗時にも認識したEffect/patternと、capture index、要求型、
 rejected/unresolved状態を持つ`defaultExpression`理由を表示します。sessionは入力間で

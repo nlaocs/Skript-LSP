@@ -839,7 +839,6 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                 body.push(SectionBodyNode::Trivia(child.id));
             }
             RawNodeKind::Simple => {
-                preceding_sections.clear();
                 let Some(code_span) = child.code_span.as_ref() else {
                     body.push(SectionBodyNode::Unclaimed(child.id));
                     diagnostics.push(section_diagnostic(
@@ -851,20 +850,49 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                 };
                 match body_mode {
                     SectionBodyMode::Trigger => {
-                        let matches = crate::effect::parse_effect_range_with_session(
+                        let effect_matches = crate::effect::parse_effect_range_with_session(
                             session,
                             code_span.virtual_range,
                             child.id,
                             depth,
                         )?;
-                        extend_match_diagnostics(
+                        if effect_matches.selected.is_some() {
+                            preceding_sections.clear();
+                            extend_match_diagnostics(
+                                session,
+                                child,
+                                true,
+                                !effect_matches.alternatives.is_empty(),
+                                &mut diagnostics,
+                            )?;
+                            body.push(SectionBodyNode::Effect(Box::new(effect_matches)));
+                            continue;
+                        }
+
+                        let condition_matches = crate::condition::parse_condition_with_session(
                             session,
-                            child,
-                            matches.selected.is_some(),
-                            !matches.alternatives.is_empty(),
-                            &mut diagnostics,
+                            code_span.virtual_range,
+                            depth,
                         )?;
-                        body.push(SectionBodyNode::Effect(Box::new(matches)));
+                        if condition_matches.selected.is_some() {
+                            // Conditions are TriggerItems too and interrupt an if/else sibling chain.
+                            preceding_sections.clear();
+                            extend_match_diagnostics(
+                                session,
+                                child,
+                                true,
+                                !condition_matches.alternatives.is_empty(),
+                                &mut diagnostics,
+                            )?;
+                            body.push(SectionBodyNode::Condition {
+                                raw_node_id: child.id,
+                                matches: Box::new(condition_matches),
+                            });
+                            continue;
+                        }
+
+                        extend_match_diagnostics(session, child, false, false, &mut diagnostics)?;
+                        body.push(SectionBodyNode::Effect(Box::new(effect_matches)));
                     }
                     SectionBodyMode::Conditions => {
                         let matches = crate::condition::parse_condition_with_session(
@@ -915,13 +943,10 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                 diagnostics.extend(matches.diagnostics.iter().cloned());
                 if let Some(selected) = matches.selected.as_ref() {
                     preceding_sections.push(section_sibling_summary(session, selected)?);
-                } else {
-                    preceding_sections.clear();
                 }
                 body.push(SectionBodyNode::Section(Box::new(matches)));
             }
             RawNodeKind::Invalid => {
-                preceding_sections.clear();
                 body.push(SectionBodyNode::Unclaimed(child.id));
                 diagnostics.push(section_diagnostic(
                     session,

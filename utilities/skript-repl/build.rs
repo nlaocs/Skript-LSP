@@ -5,6 +5,6 @@ fn main() {
         // Full multi-addon rejection explores deeply nested registered
         // Expressions through Wasmtime. Reserve enough stack for the Windows
         // executable without changing parser limits or downstream libraries.
-        println!("cargo:rustc-link-arg-bin=effectcommandcli=/STACK:67108864");
+        println!("cargo:rustc-link-arg-bin=skript-repl=/STACK:67108864");
     }
 }

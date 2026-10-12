@@ -5458,15 +5458,7 @@ fn section_hook_payload(
                 .map(|capture| parsed_capture_to_wit(capture, request.input))
                 .collect(),
             body_mode: section_body_mode_to_wit(request.body_mode),
-            metadata: request
-                .metadata
-                .iter()
-                .map(|(key, value)| WitMetadataEntry {
-                    key: key.clone(),
-                    value: value.clone(),
-                    owner_component_id: None,
-                })
-                .collect(),
+            metadata: metadata_to_wit(request.metadata),
         },
     }
 }
@@ -5541,15 +5533,7 @@ fn section_sibling_to_wit(value: &ParserSectionSiblingSummary) -> WitSectionSibl
         source: value.source.clone(),
         span: mapped_span_to_wit(value.span.mapped.clone()),
         handler: value.handler.clone(),
-        metadata: value
-            .metadata
-            .iter()
-            .map(|(key, value)| WitMetadataEntry {
-                key: key.clone(),
-                value: value.clone(),
-                owner_component_id: None,
-            })
-            .collect(),
+        metadata: metadata_to_wit(&value.metadata),
     }
 }
 

@@ -1,15 +1,12 @@
 [package]
-name = "effect-command-cli"
+name = "skript-repl"
 version = "0.1.0"
 edition = "2024"
-
-[[bin]]
-name = "effectcommandcli"
-path = "src/main.rs"
 
 [dependencies]
 miette = { version = "=7.6.0", default-features = false, features = ["fancy-no-backtrace"] }
 parser-wasm = { path = "../../parser-wasm" }
+rustyline = { version = "=18.0.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["raw_value"] }
 skript-lsp = { path = "../.." }
