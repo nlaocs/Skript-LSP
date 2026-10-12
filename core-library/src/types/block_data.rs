@@ -186,15 +186,17 @@ fn parse_syntax(text: &str) -> Option<ParsedSyntax> {
 
     let mut properties = BTreeMap::new();
     if let Some(body) = body {
-        if body.trim().is_empty() {
-            return None;
-        }
-        for assignment in body.split([',', ';']) {
-            let (name, value) = assignment.split_once('=')?;
-            let name = name.trim().to_ascii_lowercase();
-            let value = value.trim().to_ascii_lowercase();
-            if name.is_empty() || value.is_empty() || properties.insert(name, value).is_some() {
-                return None;
+        let body = body.trim();
+        if !body.is_empty() {
+            // Bukkit accepts an empty list and one delimiter before the closing bracket.
+            let body = body.strip_suffix([',', ';']).unwrap_or(body);
+            for assignment in body.split([',', ';']) {
+                let (name, value) = assignment.split_once('=')?;
+                let name = name.trim().to_owned();
+                let value = value.trim().to_owned();
+                if name.is_empty() || value.is_empty() || properties.insert(name, value).is_some() {
+                    return None;
+                }
             }
         }
     }
@@ -220,7 +222,7 @@ fn resolve_block(
 }
 
 fn normalize_id(base: &str) -> String {
-    let base = base.trim().replace(' ', "_").to_ascii_lowercase();
+    let base = base.trim().replace(' ', "_");
     if base.contains(':') {
         base
     } else {
@@ -253,8 +255,14 @@ fn alias_block_ids(materials: &[AliasMaterial]) -> BTreeSet<String> {
         .iter()
         .map(|item| {
             item.minecraft_id.as_deref().map_or_else(
-                || normalize_id(&item.material),
-                |id| normalize_id(id.split_once('[').map_or(id, |(base, _)| base)),
+                || normalize_id(&item.material.to_ascii_lowercase()),
+                |id| {
+                    normalize_id(
+                        &id.split_once('[')
+                            .map_or(id, |(base, _)| base)
+                            .to_ascii_lowercase(),
+                    )
+                },
             )
         })
         .collect()
@@ -356,6 +364,36 @@ mod tests {
         assert!(parse_syntax("chest[unknown=north]").is_some());
         assert!(parse_syntax("chest[facing=north,facing=south]").is_none());
         assert!(parse_syntax("chest[facing=north").is_none());
-        assert!(parse_syntax("chest[]").is_none());
+        assert!(parse_syntax("chest[,]").is_none());
+        assert!(parse_syntax("chest[facing=north,,]").is_none());
+    }
+
+    #[test]
+    fn matches_bukkit_empty_trailing_delimiter_and_case_boundaries() {
+        for input in [
+            "chest[]",
+            "chest[ ]",
+            "chest[facing=north,]",
+            "chest[facing=north;]",
+            "chest[facing = north]",
+        ] {
+            let syntax = parse_syntax(input).unwrap();
+            assert!(
+                super::valid_properties(&chest(), &syntax.properties),
+                "{input}"
+            );
+        }
+        for input in [
+            "chest[Facing=north]",
+            "chest[facing=NORTH]",
+            "chest[waterlogged=FALSE]",
+        ] {
+            let syntax = parse_syntax(input).unwrap();
+            assert!(
+                !super::valid_properties(&chest(), &syntax.properties),
+                "{input}"
+            );
+        }
+        assert_eq!(super::normalize_id("CHEST"), "minecraft:CHEST");
     }
 }
