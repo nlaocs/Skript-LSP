@@ -29,6 +29,7 @@ mod expr_length;
 mod expr_loop_value;
 mod expr_midpoint;
 mod expr_named;
+mod expr_numbers;
 mod expr_parse;
 mod expr_potion_effect;
 mod expr_random;
@@ -118,6 +119,7 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     expr_loop_value::register(&mut handlers);
     expr_midpoint::register(&mut handlers);
     expr_named::register(&mut handlers);
+    expr_numbers::register(&mut handlers);
     expr_items::register(&mut handlers);
     expr_parse::register(&mut handlers);
     expr_potion_effect::register(&mut handlers);
@@ -185,6 +187,7 @@ pub(crate) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         .or_else(|| expr_loop_value::resolve(payload))
         .or_else(|| expr_midpoint::resolve(payload))
         .or_else(|| expr_named::resolve(payload))
+        .or_else(|| expr_numbers::resolve(payload))
         .or_else(|| expr_items::resolve(payload))
         .or_else(|| expr_parse::resolve(payload))
         .or_else(|| expr_potion_effect::resolve(payload))

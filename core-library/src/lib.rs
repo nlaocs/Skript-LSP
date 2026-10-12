@@ -129,7 +129,7 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement {
                     id: CAPABILITY_CATALOG_DATA.to_owned(),
-                    minimum_version: 2,
+                    minimum_version: 3,
                     required: false,
                 },
                 CapabilityRequirement {
@@ -264,7 +264,7 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_TREE_MACRO, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
             ParserCapabilityRequirement::optional(CAPABILITY_DYNAMIC_SYNTAX, 1),
-            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 2),
+            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 3),
         ];
         let capabilities = profile
             .capabilities
@@ -798,6 +798,7 @@ mod tests {
         assert_eq!(manifest.capabilities[8].id, CAPABILITY_DYNAMIC_SYNTAX);
         assert!(!manifest.capabilities[8].required);
         assert_eq!(manifest.capabilities[9].id, CAPABILITY_CATALOG_DATA);
+        assert_eq!(manifest.capabilities[9].minimum_version, 3);
         assert!(!manifest.capabilities[9].required);
         assert_eq!(manifest.state_namespaces.len(), 2);
         assert_eq!(manifest.state_namespaces[0].name, "commands");
@@ -815,7 +816,7 @@ mod tests {
             manifest.subscriptions[9].phase,
             HookPhase::DefaultExpression
         ));
-        assert_eq!(manifest.registered_syntax_handlers.len(), 134);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 136);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",

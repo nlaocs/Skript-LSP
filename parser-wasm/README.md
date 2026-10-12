@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.37.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.38.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -97,8 +97,9 @@ multiple targets for each registered semantic handler, including dynamic
   to 0.33.0; hygienic AST macros changed it to 0.34.0; typed default providers,
   capture presence, implicit summaries, and indexed ClassInfo lookup changed it
   to 0.35.0; typed DefaultExpression descriptors changed it to 0.36.0; and SSG
-  runtime snapshot capabilities changed it to 0.37.0. The manifest's current
-  `abi` value is 19.0 and is a runtime handshake that requires an exact
+  runtime snapshot capabilities changed it to 0.37.0; host-indexed exact alias
+  and BlockData lookups changed it to 0.38.0. The manifest's current `abi` value is 20.0 and
+  is a runtime handshake that requires an exact
   `major.minor` match.
 
 Every parse context exposes a read-only Section stack from the outermost scope
@@ -121,7 +122,7 @@ older host without failing while lifting its manifest.
 The host advertises and executes Text, Tree, and AST macros. CoreLibrary's
 manifest requires `parser.hooks`, the five syntax-parser capabilities, Tree
 macros, and `parser.state-store`; it optionally consumes
-`parser.dynamic-syntax` and `parser.catalog-data` version 2. It does not require
+`parser.dynamic-syntax` and `parser.catalog-data` version 3. It does not require
 Text or AST macros.
 
 `addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
@@ -689,6 +690,12 @@ through the `catalog-data` import without copying all JSON into every payload.
 - `documents` pages through every source file, including `Manifest.json`.
   `read-document` reads exact retained bytes by range, so files larger than a
   single host response remain fully reachable.
+- `resolve-alias` returns one normalized global Skript alias target without
+  transferring or decoding the complete registry inside the component.
+- `block-data-status` reports whether the server-specific Bukkit BlockData
+  registry was collected, while `block-data` returns one exact namespaced ID.
+  The host parses and caches `BlockData.json` once, so components never transfer
+  or decode the full registry for each Type parser call.
 - `records-by-registration-id` and `records-by-definition-id` return every
   matching top-level JSON object's document/index reference in pages.
   `read-record` reads each referenced object by range. Duplicate IDs are

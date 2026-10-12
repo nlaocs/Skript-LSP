@@ -162,15 +162,7 @@ fn core_variable_public_data_flows_through_two_addons_and_parent_capture() {
         Some("true")
     );
 
-    assert!(result.failures.iter().any(|failure| {
-        failure.component_id == "test.expression-data-a"
-            && failure.subscription_id == "expression-data.a.metadata"
-            && matches!(&failure.error, HostError::InvalidHookOutput { .. })
-            && failure
-                .error
-                .to_string()
-                .contains("cannot write metadata owned by nlaocs.core-library")
-    }));
+    assert!(result.failures.is_empty(), "{result:#?}");
     let core_index = call_index(&result, "nlaocs.core-library", "core.expression-candidates");
     let edit_index = call_index(&result, "test.expression-data-a", "expression-data.a.edit");
     let metadata_index = call_index(
@@ -306,30 +298,13 @@ fn invalid_public_data_is_rejected_before_addon_state_merges() {
             "is repeated",
         ),
     ] {
-        let result = parse(&mut host, &transaction, text, 3, true).unwrap();
-        let node = result
-            .matches
-            .selected
-            .as_ref()
-            .expect("invalid candidate output must fall back to the core candidate")
-            .node
-            .clone();
-        assert_eq!(
-            node.return_type.as_ref().map(ClassName::as_str),
-            Some("java.lang.Object")
-        );
-        assert_eq!(node.public_data.len(), 1);
-        assert!(
-            node.public_data[0]
-                .json
-                .starts_with("{\"scope\":\"global\"")
-        );
-        assert!(result.failures.iter().any(|failure| {
-            failure.component_id == "test.expression-data-a"
-                && failure.subscription_id == subscription
-                && matches!(&failure.error, HostError::InvalidHookOutput { .. })
-                && failure.error.to_string().contains(message)
-        }));
+        let error = parse(&mut host, &transaction, text, 3, true)
+            .expect_err("failed transformation must not fall back to a core candidate");
+        let fault = skript_parser::extension_fault(&error).expect("typed execution cause");
+        assert_eq!(fault.component_id, "test.expression-data-a");
+        assert_eq!(fault.subscription_id, subscription);
+        assert_eq!(fault.code, "parser.extension-invalid-output");
+        assert!(fault.message.contains(message), "{fault:?}");
         assert!(
             transaction
                 .read_write_set()
@@ -387,5 +362,34 @@ fn parse_result_summary_public_data_is_validated() {
         .expect_err("invalid parse-result summary must fail the recursive request");
     let message = error.to_string();
     assert!(message.contains("must be a JSON object"), "{message}");
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn failed_late_validator_discards_earlier_transformation_instead_of_adopting_it() {
+    let mut host = host();
+    let transaction = host
+        .begin_parse(
+            "file:///workspace",
+            "file:///workspace/expression-data.sk",
+            6,
+        )
+        .unwrap();
+    let error = parse(&mut host, &transaction, "{spoof-core-metadata::*}", 6, true)
+        .expect_err("no alternate success after a fault");
+    let fault = skript_parser::extension_fault(&error).expect("typed cause");
+    assert_eq!(fault.subscription_id, "expression-data.a.metadata");
+    assert!(
+        fault
+            .message
+            .contains("cannot write metadata owned by nlaocs.core-library")
+    );
+    assert!(transaction.read_write_set().unwrap().writes.is_empty());
+    let clean = parse(&mut host, &transaction, "{_balances::*}", 6, true)
+        .expect("a different input remains independently parseable");
+    assert_eq!(
+        selected(clean).return_type.as_ref().map(ClassName::as_str),
+        Some("java.lang.Long")
+    );
     transaction.cancel().unwrap();
 }

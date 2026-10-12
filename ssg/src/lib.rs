@@ -9,7 +9,7 @@ mod convert;
 mod digest;
 mod error;
 mod loader;
-/// Serde data-transfer objects that mirror SSG schema 3 through 6 JSON.
+/// Serde data-transfer objects that mirror SSG schema 3 through 7 JSON.
 ///
 /// These types preserve the generator's wire format, including nullable fields
 /// and explicit resolution-state values. For Serde `Option` fields, an omitted
@@ -21,6 +21,7 @@ mod validate;
 
 pub use error::SnapshotError;
 pub use loader::{
-    ALL_FILES, DATA_FILES, LEGACY_ALL_FILES, LEGACY_DATA_FILES, MIN_SCHEMA_VERSION, SCHEMA_VERSION,
-    Snapshot, all_files_for_schema, data_files_for_schema, load,
+    ALL_FILES, DATA_FILES, LEGACY_ALL_FILES, LEGACY_DATA_FILES, MIN_SCHEMA_VERSION,
+    SCHEMA_5_6_ALL_FILES, SCHEMA_5_6_DATA_FILES, SCHEMA_VERSION, Snapshot, all_files_for_schema,
+    data_files_for_schema, load,
 };

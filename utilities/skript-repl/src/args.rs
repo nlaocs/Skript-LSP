@@ -13,7 +13,7 @@ ARGS:
     <EFFECT>                 Effect text to parse. Omit it to start the REPL.
 
 OPTIONS:
-    -s, --snapshot <PATH>    SSG schema 3..6 directory, or its Manifest.json
+    -s, --snapshot <PATH>    SSG schema 3..7 directory, or its Manifest.json
         --addon <PATH>       Load a parser WASM component; may be repeated
         --event <HEADER>     Parse Effects inside this Event context
         --section <HEADER>   Push a Section context; may be repeated

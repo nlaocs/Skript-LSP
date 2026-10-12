@@ -231,6 +231,30 @@ fn rejects_runtime_profile_from_a_different_snapshot() {
             ..
         }
     ));
+
+    let catalog = full_modern_catalog();
+    let result = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog),
+            runtime_profile: RuntimeProfile {
+                minecraft_version: Some("different-minecraft-version".to_owned()),
+                ..RuntimeProfile::default()
+            },
+            ..HostConfig::default()
+        },
+    );
+    let error = match result {
+        Ok(_) => panic!("profile and source Catalog must use the same Minecraft version"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        HostError::CatalogProfileMismatch {
+            field: "Minecraft version",
+            ..
+        }
+    ));
 }
 
 #[test]

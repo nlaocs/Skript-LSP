@@ -19,9 +19,10 @@ pub mod state;
 
 #[cfg(feature = "host")]
 pub use host::{
-    AstMacroCall, AstMacroRequest, AstMacroResult, DocumentCancellationToken, DocumentParseError,
-    DocumentParseRequest, DocumentParseResult, DocumentParseStage, DocumentParserConfig,
-    HostConfig, HostError, ParserHost, RuntimeAliasCapabilities, RuntimePlugin, RuntimeProfile,
+    AstMacroCall, AstMacroRequest, AstMacroResult, DocumentCancellationToken,
+    DocumentExecutionStatus, DocumentParseError, DocumentParseRequest, DocumentParseResult,
+    DocumentParseStage, DocumentParserConfig, ExtensionFaultRegion, HostConfig, HostError,
+    ParserHost, RuntimeAliasCapabilities, RuntimePlugin, RuntimeProfile,
     RuntimeSnapshotCapabilities, RuntimeSyntaxKindCapabilities, TreeMacroCall, TreeMacroRequest,
     TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult, WasmExpressionParseResult,
     WasmPatternMatchResult, WasmSectionParseResult, WasmStructureParseResult,
@@ -30,7 +31,7 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(19, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(20, 0);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";

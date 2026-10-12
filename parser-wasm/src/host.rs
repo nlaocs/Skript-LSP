@@ -13,8 +13,8 @@ mod subscriptions;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
 pub use document::{
-    DocumentCancellationToken, DocumentParseError, DocumentParseRequest, DocumentParseResult,
-    DocumentParseStage, DocumentParserConfig,
+    DocumentCancellationToken, DocumentExecutionStatus, DocumentParseError, DocumentParseRequest,
+    DocumentParseResult, DocumentParseStage, DocumentParserConfig, ExtensionFaultRegion,
 };
 
 use std::{
@@ -22,7 +22,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     mem,
     sync::{
-        Arc, LazyLock, Mutex,
+        Arc, LazyLock, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
@@ -30,6 +30,7 @@ use std::{
 };
 
 use fancy_regex::Regex;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use skript_parser::{
     AstExpansion, ExpansionId, GeneratedRawNode as ParserGeneratedRawNode,
@@ -489,6 +490,17 @@ impl HostConfig {
                     catalog: source.schema_version.to_string(),
                 });
             }
+            if let (Some(profile_minecraft_version), Some(runtime)) = (
+                self.runtime_profile.minecraft_version.as_deref(),
+                source.runtime.as_ref(),
+            ) && profile_minecraft_version != runtime.minecraft_version
+            {
+                return Err(HostError::CatalogProfileMismatch {
+                    field: "Minecraft version",
+                    profile: profile_minecraft_version.to_owned(),
+                    catalog: runtime.minecraft_version.clone(),
+                });
+            }
             if let (Some(profile_capabilities), Some(runtime)) = (
                 self.runtime_profile.snapshot_capabilities.as_ref(),
                 source.runtime.as_ref(),
@@ -519,6 +531,15 @@ impl HostConfig {
 #[derive(Debug, Clone, thiserror::Error)]
 /// Host setup, component execution, output validation, or quota failure.
 pub enum HostError {
+    #[error("source mapping failed: {message}")]
+    SourceMapping { message: String },
+    #[error("component {component_id} is unavailable: {reason}")]
+    UnavailableComponent {
+        component_id: String,
+        reason: String,
+    },
+    #[error("{0}")]
+    ExtensionFault(#[from] skript_parser::ExtensionFault),
     #[error("CoreLibrary component is missing")]
     CoreLibraryMissing,
     #[error("invalid parser host configuration: every quota and duration must be non-zero")]
@@ -584,6 +605,7 @@ pub enum HostError {
     },
     #[error("component {component_id} returned an addon error: {message}")]
     AddonFailure {
+        kind: crate::bindings::nlaocs::skript_parser_addon::types::AddonErrorKind,
         component_id: String,
         message: String,
     },
@@ -761,6 +783,8 @@ pub struct HookCall {
 #[derive(Debug, Clone)]
 /// Recoverable per-component failure retained in a pipeline result.
 pub struct ComponentFailure {
+    /// A known affected source region; None means document-wide/unknown scope.
+    pub affected_span: Option<MappedSpan>,
     pub component_id: String,
     pub subscription_id: String,
     pub error: HostError,
@@ -769,6 +793,8 @@ pub struct ComponentFailure {
 #[derive(Debug)]
 /// Accepted decision, payload, effects, call trace, and recoverable failures.
 pub struct DispatchResult {
+    /// Execution uncertainty is separate from NotApplicable and semantic Reject.
+    pub fault: Option<skript_parser::ExtensionFault>,
     pub decision: HookDecision,
     pub payload: HookPayload,
     pub effects: HookEffects,
@@ -997,6 +1023,38 @@ struct StoreData {
     language_patterns: HashMap<String, Option<Regex>>,
     type_user_input_matchers: Arc<[TypeUserInputMatcher]>,
     max_catalog_response_bytes: usize,
+    block_data_registry: OnceLock<Result<Option<CatalogBlockDataDocument>, String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogBlockDataDocument {
+    state: CatalogBlockDataState,
+    complete: bool,
+    registry_provider: Option<String>,
+    blocks: BTreeMap<String, CatalogBlockDataEntry>,
+    #[serde(default)]
+    failures: Vec<CatalogBlockDataFailure>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CatalogBlockDataState {
+    Collected,
+    Unsupported,
+    Unresolved,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogBlockDataEntry {
+    default_state: String,
+    properties: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct CatalogBlockDataFailure {
+    message: String,
 }
 
 struct TypeUserInputMatcher {
@@ -1024,6 +1082,81 @@ impl wit_catalog_data::Host for StoreData {
         Ok(catalog
             .type_by_class_name(&class_name)
             .map(|value| expression_type_option(Some(catalog), value)))
+    }
+
+    fn resolve_alias(
+        &mut self,
+        input: String,
+    ) -> Result<Option<wit_catalog_data::CatalogAliasTarget>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        Ok(catalog
+            .alias(&input)
+            .map(|target| wit_catalog_data::CatalogAliasTarget {
+                amount: target.amount,
+                all: target.all,
+                types: target
+                    .types
+                    .iter()
+                    .map(|item| wit_catalog_data::CatalogAliasItem {
+                        material: item.material.clone(),
+                        minecraft_id: item.minecraft_id.clone(),
+                    })
+                    .collect(),
+            }))
+    }
+
+    fn block_data_status(
+        &mut self,
+    ) -> Result<Option<wit_catalog_data::CatalogBlockDataStatus>, wit_catalog_data::CatalogError>
+    {
+        Ok(self
+            .block_data_registry()?
+            .map(|registry| wit_catalog_data::CatalogBlockDataStatus {
+                state: match registry.state {
+                    CatalogBlockDataState::Collected => {
+                        wit_catalog_data::CatalogBlockDataState::Collected
+                    }
+                    CatalogBlockDataState::Unsupported => {
+                        wit_catalog_data::CatalogBlockDataState::Unsupported
+                    }
+                    CatalogBlockDataState::Unresolved => {
+                        wit_catalog_data::CatalogBlockDataState::Unresolved
+                    }
+                },
+                complete: registry.complete,
+                registry_provider: registry.registry_provider.clone(),
+                first_failure: registry
+                    .failures
+                    .first()
+                    .map(|failure| failure.message.clone()),
+            }))
+    }
+
+    fn block_data(
+        &mut self,
+        id: String,
+    ) -> Result<Option<wit_catalog_data::CatalogBlockDataEntry>, wit_catalog_data::CatalogError>
+    {
+        if id.trim().is_empty() {
+            return Err(invalid_catalog_input("BlockData ID must not be blank"));
+        }
+        Ok(self
+            .block_data_registry()?
+            .and_then(|registry| registry.blocks.get(&id))
+            .map(|entry| wit_catalog_data::CatalogBlockDataEntry {
+                id,
+                default_state: entry.default_state.clone(),
+                properties: entry
+                    .properties
+                    .iter()
+                    .map(
+                        |(name, values)| wit_catalog_data::CatalogBlockDataProperty {
+                            name: name.clone(),
+                            values: values.clone(),
+                        },
+                    )
+                    .collect(),
+            }))
     }
 
     fn source(
@@ -2016,6 +2149,27 @@ impl StoreData {
             })
     }
 
+    fn block_data_registry(
+        &self,
+    ) -> Result<Option<&CatalogBlockDataDocument>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        self.block_data_registry
+            .get_or_init(|| {
+                let Some(bytes) = catalog
+                    .source()
+                    .and_then(|source| source.document("BlockData.json"))
+                else {
+                    return Ok(None);
+                };
+                serde_json::from_slice(bytes)
+                    .map(Some)
+                    .map_err(|error| format!("invalid BlockData.json: {error}"))
+            })
+            .as_ref()
+            .map(Option::as_ref)
+            .map_err(|message| invalid_catalog_input(message.clone()))
+    }
+
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
         self.invocation
             .as_mut()
@@ -2323,6 +2477,7 @@ struct ComponentEntry {
     bindings: ParserAddon,
     load_order: usize,
     disabled: bool,
+    disabled_reason: Option<HostError>,
     unloaded: bool,
 }
 
@@ -2404,7 +2559,7 @@ impl SubscriptionRegistry {
                 && target_specificity(&entry.subscription.target, target).is_some()
                 && components
                     .get(entry.component_index)
-                    .is_some_and(|component| !component.disabled && !component.unloaded)
+                    .is_some_and(|component| !component.unloaded)
         })
     }
 
@@ -2448,7 +2603,7 @@ impl SubscriptionRegistry {
                 }
                 && components
                     .get(entry.component_index)
-                    .is_some_and(|component| !component.disabled && !component.unloaded)
+                    .is_some_and(|component| !component.unloaded)
         })
     }
 
@@ -2931,7 +3086,8 @@ impl HookEffectsCheckpoint {
     ) {
         effects.clone_from(&self.effects);
         calls.clone_from(&self.calls);
-        failures.clone_from(&self.failures);
+        // Failures are observations, not adopted semantic effects.
+        debug_assert!(failures.len() >= self.failures.len());
     }
 }
 
@@ -2984,12 +3140,37 @@ struct WasmPatternHooks<'a> {
     scope_frames: Vec<PatternScopeFrame>,
     branch_states: Vec<PatternBranchState>,
     last_candidate: Option<SavedPatternCandidate>,
+    pending_fault: Option<skript_parser::ExtensionFault>,
     effects: HookEffects,
     calls: Vec<HookCall>,
     failures: Vec<ComponentFailure>,
 }
 
 impl WasmPatternHooks<'_> {
+    fn host_error(&mut self, error: impl std::error::Error + 'static) -> String {
+        if let Some(fault) = skript_parser::extension_fault(&error).cloned() {
+            self.pending_fault = Some(fault.clone());
+            self.failures.push(ComponentFailure {
+                affected_span: None,
+                component_id: fault.component_id.clone(),
+                subscription_id: fault.subscription_id.clone(),
+                error: HostError::ExtensionFault(fault),
+            });
+        }
+        error.to_string()
+    }
+
+    fn checked_dispatch(&mut self, mut result: DispatchResult) -> Result<DispatchResult, String> {
+        self.calls.append(&mut result.calls);
+        self.failures.append(&mut result.failures);
+        if let Some(fault) = result.fault.take() {
+            let message = fault.to_string();
+            self.pending_fault = Some(fault);
+            return Err(message);
+        }
+        Ok(result)
+    }
+
     fn begin_match_frame(&mut self) -> Result<(), String> {
         self.frames.push(PatternMatchFrame {
             base: self
@@ -3238,10 +3419,11 @@ impl WasmPatternHooks<'_> {
                     payload: HookPayload::Condition(payload.clone()),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
+        let result = self.checked_dispatch(result)?;
         merge_effects(&mut self.effects, result.effects);
         self.calls.extend(result.calls);
         self.failures.extend(result.failures);
@@ -3303,10 +3485,11 @@ impl WasmPatternHooks<'_> {
                     payload: HookPayload::Effect(payload.clone()),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
+        let result = self.checked_dispatch(result)?;
         merge_effects(&mut self.effects, result.effects);
         self.calls.extend(result.calls);
         self.failures.extend(result.failures);
@@ -3332,6 +3515,10 @@ impl WasmPatternHooks<'_> {
     }
 }
 impl PatternMatchHooks for WasmPatternHooks<'_> {
+    fn take_extension_fault(&mut self) -> Option<skript_parser::ExtensionFault> {
+        self.pending_fault.take()
+    }
+
     fn begin_match(&mut self) -> Result<(), String> {
         self.begin_match_frame()
     }
@@ -3550,7 +3737,8 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
                     payload: HookPayload::Matching(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.host_error(error))?;
+        let result = self.checked_dispatch(result)?;
         merge_effects(&mut self.effects, result.effects);
         self.calls.extend(result.calls);
         self.failures.extend(result.failures);
@@ -3619,8 +3807,15 @@ struct WasmExpressionEnvironment<'a> {
         StateSavepoint,
         HookEffectsCheckpoint,
         Option<FunctionRegistrySavepoint>,
+        PendingExpressionCheckpoint,
     )>,
     function_registry: Option<&'a mut FunctionRegistryTransaction>,
+}
+
+struct PendingExpressionCheckpoint {
+    leaf: Option<(StateSavepoint, HookEffectsCheckpoint)>,
+    registered: Option<(StateSavepoint, HookEffectsCheckpoint)>,
+    pattern: Option<SavedPatternCandidate>,
 }
 
 impl WasmExpressionEnvironment<'_> {
@@ -3648,7 +3843,7 @@ impl WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .defer_since(state)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         checkpoint.restore(
             &mut self.hooks.effects,
             &mut self.hooks.calls,
@@ -3678,6 +3873,10 @@ struct DeferredExpressionEffects {
 }
 
 impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
+    fn take_extension_fault(&mut self) -> Option<skript_parser::ExtensionFault> {
+        self.hooks.pending_fault.take()
+    }
+
     fn take_pattern_candidate_state(&mut self) -> Option<skript_parser::ExpressionEffects> {
         self.hooks
             .last_candidate
@@ -3695,7 +3894,7 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
         self.hooks
             .transaction
             .rollback_to(&state.state)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         state.effects.restore(
             &mut self.hooks.effects,
             &mut self.hooks.calls,
@@ -3753,6 +3952,19 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 }
 
 impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn observe_extension_fault(
+        &mut self,
+        fault: &skript_parser::ExtensionFault,
+        span: skript_parser::MappedSpan,
+    ) {
+        if let Some(failure) = self.hooks.failures.iter_mut().rev().find(|failure| {
+            failure.component_id == fault.component_id
+                && failure.subscription_id == fault.subscription_id
+        }) {
+            failure.affected_span = Some(mapped_span_to_wit(span));
+        }
+    }
+
     fn provide_default_expression(
         &mut self,
         request: skript_parser::DefaultExpressionRequest<'_>,
@@ -3771,7 +3983,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .apply_delta(&effects.state)
-            .map_err(|error| error.to_string())?
+            .map_err(|error| self.hooks.host_error(error))?
         {
             merge_effects(&mut self.hooks.effects, effects.effects.clone());
             self.hooks.calls.extend(effects.calls.clone());
@@ -3785,7 +3997,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .savepoint()
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| self.hooks.host_error(error))?,
             HookEffectsCheckpoint::capture(
                 &self.hooks.effects,
                 &self.hooks.calls,
@@ -3809,7 +4021,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .rollback_to(&state)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             checkpoint.restore(
                 &mut self.hooks.effects,
                 &mut self.hooks.calls,
@@ -3824,7 +4036,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .savepoint()
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| self.hooks.host_error(error))?,
             HookEffectsCheckpoint::capture(
                 &self.hooks.effects,
                 &self.hooks.calls,
@@ -3833,6 +4045,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.function_registry
                 .as_deref()
                 .map(FunctionRegistryTransaction::savepoint),
+            PendingExpressionCheckpoint {
+                leaf: self.pending_leaf.clone(),
+                registered: self.pending_registered.clone(),
+                pattern: self.hooks.last_candidate.clone(),
+            },
         ));
         Ok(())
     }
@@ -3851,14 +4068,16 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
-        let Some((savepoint, effects, function_savepoint)) = self.semantic_candidates.pop() else {
+        let Some((savepoint, effects, function_savepoint, pending)) =
+            self.semantic_candidates.pop()
+        else {
             return Err("semantic candidate finished without a matching begin".to_owned());
         };
         if !accepted {
             self.hooks
                 .transaction
                 .rollback_to(&savepoint)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             effects.restore(
                 &mut self.hooks.effects,
                 &mut self.hooks.calls,
@@ -3869,8 +4088,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             {
                 registry
                     .rollback(savepoint)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| self.hooks.host_error(error))?;
             }
+            self.pending_leaf = pending.leaf;
+            self.pending_registered = pending.registered;
+            self.hooks.last_candidate = pending.pattern;
         }
         Ok(())
     }
@@ -3912,7 +4134,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .savepoint()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let effects_checkpoint = HookEffectsCheckpoint::capture(
             &self.hooks.effects,
             &self.hooks.calls,
@@ -3993,12 +4215,13 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     payload: HookPayload::Expression(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let mut available_parse_results = BTreeMap::new();
         let mut leaf_failure = None;
         available_parse_results.append(&mut result.available_parse_results);
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
+        let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -4064,7 +4287,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 .hooks
                 .transaction
                 .savepoint()
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             let type_effects_checkpoint = HookEffectsCheckpoint::capture(
                 &self.hooks.effects,
                 &self.hooks.calls,
@@ -4086,9 +4309,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                         payload: HookPayload::Expression(payload),
                     },
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             let rejection_diagnostics =
                 semantic_rejection_diagnostics(&result.decision, &result.effects)?;
+            let result = self.hooks.checked_dispatch(result)?;
             merge_effects(&mut self.hooks.effects, result.effects);
             self.hooks.calls.extend(result.calls);
             self.hooks.failures.extend(result.failures);
@@ -4096,7 +4320,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 self.hooks
                     .transaction
                     .rollback_to(&type_savepoint)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| self.hooks.host_error(error))?;
                 type_effects_checkpoint.restore(
                     &mut self.hooks.effects,
                     &mut self.hooks.calls,
@@ -4141,7 +4365,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 self.hooks
                     .transaction
                     .rollback_to(&type_savepoint)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| self.hooks.host_error(error))?;
                 type_effects_checkpoint.restore(
                     &mut self.hooks.effects,
                     &mut self.hooks.calls,
@@ -4194,7 +4418,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         self.hooks
             .transaction
             .rollback_to(&savepoint)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         effects_checkpoint.restore(
             &mut self.hooks.effects,
             &mut self.hooks.calls,
@@ -4225,7 +4449,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .savepoint()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let effects_checkpoint = HookEffectsCheckpoint::capture(
             &self.hooks.effects,
             &self.hooks.calls,
@@ -4372,9 +4596,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     payload: HookPayload::RegisteredExpression(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
+        let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -4438,7 +4663,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .rollback_to(&savepoint)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             effects_checkpoint.restore(
                 &mut self.hooks.effects,
                 &mut self.hooks.calls,
@@ -4456,7 +4681,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .savepoint()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let effects_checkpoint = HookEffectsCheckpoint::capture(
             &self.hooks.effects,
             &self.hooks.calls,
@@ -4482,10 +4707,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     payload: HookPayload::Section(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
+        let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -4499,7 +4725,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .rollback_to(&savepoint)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             effects_checkpoint.restore(
                 &mut self.hooks.effects,
                 &mut self.hooks.calls,
@@ -4526,7 +4752,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .savepoint()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let effects_checkpoint = HookEffectsCheckpoint::capture(
             &self.hooks.effects,
             &self.hooks.calls,
@@ -4552,10 +4778,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     payload: HookPayload::Section(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
+        let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -4569,7 +4796,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .rollback_to(&savepoint)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             effects_checkpoint.restore(
                 &mut self.hooks.effects,
                 &mut self.hooks.calls,
@@ -4613,10 +4840,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     payload: HookPayload::Structure(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
+        let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -4675,7 +4903,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .hooks
             .transaction
             .savepoint()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let effects_checkpoint = HookEffectsCheckpoint::capture(
             &self.hooks.effects,
             &self.hooks.calls,
@@ -4704,9 +4932,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     payload: HookPayload::Structure(payload),
                 },
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| self.hooks.host_error(error))?;
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
+        let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
         self.hooks.calls.extend(result.calls);
         self.hooks.failures.extend(result.failures);
@@ -4723,7 +4952,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             self.hooks
                 .transaction
                 .rollback_to(&savepoint)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| self.hooks.host_error(error))?;
             effects_checkpoint.restore(
                 &mut self.hooks.effects,
                 &mut self.hooks.calls,
@@ -7877,7 +8106,7 @@ fn has_registered_syntax_handler(
 ) -> bool {
     components
         .iter()
-        .filter(|component| !component.disabled && !component.unloaded)
+        .filter(|component| !component.unloaded)
         .any(|component| {
             component
                 .manifest
@@ -8330,6 +8559,7 @@ impl ParserHost {
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
             last_candidate: None,
+            pending_fault: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8404,6 +8634,7 @@ impl ParserHost {
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
             last_candidate: None,
+            pending_fault: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8506,6 +8737,7 @@ impl ParserHost {
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
             last_candidate: None,
+            pending_fault: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8606,6 +8838,7 @@ impl ParserHost {
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
             last_candidate: None,
+            pending_fault: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8708,6 +8941,7 @@ impl ParserHost {
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
             last_candidate: None,
+            pending_fault: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8727,6 +8961,24 @@ impl ParserHost {
             &mut environment,
             config,
         );
+        if parsed.is_ok() {
+            debug_assert!(
+                environment.semantic_candidates.is_empty(),
+                "partial Structure result retained a semantic frame"
+            );
+            debug_assert!(
+                environment.expression_candidates.is_empty(),
+                "partial Structure result retained an expression frame"
+            );
+            debug_assert!(
+                environment.pending_leaf.is_none(),
+                "partial Structure result retained leaf work"
+            );
+            debug_assert!(
+                environment.pending_registered.is_none(),
+                "partial Structure result retained registered work"
+            );
+        }
         let (mut effects, calls, failures) = environment.into_parts();
         match parsed {
             Ok(document) => {
@@ -8903,6 +9155,7 @@ impl ParserHost {
             scope_frames: Vec::new(),
             branch_states: Vec::new(),
             last_candidate: None,
+            pending_fault: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -9131,7 +9384,9 @@ impl ParserHost {
             request.context.document_revision,
         )?;
         match self.dispatch_in_parse(&transaction, request) {
-            Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
+            Ok(result)
+                if result.fault.is_some() || matches!(result.decision, HookDecision::Reject(_)) =>
+            {
                 transaction.cancel()?;
                 Ok(result)
             }
@@ -9189,7 +9444,9 @@ impl ParserHost {
         };
         let result = self.dispatch_with_transaction(transaction, request);
         match result {
-            Ok(result) if matches!(result.decision, HookDecision::Reject(_)) => {
+            Ok(result)
+                if result.fault.is_some() || matches!(result.decision, HookDecision::Reject(_)) =>
+            {
                 transaction.rollback_to(&state_savepoint)?;
                 if let (Some(registry), Some(savepoint)) =
                     (&self.dynamic_syntax_registry, &dynamic_savepoint)
@@ -9281,6 +9538,16 @@ impl ParserHost {
             .transpose()?;
         let result = self.expand_text_with_transaction(transaction, request);
         match result {
+            Ok(mut result) if !result.failures.is_empty() => {
+                transaction.rollback_to(&state_savepoint)?;
+                if let (Some(registry), Some(savepoint)) =
+                    (&self.dynamic_syntax_registry, &dynamic_savepoint)
+                {
+                    registry.rollback_to(savepoint)?;
+                }
+                restore_macro_semantic_effects(&mut result.effects, &empty_effects());
+                Ok(result)
+            }
             Ok(mut result) if matches!(result.decision, HookDecision::Reject(_)) => {
                 transaction.rollback_to(&state_savepoint)?;
                 if let (Some(registry), Some(savepoint)) =
@@ -9328,10 +9595,21 @@ impl ParserHost {
         let mut decision = HookDecision::ContinueProcessing;
 
         for candidate in candidates {
-            if self.components[candidate.component_index].disabled
-                || self.components[candidate.component_index].unloaded
-            {
+            if !failures.is_empty() {
+                break;
+            }
+            if self.components[candidate.component_index].unloaded {
                 continue;
+            }
+            if self.components[candidate.component_index].disabled {
+                let entry = &self.components[candidate.component_index];
+                failures.push(ComponentFailure {
+                    affected_span: None,
+                    component_id: entry.manifest.component_id.clone(),
+                    subscription_id: candidate.subscription.id.clone(),
+                    error: unavailable_error(entry),
+                });
+                break;
             }
             if calls.len() >= self.config.max_calls_per_dispatch {
                 return Err(HostError::CallQuotaExceeded {
@@ -9441,6 +9719,7 @@ impl ParserHost {
                         Ok(()) => {
                             effects.diagnostics.extend(addon_error.diagnostics);
                             HostError::AddonFailure {
+                                kind: addon_error.kind,
                                 component_id: component_id.clone(),
                                 message: addon_error.message,
                             }
@@ -9452,6 +9731,7 @@ impl ParserHost {
                         },
                     };
                     failures.push(ComponentFailure {
+                        affected_span: None,
                         component_id,
                         subscription_id,
                         error,
@@ -9464,9 +9744,8 @@ impl ParserHost {
                     let error = classify_wasmtime_error(component_id.clone(), "text macro", error);
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
-                        if let Some(registry) = &self.dynamic_syntax_registry {
-                            registry.remove_component(&component_id)?;
-                        }
+                        self.components[candidate.component_index].disabled_reason =
+                            Some(error.clone());
                     }
                     calls.push(TextMacroCall {
                         component_id: component_id.clone(),
@@ -9476,6 +9755,7 @@ impl ParserHost {
                         state_accesses: accesses,
                     });
                     failures.push(ComponentFailure {
+                        affected_span: None,
                         component_id,
                         subscription_id,
                         error,
@@ -9517,6 +9797,7 @@ impl ParserHost {
                     state_accesses: accesses,
                 });
                 failures.push(ComponentFailure {
+                    affected_span: None,
                     component_id: component_id.clone(),
                     subscription_id: subscription_id.clone(),
                     error: HostError::InvalidTextMacroOutput {
@@ -9562,6 +9843,7 @@ impl ParserHost {
                         state_accesses: accesses,
                     });
                     failures.push(ComponentFailure {
+                        affected_span: None,
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
                         error: HostError::InvalidTextMacroOutput {
@@ -9589,6 +9871,7 @@ impl ParserHost {
                         state_accesses: accesses,
                     });
                     failures.push(ComponentFailure {
+                        affected_span: None,
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
                         error: HostError::InvalidTextMacroOutput {
@@ -9827,15 +10110,36 @@ impl ParserHost {
             });
         };
 
+        let target_state = transaction.savepoint()?;
+        let target_effects = pipeline.effects.clone();
+        let failure_count = pipeline.failures.len();
         let mut stop_current_node = false;
         for candidate in candidates {
+            if pipeline.failures.len() > failure_count {
+                transaction.rollback_to(&target_state)?;
+                restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
+                return Ok(TreeWalk::Continue { sibling_count: 1 });
+            }
             if stop_current_node {
                 break;
             }
-            if self.components[candidate.component_index].disabled
-                || self.components[candidate.component_index].unloaded
-            {
+            if self.components[candidate.component_index].unloaded {
                 continue;
+            }
+            if self.components[candidate.component_index].disabled {
+                let entry = &self.components[candidate.component_index];
+                let node = tree
+                    .get(raw_node_at_path(tree, path).expect("validated path"))
+                    .expect("validated node");
+                pipeline.failures.push(ComponentFailure {
+                    affected_span: Some(mapped_span_to_wit(node.span.clone())),
+                    component_id: entry.manifest.component_id.clone(),
+                    subscription_id: candidate.subscription.id.clone(),
+                    error: unavailable_error(entry),
+                });
+                transaction.rollback_to(&target_state)?;
+                restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
+                return Ok(TreeWalk::Continue { sibling_count: 1 });
             }
             if pipeline.calls.len() >= self.config.max_tree_macro_calls {
                 return Err(HostError::TreeMacroCallQuotaExceeded {
@@ -9882,6 +10186,7 @@ impl ParserHost {
                     state_accesses: StateReadWriteSet::default(),
                 });
                 pipeline.failures.push(ComponentFailure {
+                    affected_span: Some(mapped_span_to_wit(node.span.clone())),
                     component_id,
                     subscription_id,
                     error,
@@ -9973,6 +10278,7 @@ impl ParserHost {
                         Ok(()) => {
                             pipeline.effects.diagnostics.extend(addon_error.diagnostics);
                             HostError::AddonFailure {
+                                kind: addon_error.kind,
                                 component_id: component_id.clone(),
                                 message: addon_error.message,
                             }
@@ -9984,6 +10290,7 @@ impl ParserHost {
                         },
                     };
                     pipeline.failures.push(ComponentFailure {
+                        affected_span: Some(mapped_span_to_wit(node.span.clone())),
                         component_id,
                         subscription_id,
                         error,
@@ -9996,9 +10303,8 @@ impl ParserHost {
                     let error = classify_wasmtime_error(component_id.clone(), "tree macro", error);
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
-                        if let Some(registry) = &self.dynamic_syntax_registry {
-                            registry.remove_component(&component_id)?;
-                        }
+                        self.components[candidate.component_index].disabled_reason =
+                            Some(error.clone());
                     }
                     pipeline.calls.push(TreeMacroCall {
                         component_id: component_id.clone(),
@@ -10009,6 +10315,7 @@ impl ParserHost {
                         state_accesses: accesses,
                     });
                     pipeline.failures.push(ComponentFailure {
+                        affected_span: Some(mapped_span_to_wit(node.span.clone())),
                         component_id,
                         subscription_id,
                         error,
@@ -10040,6 +10347,7 @@ impl ParserHost {
                     state_accesses: accesses,
                 });
                 pipeline.failures.push(ComponentFailure {
+                    affected_span: Some(mapped_span_to_wit(node.span.clone())),
                     component_id: component_id.clone(),
                     subscription_id: subscription_id.clone(),
                     error: HostError::InvalidTreeMacroOutput {
@@ -10145,6 +10453,7 @@ impl ParserHost {
                         state_accesses: accesses,
                     });
                     pipeline.failures.push(ComponentFailure {
+                        affected_span: Some(mapped_span_to_wit(node.span.clone())),
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
                         error: HostError::InvalidTreeMacroOutput {
@@ -10229,6 +10538,11 @@ impl ParserHost {
             pipeline.active.pop();
         }
 
+        if pipeline.failures.len() > failure_count {
+            transaction.rollback_to(&target_state)?;
+            restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
+            return Ok(TreeWalk::Continue { sibling_count: 1 });
+        }
         let Some(current_target) = raw_node_at_path(tree, path) else {
             return Ok(TreeWalk::Continue { sibling_count: 0 });
         };
@@ -10441,6 +10755,9 @@ impl ParserHost {
                 payload: HookPayload::Parser(request.clone()),
             },
         )?;
+        if let Some(fault) = result.fault.take() {
+            return Err(fault.into());
+        }
         if !matches!(result.decision, HookDecision::Handled) {
             if !result.effects.parse_results.is_empty() {
                 return Err(HostError::InvalidParseResult {
@@ -10471,7 +10788,25 @@ impl ParserHost {
             .parse_results
             .pop()
             .expect("length was checked");
-        validate_parse_result(request, &parsed)?;
+        if let Err(error) = validate_parse_result(request, &parsed) {
+            let call = result.calls.last().expect("handled parser has a call");
+            let failure = ComponentFailure {
+                affected_span: Some(request.span.clone()),
+                component_id: call.component_id.clone(),
+                subscription_id: call.subscription_id.clone(),
+                error: HostError::InvalidHookOutput {
+                    component_id: call.component_id.clone(),
+                    subscription_id: call.subscription_id.clone(),
+                    message: error.to_string(),
+                },
+            };
+            return Err(extension_failure(
+                &failure,
+                "Parser".to_owned(),
+                request.parser_id.clone(),
+            )
+            .into());
+        }
         Ok(ExecutedParseResult {
             wire: parsed,
             expression_roots: BTreeMap::new(),
@@ -10499,6 +10834,10 @@ impl ParserHost {
             capability_id,
             Some(&request.payload),
         );
+        let dispatch_base = transaction.savepoint()?;
+        let original_payload = request.payload.clone();
+        let fault_phase = format!("{:?}", request.phase);
+        let fault_target = format!("{:?}", request.target);
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
         let mut payload = request.payload;
@@ -10511,9 +10850,7 @@ impl ParserHost {
         let mut decision = HookDecision::ContinueProcessing;
 
         'candidate: for candidate in candidates {
-            if self.components[candidate.component_index].disabled
-                || self.components[candidate.component_index].unloaded
-            {
+            if self.components[candidate.component_index].unloaded {
                 continue;
             }
             if selector_match(
@@ -10523,6 +10860,23 @@ impl ParserHost {
             ) == SelectorMatch::NoMatch
             {
                 continue;
+            }
+
+            if self.components[candidate.component_index].disabled {
+                let entry = &self.components[candidate.component_index];
+                failures.push(ComponentFailure {
+                    affected_span: None,
+                    component_id: entry.manifest.component_id.clone(),
+                    subscription_id: candidate.subscription.id.clone(),
+                    error: HostError::UnavailableComponent {
+                        component_id: entry.manifest.component_id.clone(),
+                        reason: entry.disabled_reason.as_ref().map_or_else(
+                            || "component was disabled by an earlier operation".to_owned(),
+                            ToString::to_string,
+                        ),
+                    },
+                });
+                break;
             }
 
             let component_id = self.components[candidate.component_index]
@@ -10623,14 +10977,16 @@ impl ParserHost {
                         }
                         effects.diagnostics.extend(addon_error.diagnostics);
                         failures.push(ComponentFailure {
+                            affected_span: None,
                             component_id: component_id.clone(),
                             subscription_id: subscription_id.clone(),
                             error: HostError::AddonFailure {
+                                kind: addon_error.kind,
                                 component_id: component_id.clone(),
                                 message: addon_error.message,
                             },
                         });
-                        continue 'candidate;
+                        break 'candidate;
                     }
                     Err(error) => {
                         state_invocation.rollback();
@@ -10641,16 +10997,16 @@ impl ParserHost {
                         let error = classify_wasmtime_error(component_id.clone(), "hook", error);
                         if error.disables_component() {
                             self.components[candidate.component_index].disabled = true;
-                            if let Some(registry) = &self.dynamic_syntax_registry {
-                                registry.remove_component(&component_id)?;
-                            }
+                            self.components[candidate.component_index].disabled_reason =
+                                Some(error.clone());
                         }
                         failures.push(ComponentFailure {
+                            affected_span: None,
                             component_id: component_id.clone(),
                             subscription_id: subscription_id.clone(),
                             error,
                         });
-                        continue 'candidate;
+                        break 'candidate;
                     }
                 };
 
@@ -10684,6 +11040,7 @@ impl ParserHost {
                         transaction.rollback_to(base)?;
                     }
                     failures.push(ComponentFailure {
+                        affected_span: None,
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
                         error: HostError::InvalidHookOutput {
@@ -10692,7 +11049,7 @@ impl ParserHost {
                             message,
                         },
                     });
-                    continue 'candidate;
+                    break 'candidate;
                 }
 
                 if output.effects.parse_requests.is_empty() {
@@ -10804,6 +11161,7 @@ impl ParserHost {
                         transaction.rollback_to(base)?;
                     }
                     failures.push(ComponentFailure {
+                        affected_span: None,
                         component_id: component_id.clone(),
                         subscription_id: subscription_id.clone(),
                         error: HostError::InvalidHookOutput {
@@ -10816,7 +11174,18 @@ impl ParserHost {
             }
         }
 
+        let fault = failures
+            .first()
+            .map(|failure| extension_failure(failure, fault_phase, fault_target));
+        if fault.is_some() {
+            transaction.rollback_to(&dispatch_base)?;
+            payload = original_payload;
+            effects = empty_effects();
+            available_parse_results.clear();
+            decision = HookDecision::ContinueProcessing;
+        }
         Ok(DispatchResult {
+            fault,
             decision,
             payload,
             effects,
@@ -10959,6 +11328,7 @@ impl ParserHost {
             bindings,
             load_order,
             disabled: false,
+            disabled_reason: None,
             unloaded: false,
         });
         Ok(info)
@@ -11075,7 +11445,7 @@ fn configured_host_capabilities(
 ) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
     if catalog_source_available {
-        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 2));
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 3));
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
@@ -12118,6 +12488,7 @@ fn create_store(
             language_patterns: HashMap::new(),
             type_user_input_matchers,
             max_catalog_response_bytes: config.max_catalog_response_bytes,
+            block_data_registry: OnceLock::new(),
         },
     );
     store.limiter(|data| &mut data.limits);
@@ -12155,6 +12526,48 @@ fn classify_component_error(
             component_id,
             message: format!("{error:#}"),
         }
+    }
+}
+
+fn unavailable_error(entry: &ComponentEntry) -> HostError {
+    HostError::UnavailableComponent {
+        component_id: entry.manifest.component_id.clone(),
+        reason: entry.disabled_reason.as_ref().map_or_else(
+            || "component was disabled by an earlier operation".to_owned(),
+            ToString::to_string,
+        ),
+    }
+}
+
+fn extension_failure(
+    failure: &ComponentFailure,
+    phase: String,
+    target: String,
+) -> skript_parser::ExtensionFault {
+    let code = match &failure.error {
+        HostError::Trap { .. } => "parser.extension-trap",
+        HostError::Timeout { .. } => "parser.extension-timeout",
+        HostError::FuelExhausted { .. } => "parser.extension-fuel",
+        HostError::ResourceLimit { .. } => "parser.extension-resource-limit",
+        HostError::UnavailableComponent { .. } => "parser.extension-unavailable",
+        HostError::InvalidHookOutput { .. } | HostError::InvalidTextMacroOutput { .. }
+            | HostError::InvalidTreeMacroOutput { .. } | HostError::InvalidAstMacroOutput { .. }
+            => "parser.extension-invalid-output",
+        HostError::AddonFailure { kind, .. } => match kind {
+            crate::bindings::nlaocs::skript_parser_addon::types::AddonErrorKind::UnsupportedCapability
+                | crate::bindings::nlaocs::skript_parser_addon::types::AddonErrorKind::UnsupportedHook => "parser.extension-unsupported-operation",
+            _ => "parser.extension-addon-error",
+        },
+        HostError::ExtensionFault(fault) => return fault.clone(),
+        _ => "parser.extension-runtime",
+    };
+    skript_parser::ExtensionFault {
+        component_id: failure.component_id.clone(),
+        subscription_id: failure.subscription_id.clone(),
+        phase,
+        target,
+        code: code.to_owned(),
+        message: failure.error.to_string(),
     }
 }
 
@@ -13737,6 +14150,13 @@ fn empty_effects() -> HookEffects {
         parse_requests: Vec::new(),
         parse_results: Vec::new(),
     }
+}
+
+fn restore_macro_semantic_effects(effects: &mut HookEffects, before: &HookEffects) {
+    // Diagnostics remain observations even when the target's meaning is uncertain.
+    effects.context_updates.clone_from(&before.context_updates);
+    effects.parse_requests.clone_from(&before.parse_requests);
+    effects.parse_results.clone_from(&before.parse_results);
 }
 
 fn retain_diagnostics_only(effects: &mut HookEffects, calls: &mut Vec<HookCall>) {

@@ -7,6 +7,30 @@ use crate::{
 };
 use syntax_pattern_parser::syntax::Span as PatternSpan;
 
+/// An extension execution failed; this is not an input mismatch or rejection.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("extension {component_id}/{subscription_id} failed during {phase}: {message}")]
+pub struct ExtensionFault {
+    pub component_id: String,
+    pub subscription_id: String,
+    pub phase: String,
+    pub target: String,
+    pub code: String,
+    pub message: String,
+}
+
+/// Finds a typed extension fault without treating other parser errors as recoverable.
+pub fn extension_fault<'a>(
+    mut error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a ExtensionFault> {
+    loop {
+        if let Some(fault) = error.downcast_ref::<ExtensionFault>() {
+            return Some(fault);
+        }
+        error = error.source()?;
+    }
+}
+
 /// Semantic role of one syntax frame in a nested failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureFrameRole {

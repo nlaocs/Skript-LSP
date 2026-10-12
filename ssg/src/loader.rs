@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use syntaxes::{Catalog, CatalogSource};
 
 /// Highest SSG snapshot schema accepted by this reader.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 /// Oldest SSG snapshot schema accepted by this reader.
 pub const MIN_SCHEMA_VERSION: u32 = 3;
 /// Canonical manifest filename.
@@ -62,8 +62,8 @@ pub const LEGACY_ALL_FILES: [&str; 19] = [
     "Types.json",
 ];
 
-/// Data files covered by the current schema 6 content digest, in canonical order.
-pub const DATA_FILES: [&str; 19] = [
+/// Data files covered by schema 5 and 6 content digests, in canonical order.
+pub const SCHEMA_5_6_DATA_FILES: [&str; 19] = [
     "Aliases.json",
     "ClassHierarchy.json",
     "Comparators.json",
@@ -85,9 +85,58 @@ pub const DATA_FILES: [&str; 19] = [
     "Types.json",
 ];
 
-/// Complete current schema 6 snapshot inventory, including `Manifest.json`.
-pub const ALL_FILES: [&str; 20] = [
+/// Complete schema 5 and 6 snapshot inventory, including `Manifest.json`.
+pub const SCHEMA_5_6_ALL_FILES: [&str; 20] = [
     "Aliases.json",
+    "ClassHierarchy.json",
+    "Comparators.json",
+    "Conditions.json",
+    "Converters.json",
+    "Differences.json",
+    "Effects.json",
+    "EventValues.json",
+    "Events.json",
+    "Expressions.json",
+    "Functions.json",
+    "Language.json",
+    "Manifest.json",
+    "Operations.json",
+    "Operators.json",
+    "PluralRules.json",
+    "Properties.json",
+    "Sections.json",
+    "Structures.json",
+    "Types.json",
+];
+
+/// Data files covered by the current schema content digest, in canonical order.
+pub const DATA_FILES: [&str; 20] = [
+    "Aliases.json",
+    "BlockData.json",
+    "ClassHierarchy.json",
+    "Comparators.json",
+    "Conditions.json",
+    "Converters.json",
+    "Differences.json",
+    "Effects.json",
+    "EventValues.json",
+    "Events.json",
+    "Expressions.json",
+    "Functions.json",
+    "Language.json",
+    "Operations.json",
+    "Operators.json",
+    "PluralRules.json",
+    "Properties.json",
+    "Sections.json",
+    "Structures.json",
+    "Types.json",
+];
+
+/// Complete current snapshot inventory, including `Manifest.json`.
+pub const ALL_FILES: [&str; 21] = [
+    "Aliases.json",
+    "BlockData.json",
     "ClassHierarchy.json",
     "Comparators.json",
     "Conditions.json",
@@ -113,7 +162,8 @@ pub const ALL_FILES: [&str; 20] = [
 pub fn data_files_for_schema(schema_version: u32) -> Option<&'static [&'static str]> {
     match schema_version {
         3 | 4 => Some(&LEGACY_DATA_FILES),
-        5 | 6 => Some(&DATA_FILES),
+        5 | 6 => Some(&SCHEMA_5_6_DATA_FILES),
+        7 => Some(&DATA_FILES),
         _ => None,
     }
 }
@@ -122,7 +172,8 @@ pub fn data_files_for_schema(schema_version: u32) -> Option<&'static [&'static s
 pub fn all_files_for_schema(schema_version: u32) -> Option<&'static [&'static str]> {
     match schema_version {
         3 | 4 => Some(&LEGACY_ALL_FILES),
-        5 | 6 => Some(&ALL_FILES),
+        5 | 6 => Some(&SCHEMA_5_6_ALL_FILES),
+        7 => Some(&ALL_FILES),
         _ => None,
     }
 }
@@ -247,6 +298,11 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
 
     let raw_snapshot = raw::Snapshot {
         aliases: parse(&serialized, "Aliases.json")?,
+        block_data: if manifest.schema_version >= 7 {
+            Some(parse(&serialized, "BlockData.json")?)
+        } else {
+            None
+        },
         classes: parse(&serialized, "ClassHierarchy.json")?,
         comparators: parse(&serialized, "Comparators.json")?,
         conditions: parse(&serialized, "Conditions.json")?,

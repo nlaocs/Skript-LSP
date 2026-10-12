@@ -136,6 +136,13 @@ static CATALOG: LazyLock<Arc<Catalog>> = LazyLock::new(|| {
         &["fixture effect [value %number%]"],
         source,
     );
+    syntaxes.push(Syntax::Effect(effect.clone()));
+    configure_common(
+        &mut effect.common,
+        "effect:test.independent:0",
+        &["fixture independent effect"],
+        source,
+    );
     syntaxes.push(Syntax::Effect(effect));
     Arc::new(
         Catalog::new(CatalogParts {
@@ -217,13 +224,13 @@ fn context(revision: u64) -> InvocationContext {
     }
 }
 
-fn parse(
+fn try_parse(
     host: &mut ParserHost,
     transaction: &ParseTransaction,
     text: &str,
     mode: &str,
     revision: u64,
-) -> WasmExpressionParseResult {
+) -> Result<WasmExpressionParseResult, parser_wasm::host::HostError> {
     let source = MappedSource::identity(text);
     host.parse_expression_in_parse(
         transaction,
@@ -242,7 +249,17 @@ fn parse(
         },
         ExpressionParserConfig::default(),
     )
-    .expect("default parse must be recoverable")
+}
+
+fn parse(
+    host: &mut ParserHost,
+    transaction: &ParseTransaction,
+    text: &str,
+    mode: &str,
+    revision: u64,
+) -> WasmExpressionParseResult {
+    try_parse(host, transaction, text, mode, revision)
+        .expect("ordinary default parsing remains recoverable")
 }
 
 fn selected(result: &WasmExpressionParseResult) -> &ExpressionNode {
@@ -671,13 +688,16 @@ fn trap_or_invalid_output_discards_an_earlier_success_and_metadata() {
     ] {
         let mut host = host(&[ADDON_A, ADDON_B]);
         let transaction = begin(&host, 1);
-        let result = parse(&mut host, &transaction, "fixture default", mode, 1);
-        assert_failure(&result, DefaultExpressionFailureKind::Unresolved);
+        let error = try_parse(&mut host, &transaction, "fixture default", mode, 1)
+            .expect_err("execution faults are not provider Unresolved");
+        let fault = skript_parser::extension_fault(&error).expect("typed extension cause");
+        assert!(
+            matches!(fault.component_id.as_str(), COMPONENT_A | COMPONENT_B),
+            "{mode}: {fault:?}"
+        );
+        assert!(!fault.subscription_id.is_empty(), "{mode}: {fault:?}");
         assert_eq!(write_count(&transaction), 0);
         assert_no_seed_state(&transaction);
-        assert!(result.matches.alternatives.is_empty());
-        assert!(result.effects.context_updates.is_empty());
-        assert!(default_calls(&result).is_empty());
         transaction.cancel().unwrap();
     }
 }
@@ -703,6 +723,18 @@ fn later_omitted_capture_failure_discards_earlier_default() {
         (3, "trap-second", DefaultExpressionFailureKind::Unresolved),
     ] {
         let transaction = begin(&host, revision);
+        if mode == "trap-second" {
+            let error = try_parse(&mut host, &transaction, "fixture pair", mode, revision)
+                .expect_err("late execution fault is distinct from Reject");
+            assert_eq!(
+                skript_parser::extension_fault(&error).unwrap().code,
+                "parser.extension-trap"
+            );
+            assert_eq!(write_count(&transaction), 0);
+            assert_no_seed_state(&transaction);
+            transaction.cancel().unwrap();
+            continue;
+        }
         let result = parse(&mut host, &transaction, "fixture pair", mode, revision);
         assert!(result.matches.selected.is_none());
         assert!(result.matches.alternatives.is_empty());
@@ -740,12 +772,6 @@ fn matching_addon_keeps_failed_default_scopes_balanced() {
             "reject-second",
             1,
             DefaultExpressionFailureKind::Rejected,
-        ),
-        (
-            "fixture pair",
-            "trap-second",
-            1,
-            DefaultExpressionFailureKind::Unresolved,
         ),
     ] {
         // A registered Matching addon exercises dispatch even when its
@@ -936,5 +962,74 @@ fn effect_hook_reads_the_implicit_capture_from_shared_semantic_summary() {
         ExpressionNodeKind::Default { .. }
     ));
     assert_eq!(write_count(&transaction), 4);
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn trapped_default_blocks_the_same_requirement_but_not_an_independent_effect() {
+    let mut host = host(&[ADDON_A, ADDON_B]);
+    let transaction = begin(&host, 10);
+    let error = try_parse(&mut host, &transaction, "fixture default", "trap", 10)
+        .expect_err("no fallback success after A failed");
+    let fault = skript_parser::extension_fault(&error).expect("typed trap cause");
+    assert_eq!(fault.code, "parser.extension-trap");
+    assert_eq!(write_count(&transaction), 0);
+    assert_no_seed_state(&transaction);
+    let same = try_parse(&mut host, &transaction, "fixture default", "resolve", 10)
+        .expect_err("A is unavailable, not absent from the language");
+    assert_eq!(
+        skript_parser::extension_fault(&same).unwrap().code,
+        "parser.extension-unavailable"
+    );
+    let source = MappedSource::identity("fixture independent effect");
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 16));
+    let independent = host
+        .parse_effect_in_parse(
+            &transaction,
+            context(10),
+            EffectParseRequest {
+                source: &source,
+                node: tree.get(tree.roots[0]).unwrap(),
+                context: ExpressionParseContext::default(),
+            },
+            EffectParserConfig::default(),
+        )
+        .expect("different phase and registration do not depend on the failed addon");
+    assert!(independent.matches.selected.is_some());
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn timeout_is_a_typed_execution_fault_and_rolls_back_prior_provider_writes() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(Arc::clone(&CATALOG)),
+            runtime_profile: RuntimeProfile {
+                skript_version: Some("2.16.0".to_owned()),
+                ..RuntimeProfile::default()
+            },
+            call_timeout: std::time::Duration::from_millis(50),
+            fuel_per_call: u64::MAX,
+            ..HostConfig::default()
+        },
+    )
+    .unwrap();
+    host.load_addon(ADDON_A).unwrap();
+    let transaction = begin(&host, 11);
+    let error = try_parse(
+        &mut host,
+        &transaction,
+        "fixture default",
+        "exhaust-fuel",
+        11,
+    )
+    .expect_err("deadline interrupts the deliberately unbounded fixture");
+    assert_eq!(
+        skript_parser::extension_fault(&error).unwrap().code,
+        "parser.extension-timeout"
+    );
+    assert_eq!(write_count(&transaction), 0);
+    assert_no_seed_state(&transaction);
     transaction.cancel().unwrap();
 }

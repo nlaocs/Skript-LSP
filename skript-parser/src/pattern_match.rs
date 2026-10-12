@@ -255,6 +255,11 @@ pub enum PatternHookControl {
 
 /// Observer/override interface spanning definition through element scopes.
 pub trait PatternMatchHooks {
+    /// Retrieves the typed cause of an environment error, if it is an extension fault.
+    fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
+        None
+    }
+
     /// Starts one matcher invocation, including recursive re-entry.
     fn begin_match(&mut self) -> Result<(), String> {
         Ok(())
@@ -310,6 +315,11 @@ pub trait PatternMatchHooks {
 /// hook host. This is particularly important for WASM-backed expression
 /// parsing, where both operations share one transactional parse session.
 pub trait PatternMatchEnvironment {
+    /// Retrieves the typed cause of an environment error, if it is an extension fault.
+    fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
+        None
+    }
+
     /// Resolves omitted typed captures before accepting a complete pattern.
     ///
     /// The matcher retains every typed slot, including unselected branches. A
@@ -413,6 +423,10 @@ struct SplitPatternMatchEnvironment<'a, R, H> {
 impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
     for SplitPatternMatchEnvironment<'_, R, H>
 {
+    fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
+        self.hooks.take_extension_fault()
+    }
+
     fn begin_pattern_match(&mut self) -> Result<(), String> {
         self.hooks.begin_match()
     }
@@ -528,6 +542,8 @@ impl PatternMatcherConfig {
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 /// Configuration, extension, regex, mapping, or resource failure.
 pub enum PatternMatchError {
+    #[error("{0}")]
+    ExtensionFault(#[from] crate::ExtensionFault),
     #[error("pattern matcher limits must be greater than zero")]
     InvalidConfiguration,
     #[error("input range {range} is not valid for the matcher input")]
@@ -1170,17 +1186,28 @@ pub fn match_pattern_candidates_with_environment<E: PatternMatchEnvironment>(
     config: PatternMatcherConfig,
 ) -> Result<CandidateMatches, PatternMatchError> {
     config.validate()?;
-    environment
-        .begin_pattern_match()
-        .map_err(|message| PatternMatchError::Hook { message })?;
+    environment.begin_pattern_match().map_err(|message| {
+        pattern_environment_error(environment, PatternMatchError::Hook { message })
+    })?;
     let result = match_pattern_candidates_in_environment(input, candidates, environment, config);
     let accepted = result
         .as_ref()
         .is_ok_and(|matches| matches.selected.is_some());
     environment
         .finish_pattern_match(accepted)
-        .map_err(|message| PatternMatchError::Hook { message })?;
+        .map_err(|message| {
+            pattern_environment_error(environment, PatternMatchError::Hook { message })
+        })?;
     result
+}
+
+fn pattern_environment_error<E: PatternMatchEnvironment>(
+    environment: &mut E,
+    error: PatternMatchError,
+) -> PatternMatchError {
+    environment
+        .take_extension_fault()
+        .map_or(error, PatternMatchError::ExtensionFault)
 }
 
 fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
@@ -1484,7 +1511,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         &candidate.registration_id,
                         pattern.pattern_index,
                     )
-                    .map_err(|message| PatternMatchError::Hook { message })?
+                    .map_err(|message| {
+                        pattern_environment_error(
+                            self.environment,
+                            PatternMatchError::Hook { message },
+                        )
+                    })?
             {
                 continue;
             }
@@ -1548,7 +1580,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 if let Some(checkpoint) = state.extension_checkpoint {
                     self.environment
                         .restore_pattern_branch(checkpoint)
-                        .map_err(|message| PatternMatchError::Hook { message })?;
+                        .map_err(|message| {
+                            pattern_environment_error(
+                                self.environment,
+                                PatternMatchError::Hook { message },
+                            )
+                        })?;
                 }
                 let mut value = CandidateMatch {
                     extension_state: None,
@@ -1750,7 +1787,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         let checkpoint = self
             .environment
             .checkpoint_pattern_branch()
-            .map_err(|message| PatternMatchError::Hook { message })?;
+            .map_err(|message| {
+                pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+            })?;
         let result = self
             .environment
             .complete_typed_captures(candidate, pattern, matched);
@@ -1759,9 +1798,13 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         {
             self.environment
                 .restore_pattern_branch(checkpoint)
-                .map_err(|message| PatternMatchError::Hook { message })?;
+                .map_err(|message| {
+                    pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+                })?;
         }
-        if let Some(trace) = result.map_err(|message| PatternMatchError::Hook { message })? {
+        if let Some(trace) = result.map_err(|message| {
+            pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+        })? {
             let frame = self.failure_frame(
                 &[],
                 None,
@@ -1932,7 +1975,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         if let Some(checkpoint) = state.extension_checkpoint {
             self.environment
                 .restore_pattern_branch(checkpoint)
-                .map_err(|message| PatternMatchError::Hook { message })?;
+                .map_err(|message| {
+                    pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+                })?;
         }
         self.visit_state()?;
         if index == elements.len() {
@@ -1982,10 +2027,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             PatternHookOutcome::Pending,
         )?;
         let mut state = state;
-        if let Some(checkpoint) = self
-            .environment
-            .checkpoint_pattern_branch()
-            .map_err(|message| PatternMatchError::Hook { message })?
+        if let Some(checkpoint) =
+            self.environment
+                .checkpoint_pattern_branch()
+                .map_err(|message| {
+                    pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+                })?
         {
             state.extension_checkpoint = Some(checkpoint);
         }
@@ -2011,7 +2058,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             if let Some(checkpoint) = original.extension_checkpoint {
                 self.environment
                     .restore_pattern_branch(checkpoint)
-                    .map_err(|message| PatternMatchError::Hook { message })?;
+                    .map_err(|message| {
+                        pattern_environment_error(
+                            self.environment,
+                            PatternMatchError::Hook { message },
+                        )
+                    })?;
             }
             match self.dispatch_hook(
                 PatternHookScope::Element,
@@ -2027,10 +2079,15 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     self.validate_hook_range(range, TextRange::new(start, self.trim_range.end))?;
                     let mut state = original;
                     state.cursor = range.end;
-                    if let Some(checkpoint) = self
-                        .environment
-                        .checkpoint_pattern_branch()
-                        .map_err(|message| PatternMatchError::Hook { message })?
+                    if let Some(checkpoint) =
+                        self.environment
+                            .checkpoint_pattern_branch()
+                            .map_err(|message| {
+                                pattern_environment_error(
+                                    self.environment,
+                                    PatternMatchError::Hook { message },
+                                )
+                            })?
                     {
                         state.extension_checkpoint = Some(checkpoint);
                     }
@@ -2049,7 +2106,12 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             if let Some(checkpoint) = transition.extension_checkpoint {
                 self.environment
                     .restore_pattern_branch(checkpoint)
-                    .map_err(|message| PatternMatchError::Hook { message })?;
+                    .map_err(|message| {
+                        pattern_environment_error(
+                            self.environment,
+                            PatternMatchError::Hook { message },
+                        )
+                    })?;
             }
             let range = TextRange::new(start, transition.cursor);
             let keep = match self.dispatch_hook(
@@ -2078,10 +2140,15 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 }
             };
             if keep {
-                if let Some(checkpoint) = self
-                    .environment
-                    .checkpoint_pattern_branch()
-                    .map_err(|message| PatternMatchError::Hook { message })?
+                if let Some(checkpoint) =
+                    self.environment
+                        .checkpoint_pattern_branch()
+                        .map_err(|message| {
+                            pattern_environment_error(
+                                self.environment,
+                                PatternMatchError::Hook { message },
+                            )
+                        })?
                 {
                     transition.extension_checkpoint = Some(checkpoint);
                 }
@@ -2411,16 +2478,23 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 remaining: TextRange::new(state.cursor, self.trim_range.end),
                 candidate_ends: &boundaries,
             })
-            .map_err(|message| PatternMatchError::TypeResolver {
-                pattern_span,
-                message,
+            .map_err(|message| {
+                pattern_environment_error(
+                    self.environment,
+                    PatternMatchError::TypeResolver {
+                        pattern_span,
+                        message,
+                    },
+                )
             })?;
         let resolution_checkpoint = if outcome.resolutions.is_empty() {
             None
         } else {
             self.environment
                 .checkpoint_pattern_branch()
-                .map_err(|message| PatternMatchError::Hook { message })?
+                .map_err(|message| {
+                    pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+                })?
         };
         let cause = outcome.failure;
 
@@ -2443,15 +2517,27 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             if let Some(checkpoint) = resolution_checkpoint {
                 self.environment
                     .restore_pattern_branch(checkpoint)
-                    .map_err(|message| PatternMatchError::Hook { message })?;
+                    .map_err(|message| {
+                        pattern_environment_error(
+                            self.environment,
+                            PatternMatchError::Hook { message },
+                        )
+                    })?;
             }
             self.environment
                 .select_type_resolution(&resolution)
-                .map_err(|message| PatternMatchError::Hook { message })?;
-            next.extension_checkpoint = self
-                .environment
-                .checkpoint_pattern_branch()
-                .map_err(|message| PatternMatchError::Hook { message })?;
+                .map_err(|message| {
+                    pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+                })?;
+            next.extension_checkpoint =
+                self.environment
+                    .checkpoint_pattern_branch()
+                    .map_err(|message| {
+                        pattern_environment_error(
+                            self.environment,
+                            PatternMatchError::Hook { message },
+                        )
+                    })?;
             next.cursor = range.end;
             next.captures.push(PatternCapture::TypeExpression {
                 capture_index,
@@ -2480,7 +2566,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         if let Some(checkpoint) = resolution_checkpoint {
             self.environment
                 .restore_pattern_branch(checkpoint)
-                .map_err(|message| PatternMatchError::Hook { message })?;
+                .map_err(|message| {
+                    pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+                })?;
         }
 
         if matches.is_empty() || cause.is_some() {
@@ -2689,7 +2777,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 input_span: self.input.map_range(input_range)?,
                 outcome,
             })
-            .map_err(|message| PatternMatchError::Hook { message })
+            .map_err(|message| {
+                pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+            })
     }
 
     fn validate_hook_range(

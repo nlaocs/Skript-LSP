@@ -95,6 +95,7 @@ pub(crate) fn snapshot(
     validate_registry_references(snapshot, &class_paths, &type_paths, &operator_signs)?;
     validate_aliases(snapshot)?;
     validate_event_value_shape(manifest, snapshot)?;
+    validate_block_data(manifest.schema_version, snapshot)?;
     Ok(())
 }
 
@@ -970,6 +971,109 @@ fn validate_aliases(snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
     Ok(())
 }
 
+fn validate_block_data(schema_version: u32, snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
+    match (schema_version >= 7, snapshot.block_data.as_ref()) {
+        (true, Some(block_data)) => validate_block_data_root(block_data),
+        (true, None) => Err(SnapshotError::validation(
+            "BlockData.json",
+            "schema 7 requires the BlockData registry",
+        )),
+        (false, Some(_)) => Err(SnapshotError::validation(
+            "BlockData.json",
+            "schemas before 7 must omit the BlockData registry",
+        )),
+        (false, None) => Ok(()),
+    }
+}
+
+fn validate_block_data_root(value: &raw::BlockData) -> Result<(), SnapshotError> {
+    if value.state == raw::BlockDataState::Collected {
+        let provider = value.registry_provider.as_deref().ok_or_else(|| {
+            SnapshotError::validation(
+                "BlockData.json.registryProvider",
+                "collected BlockData requires a registryProvider",
+            )
+        })?;
+        non_blank("BlockData.json.registryProvider", provider)?;
+    } else {
+        if value.complete {
+            return Err(SnapshotError::validation(
+                "BlockData.json.complete",
+                "unsupported or unresolved BlockData cannot be complete",
+            ));
+        }
+        if !value.blocks.is_empty() {
+            return Err(SnapshotError::validation(
+                "BlockData.json.blocks",
+                "unsupported or unresolved BlockData must not contain blocks",
+            ));
+        }
+    }
+
+    for (block_id, block) in &value.blocks {
+        let block_path = format!("BlockData.json.blocks.{block_id}");
+        namespaced_id(&block_path, block_id)?;
+        non_blank(&format!("{block_path}.defaultState"), &block.default_state)?;
+        for (property, values) in &block.properties {
+            let property_path = format!("{block_path}.properties.{property}");
+            non_blank(&property_path, property)?;
+            if values.is_empty() {
+                return Err(SnapshotError::validation(
+                    property_path,
+                    "property values must not be empty",
+                ));
+            }
+
+            let mut unique = HashSet::new();
+            for (value_index, property_value) in values.iter().enumerate() {
+                let value_path = format!("{block_path}.properties.{property}[{value_index}]");
+                non_blank(&value_path, property_value)?;
+                if !unique.insert(property_value) {
+                    return Err(SnapshotError::validation(
+                        value_path,
+                        "property values must be unique",
+                    ));
+                }
+                if value_index > 0 && values[value_index - 1].as_str() >= property_value.as_str() {
+                    return Err(SnapshotError::validation(
+                        value_path,
+                        "property values must be sorted",
+                    ));
+                }
+            }
+        }
+    }
+
+    for (failure_index, failure) in value.failures.iter().enumerate() {
+        let path = format!("BlockData.json.failures[{failure_index}]");
+        if let Some(block) = &failure.block {
+            non_blank(&format!("{path}.block"), block)?;
+        }
+        non_blank(&format!("{path}.message"), &failure.message)?;
+    }
+
+    Ok(())
+}
+
+fn namespaced_id(path: &str, value: &str) -> Result<(), SnapshotError> {
+    let Some((namespace, name)) = value.split_once(':') else {
+        return Err(SnapshotError::validation(
+            path,
+            "expected a namespaced ID in the form namespace:name",
+        ));
+    };
+    if namespace.trim().is_empty()
+        || name.trim().is_empty()
+        || value.chars().any(char::is_whitespace)
+    {
+        return Err(SnapshotError::validation(
+            path,
+            "namespaced ID must have non-blank namespace and name",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_change_modes(
     classes: &HashMap<&str, String>,
     path: &str,
@@ -1122,6 +1226,7 @@ mod tests {
                     read("Manifest.json"),
                     raw::Snapshot {
                         aliases: read("Aliases.json"),
+                        block_data: None,
                         classes: read("ClassHierarchy.json"),
                         comparators: read("Comparators.json"),
                         conditions: read("Conditions.json"),

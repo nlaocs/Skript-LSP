@@ -10,9 +10,19 @@ use crate::{
     ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
     FailureTrace, MappedSource, MatchSpan, PatternCapture, RankedFailures, TextRange,
 };
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use syntaxes::{Catalog, ClassName, DynamicSyntaxSnapshot, SyntaxKind};
+use syntaxes::{
+    Catalog, ClassName, DynamicSyntaxSnapshot, Multiplicity, PossibleReturnTypesState, SyntaxKind,
+};
 use thiserror::Error;
+
+/// Versioned JSON describing typed captures parsed inside an Event header.
+///
+/// The host keeps Event-specific roles out of this payload. A WASM handler can
+/// map capture indexes to meanings such as "event entity" or "damager" without
+/// requiring the native parser to know an addon's Event classes.
+pub const EVENT_HEADER_CAPTURES_METADATA_KEY: &str = "parser.event.header-captures";
 
 /// Input required to match one complete Event header.
 pub struct EventParseRequest<'a> {
@@ -226,6 +236,10 @@ fn event_candidate<E: ExpressionParseEnvironment>(
     let reference_events = event.map_or_else(Vec::new, |event| event.reference_events.clone());
     let cancellable = event.map(|event| event.cancellable);
     let priority_supported = event.and_then(|event| event.priority_supported);
+    let mut metadata = dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone());
+    if let Some(captures) = event_header_captures(session, &matched) {
+        metadata.insert(EVENT_HEADER_CAPTURES_METADATA_KEY.to_owned(), captures);
+    }
     Ok(EventCandidate {
         span: session.map_range(range)?,
         matched,
@@ -234,8 +248,109 @@ fn event_candidate<E: ExpressionParseEnvironment>(
         cancellable,
         priority_supported,
         handler: dynamic.map(|definition| definition.handler.clone()),
-        metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
+        metadata,
     })
+}
+
+fn event_header_captures<E: ExpressionParseEnvironment>(
+    session: &ExpressionSession<'_, E>,
+    matched: &CandidateMatch,
+) -> Option<String> {
+    let captures = matched
+        .matched
+        .captures
+        .iter()
+        .filter_map(|capture| {
+            let PatternCapture::TypeExpression {
+                capture_index,
+                expression,
+                value,
+                span,
+                resolution_id,
+                ..
+            } = capture
+            else {
+                return None;
+            };
+            let resolved = resolution_id
+                .as_deref()
+                .and_then(|id| session.resolved_node(id));
+            let expected_types = expression
+                .alternatives
+                .iter()
+                .map(|alternative| {
+                    json!({
+                        "codeName": alternative.name,
+                        "plural": alternative.plural,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let resolution = resolved.map(|node| {
+                let public_data = node
+                    .public_data
+                    .iter()
+                    .map(|entry| {
+                        json!({
+                            "schemaId": entry.schema_id,
+                            "schemaVersion": entry.schema_version,
+                            "json": entry.json,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                json!({
+                    "returnType": node.return_type.as_ref().map(ClassName::as_str),
+                    "possibleReturnTypes": node
+                        .possible_return_types
+                        .iter()
+                        .map(ClassName::as_str)
+                        .collect::<Vec<_>>(),
+                    "possibleReturnTypesState": possible_return_types_state_name(
+                        node.possible_return_types_state,
+                    ),
+                    "multiplicity": node.multiplicity.map(multiplicity_name),
+                    "metadata": node.metadata,
+                    "publicData": public_data,
+                })
+            });
+            Some(json!({
+                "captureIndex": capture_index,
+                "source": value,
+                "inputRange": {
+                    "start": span.local_range.start,
+                    "end": span.local_range.end,
+                },
+                "expectedTypes": expected_types,
+                "nullable": expression.nullable,
+                "allowLiterals": expression.allow_literals,
+                "allowExpressions": expression.allow_expressions,
+                "time": expression.time,
+                "resolution": resolution,
+            }))
+        })
+        .collect::<Vec<Value>>();
+    (!captures.is_empty()).then(|| {
+        json!({
+            "schemaVersion": 1,
+            "captures": captures,
+        })
+        .to_string()
+    })
+}
+
+const fn possible_return_types_state_name(state: PossibleReturnTypesState) -> &'static str {
+    match state {
+        PossibleReturnTypesState::Complete => "complete",
+        PossibleReturnTypesState::Partial => "partial",
+        PossibleReturnTypesState::Unresolved => "unresolved",
+    }
+}
+
+const fn multiplicity_name(multiplicity: Multiplicity) -> &'static str {
+    match multiplicity {
+        Multiplicity::Single => "single",
+        Multiplicity::Multiple => "multiple",
+        Multiplicity::Both => "both",
+    }
 }
 
 fn event_failure<E: ExpressionParseEnvironment>(

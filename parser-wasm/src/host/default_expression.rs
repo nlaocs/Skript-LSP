@@ -35,12 +35,13 @@ pub(super) fn provide(
         &mut environment.hooks.calls,
         &mut environment.hooks.failures,
     );
+    if let Err(error) = rollback {
+        environment.hooks.pending_fault = None;
+        return Err(error.to_string());
+    }
     match result {
         Err(error) => Err(error),
-        Ok(decision) => {
-            rollback.map_err(|error| error.to_string())?;
-            Ok(decision)
-        }
+        Ok(decision) => Ok(decision),
     }
 }
 
@@ -125,12 +126,8 @@ fn provide_inner(
                 payload: HookPayload::DefaultExpression(payload),
             },
         )
-        .map_err(|error| error.to_string())?;
-    if !result.failures.is_empty() {
-        return Ok(Decision::Unresolved {
-            reason: format!("DefaultExpression provider failed: {:?}", result.failures),
-        });
-    }
+        .map_err(|error| environment.hooks.host_error(error))?;
+    let result = environment.hooks.checked_dispatch(result)?;
     let diagnostics = semantic_rejection_diagnostics(&result.decision, &result.effects)?;
     if let HookDecision::Reject(rejection) = result.decision {
         return Ok(Decision::Rejected {
@@ -149,7 +146,34 @@ fn provide_inner(
         environment.hooks.host.config.syntax_catalog.as_deref(),
         &resolution,
     ) {
-        return Ok(Decision::Unresolved { reason });
+        let component_id = resolution
+            .component_id
+            .clone()
+            .unwrap_or_else(|| "<unknown-provider>".to_owned());
+        let subscription_id = environment
+            .hooks
+            .calls
+            .last()
+            .map_or_else(String::new, |call| call.subscription_id.clone());
+        let failure = ComponentFailure {
+            affected_span: Some(payload.span.clone()),
+            component_id: component_id.clone(),
+            subscription_id: subscription_id.clone(),
+            error: HostError::InvalidHookOutput {
+                component_id,
+                subscription_id,
+                message: reason,
+            },
+        };
+        let fault = extension_failure(
+            &failure,
+            "DefaultExpression".to_owned(),
+            request.value_type.registration_id.as_str().to_owned(),
+        );
+        let message = fault.to_string();
+        environment.hooks.failures.push(failure);
+        environment.hooks.pending_fault = Some(fault);
+        return Err(message);
     }
     let resolution = skript_parser::DefaultExpressionResolution {
         provider_id: resolution.provider_id,
@@ -608,6 +632,7 @@ mod tests {
                 scope_frames: Vec::new(),
                 branch_states: Vec::new(),
                 last_candidate: None,
+                pending_fault: None,
                 effects: empty_effects(),
                 calls: Vec::new(),
                 failures: Vec::new(),

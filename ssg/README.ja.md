@@ -11,39 +11,45 @@ snapshotの生成は行いません。
 
 ## 対応format
 
-SSG schema version 3から6に対応しています。完全なfile inventoryはschemaごとに異なります。
+SSG schema version 3から7に対応しています。完全なfile inventoryはschemaごとに異なります。
 
 - schema 3と4は`Manifest.json`と18個のdata fileで構成され、inventoryは
   `LEGACY_DATA_FILES`と`LEGACY_ALL_FILES`で取得できます
 - schema 5と6は`Manifest.json`と19個のdata fileで構成され、`Language.json`が必須で、
-  `DATA_FILES`と`ALL_FILES`に含まれます
+  `SCHEMA_5_6_DATA_FILES`と`SCHEMA_5_6_ALL_FILES`に含まれます
+- schema 7は`Manifest.json`と20個のdata fileで構成され、`BlockData.json`が必須です。
+  `BlockData.json`は`Aliases.json`の直後に置かれ、現行の`DATA_FILES`と
+  `ALL_FILES`に含まれます
 
 - syntax: Conditions、Effects、Events、Expressions、Functions、Sections、Structures、Types
 - relationship: ClassHierarchy、Converters、Comparators、EventValues
-- additional registry: Aliases、Differences、Operations、Operators、Properties、PluralRules
+- additional registry: Aliases、BlockData、Differences、Operations、Operators、Properties、PluralRules
 - schema 5で追加されたruntime metadata: `Language.json`
 
 対応schemaのrequired inventoryは`data_files_for_schema`と`all_files_for_schema`で取得できます。
-`DATA_FILES`と`ALL_FILES`は現在のschema 6用で、schema 3と4用は`LEGACY_*` constantです。
+`DATA_FILES`と`ALL_FILES`は現行schema 7用、`SCHEMA_5_6_*`はschema 5と6用、
+`LEGACY_*`はschema 3と4用です。
 
-schema 3から5のsnapshotは互換性のため読み込みを維持し、現在のgenerator formatはschema 6です。
+schema 3から6のsnapshotは互換性のため読み込みを維持し、現在のgenerator formatはschema 7です。
 schema 6では`defaultExpressionClass`を構造化されたType default Expression descriptorへ置き換えます。
 schema 5と6ではすべての`ClassHierarchy.json` recordに`methods`が必要です。schema 3と4では
 このmetadataを省略できます。`Language.json`のrootはobjectで、valueはstringでなければなりません。
 機能の有無はManifest capabilityで表現されるため、意図的に非対応のregistryと、file欠落・不正値は
-区別されます。
+区別されます。schema 7では`BlockData.json`も必須で、BlockDataの収集状態、収集元`registryProvider`、
+namespaced block ID、default state、propertyの許容値、収集失敗を保持します。loaderはこのraw
+documentを`CatalogSource`経由で保持しますが、正規化されたsyntax registryとしては解釈しません。
 
 ## 読み込みpipeline
 
 `load(directory)`は次の順序で処理します。
 
 1. `Manifest.json`を読み込み、deserializeする
-2. schema versionが3から6の対応範囲内であることを要求する
+2. schema versionが3から7の対応範囲内であることを要求する
 3. manifestと完全なfile inventoryを検証する
 4. schemaでrequiredなすべてのdata fileを読み込む
 5. schemaでrequiredなserialized fileに対するcontent digestを検証する
 6. manifest由来のsnapshot IDを検証する
-7. raw DTOとschema 5以降のlanguage entryをJSON path付きerrorでdeserializeする
+7. raw DTO、schema 5以降のlanguage entry、schema 7のBlockDataをJSON path付きerrorでdeserializeする
 8. file単体とfile間のinvariantを検証する
 9. snapshotのplural ruleをparseする
 10. raw snapshotを`syntaxes::Catalog`へ変換する
@@ -74,8 +80,9 @@ checkは次のとおりです。
 - typeとJava classの参照
 - EventValueのtime rangeとresolution field
 - alias target indexと到達可能性
+- schema 7のBlockData state、`registryProvider`、namespaced ID、property value、failure
 
-schema 3から6のreaderのforward compatibilityのため、未知のJSON fieldは受け入れます。ただし
+schema 3から7のreaderのforward compatibilityのため、未知のJSON fieldは受け入れます。ただし
 digestは元のserialized file全体を対象とするため、未知fieldによってdigest検証を回避することは
 できません。typed enum valueとrequired field typeは正しくなければなりません。
 
@@ -123,6 +130,7 @@ fixtureは次をcoverします。
 - 非対応schema
 - forward-compatibleな未知field
 - 正確なJSON error path
+- schema 7のBlockData materialization、source保持、不正root
 
 fixture directoryは、変更していない完全な生成snapshotです。出典は
 [`tests/data/README.md`](./tests/data/README.md)に記録されています。
