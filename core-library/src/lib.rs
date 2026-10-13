@@ -549,10 +549,18 @@ fn interpolation_output(
 fn resolve_registered_expression(
     mut payload: RegisteredExpressionPayload,
 ) -> Result<HookOutput, AddonError> {
+    let input_multiplicity = expressions::input_cardinality::multiplicity(&payload);
+    if let Some(multiplicity) = input_multiplicity {
+        payload.effective_multiplicity = Some(multiplicity);
+    }
     let Some(resolution) = expressions::resolve(&payload) else {
         return Ok(HookOutput {
-            decision: HookDecision::NotApplicable,
-            replacement: None,
+            decision: if input_multiplicity.is_some() {
+                HookDecision::ContinueProcessing
+            } else {
+                HookDecision::NotApplicable
+            },
+            replacement: input_multiplicity.map(|_| HookPayload::RegisteredExpression(payload)),
             effects: empty_effects(),
         });
     };
@@ -617,7 +625,7 @@ fn resolve_registered_expression(
     payload.effective_return_type = Some(return_type);
     payload.effective_possible_return_types = possible_return_types;
     payload.effective_possible_return_types_state = possible_return_types_state;
-    payload.effective_multiplicity = Some(multiplicity);
+    payload.effective_multiplicity = Some(input_multiplicity.unwrap_or(multiplicity));
     payload.metadata.extend(metadata);
     Ok(HookOutput {
         decision: HookDecision::ContinueProcessing,
@@ -743,8 +751,118 @@ mod tests {
         ExpressionPossibleReturnTypesState, ExpressionReturnTypeState, ExpressionTypeOption,
         HookPayload, InvocationContext, MappedSpan, OriginKind, ParseResultStatus,
         RegisteredExpressionChild, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
-        RegisteredHandlerBinding, SourceOrigin, TextRange,
+        RegisteredHandlerBinding, RegisteredSyntaxHandlerTarget, SourceOrigin, TextRange,
     };
+
+    fn cardinality_capture(
+        index: u64,
+        multiplicity: Option<DynamicMultiplicity>,
+    ) -> nlaocs::skript_parser_addon::types::ParsedCapture {
+        use nlaocs::skript_parser_addon::types::{ParseSummary, ParsedCapture};
+        let payload = registered_expression("fixture.CardinalitySource");
+        ParsedCapture {
+            capture_index: index,
+            parser_id: "host.expression".to_owned(),
+            status: ParseResultStatus::Success,
+            text: "input".to_owned(),
+            span: payload.span,
+            expected_types: Vec::new(),
+            summary: Some(ParseSummary {
+                kind: "registered-expression".to_owned(),
+                definition_id: None,
+                registration_id: None,
+                element_class: None,
+                pattern_index: None,
+                return_type: Some("org.bukkit.entity.Player".to_owned()),
+                possible_return_types: vec!["org.bukkit.entity.Player".to_owned()],
+                possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+                multiplicity,
+                default_expression: None,
+                public_data: Vec::new(),
+                metadata: Vec::new(),
+            }),
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn input_cardinality_uses_the_bound_slot_and_changes_only_cardinality() {
+        let mut payload = registered_expression("fixture.CardinalitySource");
+        payload.parsed_captures = vec![
+            cardinality_capture(0, Some(DynamicMultiplicity::Single)),
+            cardinality_capture(2, Some(DynamicMultiplicity::Multiple)),
+        ];
+        payload.metadata.push(metadata(
+            parser_wasm::REGISTERED_METADATA_MULTIPLICITY_SOURCE,
+            r#"{"version":1,"captureIndex":2,"fullyParsedInput":true}"#,
+        ));
+        let original = payload.clone();
+        let output = resolve_registered_expression(payload).unwrap();
+        let Some(HookPayload::RegisteredExpression(actual)) = output.replacement else {
+            panic!("resolved payload");
+        };
+        assert_eq!(
+            actual.effective_multiplicity,
+            Some(DynamicMultiplicity::Multiple)
+        );
+        assert_eq!(actual.definition_id, original.definition_id);
+        assert_eq!(actual.registration_id, original.registration_id);
+        assert_eq!(actual.effective_return_type, original.effective_return_type);
+        assert_eq!(
+            actual.effective_possible_return_types_state,
+            original.effective_possible_return_types_state
+        );
+        assert_eq!(actual.parsed_captures.len(), 2);
+        assert!(output.effects.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn input_cardinality_preserves_single_multiple_both_and_unknown() {
+        for multiplicity in [
+            Some(DynamicMultiplicity::Single),
+            Some(DynamicMultiplicity::Multiple),
+            Some(DynamicMultiplicity::Both),
+            None,
+        ] {
+            let mut payload = registered_expression("fixture.CardinalitySource");
+            payload
+                .parsed_captures
+                .push(cardinality_capture(3, multiplicity));
+            payload.metadata.push(metadata(
+                parser_wasm::REGISTERED_METADATA_MULTIPLICITY_SOURCE,
+                r#"{"version":1,"captureIndex":3,"fullyParsedInput":true}"#,
+            ));
+            assert_eq!(
+                expressions::input_cardinality::multiplicity(&payload),
+                multiplicity
+            );
+        }
+    }
+
+    #[test]
+    fn input_cardinality_does_not_guess_missing_unparsed_partial_or_foreign_sources() {
+        let mut payload = registered_expression("fixture.CardinalitySource");
+        payload
+            .parsed_captures
+            .push(cardinality_capture(0, Some(DynamicMultiplicity::Single)));
+        assert_eq!(expressions::input_cardinality::multiplicity(&payload), None);
+        payload.metadata.push(metadata(
+            parser_wasm::REGISTERED_METADATA_MULTIPLICITY_SOURCE,
+            r#"{"version":1,"captureIndex":2,"fullyParsedInput":true}"#,
+        ));
+        assert_eq!(expressions::input_cardinality::multiplicity(&payload), None);
+        payload.metadata[0].value =
+            r#"{"version":1,"captureIndex":0,"fullyParsedInput":false}"#.to_owned();
+        assert_eq!(expressions::input_cardinality::multiplicity(&payload), None);
+        payload.metadata[0].value =
+            r#"{"version":1,"captureIndex":0,"fullyParsedInput":true}"#.to_owned();
+        payload.metadata[0].owner_component_id = Some("foreign".to_owned());
+        assert_eq!(expressions::input_cardinality::multiplicity(&payload), None);
+        payload.metadata[0].owner_component_id = None;
+        payload.parsed_captures[0].status = ParseResultStatus::Partial;
+        assert_eq!(expressions::input_cardinality::multiplicity(&payload), None);
+    }
 
     #[test]
     fn manifest_exposes_identity_abi_and_health_check() {
@@ -816,7 +934,7 @@ mod tests {
             manifest.subscriptions[9].phase,
             HookPhase::DefaultExpression
         ));
-        assert_eq!(manifest.registered_syntax_handlers.len(), 136);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 137);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",
@@ -829,6 +947,7 @@ mod tests {
             "core.expression.expr-filter",
             "core.expression.expr-input",
             "core.expression.expr-length",
+            "core.expression.input-cardinality",
             "core.structure.struct-example",
         ] {
             assert!(
@@ -839,6 +958,25 @@ mod tests {
                 "missing {handler_id}"
             );
         }
+        let cardinality = manifest
+            .registered_syntax_handlers
+            .iter()
+            .find(|handler| handler.handler_id == "core.expression.input-cardinality")
+            .unwrap();
+        assert_eq!(
+            cardinality
+                .targets
+                .iter()
+                .map(|target| match target {
+                    RegisteredSyntaxHandlerTarget::SuperClass(class) => class.as_str(),
+                    _ => panic!("input cardinality must use generic superclass targets"),
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                "ch.njol.skript.expressions.base.PropertyExpression",
+                "ch.njol.skript.expressions.base.SimplePropertyExpression"
+            ]
+        );
         let conditional_capture = manifest
             .registered_syntax_handlers
             .iter()

@@ -55,34 +55,6 @@
 }, {
   "kind" : "section",
   "registrationOrder" : 2,
-  "name" : "Loop",
-  "elementClass" : "ch.njol.skript.sections.SecLoop",
-  "superClass" : "ch.njol.skript.lang.LoopSection",
-  "since" : [ "1.0" ],
-  "description" : [ "Loop sections repeat their code with multiple values.", "", "A loop will loop through all elements of the given expression, e.g. all players, worlds, items, etc. The conditions & effects inside the loop will be executed for every of those elements, which can be accessed with ‘loop-<what>’, e.g. <code>send \"hello\" to loop-player</code>. When a condition inside a loop is not fulfilled the loop will start over with the next element of the loop. You can however use <code>stop loop</code> to exit the loop completely and resume code execution after the end of the loop.", "", "<b>Loopable Values</b>", "All expressions that represent more than one value, e.g. ‘all players’, ‘worlds’, etc., as well as list variables, can be looped. You can also use a list of expressions, e.g. <code>loop the victim and the attacker</code>, to execute the same code for only a few values.", "", "<b>List Variables</b>", "When looping list variables, you can also use <code>loop-index</code> in addition to <code>loop-value</code> inside the loop. <code>loop-value</code> is the value of the currently looped variable, and <code>loop-index</code> is the last part of the variable's name (the part where the list variable has its asterisk *)." ],
-  "examples" : [ "loop all players:\n\tsend \"Hello %loop-player%!\" to loop-player\n", "loop items in player's inventory:\n\tif loop-item is dirt:\n\t\tset loop-item to air\n", "loop 10 times:\n\tsend title \"%11 - loop-value%\" and subtitle \"seconds left until the game begins\" to player for 1 second # 10, 9, 8 etc.\n\twait 1 second\n", "loop {Coins::*}:\n\tset {Coins::%loop-index%} to loop-value + 5 # Same as \"add 5 to {Coins::%loop-index%}\" where loop-index is the uuid of \" +\n\t\"the player and loop-value is the number of coins for the player\n", "loop shuffled (integers between 0 and 8):\n\tif all:\n\t\tprevious loop-value = 1\n\t\tloop-value = 4\n\t\tnext loop-value = 8\n\tthen:\n\t\tkill all players\n" ],
-  "noDoc" : false,
-  "deprecated" : false,
-  "priorityStr" : "SyntaxInfos.COMBINED",
-  "priority" : {
-    "after" : [ {
-      "after" : [ ],
-      "before" : [ ]
-    } ],
-    "before" : [ ]
-  },
-  "patterns" : [ "loop %objects%" ],
-  "addon" : {
-    "name" : "Skript",
-    "version" : "2.16.2"
-  },
-  "definitionId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2",
-  "registrationId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2:4f7dc12c0b43146e488a0e33cc6cb8410652a73db5e23378084b54bde115fa06:0",
-  "loopSection" : true,
-  "effectSection" : false
-}, {
-  "kind" : "section",
-  "registrationOrder" : 3,
   "name" : "Filter",
   "elementClass" : "ch.njol.skript.sections.SecFilter",
   "superClass" : "ch.njol.skript.lang.Section",
@@ -107,6 +79,34 @@
   "definitionId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93",
   "registrationId" : "section:skript:089c76fdc9b17d48476eb91fdb23a9433d7513b73b79d8d885cefafffcd80a93:33d8916301533c7860b3236c7171834ed23891fbef00d9717ea11a5d10311e98:0",
   "loopSection" : false,
+  "effectSection" : false
+}, {
+  "kind" : "section",
+  "registrationOrder" : 3,
+  "name" : "Loop",
+  "elementClass" : "ch.njol.skript.sections.SecLoop",
+  "superClass" : "ch.njol.skript.lang.LoopSection",
+  "since" : [ "1.0" ],
+  "description" : [ "Loop sections repeat their code with multiple values.", "", "A loop will loop through all elements of the given expression, e.g. all players, worlds, items, etc. The conditions & effects inside the loop will be executed for every of those elements, which can be accessed with ‘loop-<what>’, e.g. <code>send \"hello\" to loop-player</code>. When a condition inside a loop is not fulfilled the loop will start over with the next element of the loop. You can however use <code>stop loop</code> to exit the loop completely and resume code execution after the end of the loop.", "", "<b>Loopable Values</b>", "All expressions that represent more than one value, e.g. ‘all players’, ‘worlds’, etc., as well as list variables, can be looped. You can also use a list of expressions, e.g. <code>loop the victim and the attacker</code>, to execute the same code for only a few values.", "", "<b>List Variables</b>", "When looping list variables, you can also use <code>loop-index</code> in addition to <code>loop-value</code> inside the loop. <code>loop-value</code> is the value of the currently looped variable, and <code>loop-index</code> is the last part of the variable's name (the part where the list variable has its asterisk *)." ],
+  "examples" : [ "loop all players:\n\tsend \"Hello %loop-player%!\" to loop-player\n", "loop items in player's inventory:\n\tif loop-item is dirt:\n\t\tset loop-item to air\n", "loop 10 times:\n\tsend title \"%11 - loop-value%\" and subtitle \"seconds left until the game begins\" to player for 1 second # 10, 9, 8 etc.\n\twait 1 second\n", "loop {Coins::*}:\n\tset {Coins::%loop-index%} to loop-value + 5 # Same as \"add 5 to {Coins::%loop-index%}\" where loop-index is the uuid of \" +\n\t\"the player and loop-value is the number of coins for the player\n", "loop shuffled (integers between 0 and 8):\n\tif all:\n\t\tprevious loop-value = 1\n\t\tloop-value = 4\n\t\tnext loop-value = 8\n\tthen:\n\t\tkill all players\n" ],
+  "noDoc" : false,
+  "deprecated" : false,
+  "priorityStr" : "SyntaxInfos.COMBINED",
+  "priority" : {
+    "after" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ],
+    "before" : [ ]
+  },
+  "patterns" : [ "loop %objects%" ],
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.16.2"
+  },
+  "definitionId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2",
+  "registrationId" : "section:skript:6db17449de1abcec570e4691a7d74e84c5c32db694edbafd32e30f5b6d7550c2:4f7dc12c0b43146e488a0e33cc6cb8410652a73db5e23378084b54bde115fa06:0",
+  "loopSection" : true,
   "effectSection" : false
 }, {
   "kind" : "section",

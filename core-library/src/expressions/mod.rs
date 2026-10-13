@@ -48,6 +48,7 @@ mod expr_type_of;
 mod expr_value_within;
 mod expr_whether;
 mod expr_x_of;
+pub(crate) mod input_cardinality;
 mod prop_expr_amount;
 mod prop_expr_custom_name;
 mod prop_expr_name;
@@ -153,6 +154,7 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     prop_expr_wxyz::register(&mut handlers);
     simple_literal::register(&mut handlers);
     wrapper_expression::register(&mut handlers);
+    input_cardinality::register(&mut handlers);
     handlers
 }
 

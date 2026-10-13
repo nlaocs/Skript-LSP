@@ -50,9 +50,7 @@ for request, graph in zip(requests, graphs):
         if actual == expected:
             checks.append(item)
         else:
-            if path.endswith('/multiplicity') and actual == 'Both' and expected == 'Single':
-                reason = 'Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass'
-            elif actual in ('ch.njol.skript.classes.ClassInfo', ['ch.njol.skript.classes.ClassInfo']) and expected in ('org.skriptlang.skript.bukkit.types.PlayerClassInfo', ['org.skriptlang.skript.bukkit.types.PlayerClassInfo']):
+            if actual in ('ch.njol.skript.classes.ClassInfo', ['ch.njol.skript.classes.ClassInfo']) and expected in ('org.skriptlang.skript.bukkit.types.PlayerClassInfo', ['org.skriptlang.skript.bukkit.types.PlayerClassInfo']):
                 reason = 'Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass'
             else:
                 raise RuntimeError(f'Unexpected upstream discrepancy must be reviewed: {request["id"]} {path}: {actual!r} != {expected!r}')
@@ -131,6 +129,6 @@ for request, graph in zip(requests, graphs):
                 expression(child, path + '/resolved')
     observations.append({'case_id': request['id'], 'graph_index': len(observations), 'expression_wrapper': request['expression_wrapper'], 'coverage': 'partial observed fields only', 'checks': checks, 'known_differences': differences, 'unknown': sorted(set(unknown))})
 
-evidence = {'stage': 'actual outer loadItems returned objects inspected after validateScript return', 'snapshot_id': '0e896c28e8d83a5124f1e66f8a71f4cea2bf384e9c611aba3022de8544c11c5f', 'skript_jar_sha256': '8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3', 'ssg_jar_sha256': '03b9591d40bf786af0a7f60eb66980131503d1156f92544fc8dea38883c3dedb', 'observations': observations}
+evidence = {'stage': 'actual outer loadItems returned objects inspected after validateScript return', 'snapshot_id': 'f42091ee442583229f11a2deea6b56ec736acb0c094ac4f4f01ab36b72192ba8', 'skript_jar_sha256': '8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3', 'ssg_jar_sha256': '8fc84d9b93a33e0d14ed1273e21f8459891119d816e1c6e6369f0fba4b549bb2', 'observations': observations}
 (out / 'upstream.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 print(json.dumps({'checks': sum(len(o['checks']) for o in observations), 'differences': [{'case': o['case_id'], 'items': o['known_differences']} for o in observations if o['known_differences']], 'unknown_counts': {o['case_id']: len(o['unknown']) for o in observations}}, ensure_ascii=True))

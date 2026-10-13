@@ -1,8 +1,8 @@
 {
   "stage": "actual outer loadItems returned objects inspected after validateScript return",
-  "snapshot_id": "0e896c28e8d83a5124f1e66f8a71f4cea2bf384e9c611aba3022de8544c11c5f",
+  "snapshot_id": "f42091ee442583229f11a2deea6b56ec736acb0c094ac4f4f01ab36b72192ba8",
   "skript_jar_sha256": "8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3",
-  "ssg_jar_sha256": "03b9591d40bf786af0a7f60eb66980131503d1156f92544fc8dea38883c3dedb",
+  "ssg_jar_sha256": "8fc84d9b93a33e0d14ed1273e21f8459891119d816e1c6e6369f0fba4b549bb2",
   "observations": [
     {
       "case_id": "skript-2.16.2-java25/nested-function",
@@ -1830,6 +1830,11 @@
           "expected": "org.bukkit.World"
         },
         {
+          "path": "/root/captures/2/resolved/children/3/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
           "path": "/root/captures/2/resolved/children/3/possibleTypes",
           "mode": "value",
           "expected": [
@@ -1926,6 +1931,11 @@
           "expected": "java.lang.Float"
         },
         {
+          "path": "/root/captures/2/resolved/children/4/multiplicity",
+          "mode": "value",
+          "expected": "Single"
+        },
+        {
           "path": "/root/captures/2/resolved/children/4/possibleTypes",
           "mode": "value",
           "expected": [
@@ -2020,6 +2030,11 @@
           "path": "/root/captures/2/resolved/children/5/returnType",
           "mode": "value",
           "expected": "java.lang.Float"
+        },
+        {
+          "path": "/root/captures/2/resolved/children/5/multiplicity",
+          "mode": "value",
+          "expected": "Single"
         },
         {
           "path": "/root/captures/2/resolved/children/5/possibleTypes",
@@ -2177,13 +2192,6 @@
           "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
         },
         {
-          "path": "/root/captures/2/resolved/children/3/multiplicity",
-          "mode": "value",
-          "expected": "Single",
-          "current_native": "Both",
-          "reason": "Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass"
-        },
-        {
           "path": "/root/captures/2/resolved/children/3/captures/0/resolved/captures/1/resolved/returnType",
           "mode": "value",
           "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
@@ -2202,13 +2210,6 @@
           "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
         },
         {
-          "path": "/root/captures/2/resolved/children/4/multiplicity",
-          "mode": "value",
-          "expected": "Single",
-          "current_native": "Both",
-          "reason": "Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass"
-        },
-        {
           "path": "/root/captures/2/resolved/children/4/captures/0/resolved/captures/1/resolved/returnType",
           "mode": "value",
           "expected": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
@@ -2225,13 +2226,6 @@
             "ch.njol.skript.classes.ClassInfo"
           ],
           "reason": "Native ClassInfo abstraction versus observed runtime PlayerClassInfo implementation type; normalization not specified and not a compatibility pass"
-        },
-        {
-          "path": "/root/captures/2/resolved/children/5/multiplicity",
-          "mode": "value",
-          "expected": "Single",
-          "current_native": "Both",
-          "reason": "Native Both versus observed Single: cardinality remains unresolved; not an upstream compatibility pass"
         },
         {
           "path": "/root/captures/2/resolved/children/5/captures/0/resolved/captures/1/resolved/returnType",

@@ -30,12 +30,18 @@ successful retries are not inserted into the selected tree.
 - Schema 5 historical snapshots lack structured default-expression shapes;
   eight current cases are incomplete rather than silently skipped. Their
   collection completeness has not been recertified with SSG #9.
-- The new `skript-2.16.2-java25` snapshot is a complete, unchanged export from
-  the paired SSG #9 verification. Source `ab9fb059...` and merged main
-  `1b6a796d...` have identical trees. SSG JAR SHA-256 is
-  `03b9591d40bf786af0a7f60eb66980131503d1156f92544fc8dea38883c3dedb`;
+- The `skript-2.16.2-java25` snapshot is a complete, unchanged export from
+  the paired optional cardinality-source verification based on SSG main
+  `1b6a796d...`. SSG JAR SHA-256 is
+  `8fc84d9b93a33e0d14ed1273e21f8459891119d816e1c6e6369f0fba4b549bb2`;
   modified Skript 2.16.2 JAR SHA-256 is
   `8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3`.
+  The paired SSG source is local commit `50fab8a63a5cf656d6822d5a7c73e5dfca4d99aa`.
+  Subsequent alias hardening is `ba335e4fbc6d16ce35aef4e0ed87cb64d9caf5aa`;
+  its verifier JAR `02b5b96d1d743fab630a8f152ba672f07adda24938d7cd27d4b25567cef8da98`
+  has passed local unit tests but has no paired server export yet. The remote
+  retry was rejected by automatic approval review before any transfer/execution.
+  This saved export and its pins are preserved; it is not relabeled as new evidence.
   Paper 26.2-121 / Java 25.0.4.1 is an experimental integration environment.
   Its prior direct registry/export comparison found 50/50 equal from/to/flags/
   order (89 registry entries include 39 derived chains). That collection
@@ -60,7 +66,7 @@ The long teleport has 37 observed nodes. Known child adapters read metadata,
 function bindings and stored numeric literals; no Effect or game value is
 evaluated. Wrapper/leaf adapters that were not observed remain explicit unknowns.
 
-`upstream.json` adds 380 independent observed checks to the same native run.
+`upstream.json` adds 383 independent observed checks to the same native run.
 It verifies root class/pattern, capture positions/default/null, nested function
 names and declaration-ordered parameters, omitted/list argument child ranges,
 observed return types/cardinality and small integer source ownership. Expression
@@ -75,11 +81,12 @@ as parameter-owned values; an upstream default `EmptyExpression` means a native
 omitted parameter with zero supplied children. IDs and runtime wrapper classes
 are not required to have identical implementations.
 
-There are 19 exact known difference fields, **not 19 compatibility passes**:
+There are 16 exact known difference fields, **not 16 compatibility passes**:
 16 repeated return/possible-type observations use runtime `PlayerClassInfo`
-where native Type literals expose the `ClassInfo` abstraction, and three long
-teleport properties (`world`, `yaw`, `pitch`) remain native `Both` where upstream
-`isSingle()` is true. Their case/path/value/reason are fixed individually. A
+where native Type literals expose the `ClassInfo` abstraction. The three long
+teleport properties (`world`, `yaw`, `pitch`) now require observed `Single` and
+no longer have a cardinality discrepancy exemption. Each remaining difference's
+case/path/value/reason is fixed individually. A
 new difference fails; agreement improvements are reported and require native
 baseline review. No broad syntax/diagnostic ignore is used. Whole graph agreement,
 registration identity lost during simplify, literal metadata implementation
@@ -87,9 +94,28 @@ type normalization and missing Direction/leaf adapters are not certified.
 
 `normalize_upstream.py` is an explicit stdlib-only maintenance tool that derives
 the checks from the checked-in actual graphs and curated source cases. It never
-rewrites raw graphs. It permits only the documented ClassInfo abstraction and
-Both/Single discrepancy families; an unexpected mismatch stops generation.
+rewrites raw graphs. It permits only the documented ClassInfo abstraction
+discrepancy family; an unexpected mismatch stops generation.
 Review every generated case/path/value before accepting the output.
+
+`cardinality-upstream.json` preserves 25 additional raw validations from the
+same boot/export, together with 1,355 partial assertions and native negative
+guards. It covers single/AND/OR inputs, nested location functions, scalar/list
+function arguments and three rejected plural scalar arguments. Selected
+registration/class/pattern, capture positions, nested cardinality and function
+argument ownership are checked where observable. Four deliberately changed
+results demonstrate that these assertions reject cardinality/identity/ownership
+regressions. Grouping is normalized to the native grouped child; ExpressionList
+conjunction and child order are compared. The upstream argument API represents
+these positional values as NAMED, so syntactic suppliedName is not certified.
+
+The omitted-world control still has native Both versus observed Single; explicit
+source evidence does not certify defaults. Lore has observed Multiple and native
+unknown, preventing an unconditional Single fallback. ClassInfo implementation
+normalization and missing adapters remain unknown. See
+`docs/expression-cardinality.md` for the propagation contract. Fresh JVM
+registration order changed between exports; IDs and per-registration metadata
+were compared, and the observed order was retained without hand rewriting.
 
 ## Running and updating
 

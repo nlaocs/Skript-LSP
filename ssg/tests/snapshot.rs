@@ -15,6 +15,53 @@ fn legacy_fixture() -> PathBuf {
 }
 
 #[test]
+fn optional_cardinality_source_metadata_reaches_the_public_catalog() {
+    let snapshot = load(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../parser-wasm/tests/data/type-parser-versions/skript-2.16.2-java25"),
+    )
+    .expect("complete paired cardinality snapshot must load");
+    for class in [
+        "ch.njol.skript.expressions.ExprWorld",
+        "ch.njol.skript.expressions.ExprYawPitch",
+    ] {
+        let expression = snapshot
+            .catalog()
+            .expressions()
+            .find(|expression| expression.common.element_class.as_str() == class)
+            .unwrap();
+        assert_eq!(
+            expression.return_type_multiplicity,
+            Some(syntaxes::Multiplicity::Both)
+        );
+        let source = expression.return_type_multiplicity_source.as_ref().unwrap();
+        assert_eq!(source.expression_index, 0);
+        assert!(source.requires_explicit_input && source.requires_parsed_input);
+        assert_eq!(
+            source.is_single_method_declaring_class,
+            "ch.njol.skript.expressions.base.PropertyExpression"
+        );
+        assert_eq!(source.init_method_declaring_class, class);
+    }
+    let lore = snapshot
+        .catalog()
+        .expressions()
+        .find(|expression| {
+            expression.common.element_class.as_str()
+                == "org.skriptlang.skript.bukkit.item.elements.ExprLore"
+        })
+        .unwrap();
+    assert!(lore.return_type_multiplicity_source.is_none());
+    let historical = load(modern_fixture()).unwrap();
+    assert!(
+        historical
+            .catalog()
+            .expressions()
+            .all(|expression| expression.return_type_multiplicity_source.is_none())
+    );
+}
+
+#[test]
 fn loads_and_indexes_modern_multi_addon_snapshot() {
     let snapshot = load(modern_fixture()).expect("modern schema 3 fixture must load");
     let manifest = snapshot.manifest();
