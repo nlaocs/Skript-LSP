@@ -3,3 +3,4 @@
 syntax-pattern-parser/tests/data/corpus/**/*.json text eol=crlf
 ssg/tests/data/**/*.json text eol=crlf
 parser-wasm/tests/data/type-parser-versions/**/*.json text eol=crlf
+parser-wasm/tests/data/type-parser-versions/skript-2.16.2-java25/*.json text eol=lf
