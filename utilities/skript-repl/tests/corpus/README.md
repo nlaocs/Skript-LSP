@@ -92,9 +92,21 @@ Skript JAR as the new snapshot. These are outer `ScriptLoader.loadItems` returne
 object lists retained and inspected after `validateScript` returned, not
 `ParseTrace.selected` entries. Root object identity selects its accepted init
 captures, preserving null slots; physical field edges are recorded separately.
-The long teleport has 37 observed nodes. Known child adapters read metadata,
-function bindings and stored numeric literals; no Effect or game value is
-evaluated. Wrapper/leaf adapters that were not observed remain explicit unknowns.
+The long teleport has 37 observed nodes. The observer's child adapters read
+metadata, function bindings and stored numeric literals; the adapters themselves
+do not evaluate Effects or game values. Wrapper/leaf adapters that were not
+observed remain explicit unknowns.
+
+The separate `validateScript` call runs `postLoad` and can execute `on load`
+triggers. The final 2026-10-14 `server-run.log` records `EffMessage.execute` and
+a runtime `NullPointerException` in the `location(...)` call while unboxing a
+null `Float` from `FunctionArguments.getOrDefault` (`DefaultFunctions.java:493`).
+That input still has response `valid=true` and graph `validationException=null`.
+Those fields describe validation and returned-object observations; they do not
+certify error-free runtime execution. The saved execution log retains the NPE.
+The comparisons cover observed parse selection, captures, types/cardinality and
+returned objects, without certifying runtime function/game values. The observer's
+read-only behavior does not make the validation wrapper nonexecuting.
 
 `upstream.json` adds 383 independent observed checks to the same native run.
 It verifies root class/pattern, capture positions/default/null, nested function
