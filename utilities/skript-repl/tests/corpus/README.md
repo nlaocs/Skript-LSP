@@ -10,8 +10,10 @@ needed to run the checked-in tests.
 
 `runner.rs` is a child test module of `session.rs`, so Event setup uses the actual
 Event header and private parser context without a new public API. Each case
-uses a fresh session and a 32 MiB worker stack; state and a panic do not carry
-over to another case. Selected results alone are projected; alternatives and
+uses a fresh session, host/store/transaction and 32 MiB parser-thread stack in a
+supervised worker process. Successful cases reuse the worker and its immutable
+compiled-component cache. An execution failure discards the entire worker before
+the next case. Selected results alone are projected; alternatives and
 successful retries are not inserted into the selected tree.
 
 ## Data and evidence
@@ -184,9 +186,44 @@ Review the complete diff, source and coverage before accepting a new baseline;
 never bless a changed result solely because it is the current parser output.
 Generated SSG snapshots must be replaced as complete exports, not hand patched.
 
-The trusted fixed inputs use deterministic parser budgets. The scoped worker's
-`join` is not a hard wall timeout and does not recover an abort. A full/untrusted
-corpus needs a separately reviewed isolation/cancellation mechanism before
-claiming per-case timeout/abort continuation. Multiline classification,
+Each corpus runner launches an exact internal test in the same test executable. The worker
+calls the existing session/parser library and returns its unchanged projection
+through a private JSON response file; CLI and libtest display output are never
+parsed. The parent allows 60 seconds of elapsed time per case, including startup
+and request delivery, and kills and waits for the worker on timeout. The deadline
+is checked before reading and before accepting a response, even if one is already
+available. Atomic file publication and sequence/case/fixture/snapshot identities
+prevent partial or stale replies. A response is published only after the parser
+thread joins and its session state is destroyed. Stderr diagnostics start at the
+current case's log offset. Any execution, protocol or supervision error discards
+the worker; a guard also kills/reaps it on unwinding or normal runner teardown.
+Request/response files are removed after worker cleanup.
+Native and cardinality loops aggregate execution and
+comparison failures and continue with later cases; a baseline is never written
+after any execution failure.
+
+The focused isolation test injects a hang, a hang during state destruction,
+panic, abort, invalid component load, missing snapshot, missing response,
+wrong response sequence and malformed response into an already warm worker.
+A normal library case must match its direct projection in a new process after
+every failure. The test uses the same aggregation loop
+as both real corpora and also injects a comparison mismatch. Its hang has up to
+60 seconds to start, then a two-second injection deadline before termination
+and reaping. Separate tests reject an already published response after its
+deadline and compare fresh direct projections against a reused worker across
+snapshot A / snapshot B with Event / snapshot A without Event. The internal
+`case_worker` is ignored in ordinary test runs and is
+selected only by the parent; the separately ignored baseline recorder remains
+an explicit human action. Parser budgets are retained alongside the elapsed
+deadline. This isolates a worker process and its threads, not arbitrary external
+process trees or termination of the parent test process. Multiline classification,
 document/section cases, exhaustive Type cases and full upstream graph coverage
 remain follow-up scope.
+
+Successful cases share an address space and the existing host runtime's immutable
+Engine/Linker/compiled Component cache, rather than recompiling CoreLibrary for
+each case. Parser state is recreated per case; the worker process boundary and
+restart after execution failures remain enforced. This is not a claim of a fresh
+address space for every successful case or protection against arbitrary unsafe
+memory corruption. Production host APIs, parser budgets, fixtures, expected
+values and upstream assertions are unchanged.
