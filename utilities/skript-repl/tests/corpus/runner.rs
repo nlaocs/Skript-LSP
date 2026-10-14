@@ -1,7 +1,7 @@
 //! Curated native regressions, not an upstream final-object-graph oracle.
 
 use super::{DOCUMENT_URI, PROJECT_URI, SkriptSession, invocation_context};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use skript_parser::{
     CandidateMatch, EffectCandidate, EffectParseRequest, EffectParserConfig,
@@ -13,6 +13,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use syntaxes::{Catalog, ClassName};
 
+#[path = "isolation.rs"]
+mod isolation;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Corpus {
@@ -21,7 +24,7 @@ struct Corpus {
     cases: Vec<Case>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Fixture {
     id: String,
@@ -32,7 +35,7 @@ struct Fixture {
     converters: Option<usize>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Case {
     id: String,
@@ -46,6 +49,34 @@ struct Case {
 
 fn corpus() -> Corpus {
     serde_json::from_str(include_str!("cases.json")).expect("curated corpus must deserialize")
+}
+
+fn collect_case_failures(
+    corpus: &Corpus,
+    cases: &[Case],
+    mut execute: impl FnMut(&Case) -> Result<Value, String>,
+    mut check: impl FnMut(&Case, Value) -> Vec<String>,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    for case in cases {
+        let errors = match execute(case) {
+            Ok(actual) => check(case, actual),
+            Err(error) => vec![error],
+        };
+        let snapshot = corpus
+            .fixtures
+            .iter()
+            .find(|fixture| fixture.id == case.fixture)
+            .map(|fixture| fixture.snapshot_id.as_str())
+            .unwrap_or("unknown");
+        failures.extend(errors.into_iter().map(|error| {
+            format!(
+                "case={} fixture={} snapshot={} mode={} input={:?} event={:?}: {error}",
+                case.id, case.fixture, snapshot, case.mode, case.input, case.event,
+            )
+        }));
+    }
+    failures
 }
 
 fn cardinality_cases() -> Vec<Case> {
@@ -115,38 +146,57 @@ fn cardinality_controls_preserve_observed_selection_nesting_and_argument_ownersh
                     .all(|roots| roots.as_array().unwrap().is_empty())
             );
         }
-        let actual = run_case(&corpus, case).unwrap();
-        let compare = |actual: &Value| {
-            observed["checks"]
+    }
+    let failures = collect_case_failures(
+        &corpus,
+        &cases,
+        |case| run_case(&corpus, case),
+        |case, actual| {
+            let observed = evidence["cases"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter_map(|check| match observed_value(case, actual, check) {
-                    Ok(value) if value == check["expected"] => None,
-                    result => Some(format!(
-                        "{} {}: expected {}, got {result:?}",
-                        case.id, check["path"], check["expected"]
-                    )),
-                })
-                .collect::<Vec<_>>()
-        };
-        let failures = compare(&actual);
-        assert!(failures.is_empty(), "{}", failures.join("\n"));
-        let mutation = match case.id.as_str() {
-            "world-multiple" => Some(("/root/multiplicity", json!("Single"))),
-            "yaw-or-single" => Some(("/root/multiplicity", json!("Multiple"))),
-            "yaw-list-function" => Some(("/root/function/arguments/0/childStart", json!(1))),
-            "location-three-properties" => {
-                Some(("/root/children/3/expression/class", json!("wrong.World")))
+                .find(|observed| observed["request"]["id"] == case.id)
+                .unwrap();
+            let compare = |actual: &Value| {
+                observed["checks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|check| match observed_value(case, actual, check) {
+                        Ok(value) if value == check["expected"] => None,
+                        result => Some(format!(
+                            "{} {}: expected {}, got {result:?}",
+                            case.id, check["path"], check["expected"]
+                        )),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let mut failures = compare(&actual);
+            let mutation = match case.id.as_str() {
+                "world-multiple" => Some(("/root/multiplicity", json!("Single"))),
+                "yaw-or-single" => Some(("/root/multiplicity", json!("Multiple"))),
+                "yaw-list-function" => Some(("/root/function/arguments/0/childStart", json!(1))),
+                "location-three-properties" => {
+                    Some(("/root/children/3/expression/class", json!("wrong.World")))
+                }
+                _ => None,
+            };
+            if let Some((path, value)) = mutation {
+                let mut changed = actual.clone();
+                if let Some(target) = changed.pointer_mut(path) {
+                    *target = value;
+                    if compare(&changed).is_empty() {
+                        failures.push(format!("{}: {path} must be enforced", case.id));
+                    }
+                } else {
+                    failures.push(format!("{}: missing mutation target {path}", case.id));
+                }
             }
-            _ => None,
-        };
-        if let Some((path, value)) = mutation {
-            let mut changed = actual.clone();
-            *changed.pointer_mut(path).unwrap() = value;
-            assert!(!compare(&changed).is_empty(), "{path} must be enforced");
-        }
-    }
+            failures
+        },
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn fixture_path(fixture: &Fixture) -> PathBuf {
@@ -210,31 +260,27 @@ fn native_corpus_regressions() {
         expected.keys().collect::<BTreeSet<_>>(),
         corpus.cases.iter().map(|case| &case.id).collect()
     );
-    let mut failures = Vec::new();
-    for case in &corpus.cases {
-        match run_case(&corpus, case) {
-            Ok(actual) => {
-                if expected[&case.id]["status"] == "incomplete"
-                    && actual["status"] == "matchedClean"
-                {
-                    eprintln!(
-                        "{} improved; no upstream certification is inferred",
-                        case.id
-                    );
-                } else if actual != expected[&case.id] {
-                    failures.push(format!(
-                        "{} ({:?}, event={:?}):\nexpected {}\nactual {}",
-                        case.id, case.input, case.event, expected[&case.id], actual
-                    ));
-                }
-                failures.extend(check_upstream(case, &actual, &upstream));
+    let failures = collect_case_failures(
+        &corpus,
+        &corpus.cases,
+        |case| run_case(&corpus, case),
+        |case, actual| {
+            let mut failures = Vec::new();
+            if expected[&case.id]["status"] == "incomplete" && actual["status"] == "matchedClean" {
+                eprintln!(
+                    "{} improved; no upstream certification is inferred",
+                    case.id
+                );
+            } else if actual != expected[&case.id] {
+                failures.push(format!(
+                    "{} ({:?}, event={:?}):\nexpected {}\nactual {}",
+                    case.id, case.input, case.event, expected[&case.id], actual
+                ));
             }
-            Err(error) => failures.push(format!(
-                "{} ({:?}, event={:?}): {error}",
-                case.id, case.input, case.event
-            )),
-        }
-    }
+            failures.extend(check_upstream(case, &actual, &upstream));
+            failures
+        },
+    );
     assert!(
         failures.is_empty(),
         "{} regression/execution failures:\n{}",
@@ -522,15 +568,15 @@ fn first_expression(effect: &mut EffectCandidate) -> &mut ExpressionNode {
 fn record_baselines() {
     let corpus = corpus();
     let mut actual = BTreeMap::new();
-    let mut failures = Vec::new();
-    for case in &corpus.cases {
-        match run_case(&corpus, case) {
-            Ok(result) => {
-                actual.insert(&case.id, result);
-            }
-            Err(error) => failures.push(format!("{}: {error}", case.id)),
-        }
-    }
+    let failures = collect_case_failures(
+        &corpus,
+        &corpus.cases,
+        |case| run_case(&corpus, case),
+        |case, result| {
+            actual.insert(case.id.clone(), result);
+            Vec::new()
+        },
+    );
     assert!(
         failures.is_empty(),
         "no baseline written after execution failure: {}",
@@ -546,18 +592,7 @@ fn run_case(corpus: &Corpus, case: &Case) -> Result<Value, String> {
         .iter()
         .find(|fixture| fixture.id == case.fixture)
         .ok_or_else(|| format!("unknown fixture {}", case.fixture))?;
-    // shortcut: fixed trusted cases use parser budgets, not a hard wall timeout;
-    // isolate workers before expanding this runner to an untrusted/full corpus.
-    std::thread::scope(|scope| {
-        std::thread::Builder::new()
-            .stack_size(32 * 1024 * 1024)
-            .spawn_scoped(scope, || analyze(fixture, case))
-            .map_err(|error| error.to_string())?
-            .join()
-            .map_err(|_| {
-                "parser worker panicked; subsequent cases continue with a fresh session".to_owned()
-            })?
-    })
+    isolation::run(fixture, case)
 }
 
 fn analyze(fixture: &Fixture, case: &Case) -> Result<Value, String> {

@@ -10,8 +10,8 @@ needed to run the checked-in tests.
 
 `runner.rs` is a child test module of `session.rs`, so Event setup uses the actual
 Event header and private parser context without a new public API. Each case
-uses a fresh session and a 32 MiB worker stack; state and a panic do not carry
-over to another case. Selected results alone are projected; alternatives and
+uses a fresh worker process, session and 32 MiB parser-thread stack; state and a
+panic do not carry over to another case. Selected results alone are projected; alternatives and
 successful retries are not inserted into the selected tree.
 
 ## Data and evidence
@@ -184,9 +184,29 @@ Review the complete diff, source and coverage before accepting a new baseline;
 never bless a changed result solely because it is the current parser output.
 Generated SSG snapshots must be replaced as complete exports, not hand patched.
 
-The trusted fixed inputs use deterministic parser budgets. The scoped worker's
-`join` is not a hard wall timeout and does not recover an abort. A full/untrusted
-corpus needs a separately reviewed isolation/cancellation mechanism before
-claiming per-case timeout/abort continuation. Multiline classification,
+Each case runs an exact internal test in the same test executable. The worker
+calls the existing session/parser library and returns its unchanged projection
+through a private JSON response file; CLI and libtest display output are never
+parsed. The parent allows 60 seconds of elapsed time per spawned worker, polls
+its exit, and kills and waits for it on timeout. A guard also kills/reaps the
+worker on supervision errors or unwinding. Request/response files are removed
+after worker cleanup. Native and cardinality loops aggregate execution and
+comparison failures and continue with later cases; a baseline is never written
+after any execution failure.
+
+The focused isolation test injects a hang, panic, abort, invalid component load,
+missing snapshot and missing response. A normal library case must match its
+direct projection after every failure. The test uses the same aggregation loop
+as both real corpora and also injects a comparison mismatch. Its hang has up to
+60 seconds to start, then a two-second injection deadline before termination
+and reaping. The internal `case_worker` is ignored in ordinary test runs and is
+selected only by the parent; the separately ignored baseline recorder remains
+an explicit human action. Parser budgets are retained alongside the elapsed
+deadline. This isolates a worker process and its threads, not arbitrary external
+process trees or termination of the parent test process. Multiline classification,
 document/section cases, exhaustive Type cases and full upstream graph coverage
 remain follow-up scope.
+
+Fresh processes do not share the host's in-process compiled-component cache.
+CoreLibrary compilation is therefore repeated per case; isolation adds runtime
+cost without changing parser budgets or reducing the checked corpus.
