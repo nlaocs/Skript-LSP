@@ -2102,7 +2102,7 @@
                 },
                 "function": null,
                 "mark": 0,
-                "multiplicity": "Both",
+                "multiplicity": "Single",
                 "possibleTypes": [
                   "java.util.UUID"
                 ],
@@ -3697,7 +3697,7 @@
                 },
                 "function": null,
                 "mark": 0,
-                "multiplicity": "Both",
+                "multiplicity": "Single",
                 "possibleTypes": [
                   "org.bukkit.World"
                 ],
@@ -3848,7 +3848,7 @@
                 },
                 "function": null,
                 "mark": 0,
-                "multiplicity": "Both",
+                "multiplicity": "Single",
                 "possibleTypes": [
                   "java.lang.Float"
                 ],
@@ -4001,7 +4001,7 @@
                 },
                 "function": null,
                 "mark": 0,
-                "multiplicity": "Both",
+                "multiplicity": "Single",
                 "possibleTypes": [
                   "java.lang.Float"
                 ],

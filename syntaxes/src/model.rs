@@ -239,8 +239,21 @@ pub struct Expression {
     pub section_expression: bool,
     pub return_type_multiplicity: Option<Multiplicity>,
     pub return_type_multiplicity_state: ResolutionState,
+    pub return_type_multiplicity_source: Option<ExpressionMultiplicitySource>,
     pub accepted_changers: Option<ChangeModes>,
     pub accepted_changers_state: ResolutionState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Positive, conditional bytecode evidence that `isSingle()` uses one `init` Expression input.
+/// The index is among Java Expression[] slots, excluding regex capture slots.
+/// Missing evidence remains unknown; it does not imply the first child.
+pub struct ExpressionMultiplicitySource {
+    pub expression_index: u32,
+    pub requires_explicit_input: bool,
+    pub requires_parsed_input: bool,
+    pub is_single_method_declaring_class: String,
+    pub init_method_declaring_class: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

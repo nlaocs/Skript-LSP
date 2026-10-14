@@ -65,6 +65,8 @@ pub const CAPABILITY_SECTION_PARSER: &str = "parser.section";
 pub const CAPABILITY_STRUCTURE_PARSER: &str = "parser.structure";
 /// Requests every SSG type option in a registered Expression payload.
 pub const REGISTERED_CONTEXT_ALL_TYPE_OPTIONS: &str = "expression.type-options.all";
+/// Immutable native annotation mapping positive SSG input-cardinality evidence to a capture slot.
+pub const REGISTERED_METADATA_MULTIPLICITY_SOURCE: &str = "host.expression.multiplicity-source";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Major/minor ABI version compared exactly during component initialization.

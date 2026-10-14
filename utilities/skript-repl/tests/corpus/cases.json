@@ -21,8 +21,8 @@
       "id": "skript-2.16.2-java25",
       "path": "../../parser-wasm/tests/data/type-parser-versions/skript-2.16.2-java25",
       "schema": 7,
-      "snapshot_id": "0e896c28e8d83a5124f1e66f8a71f4cea2bf384e9c611aba3022de8544c11c5f",
-      "collection_evidence": "Java25 paired direct registry/export (SSG #9)",
+      "snapshot_id": "b7c14c3cf6b8864973c14d5cfa773334e9e502013e5c8fae70b3afc9506be04d",
+      "collection_evidence": "final SSG f7542b9 complete 21-file export and 32 actual returned graphs from one boot on 2026-10-14; existing registry fields preserved, 20 unproven sources omitted, observed registration order retained",
       "converters": 50
     },
     {

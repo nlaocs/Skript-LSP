@@ -48,6 +48,107 @@ fn corpus() -> Corpus {
     serde_json::from_str(include_str!("cases.json")).expect("curated corpus must deserialize")
 }
 
+fn cardinality_cases() -> Vec<Case> {
+    let evidence: Value = serde_json::from_str(include_str!("cardinality-upstream.json")).unwrap();
+    evidence["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            let request = &entry["request"];
+            Case {
+                id: request["id"].as_str().unwrap().to_owned(),
+                fixture: "skript-2.16.2-java25".to_owned(),
+                mode: "expression".to_owned(),
+                input: request["expression"].as_str().unwrap().to_owned(),
+                event: request["event"].as_str().map(str::to_owned),
+                source: Value::Null,
+                upstream_final_graph: "partial observed fields".to_owned(),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn cardinality_controls_preserve_observed_selection_nesting_and_argument_ownership() {
+    let corpus = corpus();
+    let evidence: Value = serde_json::from_str(include_str!("cardinality-upstream.json")).unwrap();
+    let fixture = corpus
+        .fixtures
+        .iter()
+        .find(|fixture| fixture.id == "skript-2.16.2-java25")
+        .unwrap();
+    let snapshot = ssg::load(fixture_path(fixture)).unwrap();
+    assert_eq!(snapshot.manifest().snapshot_id, evidence["snapshot_id"]);
+    for (name, field) in [
+        ("Skript", "skript_jar_sha256"),
+        ("SkriptSyntaxGenerator", "ssg_jar_sha256"),
+    ] {
+        let plugin = snapshot
+            .manifest()
+            .plugins
+            .iter()
+            .find(|plugin| plugin.name == name)
+            .unwrap();
+        assert_eq!(plugin.jar_sha256.as_deref(), evidence[field].as_str());
+    }
+    let cases = cardinality_cases();
+    assert_eq!(cases.len(), 25);
+    for (case, observed) in cases.iter().zip(evidence["cases"].as_array().unwrap()) {
+        assert_eq!(
+            observed["upstream"]["source"],
+            format!(
+                "{}:\n\t{}",
+                case.event.as_deref().unwrap(),
+                observed["request"]["input"].as_str().unwrap()
+            )
+        );
+        assert!(observed["upstream"]["validationException"].is_null());
+        let roots = observed["upstream"]["returnedLists"].as_array().unwrap();
+        if observed["upstream"]["valid"] == true {
+            assert_eq!(roots.len(), 1);
+            assert_eq!(roots[0].as_array().unwrap().len(), 1);
+        } else {
+            assert!(
+                roots
+                    .iter()
+                    .all(|roots| roots.as_array().unwrap().is_empty())
+            );
+        }
+        let actual = run_case(&corpus, case).unwrap();
+        let compare = |actual: &Value| {
+            observed["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|check| match observed_value(case, actual, check) {
+                    Ok(value) if value == check["expected"] => None,
+                    result => Some(format!(
+                        "{} {}: expected {}, got {result:?}",
+                        case.id, check["path"], check["expected"]
+                    )),
+                })
+                .collect::<Vec<_>>()
+        };
+        let failures = compare(&actual);
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        let mutation = match case.id.as_str() {
+            "world-multiple" => Some(("/root/multiplicity", json!("Single"))),
+            "yaw-or-single" => Some(("/root/multiplicity", json!("Multiple"))),
+            "yaw-list-function" => Some(("/root/function/arguments/0/childStart", json!(1))),
+            "location-three-properties" => {
+                Some(("/root/children/3/expression/class", json!("wrong.World")))
+            }
+            _ => None,
+        };
+        if let Some((path, value)) = mutation {
+            let mut changed = actual.clone();
+            *changed.pointer_mut(path).unwrap() = value;
+            assert!(!compare(&changed).is_empty(), "{path} must be enforced");
+        }
+    }
+}
+
 fn fixture_path(fixture: &Fixture) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(&fixture.path)
 }
