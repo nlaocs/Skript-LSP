@@ -4575,7 +4575,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             },
             effective_multiplicity: request.declared_multiplicity.map(multiplicity_to_wit),
             public_data: Vec::new(),
-            metadata: Vec::new(),
+            metadata: expression_input_cardinality_metadata(
+                &request,
+                self.hooks.host.config.syntax_catalog.as_deref(),
+            ),
         };
         let original = payload.clone();
         let result = self
@@ -7639,6 +7642,122 @@ fn expression_node_registration(
     }
 }
 
+fn expression_input_cardinality_metadata(
+    request: &RegisteredExpressionRequest<'_>,
+    catalog: Option<&Catalog>,
+) -> Vec<WitMetadataEntry> {
+    if request.dynamic_handler.is_some() {
+        return Vec::new();
+    }
+    let Some(source) = catalog.and_then(|catalog| {
+        catalog
+            .syntax_by_registration_id(request.registration_id)
+            .into_iter()
+            .find_map(|syntax| {
+                let syntaxes::Syntax::Expression(expression) = syntax else {
+                    return None;
+                };
+                (expression.common.definition_id.as_str() == request.definition_id
+                    && expression.common.element_class == *request.element_class
+                    && expression.return_type_multiplicity == Some(syntaxes::Multiplicity::Both))
+                .then_some(expression.return_type_multiplicity_source.as_ref())
+                .flatten()
+            })
+    }) else {
+        return Vec::new();
+    };
+    input_cardinality_metadata(source, request.captures, request.parsed_captures)
+}
+
+fn input_cardinality_metadata(
+    source: &syntaxes::ExpressionMultiplicitySource,
+    captures: &[PatternCapture],
+    parsed_captures: &[skript_parser::ParsedCapture],
+) -> Vec<WitMetadataEntry> {
+    if !source.requires_explicit_input || !source.requires_parsed_input {
+        return Vec::new(); // unsupported evidence conditions remain unknown
+    }
+    let Some(capture) = captures
+        .iter()
+        .filter(|capture| matches!(capture, PatternCapture::TypeExpression { .. }))
+        .nth(source.expression_index as usize)
+    else {
+        return Vec::new();
+    };
+    let PatternCapture::TypeExpression {
+        state: skript_parser::TypeCaptureState::Explicit,
+        ..
+    } = capture
+    else {
+        return Vec::new();
+    };
+    let capture_index = capture.capture_index();
+    let fully_parsed = parsed_captures
+        .iter()
+        .find(|parsed| parsed.capture_index == capture_index)
+        .filter(|parsed| parsed.result.status == ParserParsedCaptureStatus::Success)
+        .and_then(|parsed| parsed.result.value.as_ref())
+        .is_some_and(|value| match value {
+            skript_parser::ParsedCaptureValue::Expression(node) => {
+                fully_parsed_expression_input(node)
+            }
+            _ => false,
+        });
+    vec![WitMetadataEntry {
+        owner_component_id: None,
+        key: crate::REGISTERED_METADATA_MULTIPLICITY_SOURCE.to_owned(),
+        value: serde_json::json!({"version":1,"captureIndex":capture_index,
+            "fullyParsedInput":fully_parsed})
+        .to_string(),
+    }]
+}
+
+fn fully_parsed_expression_input(root: &ExpressionNode) -> bool {
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        match &node.kind {
+            ExpressionNodeKind::Variable { .. } => {}
+            ExpressionNodeKind::Grouped | ExpressionNodeKind::List { .. } => {
+                if node.children.is_empty() {
+                    return false;
+                }
+                pending.extend(&node.children);
+            }
+            ExpressionNodeKind::Default { .. } | ExpressionNodeKind::Custom { .. } => return false,
+            _ => {
+                if node
+                    .return_type
+                    .as_ref()
+                    .is_none_or(|class| class.as_str() == "java.lang.Object")
+                    || node.possible_return_types_state != PossibleReturnTypesState::Complete
+                    || node
+                        .possible_return_types
+                        .iter()
+                        .any(|class| class.as_str() == "java.lang.Object")
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// An addon may preserve this native fact, but cannot replace it or forge one.
+fn same_input_cardinality_metadata(left: &[WitMetadataEntry], right: &[WitMetadataEntry]) -> bool {
+    let native = |entries: &[WitMetadataEntry]| {
+        entries
+            .iter()
+            .filter(|entry| {
+                entry.key == crate::REGISTERED_METADATA_MULTIPLICITY_SOURCE
+                    && entry.owner_component_id.is_none()
+            })
+            .map(|entry| entry.value.clone())
+            .collect::<Vec<_>>()
+    };
+    native(left) == native(right)
+}
+
 fn expression_node_element_class(
     node: &skript_parser::ExpressionNode,
     _catalog: Option<&Catalog>,
@@ -7894,6 +8013,7 @@ fn same_registered_expression_identity(
             .all(|(left, right)| left.class_name == right.class_name && left.plural == right.plural)
         && left.declared_return_type == right.declared_return_type
         && left.declared_multiplicity == right.declared_multiplicity
+        && same_input_cardinality_metadata(&left.metadata, &right.metadata)
         && left.return_type_state == right.return_type_state
         && left.possible_return_types == right.possible_return_types
         && left.possible_return_types_state == right.possible_return_types_state
@@ -14991,6 +15111,101 @@ fn parse_result_node_size(node: &ParseResultNode) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_cardinality_slot_excludes_regex_and_keeps_null_positions() {
+        let source = MappedSource::identity("input");
+        let span = MatchSpan {
+            local_range: ParserTextRange::new(0, 5),
+            mapped: source.map_range(ParserTextRange::new(0, 5)).unwrap(),
+        };
+        let typed = |index, state| PatternCapture::TypeExpression {
+            capture_index: index,
+            state,
+            pattern_span: syntax_pattern_parser::syntax::Span::new(0, 5),
+            expression: syntax_pattern_parser::syntax::PatternTypeExpr {
+                alternatives: Vec::new(),
+                nullable: true,
+                allow_literals: true,
+                allow_expressions: true,
+                time: 0,
+            },
+            value: "input".to_owned(),
+            span: span.clone(),
+            alternative_index: None,
+            resolution_id: None,
+        };
+        let captures = vec![
+            PatternCapture::Regex {
+                capture_index: 0,
+                pattern_span: syntax_pattern_parser::syntax::Span::new(0, 5),
+                value: "input".to_owned(),
+                span: span.clone(),
+                groups: Vec::new(),
+            },
+            typed(1, skript_parser::TypeCaptureState::Null),
+            typed(2, skript_parser::TypeCaptureState::Explicit),
+        ];
+        let mut evidence = syntaxes::ExpressionMultiplicitySource {
+            expression_index: 1,
+            requires_explicit_input: true,
+            requires_parsed_input: true,
+            is_single_method_declaring_class: "fixture.Base".to_owned(),
+            init_method_declaring_class: "fixture.Expression".to_owned(),
+        };
+        let metadata = input_cardinality_metadata(&evidence, &captures, &[]);
+        let value: serde_json::Value = serde_json::from_str(&metadata[0].value).unwrap();
+        assert_eq!(value["captureIndex"], 2);
+        assert_eq!(value["fullyParsedInput"], false);
+        evidence.expression_index = 0;
+        assert!(input_cardinality_metadata(&evidence, &captures, &[]).is_empty());
+        evidence.expression_index = 2;
+        assert!(input_cardinality_metadata(&evidence, &captures, &[]).is_empty());
+        evidence.expression_index = 1;
+        evidence.requires_parsed_input = false;
+        assert!(input_cardinality_metadata(&evidence, &captures, &[]).is_empty());
+        for state in [
+            skript_parser::TypeCaptureState::Null,
+            skript_parser::TypeCaptureState::Default,
+        ] {
+            evidence.expression_index = 0;
+            evidence.requires_parsed_input = true;
+            assert!(input_cardinality_metadata(&evidence, &[typed(0, state)], &[]).is_empty());
+        }
+    }
+
+    #[test]
+    fn input_cardinality_fact_cannot_be_forged_or_removed_by_addons() {
+        let fact = WitMetadataEntry {
+            key: crate::REGISTERED_METADATA_MULTIPLICITY_SOURCE.to_owned(),
+            owner_component_id: None,
+            value: r#"{"version":1,"captureIndex":2,"fullyParsedInput":true}"#.to_owned(),
+        };
+        let original = vec![fact.clone()];
+        assert!(same_input_cardinality_metadata(&original, &original));
+        assert!(!same_input_cardinality_metadata(&original, &[]));
+        let mut changed = fact.clone();
+        changed.value = r#"{"version":1,"captureIndex":0,"fullyParsedInput":true}"#.to_owned();
+        assert!(!same_input_cardinality_metadata(
+            &original,
+            &[changed.clone()]
+        ));
+        let mut replacement = vec![changed];
+        merge_owned_metadata(&original, &mut replacement, "addon.example").unwrap();
+        assert!(same_input_cardinality_metadata(&original, &replacement));
+        assert_eq!(
+            replacement[0].owner_component_id.as_deref(),
+            Some("addon.example")
+        );
+        let mut forged = vec![fact];
+        merge_owned_metadata(&[], &mut forged, "addon.example").unwrap();
+        assert!(same_input_cardinality_metadata(&[], &forged));
+        assert!(
+            forged
+                .iter()
+                .all(|entry| entry.owner_component_id.is_some())
+        );
+    }
 
     fn core_test_config() -> HostConfig {
         HostConfig {

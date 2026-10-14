@@ -1,0 +1,345 @@
+{
+  "algorithm" : "singular-aware",
+  "pluralOverrideSupported" : true,
+  "rules" : [ {
+    "ruleOrder" : 0,
+    "singular" : "axe",
+    "plural" : "axes",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 1,
+    "singular" : "x",
+    "plural" : "xes",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 2,
+    "singular" : "ay",
+    "plural" : "ays",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 3,
+    "singular" : "ey",
+    "plural" : "eys",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 4,
+    "singular" : "iy",
+    "plural" : "iys",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 5,
+    "singular" : "oy",
+    "plural" : "oys",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 6,
+    "singular" : "uy",
+    "plural" : "uys",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 7,
+    "singular" : "kie",
+    "plural" : "kies",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 8,
+    "singular" : "zombie",
+    "plural" : "zombies",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 9,
+    "singular" : "y",
+    "plural" : "ies",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 10,
+    "singular" : "wife",
+    "plural" : "wives",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 11,
+    "singular" : "life",
+    "plural" : "lives",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 12,
+    "singular" : "knife",
+    "plural" : "knives",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 13,
+    "singular" : "ive",
+    "plural" : "ives",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 14,
+    "singular" : "lf",
+    "plural" : "lves",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 15,
+    "singular" : "thief",
+    "plural" : "thieves",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 16,
+    "singular" : "ief",
+    "plural" : "iefs",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 17,
+    "singular" : "hoof",
+    "plural" : "hooves",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 18,
+    "singular" : "fe",
+    "plural" : "ves",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 19,
+    "singular" : "h",
+    "plural" : "hes",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 20,
+    "singular" : "man",
+    "plural" : "men",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 21,
+    "singular" : "ui",
+    "plural" : "uis",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 22,
+    "singular" : "api",
+    "plural" : "apis",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 23,
+    "singular" : "us",
+    "plural" : "i",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 24,
+    "singular" : "hoe",
+    "plural" : "hoes",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 25,
+    "singular" : "toe",
+    "plural" : "toes",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 26,
+    "singular" : "foe",
+    "plural" : "foes",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 27,
+    "singular" : "woe",
+    "plural" : "woes",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 28,
+    "singular" : "o",
+    "plural" : "oes",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 29,
+    "singular" : "alias",
+    "plural" : "aliases",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 30,
+    "singular" : "gas",
+    "plural" : "gases",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 31,
+    "singular" : "child",
+    "plural" : "children",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 32,
+    "singular" : "sheep",
+    "plural" : "sheep",
+    "completeWord" : true,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  }, {
+    "ruleOrder" : 33,
+    "singular" : "",
+    "plural" : "s",
+    "completeWord" : false,
+    "origin" : "built-in",
+    "addon" : {
+      "name" : "Skript",
+      "version" : "2.16.2"
+    }
+  } ]
+}

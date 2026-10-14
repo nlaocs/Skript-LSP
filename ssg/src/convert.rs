@@ -87,6 +87,15 @@ pub(crate) fn catalog(
             section_expression: value.section_expression,
             return_type_multiplicity: value.return_type_multiplicity.map(multiplicity),
             return_type_multiplicity_state: resolution_state(value.return_type_multiplicity_state),
+            return_type_multiplicity_source: value.return_type_multiplicity_source.map(|source| {
+                model::ExpressionMultiplicitySource {
+                    expression_index: source.expression_index,
+                    requires_explicit_input: source.requires_explicit_input,
+                    requires_parsed_input: source.requires_parsed_input,
+                    is_single_method_declaring_class: source.is_single_method_declaring_class,
+                    init_method_declaring_class: source.init_method_declaring_class,
+                }
+            }),
             accepted_changers: value.accepted_changers.map(change_modes),
             accepted_changers_state: resolution_state(value.accepted_changers_state),
         }));

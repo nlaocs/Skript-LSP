@@ -1,0 +1,59 @@
+{
+  "schemaVersion" : 7,
+  "snapshotId" : "b7c14c3cf6b8864973c14d5cfa773334e9e502013e5c8fae70b3afc9506be04d",
+  "contentDigest" : "52f5d2b32f91cee47c12898fb3b274914581d4d9a232c1c5a6bf984f9daa8898",
+  "generatedAt" : "2026-10-14T01:27:53.585464282Z",
+  "server" : {
+    "name" : "Paper",
+    "version" : "26.2-121-a2a42c5 (MC: 26.2)",
+    "bukkitVersion" : "26.2.build.121-stable",
+    "minecraftVersion" : "26.2",
+    "javaVersion" : "25.0.4.1"
+  },
+  "language" : "english",
+  "plugins" : [ {
+    "loadOrder" : 0,
+    "name" : "SkriptSyntaxGenerator",
+    "version" : "1.0",
+    "main" : "jp.nlaocs.skriptSyntaxGenerator.SkriptSyntaxGenerator",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ ],
+    "loadBefore" : [ "Skript" ],
+    "jarSha256" : "1d9fe40725f88ca524e49826efdb8e160e3a7b2bfea9a7ed429253be6e748a14"
+  }, {
+    "loadOrder" : 1,
+    "name" : "Skript",
+    "version" : "2.16.2",
+    "main" : "ch.njol.skript.Skript",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ "SQLibrary", "Vault", "WorldGuard", "Residence", "PreciousStones", "GriefPrevention" ],
+    "loadBefore" : [ ],
+    "jarSha256" : "8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3"
+  } ],
+  "capabilities" : {
+    "syntaxApi" : "registry",
+    "eventValueApi" : "modern-2.16",
+    "syntaxKinds" : {
+      "conditions" : true,
+      "effects" : true,
+      "events" : true,
+      "expressions" : true,
+      "types" : true,
+      "functions" : true,
+      "sections" : true,
+      "structures" : true,
+      "properties" : true,
+      "arithmetic" : true,
+      "converters" : true,
+      "comparators" : true,
+      "eventValues" : true
+    },
+    "aliases" : {
+      "supported" : true,
+      "collected" : true
+    }
+  },
+  "files" : [ "Aliases.json", "BlockData.json", "ClassHierarchy.json", "Comparators.json", "Conditions.json", "Converters.json", "Differences.json", "Effects.json", "EventValues.json", "Events.json", "Expressions.json", "Functions.json", "Language.json", "Manifest.json", "Operations.json", "Operators.json", "PluralRules.json", "Properties.json", "Sections.json", "Structures.json", "Types.json" ]
+}

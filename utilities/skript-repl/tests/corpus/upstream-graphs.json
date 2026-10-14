@@ -1,0 +1,1624 @@
+[
+  {
+    "source": "on load:\n\tsend sin(abs(-1)) to console",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          5
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "java.lang.Number",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Number"
+        ],
+        "edges": [],
+        "function": "sin",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "UNNAMED",
+            "name": "n",
+            "value": 3
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "n",
+            "expectedType": "java.lang.Number",
+            "value": 3
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "java.lang.Number",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Number"
+        ],
+        "edges": [],
+        "function": "abs",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "UNNAMED",
+            "name": "n",
+            "value": 4
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "n",
+            "expectedType": "java.lang.Number",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          -1
+        ]
+      },
+      {
+        "id": 5,
+        "class": "ch.njol.skript.literals.LitConsole",
+        "getReturnType": "org.bukkit.command.ConsoleCommandSender",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.command.ConsoleCommandSender"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "com.destroystokyo.paper.console.TerminalConsoleCommandSender"
+          }
+        ]
+      }
+    ],
+    "unknown": []
+  },
+  {
+    "source": "on load:\n\tsend log(8) to console",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          5
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "java.lang.Number",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Number"
+        ],
+        "edges": [],
+        "function": "log",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "UNNAMED",
+            "name": "n",
+            "value": 3
+          },
+          {
+            "sourceIndex": 1,
+            "kind": "UNNAMED",
+            "name": "base",
+            "value": 4
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "n",
+            "expectedType": "java.lang.Number",
+            "value": 3
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          8
+        ]
+      },
+      {
+        "id": 4,
+        "class": "org.skriptlang.skript.common.function.FunctionReferenceParser$EmptyExpression",
+        "getReturnType": "java.lang.Integer",
+        "isSingle": true,
+        "isDefault": true,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Integer"
+        ],
+        "edges": [],
+        "literalValues": [
+          1
+        ]
+      },
+      {
+        "id": 5,
+        "class": "ch.njol.skript.literals.LitConsole",
+        "getReturnType": "org.bukkit.command.ConsoleCommandSender",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.command.ConsoleCommandSender"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "com.destroystokyo.paper.console.TerminalConsoleCommandSender"
+          }
+        ]
+      }
+    ],
+    "unknown": []
+  },
+  {
+    "source": "on join:\n\tmessage \"This message is a distraction. Mwahaha!\"",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          3
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.expressions.base.EventValueExpression",
+        "getReturnType": "org.bukkit.command.CommandSender",
+        "isSingle": true,
+        "isDefault": true,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.command.CommandSender"
+        ],
+        "edges": []
+      }
+    ],
+    "unknown": [
+      "2: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "3: no known child adapter for ch.njol.skript.expressions.base.EventValueExpression"
+    ]
+  },
+  {
+    "source": "on load:\n\tsend log(base: 2, n: 8) to console",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          5
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "java.lang.Number",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Number"
+        ],
+        "edges": [],
+        "function": "log",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "NAMED",
+            "name": "n",
+            "value": 3
+          },
+          {
+            "sourceIndex": 1,
+            "kind": "NAMED",
+            "name": "base",
+            "value": 4
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "n",
+            "expectedType": "java.lang.Number",
+            "value": 3
+          },
+          {
+            "name": "base",
+            "expectedType": "java.lang.Number",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          8
+        ]
+      },
+      {
+        "id": 4,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          2
+        ]
+      },
+      {
+        "id": 5,
+        "class": "ch.njol.skript.literals.LitConsole",
+        "getReturnType": "org.bukkit.command.ConsoleCommandSender",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.command.ConsoleCommandSender"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "com.destroystokyo.paper.console.TerminalConsoleCommandSender"
+          }
+        ]
+      }
+    ],
+    "unknown": []
+  },
+  {
+    "source": "on load:\n\tsend clamp((1,2), 3, 4) to console",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.text.elements.effects.EffMessage",
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          9
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "java.lang.Number",
+        "isSingle": false,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Number"
+        ],
+        "edges": [],
+        "function": "clamp",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "UNNAMED",
+            "name": "values",
+            "value": 3
+          },
+          {
+            "sourceIndex": 1,
+            "kind": "UNNAMED",
+            "name": "min",
+            "value": 6
+          },
+          {
+            "sourceIndex": 2,
+            "kind": "UNNAMED",
+            "name": "max",
+            "value": 7
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "values",
+            "expectedType": "[Ljava.lang.Number;",
+            "value": 8
+          },
+          {
+            "name": "min",
+            "expectedType": "java.lang.Number",
+            "value": 6
+          },
+          {
+            "name": "max",
+            "expectedType": "java.lang.Number",
+            "value": 7
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.lang.LiteralList",
+        "getReturnType": "java.lang.Long",
+        "isSingle": false,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [
+          {
+            "role": "listValue:0",
+            "child": 4
+          },
+          {
+            "role": "listValue:1",
+            "child": 5
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          1
+        ]
+      },
+      {
+        "id": 5,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          2
+        ]
+      },
+      {
+        "id": 6,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          3
+        ]
+      },
+      {
+        "id": 7,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          4
+        ]
+      },
+      {
+        "id": 8,
+        "class": "ch.njol.skript.lang.LiteralList",
+        "getReturnType": "java.lang.Long",
+        "isSingle": false,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [
+          {
+            "role": "listValue:0",
+            "child": 4
+          },
+          {
+            "role": "listValue:1",
+            "child": 5
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "class": "ch.njol.skript.literals.LitConsole",
+        "getReturnType": "org.bukkit.command.ConsoleCommandSender",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.command.ConsoleCommandSender"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "com.destroystokyo.paper.console.TerminalConsoleCommandSender"
+          }
+        ]
+      }
+    ],
+    "unknown": []
+  },
+  {
+    "source": "on load:\n\tteleport \"nlaocs\" parsed as player to location(1, 2, 3, world \"world\", 0, 0)",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport",
+        "edges": [
+          {
+            "role": "entities",
+            "child": 2
+          },
+          {
+            "role": "location",
+            "child": 14
+          },
+          {
+            "role": "teleportFlags",
+            "child": null
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          5,
+          6,
+          null
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 3
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          3,
+          4
+        ]
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 4,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "ch.njol.skript.util.Direction",
+        "isSingle": true,
+        "isDefault": true,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "ch.njol.skript.util.Direction"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "ch.njol.skript.util.Direction"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [],
+        "function": "location",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "UNNAMED",
+            "name": "x",
+            "value": 7
+          },
+          {
+            "sourceIndex": 1,
+            "kind": "UNNAMED",
+            "name": "y",
+            "value": 8
+          },
+          {
+            "sourceIndex": 2,
+            "kind": "UNNAMED",
+            "name": "z",
+            "value": 9
+          },
+          {
+            "sourceIndex": 3,
+            "kind": "UNNAMED",
+            "name": "world",
+            "value": 10
+          },
+          {
+            "sourceIndex": 4,
+            "kind": "UNNAMED",
+            "name": "yaw",
+            "value": 12
+          },
+          {
+            "sourceIndex": 5,
+            "kind": "UNNAMED",
+            "name": "pitch",
+            "value": 13
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "x",
+            "expectedType": "java.lang.Number",
+            "value": 7
+          },
+          {
+            "name": "y",
+            "expectedType": "java.lang.Number",
+            "value": 8
+          },
+          {
+            "name": "z",
+            "expectedType": "java.lang.Number",
+            "value": 9
+          },
+          {
+            "name": "world",
+            "expectedType": "org.bukkit.World",
+            "value": 10
+          },
+          {
+            "name": "yaw",
+            "expectedType": "java.lang.Float",
+            "value": 12
+          },
+          {
+            "name": "pitch",
+            "expectedType": "java.lang.Float",
+            "value": 13
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          1
+        ]
+      },
+      {
+        "id": 8,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          2
+        ]
+      },
+      {
+        "id": 9,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Long",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Long"
+        ],
+        "edges": [],
+        "literalValues": [
+          3
+        ]
+      },
+      {
+        "id": 10,
+        "class": "ch.njol.skript.expressions.ExprWorldFromName",
+        "getReturnType": "org.bukkit.World",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.World"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          11
+        ]
+      },
+      {
+        "id": 11,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 12,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Float",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Float"
+        ],
+        "edges": [],
+        "literalValues": [
+          0.0
+        ]
+      },
+      {
+        "id": 13,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "java.lang.Float",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Float"
+        ],
+        "edges": [],
+        "literalValues": [
+          0.0
+        ]
+      },
+      {
+        "id": 14,
+        "class": "ch.njol.skript.util.Direction$1",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": []
+      }
+    ],
+    "unknown": [
+      "3: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "11: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "14: no known child adapter for ch.njol.skript.util.Direction$1"
+    ]
+  },
+  {
+    "source": "on load:\n\tteleport \"nlaocs\" parsed as player to location(\"nlaocs\" parsed as player's location's x-coord,\"nlaocs\" parsed as player's location's y-coord, \"nlaocs\" parsed as player's location's z-coord, \"nlaocs\" parsed as player's world, \"nlaocs\" parsed as player's yaw, \"nlaocs\" parsed as player's pitch)",
+    "valid": true,
+    "validationException": null,
+    "observation": "ScriptLoader.loadItems outer returned object lists, inspected after validateScript return",
+    "returnedLists": [
+      [
+        1
+      ]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "class": "org.skriptlang.skript.bukkit.entity.elements.effects.EffTeleport",
+        "edges": [
+          {
+            "role": "entities",
+            "child": 2
+          },
+          {
+            "role": "location",
+            "child": 37
+          },
+          {
+            "role": "teleportFlags",
+            "child": null
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          2,
+          5,
+          6,
+          null
+        ]
+      },
+      {
+        "id": 2,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 3
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          3,
+          4
+        ]
+      },
+      {
+        "id": 3,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 4,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "ch.njol.skript.util.Direction",
+        "isSingle": true,
+        "isDefault": true,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "ch.njol.skript.util.Direction"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "ch.njol.skript.util.Direction"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "class": "ch.njol.skript.lang.function.ExprFunctionCall",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [],
+        "function": "location",
+        "namespace": "parse-api.sk",
+        "suppliedArguments": [
+          {
+            "sourceIndex": 0,
+            "kind": "UNNAMED",
+            "name": "x",
+            "value": 7
+          },
+          {
+            "sourceIndex": 1,
+            "kind": "UNNAMED",
+            "name": "y",
+            "value": 13
+          },
+          {
+            "sourceIndex": 2,
+            "kind": "UNNAMED",
+            "name": "z",
+            "value": 19
+          },
+          {
+            "sourceIndex": 3,
+            "kind": "UNNAMED",
+            "name": "world",
+            "value": 25
+          },
+          {
+            "sourceIndex": 4,
+            "kind": "UNNAMED",
+            "name": "yaw",
+            "value": 29
+          },
+          {
+            "sourceIndex": 5,
+            "kind": "UNNAMED",
+            "name": "pitch",
+            "value": 33
+          }
+        ],
+        "parameterBindings": [
+          {
+            "name": "x",
+            "expectedType": "java.lang.Number",
+            "value": 7
+          },
+          {
+            "name": "y",
+            "expectedType": "java.lang.Number",
+            "value": 13
+          },
+          {
+            "name": "z",
+            "expectedType": "java.lang.Number",
+            "value": 19
+          },
+          {
+            "name": "world",
+            "expectedType": "org.bukkit.World",
+            "value": 25
+          },
+          {
+            "name": "yaw",
+            "expectedType": "java.lang.Float",
+            "value": 29
+          },
+          {
+            "name": "pitch",
+            "expectedType": "java.lang.Float",
+            "value": 33
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+        "getReturnType": "java.lang.Double",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Double"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          8
+        ]
+      },
+      {
+        "id": 8,
+        "class": "ch.njol.skript.expressions.ExprLocationOf",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          9
+        ]
+      },
+      {
+        "id": 9,
+        "class": "ch.njol.skript.lang.util.ConvertedExpression",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [
+          {
+            "role": "conversionSource",
+            "child": 10
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 11
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          11,
+          12
+        ]
+      },
+      {
+        "id": 11,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 12,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+        "getReturnType": "java.lang.Double",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Double"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          14
+        ]
+      },
+      {
+        "id": 14,
+        "class": "ch.njol.skript.expressions.ExprLocationOf",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          15
+        ]
+      },
+      {
+        "id": 15,
+        "class": "ch.njol.skript.lang.util.ConvertedExpression",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [
+          {
+            "role": "conversionSource",
+            "child": 16
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 17
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          17,
+          18
+        ]
+      },
+      {
+        "id": 17,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 18,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 19,
+        "class": "org.skriptlang.skript.common.properties.elements.expressions.PropExprWXYZ",
+        "getReturnType": "java.lang.Double",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Double"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          20
+        ]
+      },
+      {
+        "id": 20,
+        "class": "ch.njol.skript.expressions.ExprLocationOf",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          21
+        ]
+      },
+      {
+        "id": 21,
+        "class": "ch.njol.skript.lang.util.ConvertedExpression",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": [
+          {
+            "role": "conversionSource",
+            "child": 22
+          }
+        ]
+      },
+      {
+        "id": 22,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 23
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          23,
+          24
+        ]
+      },
+      {
+        "id": 23,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 24,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 25,
+        "class": "ch.njol.skript.expressions.ExprWorld",
+        "getReturnType": "org.bukkit.World",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.World"
+        ],
+        "edges": [
+          {
+            "role": "propertyOperand",
+            "child": 26
+          }
+        ],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          26
+        ]
+      },
+      {
+        "id": 26,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 27
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          27,
+          28
+        ]
+      },
+      {
+        "id": 27,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 28,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 29,
+        "class": "ch.njol.skript.expressions.ExprYawPitch",
+        "getReturnType": "java.lang.Float",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Float"
+        ],
+        "edges": [
+          {
+            "role": "propertyOperand",
+            "child": 30
+          }
+        ],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          30
+        ]
+      },
+      {
+        "id": 30,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 31
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          31,
+          32
+        ]
+      },
+      {
+        "id": 31,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 32,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 33,
+        "class": "ch.njol.skript.expressions.ExprYawPitch",
+        "getReturnType": "java.lang.Float",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.Float"
+        ],
+        "edges": [
+          {
+            "role": "propertyOperand",
+            "child": 34
+          }
+        ],
+        "acceptedInitPattern": 1,
+        "acceptedInitCaptures": [
+          34
+        ]
+      },
+      {
+        "id": 34,
+        "class": "ch.njol.skript.expressions.ExprParse",
+        "getReturnType": "org.bukkit.entity.Player",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.entity.Player"
+        ],
+        "edges": [
+          {
+            "role": "text",
+            "child": 35
+          }
+        ],
+        "acceptedInitPattern": 0,
+        "acceptedInitCaptures": [
+          35,
+          36
+        ]
+      },
+      {
+        "id": 35,
+        "class": "ch.njol.skript.lang.LiteralString",
+        "getReturnType": "java.lang.String",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "java.lang.String"
+        ],
+        "edges": []
+      },
+      {
+        "id": 36,
+        "class": "ch.njol.skript.lang.util.SimpleLiteral",
+        "getReturnType": "org.skriptlang.skript.bukkit.types.PlayerClassInfo",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+        ],
+        "edges": [],
+        "literalValues": [
+          {
+            "unobservedValueClass": "org.skriptlang.skript.bukkit.types.PlayerClassInfo"
+          }
+        ]
+      },
+      {
+        "id": 37,
+        "class": "ch.njol.skript.util.Direction$1",
+        "getReturnType": "org.bukkit.Location",
+        "isSingle": true,
+        "isDefault": false,
+        "getAnd": true,
+        "possibleReturnTypes": [
+          "org.bukkit.Location"
+        ],
+        "edges": []
+      }
+    ],
+    "unknown": [
+      "3: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "11: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "17: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "23: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "27: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "31: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "35: no known child adapter for ch.njol.skript.lang.LiteralString",
+      "37: no known child adapter for ch.njol.skript.util.Direction$1"
+    ]
+  }
+]
