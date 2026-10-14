@@ -3,10 +3,36 @@ name: Rust CI
 on:
   pull_request:
     branches: [ main ]
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/ci.yml'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/.cargo/config'
+      - '**/.cargo/config.toml'
+      - '**/rust-toolchain'
+      - '**/rust-toolchain.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
+    name: ${{ github.event_name == 'pull_request' && 'test' || 'Prepare dependency cache' }}
+    # PR は元の全検証を維持し、cache 供給の実行元は main に限定する。
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+
+    concurrency:
+      # main の cache 準備だけを直列化し、PR は run/attempt ごとに独立させる。
+      group: ${{ github.event_name == 'pull_request' && format('rust-ci-pr-{0}-{1}', github.run_id, github.run_attempt) || 'rust-ci-cache-main' }}
+      cancel-in-progress: false
+
+    env:
+      # assertions/overflow checks/opt-level は維持し、backtrace の行情報を残す。
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
     steps:
       - uses: actions/checkout@v4
@@ -16,17 +42,27 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
 
       - name: Build bundled CoreLibrary component
+        if: github.event_name == 'pull_request' || steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo run -p xtask --locked -- build-core-library
 
       - name: Build parser test components
+        if: github.event_name == 'pull_request' || steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo run -p xtask --locked -- build-test-components
 
+      - name: Build workspace test binaries for main cache
+        if: github.event_name != 'pull_request' && steps.rust-cache.outputs.cache-hit != 'true'
+        # cache 準備だけ。PR の test/doctest を置き換える検証ではない。
+        run: cargo test --workspace --all-features --locked --jobs 2 --no-run
+
       - name: Run all workspace tests
+        if: github.event_name == 'pull_request'
         run: cargo test --workspace --all-features --locked --jobs 2
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
         with:
           name: core-library-component
           path: artifacts/core-library.wasm
