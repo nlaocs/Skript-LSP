@@ -18504,7 +18504,7 @@
   "hasSerializer" : true,
   "hasSupplier" : true,
   "properties" : [ "amount", "display name", "name", "title" ],
-  "before" : [ "entitydata", "entitytype", "itemstack" ],
+  "before" : [ "itemstack", "entitydata", "entitytype" ],
   "after" : [ "number", "integer", "time", "long" ]
 }, {
   "typeParseOrder" : 119,
@@ -23355,7 +23355,7 @@
   "hasSerializer" : true,
   "hasSupplier" : true,
   "properties" : [ ],
-  "after" : [ "entitydata", "entitytype", "itemtype" ]
+  "after" : [ "itemtype", "entitydata", "entitytype" ]
 }, {
   "typeParseOrder" : 124,
   "name" : "Any Named Thing",
@@ -31211,7 +31211,7 @@
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ ],
-  "after" : [ "slot", "itemstack", "itemtype" ]
+  "after" : [ "itemtype", "slot", "itemstack" ]
 }, {
   "typeParseOrder" : 129,
   "name" : "Damage Cause",
@@ -31456,7 +31456,7 @@
   "hasSerializer" : false,
   "hasSupplier" : false,
   "properties" : [ ],
-  "after" : [ "slot", "itemstack", "itemtype" ]
+  "after" : [ "itemtype", "slot", "itemstack" ]
 }, {
   "typeParseOrder" : 131,
   "name" : "Biome",

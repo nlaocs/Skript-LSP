@@ -21,8 +21,8 @@
       "id": "skript-2.16.2-java25",
       "path": "../../parser-wasm/tests/data/type-parser-versions/skript-2.16.2-java25",
       "schema": 7,
-      "snapshot_id": "f42091ee442583229f11a2deea6b56ec736acb0c094ac4f4f01ab36b72192ba8",
-      "collection_evidence": "complete optional cardinality-source export; same registry IDs and per-registration data, observed fresh-JVM registration order retained",
+      "snapshot_id": "b7c14c3cf6b8864973c14d5cfa773334e9e502013e5c8fae70b3afc9506be04d",
+      "collection_evidence": "final SSG f7542b9 complete 21-file export and 32 actual returned graphs from one boot on 2026-10-14; existing registry fields preserved, 20 unproven sources omitted, observed registration order retained",
       "converters": 50
     },
     {

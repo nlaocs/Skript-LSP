@@ -30,23 +30,53 @@ successful retries are not inserted into the selected tree.
 - Schema 5 historical snapshots lack structured default-expression shapes;
   eight current cases are incomplete rather than silently skipped. Their
   collection completeness has not been recertified with SSG #9.
-- The `skript-2.16.2-java25` snapshot is a complete, unchanged export from
-  the paired optional cardinality-source verification based on SSG main
-  `1b6a796d...`. SSG JAR SHA-256 is
-  `8fc84d9b93a33e0d14ed1273e21f8459891119d816e1c6e6369f0fba4b549bb2`;
+- The `skript-2.16.2-java25` snapshot is the complete 21-file export from
+  final SSG source `f7542b9ba42a54d1eb6478d8ff82ebef7fdb572f`, based on SSG main
+  `1b6a796d3f5242d1010b8e61903a5b1d5c526baa`. SSG JAR SHA-256 is
+  `1d9fe40725f88ca524e49826efdb8e160e3a7b2bfea9a7ed429253be6e748a14`;
   modified Skript 2.16.2 JAR SHA-256 is
   `8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3`.
-  The paired SSG source is local commit `50fab8a63a5cf656d6822d5a7c73e5dfca4d99aa`.
-  Subsequent alias hardening is `ba335e4fbc6d16ce35aef4e0ed87cb64d9caf5aa`;
-  its verifier JAR `02b5b96d1d743fab630a8f152ba672f07adda24938d7cd27d4b25567cef8da98`
-  has passed local unit tests but has no paired server export yet. The remote
-  retry was rejected by automatic approval review before any transfer/execution.
-  This saved export and its pins are preserved; it is not relabeled as new evidence.
+  The export and 32 actual returned-object observations were collected in the
+  same boot on 2026-10-14: 29 valid and 3 expected plural-scalar rejections.
+  Each exported file preserves its collected bytes. All 32 observed graph
+  fields agree with the previous capture; the fresh graphs and final pins are
+  paired together, without changing assertions or native expected values.
   Paper 26.2-121 / Java 25.0.4.1 is an experimental integration environment.
   Its prior direct registry/export comparison found 50/50 equal from/to/flags/
   order (89 registry entries include 39 derived chains). That collection
   observation and the new loader/digest/reference/owner tests are separate
   evidence. Neither establishes every domain's runtime collection completeness.
+
+### Final producer adoption
+
+The predecessor fixture is retained in LSP commit
+`2ee96a84b68e7894ce72522b7f893bf6a54903c6`. The entire export was replaced together
+with its pairing pins; individual generated fields were not patched or reordered.
+The other three historical fixtures (60 files), `expected.json`, and the corpus
+runner are unchanged.
+
+| Provenance | Predecessor | Adopted final pair |
+| --- | --- | --- |
+| SSG source | `50fab8a63a5cf656d6822d5a7c73e5dfca4d99aa` | `f7542b9ba42a54d1eb6478d8ff82ebef7fdb572f` |
+| SSG JAR SHA-256 | `8fc84d9b93a33e0d14ed1273e21f8459891119d816e1c6e6369f0fba4b549bb2` | `1d9fe40725f88ca524e49826efdb8e160e3a7b2bfea9a7ed429253be6e748a14` |
+| Snapshot ID | `f42091ee442583229f11a2deea6b56ec736acb0c094ac4f4f01ab36b72192ba8` | `b7c14c3cf6b8864973c14d5cfa773334e9e502013e5c8fae70b3afc9506be04d` |
+| Content digest | `268755897ac449e24243b3111242e5efbb3b998aaec676f807385d3e127e43ac` | `52f5d2b32f91cee47c12898fb3b274914581d4d9a232c1c5a6bf984f9daa8898` |
+| Generated at (UTC) | `2026-10-13T10:29:53.291196097Z` | `2026-10-14T01:27:53.585464282Z` |
+| Positive source registrations | 224 (208 direct property-family sources) | 204 (196 direct property-family sources) |
+
+Final conservative analyzer hardening removed 20 optional source fields whose
+flows it no longer proves. It added no new positive source or replacement source.
+World/YawPitch retain explicit parsed input 0. Registration IDs and all existing
+per-registration fields agree after comparing Types `before`/`after` as sets and
+accounting for observed registry order. Fresh-JVM `registrationOrder` changes in
+Conditions/Effects/Events/Expressions/Structures and generated Types set order
+explain the remaining data churn; these raw orders remain intact. The manifest
+records the final producer hash, generation time, digest and snapshot ID.
+
+The seven original raw graphs are byte-equal after serializing the new capture;
+the 25 additional raw observations agree field-for-field. Only their snapshot
+and producer pins change. The 383 upstream checks, 1,355 control assertions and
+16 exact ClassInfo difference fields retain their previous values and coverage.
 
 The projection deliberately excludes pointer/arena IDs, opaque effects and
 timings. Native conversion paths, upstream simplified implementation classes,

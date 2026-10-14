@@ -129,6 +129,6 @@ for request, graph in zip(requests, graphs):
                 expression(child, path + '/resolved')
     observations.append({'case_id': request['id'], 'graph_index': len(observations), 'expression_wrapper': request['expression_wrapper'], 'coverage': 'partial observed fields only', 'checks': checks, 'known_differences': differences, 'unknown': sorted(set(unknown))})
 
-evidence = {'stage': 'actual outer loadItems returned objects inspected after validateScript return', 'snapshot_id': 'f42091ee442583229f11a2deea6b56ec736acb0c094ac4f4f01ab36b72192ba8', 'skript_jar_sha256': '8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3', 'ssg_jar_sha256': '8fc84d9b93a33e0d14ed1273e21f8459891119d816e1c6e6369f0fba4b549bb2', 'observations': observations}
+evidence = {'stage': 'actual outer loadItems returned objects inspected after validateScript return', 'snapshot_id': 'b7c14c3cf6b8864973c14d5cfa773334e9e502013e5c8fae70b3afc9506be04d', 'skript_jar_sha256': '8ed7254a69f6fc2a9b665b9d45233480719c31ac1483b5834ee14936e2a10ef3', 'ssg_jar_sha256': '1d9fe40725f88ca524e49826efdb8e160e3a7b2bfea9a7ed429253be6e748a14', 'observations': observations}
 (out / 'upstream.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 print(json.dumps({'checks': sum(len(o['checks']) for o in observations), 'differences': [{'case': o['case_id'], 'items': o['known_differences']} for o in observations if o['known_differences']], 'unknown_counts': {o['case_id']: len(o['unknown']) for o in observations}}, ensure_ascii=True))
