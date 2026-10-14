@@ -124,6 +124,7 @@ fn cardinality_controls_preserve_observed_selection_nesting_and_argument_ownersh
         assert_eq!(plugin.jar_sha256.as_deref(), evidence[field].as_str());
     }
     let cases = cardinality_cases();
+    let mut runner = isolation::Runner::default();
     assert_eq!(cases.len(), 25);
     for (case, observed) in cases.iter().zip(evidence["cases"].as_array().unwrap()) {
         assert_eq!(
@@ -150,7 +151,7 @@ fn cardinality_controls_preserve_observed_selection_nesting_and_argument_ownersh
     let failures = collect_case_failures(
         &corpus,
         &cases,
-        |case| run_case(&corpus, case),
+        |case| run_case(&corpus, case, &mut runner),
         |case, actual| {
             let observed = evidence["cases"]
                 .as_array()
@@ -255,6 +256,7 @@ fn native_corpus_regressions() {
     let expected: BTreeMap<String, Value> =
         serde_json::from_str(include_str!("expected.json")).unwrap();
     let corpus = corpus();
+    let mut runner = isolation::Runner::default();
     let upstream = upstream();
     assert_eq!(
         expected.keys().collect::<BTreeSet<_>>(),
@@ -263,7 +265,7 @@ fn native_corpus_regressions() {
     let failures = collect_case_failures(
         &corpus,
         &corpus.cases,
-        |case| run_case(&corpus, case),
+        |case| run_case(&corpus, case, &mut runner),
         |case, actual| {
             let mut failures = Vec::new();
             if expected[&case.id]["status"] == "incomplete" && actual["status"] == "matchedClean" {
@@ -567,11 +569,12 @@ fn first_expression(effect: &mut EffectCandidate) -> &mut ExpressionNode {
 #[ignore = "writes native baselines for explicit human review; does not establish upstream compatibility"]
 fn record_baselines() {
     let corpus = corpus();
+    let mut runner = isolation::Runner::default();
     let mut actual = BTreeMap::new();
     let failures = collect_case_failures(
         &corpus,
         &corpus.cases,
-        |case| run_case(&corpus, case),
+        |case| run_case(&corpus, case, &mut runner),
         |case, result| {
             actual.insert(case.id.clone(), result);
             Vec::new()
@@ -586,13 +589,13 @@ fn record_baselines() {
     std::fs::write(path, serde_json::to_string_pretty(&actual).unwrap() + "\n").unwrap();
 }
 
-fn run_case(corpus: &Corpus, case: &Case) -> Result<Value, String> {
+fn run_case(corpus: &Corpus, case: &Case, runner: &mut isolation::Runner) -> Result<Value, String> {
     let fixture = corpus
         .fixtures
         .iter()
         .find(|fixture| fixture.id == case.fixture)
         .ok_or_else(|| format!("unknown fixture {}", case.fixture))?;
-    isolation::run(fixture, case)
+    runner.run(fixture, case)
 }
 
 fn analyze(fixture: &Fixture, case: &Case) -> Result<Value, String> {
