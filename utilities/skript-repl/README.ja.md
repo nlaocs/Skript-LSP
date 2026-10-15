@@ -148,6 +148,13 @@ snapshot・計測情報を表示します。引数と戻り値の型を登録ID�
 Expression/elementの元コード抜粋にも入力と同じ構文色を適用します。色なしでもラベル・字下げ・区切りで構造を読み取れます。
 入力の構文色とJSON schemaは変更しません。
 
+matchedのEffect/Expression/documentの登録patternを対象とした試作配色では、
+固定文字を既定色、型placeholderをorange、選択肢・groupの
+区切りをcyan、optionalの括弧をgrayで表示します。Skript sourceとは別文法として既存の
+登録pattern parserの原文spanを使い、壊れたpatternは原文のまま無色で表示します。
+この配色は比較案で、最終決定したものではありません。
+incomplete候補と手動選択contextのpatternは、従来どおり無色で表示します。
+
 通常のdocument出力は、行番号付き原文と
 `Structure -> Event/Section -> Effect/Condition -> Expression/Type` treeを表示します。
 解決済みnodeにはregistration identity、実装class、addon、pattern、return type、

@@ -415,7 +415,7 @@ impl DocumentAnalysisReport {
                 writer,
                 "{indent}    pattern[{}]: {}",
                 pattern.index,
-                style.paint(Role::Muted, &pattern.source)
+                pattern.render_source(style.0)
             )?;
         }
         for child in &node.children {

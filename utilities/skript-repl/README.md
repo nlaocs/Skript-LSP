@@ -165,6 +165,13 @@ Expression/element source snippets reuse the input syntax colors. Text labels an
 carry the same meaning without color. These roles do not change source syntax colors
 or the JSON schema.
 
+For matched Effect/Expression/document patterns, an experimental palette keeps literal text at the default
+foreground, type placeholders orange, choice/group delimiters cyan, and optional
+brackets gray. It uses the registration-pattern parser's original spans, separately
+from Skript source highlighting; malformed patterns remain unchanged and plain.
+This palette is a comparison draft, not a finalized color scheme.
+Incomplete candidates and manually selected context patterns keep their plain display.
+
 Human document output shows the original numbered source followed by a
 `Structure -> Event/Section -> Effect/Condition -> Expression/Type` tree. Each
 resolved node can include its registration identity, implementation class,

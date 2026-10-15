@@ -19,6 +19,7 @@ use syntax_pattern_parser::syntax::{
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Syntax};
 
 mod document;
+mod pattern_highlight;
 mod presentation;
 mod source_snippet;
 
@@ -264,7 +265,7 @@ impl AnalysisReport {
                 writeln!(
                     writer,
                     "    pattern: {}",
-                    style.paint(Role::Muted, &effect.pattern.source)
+                    effect.pattern.render_source(color)
                 )?;
                 writeln!(
                     writer,
@@ -932,6 +933,18 @@ struct PatternReport {
     index: usize,
     source: String,
     elements: Vec<PatternElementReport>,
+    #[serde(skip)]
+    colors: Vec<SourceColorSpan>,
+}
+
+impl PatternReport {
+    fn render_source(&self, color: bool) -> String {
+        if color {
+            render_source_colors(&self.source, &self.colors)
+        } else {
+            self.source.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1785,8 +1798,13 @@ fn pattern_report(
     catalog: &Catalog,
     include_elements: bool,
 ) -> PatternReport {
+    let parsed = parse(source, catalog.plural_rules()).ok();
+    let colors = parsed
+        .as_ref()
+        .map(|parsed| pattern_highlight::collect(source, &parsed.elements))
+        .unwrap_or_default();
     let elements = if include_elements {
-        parse(source, catalog.plural_rules())
+        parsed
             .map(|parsed| pattern_elements(&parsed.elements, catalog, 0))
             .unwrap_or_default()
     } else {
@@ -1796,6 +1814,7 @@ fn pattern_report(
         index,
         source: source.to_owned(),
         elements,
+        colors,
     }
 }
 
@@ -2918,7 +2937,8 @@ fn write_expression(
         writeln!(
             writer,
             "{prefix}pattern[{}]: {}",
-            pattern.index, pattern.source
+            pattern.index,
+            pattern.render_source(style.0)
         )?;
     }
     if expression.truncated {
@@ -3299,6 +3319,7 @@ mod tests {
                 index: 0,
                 source: String::new(),
                 elements: Vec::new(),
+                colors: Vec::new(),
             },
             span: SpanReport { start: 0, end: 6 },
             elements: Vec::new(),
