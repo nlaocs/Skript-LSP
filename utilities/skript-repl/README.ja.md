@@ -141,6 +141,12 @@ Skript source自体へ`:submit`のような行を入れる場合は、複数行b
 
 ## Report
 
+通常表示は結果を先頭に置き、原文・解決済み構造、登録情報の詳細、最後に`run`の
+snapshot・計測情報を表示します。引数と戻り値の型を登録IDより先に表示します。
+見出しは太字の水色、成功は緑、警告は黄橙、エラーは赤、型名は橙、IDやpatternの
+詳細は淡く表示します。色なしでもラベル・字下げ・区切りで構造を読み取れます。
+入力の構文色とJSON schemaは変更しません。
+
 通常のdocument出力は、行番号付き原文と
 `Structure -> Event/Section -> Effect/Condition -> Expression/Type` treeを表示します。
 解決済みnodeにはregistration identity、実装class、addon、pattern、return type、

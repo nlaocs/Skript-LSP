@@ -157,6 +157,13 @@ manual selections remain active for the next one-line Effect.
 
 ## Reports
 
+Human reports put the match status first, followed by source and resolved structure.
+Arguments and return types precede registration details; snapshot and timing appear
+in the final `run` block. Headings are bold cyan, success green, warnings amber,
+errors red, types orange, and IDs/pattern details dim. Text labels and indentation
+carry the same meaning without color. These roles do not change source syntax colors
+or the JSON schema.
+
 Human document output shows the original numbered source followed by a
 `Structure -> Event/Section -> Effect/Condition -> Expression/Type` tree. Each
 resolved node can include its registration identity, implementation class,

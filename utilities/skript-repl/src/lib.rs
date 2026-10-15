@@ -210,8 +210,58 @@ mod tests {
             );
             assert!(error.is_empty(), "{}", String::from_utf8_lossy(&error));
             let output = String::from_utf8(output).unwrap();
-            assert!(output.contains("resolved: function"));
+            assert!(output.contains("function ("));
             assert_eq!(output.contains('\u{1b}'), !no_color);
+        }
+    }
+
+    #[test]
+    fn document_and_json_modes_obey_the_same_color_policy() {
+        let snapshot =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/current-multi-addon-2.15.4");
+        for document in [false, true] {
+            for json in [false, true] {
+                for no_color in [false, true] {
+                    let mut args = vec![
+                        OsString::from("--snapshot"),
+                        snapshot.clone().into_os_string(),
+                    ];
+                    if no_color {
+                        args.push("--no-color".into());
+                    }
+                    if json {
+                        args.push("--json".into());
+                    }
+                    let input = if document {
+                        args.push("--repl".into());
+                        "on join:\n    send sin(1) to console\n\n:quit\n"
+                    } else {
+                        args.push("send sin(1) to console".into());
+                        ""
+                    };
+                    let mut output = Vec::new();
+                    let mut error = Vec::new();
+                    assert_eq!(
+                        run_with_io_mode(
+                            args,
+                            PathBuf::from("unused"),
+                            Cursor::new(input),
+                            &mut output,
+                            &mut error,
+                            true,
+                            false
+                        ),
+                        EXIT_SUCCESS
+                    );
+                    assert!(error.is_empty(), "{}", String::from_utf8_lossy(&error));
+                    let output = String::from_utf8(output).unwrap();
+                    assert_eq!(
+                        output.contains('\x1b'),
+                        !no_color && !json,
+                        "document={document}, json={json}, no_color={no_color}"
+                    );
+                }
+            }
         }
     }
 }
