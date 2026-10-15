@@ -363,13 +363,24 @@ impl DocumentAnalysisReport {
             .map_or(node.syntax_id.as_str(), |identity| identity.display_name());
         writeln!(
             writer,
-            "{indent}- {} {}{} at {}..{}: {:?}",
+            "{indent}- {} {}{} at {}..{}: {}",
             style.paint(Role::Heading, &node.kind),
             style.paint(Role::Name, name),
             if defaulted { " (default)" } else { "" },
             node.span.virtual_range.start,
             node.span.virtual_range.end,
-            node.text,
+            SourceHighlight::new(
+                &self.data.virtual_source,
+                &self.virtual_source_colors,
+                style.0
+            )
+            .quoted(
+                &node.text,
+                SpanReport {
+                    start: node.span.virtual_range.start as usize,
+                    end: node.span.virtual_range.end as usize
+                }
+            ),
         )?;
         if let Some(semantics) = &node.semantics {
             if let Some(return_type) = &semantics.return_type {

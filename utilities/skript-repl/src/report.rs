@@ -20,6 +20,9 @@ use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Sy
 
 mod document;
 mod presentation;
+mod source_snippet;
+
+use source_snippet::SourceHighlight;
 
 use presentation::{HumanStyle, Role};
 
@@ -235,6 +238,8 @@ impl AnalysisReport {
                 effect,
                 alternatives,
             } => {
+                let highlight =
+                    SourceHighlight::new(&self.data.input, &effect.source_colors, color);
                 writeln!(
                     writer,
                     "\n{} {}",
@@ -251,7 +256,7 @@ impl AnalysisReport {
                 if effect.elements.is_empty() {
                     writeln!(writer, "    []")?;
                 } else {
-                    write_resolved_elements(writer, &effect.elements, 2, style)?;
+                    write_resolved_elements(writer, &effect.elements, 2, style, highlight)?;
                 }
                 writeln!(writer, "  {}", style.paint(Role::Heading, "details:"))?;
                 write_identity(writer, &effect.syntax, 2, style)?;
@@ -2726,12 +2731,17 @@ fn write_resolved_elements(
     elements: &[ResolvedElementReport],
     indent: usize,
     style: HumanStyle,
+    highlight: SourceHighlight<'_>,
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     for element in elements {
         match element {
             ResolvedElementReport::Regex { source, span, .. } => {
-                writeln!(writer, "{prefix}- regex {source:?} at {span}")?;
+                writeln!(
+                    writer,
+                    "{prefix}- regex {} at {span}",
+                    highlight.quoted(source, *span)
+                )?;
             }
             ResolvedElementReport::Expression {
                 source,
@@ -2745,7 +2755,8 @@ fn write_resolved_elements(
             } => {
                 writeln!(
                     writer,
-                    "{prefix}- expression {source:?} at {span} (capture #{capture_index}, {state})"
+                    "{prefix}- expression {} at {span} (capture #{capture_index}, {state})",
+                    highlight.quoted(source, *span)
                 )?;
                 writeln!(
                     writer,
@@ -2756,7 +2767,7 @@ fn write_resolved_elements(
                     writeln!(writer, "{prefix}  selectedAlternative: {index}")?;
                 }
                 if let Some(resolved) = resolved {
-                    write_expression(writer, resolved, indent + 1, style)?;
+                    write_expression(writer, resolved, indent + 1, style, highlight)?;
                 } else {
                     writeln!(writer, "{prefix}  resolved: null")?;
                 }
@@ -2771,6 +2782,7 @@ fn write_expression(
     expression: &ExpressionReport,
     indent: usize,
     style: HumanStyle,
+    highlight: SourceHighlight<'_>,
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     match &expression.expression {
@@ -2883,7 +2895,11 @@ fn write_expression(
             )?;
         }
     }
-    writeln!(writer, "{prefix}source: {:?}", expression.source)?;
+    writeln!(
+        writer,
+        "{prefix}source: {}",
+        highlight.quoted(&expression.source, expression.span)
+    )?;
     if let Some(return_type) = &expression.return_type {
         writeln!(
             writer,
@@ -2935,7 +2951,7 @@ fn write_expression(
             } else {
                 for (index, value) in argument.values.iter().enumerate() {
                     writeln!(writer, "{prefix}    value[{index}]:")?;
-                    write_expression(writer, value, indent + 3, style)?;
+                    write_expression(writer, value, indent + 3, style, highlight)?;
                 }
             }
         }
@@ -2948,13 +2964,13 @@ fn write_expression(
         for (index, operand) in expression.operands.iter().enumerate() {
             let side = ["left", "right"].get(index).copied().unwrap_or("operand");
             writeln!(writer, "{prefix}  {side}:")?;
-            write_expression(writer, operand, indent + 2, style)?;
+            write_expression(writer, operand, indent + 2, style, highlight)?;
         }
     } else if !expression.items.is_empty() {
         writeln!(writer, "{prefix}{}", style.paint(Role::Heading, "items:"))?;
         for (index, item) in expression.items.iter().enumerate() {
             writeln!(writer, "{prefix}  item[{index}]:")?;
-            write_expression(writer, item, indent + 2, style)?;
+            write_expression(writer, item, indent + 2, style, highlight)?;
         }
     } else if !expression.embedded_expressions.is_empty() {
         writeln!(
@@ -2964,18 +2980,18 @@ fn write_expression(
         )?;
         for (index, embedded) in expression.embedded_expressions.iter().enumerate() {
             writeln!(writer, "{prefix}  expression[{index}]:")?;
-            write_expression(writer, embedded, indent + 2, style)?;
+            write_expression(writer, embedded, indent + 2, style, highlight)?;
         }
     } else if let Some(inner) = &expression.inner {
         writeln!(writer, "{prefix}{}", style.paint(Role::Heading, "inner:"))?;
-        write_expression(writer, inner, indent + 1, style)?;
+        write_expression(writer, inner, indent + 1, style, highlight)?;
     } else if !expression.elements.is_empty() {
         writeln!(
             writer,
             "{prefix}{}",
             style.paint(Role::Heading, "elements:")
         )?;
-        write_resolved_elements(writer, &expression.elements, indent + 1, style)?;
+        write_resolved_elements(writer, &expression.elements, indent + 1, style, highlight)?;
     }
     if !expression.public_data.is_empty() {
         writeln!(

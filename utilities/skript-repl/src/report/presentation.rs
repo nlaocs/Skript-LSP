@@ -1,7 +1,5 @@
 use std::fmt::{self, Display};
 
-use super::SourceColor;
-
 /// Presentation only: the caller decides whether this stream supports color.
 #[derive(Clone, Copy)]
 pub(super) struct HumanStyle(pub bool);
@@ -51,12 +49,12 @@ impl<T: Display> Display for Painted<T> {
             return self.value.fmt(f);
         }
         let code = match self.role {
-            Role::Heading => "1;38;2;88;196;221",
+            Role::Heading => "1",
             Role::Success => "1;38;2;131;193;103",
             Role::Warning => "1;38;2;240;172;95",
             Role::Error => "1;38;2;252;98;85",
-            Role::Type => SourceColor::TypeName.ansi_code(),
-            Role::Name => SourceColor::Expression.ansi_code(),
+            Role::Type => "1",
+            Role::Name => return self.value.fmt(f),
             Role::Muted => "2",
         };
         write!(f, "\x1b[{code}m{}\x1b[0m", self.value)
@@ -103,18 +101,29 @@ mod tests {
         assert_eq!(strip_sgr(&colored), plain);
         println!("\n--- UX EXAMPLE effect ---\n{colored}--- UX END ---");
         assert!(!plain.contains('\x1b'));
+        let element = colored
+            .lines()
+            .find(|line| line.contains("- expression"))
+            .unwrap();
+        assert!(element.contains("\x1b[38;2;160;160;160msin("));
+        assert!(!element.contains("\\u{1b}"));
+        for line in colored.lines().filter(|line| {
+            line.contains("expectedTypes:")
+                || line.contains("returnType:")
+                || line.contains("multiplicity:")
+        }) {
+            assert!(
+                !line.contains("38;2;"),
+                "metadata must stay neutral: {line}"
+            );
+        }
+
         assert!(plain.starts_with("result: matched\n"));
         assert!(plain.find("  elements:").unwrap() < plain.find("  details:").unwrap());
         assert!(plain.find("arguments:").unwrap() < plain.find("identity:").unwrap());
         assert!(plain.find("arguments:").unwrap() < plain.find("metadata:").unwrap());
         assert!(plain.find("\nrun:\n").unwrap() > plain.find("effect:").unwrap());
-        for role in [
-            Role::Heading,
-            Role::Success,
-            Role::Type,
-            Role::Name,
-            Role::Muted,
-        ] {
+        for role in [Role::Heading, Role::Success, Role::Type, Role::Muted] {
             let marker = HumanStyle(true).paint(role, "ROLE").to_string();
             let prefix = marker.split("ROLE").next().unwrap();
             assert!(colored.contains(prefix), "missing role {prefix:?}");
