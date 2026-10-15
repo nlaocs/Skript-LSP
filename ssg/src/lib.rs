@@ -1,7 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(rustdoc::broken_intra_doc_links)]
 
-//! The usual entry point is [`load`]. Consumers that need to inspect the JSON
+//! Runtime parsers should use [`load_for_parsing`]; [`load`] also reads historical
+//! formats for inspection. Consumers that need to inspect the JSON
 //! format itself can use [`raw`], while parser and LSP code should use the
 //! normalized [`syntaxes::Catalog`] returned by [`Snapshot::catalog`].
 
@@ -23,5 +24,5 @@ pub use error::SnapshotError;
 pub use loader::{
     ALL_FILES, DATA_FILES, LEGACY_ALL_FILES, LEGACY_DATA_FILES, MIN_SCHEMA_VERSION,
     SCHEMA_5_6_ALL_FILES, SCHEMA_5_6_DATA_FILES, SCHEMA_VERSION, Snapshot, all_files_for_schema,
-    data_files_for_schema, load,
+    data_files_for_schema, load, load_for_parsing,
 };

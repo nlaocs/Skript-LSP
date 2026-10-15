@@ -207,11 +207,16 @@ pub fn all_files_for_schema(schema_version: u32) -> Option<&'static [&'static st
 /// # Ok::<(), ssg::SnapshotError>(())
 /// ~~~
 pub struct Snapshot {
+    directory: PathBuf,
     manifest: raw::Manifest,
     catalog: Catalog,
 }
 
 impl Snapshot {
+    /// Directory from which the verified snapshot was read.
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
     /// Returns the raw manifest used to identify the server and capabilities.
     pub fn manifest(&self) -> &raw::Manifest {
         &self.manifest
@@ -258,17 +263,39 @@ impl Snapshot {
 /// Returns [`SnapshotError`] with file and JSON-path context for I/O, format,
 /// integrity, semantic validation, or pattern failures.
 pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
-    let directory = directory.as_ref();
-    let manifest_text = read_file(directory, MANIFEST_FILE)?;
-    let manifest: raw::Manifest = parse_json(MANIFEST_FILE, &manifest_text)?;
+    load_impl(directory.as_ref(), false)
+}
 
-    if !(MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&manifest.schema_version) {
+/// Loads a current snapshot for CoreLibrary parsing, rejecting obsolete schemas
+/// and missing metadata before normalizing the verified JSON or creating a host.
+/// Optional metadata remains optional; present empty collections are accepted.
+pub fn load_for_parsing(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
+    load_impl(directory.as_ref(), true)
+}
+
+fn load_impl(directory: &Path, for_parsing: bool) -> Result<Snapshot, SnapshotError> {
+    let manifest_text = read_file(directory, MANIFEST_FILE)?;
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Schema {
+        schema_version: u32,
+    }
+    // A newer schema can change every other manifest field, including enums.
+    let schema: Schema = parse_json(MANIFEST_FILE, &manifest_text)?;
+
+    let minimum = if for_parsing {
+        SCHEMA_VERSION
+    } else {
+        MIN_SCHEMA_VERSION
+    };
+    if !(minimum..=SCHEMA_VERSION).contains(&schema.schema_version) {
         return Err(SnapshotError::UnsupportedSchema {
-            minimum: MIN_SCHEMA_VERSION,
+            minimum,
             maximum: SCHEMA_VERSION,
-            actual: manifest.schema_version,
+            actual: schema.schema_version,
         });
     }
+    let manifest: raw::Manifest = parse_json(MANIFEST_FILE, &manifest_text)?;
     let data_files = data_files_for_schema(manifest.schema_version)
         .expect("schema range was checked immediately above");
     let all_files = all_files_for_schema(manifest.schema_version)
@@ -328,6 +355,9 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
     };
 
     validate::snapshot(&manifest, &raw_snapshot)?;
+    if for_parsing {
+        validate::parser_metadata(&raw_snapshot)?;
+    }
     let plural_rules =
         syntax_pattern_parser::syntax::PluralRules::from_json(&serialized["PluralRules.json"])
             .map_err(|error| SnapshotError::validation("PluralRules.json", error.to_string()))?;
@@ -389,7 +419,11 @@ pub fn load(directory: impl AsRef<Path>) -> Result<Snapshot, SnapshotError> {
     // Both views were built from the same validated `serialized` document set above.
     let catalog = convert::catalog(raw_snapshot, plural_rules)?.with_unchecked_source(source);
 
-    Ok(Snapshot { manifest, catalog })
+    Ok(Snapshot {
+        directory: directory.to_owned(),
+        manifest,
+        catalog,
+    })
 }
 
 fn parse_language(

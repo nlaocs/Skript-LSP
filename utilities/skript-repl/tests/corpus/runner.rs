@@ -16,6 +16,14 @@ use syntaxes::{Catalog, ClassName};
 #[path = "isolation.rs"]
 mod isolation;
 
+// The corpus deliberately retains incomplete historical exports as evidence.
+fn historical_session(fixture: &Fixture) -> Result<SkriptSession, String> {
+    let path = fixture_path(fixture);
+    let snapshot = ssg::load(&path)
+        .map_err(|source| super::SkriptSessionError::Snapshot { path, source }.to_string())?;
+    SkriptSession::from_snapshot(snapshot).map_err(|error| error.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Corpus {
@@ -470,7 +478,7 @@ fn projection_detects_identity_slots_arguments_types_and_defaults() {
         .iter()
         .find(|fixture| fixture.id == "skript-2.16.2-java25")
         .unwrap();
-    let mut session = SkriptSession::load(fixture_path(fixture)).unwrap();
+    let mut session = historical_session(fixture).unwrap();
     session.select_event_header("on join").unwrap();
     let transaction = session.context_transaction.as_ref().unwrap().clone();
     let document = transaction.document_id().unwrap();
@@ -599,8 +607,7 @@ fn run_case(corpus: &Corpus, case: &Case, runner: &mut isolation::Runner) -> Res
 }
 
 fn analyze(fixture: &Fixture, case: &Case) -> Result<Value, String> {
-    let mut session =
-        SkriptSession::load(fixture_path(fixture)).map_err(|error| error.to_string())?;
+    let mut session = historical_session(fixture)?;
     if let Some(header) = &case.event {
         let context = session
             .select_event_header(header)

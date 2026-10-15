@@ -33,8 +33,15 @@ skript-repl.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator --repl
 
 When `--snapshot` is omitted, `SKRIPT_REPL_SNAPSHOT` is used, followed by the
 current directory. The snapshot is fully validated before CoreLibrary starts.
-SSG schemas 3 through 7 are supported. Schemas 5 and later require
-`Language.json`; schema 7 also requires `BlockData.json`.
+File loading and `:reload` require SSG schema 7 and the metadata consumed by
+CoreLibrary. Older or future schemas fail before host initialization and explain
+how to regenerate a complete compatible export (or update the tool).
+`Language.json` and `BlockData.json` are required. Missing EntityData parsing
+sources are rejected; present empty arrays remain valid collection results.
+
+The generic `ssg::load` reader and the explicit `SkriptSession::from_snapshot`
+library constructor remain available for inspecting historical regression data.
+They do not certify that the archived metadata supports current parsing.
 
 Additional parser addon Components can be loaded in command-line order:
 

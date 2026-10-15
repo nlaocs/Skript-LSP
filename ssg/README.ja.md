@@ -134,3 +134,6 @@ fixtureは次をcoverします。
 
 fixture directoryは、変更していない完全な生成snapshotです。出典は
 [`tests/data/README.md`](./tests/data/README.md)に記録されています。
+
+
+実際に解析を開始する消費側は `load_for_parsing` を使用します。現在のschema 7とCoreLibraryが必要とするmetadataを、digest検証済みの同じrawデータで検査します。EntityDataには登録parser patternの収集情報が必要で、supplierがある場合はtyped literalも必要です。必要なclass名は空白ではなくClassHierarchyに存在することを確認します。欠落・nullと空配列を区別し、任意metadataは一律に必須化しません。汎用 `load` は過去schemaの調査用として残ります。

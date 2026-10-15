@@ -9,6 +9,76 @@ use crate::raw::{
 };
 use std::collections::{HashMap, HashSet};
 
+/// Core's EntityData parser consumes typed literals and registered patterns.
+/// Check raw Options: normalization intentionally merges absent and empty arrays.
+pub(crate) fn parser_metadata(snapshot: &raw::Snapshot) -> Result<(), SnapshotError> {
+    let classes = snapshot
+        .classes
+        .iter()
+        .map(|class| class.name.as_str())
+        .collect::<HashSet<_>>();
+    for (index, value) in snapshot.types.iter().enumerate() {
+        let missing = |field: &str, message: &str| SnapshotError::ParserMetadata {
+            path: format!("Types.json[{index}].{field}"),
+            message: message.to_owned(),
+        };
+        let class = |field: &str, name: Option<&str>| {
+            if name.is_some_and(|name| !name.trim().is_empty() && classes.contains(name)) {
+                Ok(())
+            } else {
+                Err(missing(
+                    field,
+                    "a nonblank class collected in ClassHierarchy.json is required",
+                ))
+            }
+        };
+        if value.has_parser {
+            class("parserClass", value.parser_class.as_deref())?;
+        }
+        if !value.has_parser || value.original_class != "ch.njol.skript.entity.EntityData" {
+            continue;
+        }
+        if value.registered_parser_patterns.is_none() {
+            return Err(missing(
+                "registeredParserPatterns",
+                "EntityData requires its registered parser patterns, including modified entity names",
+            ));
+        }
+        if value.has_supplier && value.type_literals.is_none() {
+            return Err(missing(
+                "typeLiterals",
+                "EntityData has a supplier but its typed literal collection is unavailable",
+            ));
+        }
+        for (literal_index, literal) in value.type_literals.iter().flatten().enumerate() {
+            class(
+                &format!("typeLiterals[{literal_index}].valueClass"),
+                Some(&literal.value_class),
+            )?;
+            class(
+                &format!("typeLiterals[{literal_index}].representedClass"),
+                literal.represented_class.as_deref(),
+            )?;
+        }
+        for (pattern_index, pattern) in value
+            .registered_parser_patterns
+            .iter()
+            .flatten()
+            .enumerate()
+        {
+            class(
+                &format!("registeredParserPatterns[{pattern_index}].dataClass"),
+                Some(&pattern.data_class),
+            )?;
+            class(
+                &format!("registeredParserPatterns[{pattern_index}].representedClass"),
+                Some(&pattern.represented_class),
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn manifest(
     manifest: &raw::Manifest,
     expected_files: &[&str],

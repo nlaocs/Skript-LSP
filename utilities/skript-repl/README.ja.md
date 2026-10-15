@@ -32,8 +32,7 @@ skript-repl.exe --snapshot C:\server\plugins\SkriptSyntaxGenerator --repl
 ```
 
 `--snapshot`を省略した場合は`SKRIPT_REPL_SNAPSHOT`、次にcurrent directoryを
-使用します。CoreLibrary起動前にsnapshot全体を検証します。SSG schema 3から7に
-対応し、schema 5以降では`Language.json`、schema 7ではさらに`BlockData.json`が必須です。
+使用します。CoreLibrary起動前にsnapshot全体を検証します。ファイル読み込みと`:reload`はSSG schema 7およびCoreLibraryに必要なmetadataを要求します。`Language.json`と`BlockData.json`を含む完全な一式が必要です。旧・将来schemaや必要情報の欠損は起動時に拒否し、SSGでの再生成（将来schemaではtoolの更新も）を案内します。空配列を欠損とは扱いません。履歴調査用の`ssg::load`と明示的な`SkriptSession::from_snapshot`は別経路です。
 
 追加のparser addon Componentは、command lineの順序で読み込めます。
 

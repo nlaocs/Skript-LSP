@@ -122,7 +122,7 @@ struct SelectedSection {
 }
 
 impl SkriptSession {
-    /// Loads and validates an SSG schema 3 through 7 snapshot and initializes CoreLibrary.
+    /// Loads a current, parser-compatible SSG snapshot and initializes CoreLibrary.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, SkriptSessionError> {
         Self::load_with_addons(path, std::iter::empty::<PathBuf>())
     }
@@ -135,14 +135,37 @@ impl SkriptSession {
         A: AsRef<Path>,
     {
         let snapshot_path = snapshot_directory(path);
+        let loaded = ssg::load_for_parsing(&snapshot_path).map_err(|source| {
+            SkriptSessionError::Snapshot {
+                path: snapshot_path,
+                source,
+            }
+        })?;
+        Self::from_snapshot_with_addons(loaded, addons)
+    }
+
+    /// Analyzes an explicitly supplied verified snapshot, including historical
+    /// collections with incomplete metadata. File loading and reload use the
+    /// current parser contract instead. This does not certify upstream parity.
+    pub fn from_snapshot(loaded: ssg::Snapshot) -> Result<Self, SkriptSessionError> {
+        Self::from_snapshot_with_addons(loaded, std::iter::empty::<PathBuf>())
+    }
+
+    /// Constructs a host from a verified snapshot and optional addon components.
+    /// Like [`Self::from_snapshot`], this is the explicit historical-analysis path.
+    pub fn from_snapshot_with_addons<I, A>(
+        loaded: ssg::Snapshot,
+        addons: I,
+    ) -> Result<Self, SkriptSessionError>
+    where
+        I: IntoIterator<Item = A>,
+        A: AsRef<Path>,
+    {
+        let snapshot_path = loaded.directory().to_owned();
         let addon_paths = addons
             .into_iter()
             .map(|path| path.as_ref().to_owned())
             .collect::<Vec<_>>();
-        let loaded = ssg::load(&snapshot_path).map_err(|source| SkriptSessionError::Snapshot {
-            path: snapshot_path.clone(),
-            source,
-        })?;
         let manifest = loaded.manifest();
         let skript_plugin = manifest
             .plugins

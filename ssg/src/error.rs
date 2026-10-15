@@ -25,12 +25,18 @@ pub enum SnapshotError {
         #[source]
         source: serde_json::Error,
     },
-    #[error("unsupported SSG schema version {actual}; supported range is {minimum}..={maximum}")]
+    #[error(
+        "unsupported SSG schema version {actual}; supported range is {minimum}..={maximum}. Regenerate the complete snapshot with a compatible SkriptSyntaxGenerator, or update this tool for a newer schema"
+    )]
     UnsupportedSchema {
         minimum: u32,
         maximum: u32,
         actual: u32,
     },
+    #[error(
+        "incompatible SSG parser metadata at {path}: {message}. Regenerate the complete snapshot with the latest SkriptSyntaxGenerator"
+    )]
+    ParserMetadata { path: String, message: String },
     #[error("Manifest.json files mismatch: {message}")]
     ManifestFiles { message: String },
     #[error("snapshot is missing required file {file}")]

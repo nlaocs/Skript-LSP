@@ -1,14 +1,25 @@
 use serde_json::Value;
 use skript_repl::{
-    AnalysisReport, EXIT_NO_MATCH, EXIT_SUCCESS, OutputFormat, SkriptSession, run_with_io,
+    AnalysisReport, EXIT_FAILURE, EXIT_NO_MATCH, EXIT_SUCCESS, OutputFormat, SkriptSession,
+    run_with_io,
 };
 use std::ffi::OsString;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 fn modern_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/current-multi-addon-2.15.4")
+}
+
+fn archived_modern_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4")
+}
+
+fn historical_session(
+    path: impl AsRef<Path>,
+) -> Result<SkriptSession, skript_repl::SkriptSessionError> {
+    SkriptSession::from_snapshot(ssg::load(path).expect("historical snapshot must validate"))
 }
 
 fn legacy_fixture() -> PathBuf {
@@ -40,8 +51,95 @@ fn document_json(report: skript_repl::DocumentAnalysisReport) -> Value {
 }
 
 #[test]
+fn old_snapshots_are_rejected_before_addon_loading_with_regeneration_guidance() {
+    let mut output = Vec::new();
+    let mut error = Vec::new();
+    let code = run_with_io(
+        arguments(&[
+            "--snapshot",
+            legacy_fixture().to_str().unwrap(),
+            "--addon",
+            "missing-addon.wasm",
+            "send 1 to console",
+        ]),
+        PathBuf::from("unused"),
+        Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut error,
+    );
+    assert_eq!(code, EXIT_FAILURE);
+    assert!(output.is_empty());
+    let error = String::from_utf8(error).unwrap();
+    assert!(error.contains("unsupported SSG schema version"), "{error}");
+    assert!(error.contains("SkriptSyntaxGenerator"), "{error}");
+    assert!(!error.contains("failed to read parser addon"));
+}
+
+#[test]
+fn current_snapshot_resolves_join_player_and_plural_entities_in_effects_and_documents() {
+    let mut session = SkriptSession::load(modern_fixture()).unwrap();
+    session.select_event_header("on join").unwrap();
+    let inputs = [
+        "send \"hello\" to player",
+        "set {_a::%player%} to true",
+        "broadcast \"join %player%\"",
+    ];
+    for input in inputs {
+        assert!(session.analyze_effect(input).unwrap().matched(), "{input}");
+    }
+    for (input, class, multiplicity) in [
+        (inputs[0], "ch.njol.skript.expressions.ExprEntity", "single"),
+        (
+            "send \"hello\" to all players",
+            "ch.njol.skript.expressions.ExprEntities",
+            "multiple",
+        ),
+    ] {
+        let report = session.analyze_effect(input).unwrap();
+        let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+        let recipient = &json["result"]["effect"]["elements"][1]["resolved"];
+        assert_eq!(recipient["expression"]["syntax"]["elementClass"], class);
+        assert_eq!(recipient["returnType"], "org.bukkit.entity.Player");
+        assert_eq!(recipient["multiplicity"], multiplicity);
+    }
+    let source = "on join:\n    send \"hello\" to player\n    set {_a::%player%} to true\n    broadcast \"join %player%\"";
+    let json = document_json(session.analyze_document(source).unwrap());
+    assert_eq!(json["status"], "matched");
+    assert!(json["diagnostics"].as_array().unwrap().is_empty());
+    assert!(json["componentFailures"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn rejected_reload_keeps_the_previous_usable_session() {
+    let directory = tempfile::tempdir().unwrap();
+    for file in ssg::ALL_FILES {
+        std::fs::copy(modern_fixture().join(file), directory.path().join(file)).unwrap();
+    }
+    let mut session = SkriptSession::load(directory.path()).unwrap();
+    let manifest_path = directory.path().join("Manifest.json");
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    let original_id = manifest["snapshotId"].clone();
+    manifest["schemaVersion"] = 8.into();
+    std::fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let error = session
+        .reload()
+        .err()
+        .expect("future schema must be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported SSG schema version 8")
+    );
+    let report = session.analyze_effect("send 1 to console").unwrap();
+    assert!(report.matched());
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+    assert_eq!(json["snapshot"]["id"], original_id);
+}
+
+#[test]
 fn parses_a_multiline_event_with_nested_sections_as_one_document_tree() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let source = concat!(
         "on join:\n",
         "    send \"hello\" to console\n",
@@ -123,8 +221,11 @@ fn document_report_preserves_text_macro_source_provenance_and_state_accesses() {
         addon.is_file(),
         "build test components before running this test"
     );
-    let mut session = SkriptSession::load_with_addons(type_parser_216_fixture(), [&addon])
-        .expect("fixture and Text macro addon must load");
+    let mut session = SkriptSession::from_snapshot_with_addons(
+        ssg::load(type_parser_216_fixture()).unwrap(),
+        [&addon],
+    )
+    .expect("fixture and Text macro addon must load");
     let report = session
         .analyze_document("alpha")
         .expect("macro-expanded document must produce a partial report");
@@ -173,7 +274,7 @@ fn document_report_preserves_text_macro_source_provenance_and_state_accesses() {
 
 #[test]
 fn nested_unclaimed_lines_remain_document_recoveries() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze_document("on join:\n \tdefinitely not syntax\n    send \"after\" to console\n")
         .expect("an unclaimed nested line must remain recoverable");
@@ -193,7 +294,7 @@ fn nested_unclaimed_lines_remain_document_recoveries() {
 
 #[test]
 fn document_failure_after_length_changing_options_uses_original_coordinates() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let source = format!(
         "options:\n    prefix: {}\non join:\n    send \"{{@prefix}}\" to console\n    teleport a to location(b, 2, 3)\n",
         "expanded".repeat(25),
@@ -241,7 +342,7 @@ fn document_failure_after_length_changing_options_uses_original_coordinates() {
 
 #[test]
 fn human_document_report_explains_section_semantic_rejection() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze_document("on load:\n    catch runtime errors:\n        send 1 to console\n")
         .expect("a rejected Section must remain recoverable");
@@ -269,7 +370,7 @@ fn human_document_report_explains_section_semantic_rejection() {
 
 #[test]
 fn document_report_keeps_default_expression_rejection_inside_an_event() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze_document("on weather change:\n    send stone\n")
         .expect("default rejection must leave a partial document");
@@ -295,7 +396,7 @@ fn document_report_keeps_default_expression_rejection_inside_an_event() {
 
 #[test]
 fn multiline_document_keeps_partial_tree_and_source_spans_for_invalid_children() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let source = "on join:\n    teleport a to location(b, 2, 3)\n    send \"after\" to console\n";
     let report = session
         .analyze_document(source)
@@ -333,7 +434,7 @@ fn multiline_document_keeps_partial_tree_and_source_spans_for_invalid_children()
 
 #[test]
 fn multiline_documents_are_self_contained_and_preserve_manual_repl_context() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("manual Event context must parse");
@@ -358,7 +459,7 @@ fn multiline_documents_are_self_contained_and_preserve_manual_repl_context() {
 
 #[test]
 fn stream_repl_submits_multiline_source_then_accepts_another_effect() {
-    let snapshot = type_parser_216_fixture();
+    let snapshot = modern_fixture();
     let input = Cursor::new(
         b"on join:\n    send \"inside\" to console\n\nsend \"after\" to console\n:quit\n".to_vec(),
     );
@@ -387,7 +488,7 @@ fn stream_repl_submits_multiline_source_then_accepts_another_effect() {
 
 #[test]
 fn stream_repl_cancel_discards_a_draft_and_eof_submits_the_next_one() {
-    let snapshot = type_parser_216_fixture();
+    let snapshot = modern_fixture();
     let input = Cursor::new(
         b"on join:\n    send \"discarded\" to console\n:cancel\non join:\n    send \"submitted\" to console\n"
             .to_vec(),
@@ -413,7 +514,7 @@ fn stream_repl_cancel_discards_a_draft_and_eof_submits_the_next_one() {
 
 #[test]
 fn default_expression_without_event_reports_the_omitted_audience() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session.analyze_effect("send stone").unwrap();
     assert!(!report.matched());
     let (json, human) = render_json_and_human(report);
@@ -457,7 +558,7 @@ fn default_expression_without_event_reports_the_omitted_audience() {
 
 #[test]
 fn default_expression_on_join_is_an_implicit_child_with_an_anchor() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session.select_event_header("on join").unwrap();
     let report = session.analyze_effect("send stone").unwrap();
     assert!(report.matched(), "{}", report.clone().to_json().unwrap());
@@ -573,7 +674,7 @@ fn default_expression_on_join_is_an_implicit_child_with_an_anchor() {
 
 #[test]
 fn default_expression_preserves_an_explicit_console_without_event_context() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session.analyze_effect("send stone to console").unwrap();
     assert!(report.matched());
     let (json, human) = render_json_and_human(report);
@@ -608,7 +709,7 @@ fn default_expression_preserves_an_explicit_console_without_event_context() {
 
 #[test]
 fn default_expression_rejects_weather_events_that_only_provide_a_world() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session.select_event_header("on weather change").unwrap();
     let report = session.analyze_effect("send stone").unwrap();
     assert!(!report.matched());
@@ -641,7 +742,7 @@ fn default_expression_rejects_weather_events_that_only_provide_a_world() {
 
 #[test]
 fn legacy_default_expression_without_static_shape_is_unresolved() {
-    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = historical_session(archived_modern_fixture()).expect("fixture must load");
     session.select_event_header("on join").unwrap();
     let report = session.analyze_effect("send 1").unwrap();
     assert!(!report.matched());
@@ -763,7 +864,7 @@ fn reports_parenthesized_expression_and_its_inner_span() {
 
 #[test]
 fn parses_enchanted_item_type_before_eff_change_delimiter() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("player target needs an Event context");
@@ -789,7 +890,7 @@ fn parses_enchanted_item_type_before_eff_change_delimiter() {
 
 #[test]
 fn parses_composite_standard_type_literals_in_effects() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("player expressions need an Event context");
@@ -969,7 +1070,7 @@ fn reports_registered_function_identity_and_arguments() {
     assert!(human.contains("base:"));
     assert!(human.contains("omitted: true"));
 
-    let mut legacy = SkriptSession::load(legacy_fixture()).expect("legacy fixture must load");
+    let mut legacy = historical_session(legacy_fixture()).expect("legacy fixture must load");
     let legacy: Value = serde_json::from_str(
         &legacy
             .analyze_effect("send sin(1) to console")
@@ -987,7 +1088,7 @@ fn reports_registered_function_identity_and_arguments() {
 
 #[test]
 fn reports_embedded_registered_expression_inside_variable_string() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze_effect(r#"send "players: %size of all players%" to console"#)
         .expect("variable-string Expression must parse");
@@ -1057,7 +1158,7 @@ fn reports_arithmetic_operations_and_operands() {
 
 #[test]
 fn unresolved_return_keeps_all_reasons_without_component_failure() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let report = session
         .analyze_effect("return 1 + 2 * 3")
         .expect("an unresolved return contract must not become an extension fault");
@@ -1173,7 +1274,7 @@ fn renders_human_failures_with_a_source_label() {
 
 #[test]
 fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_event_header("on join")
         .expect("the competing EffDoIf interpretation has an omitted audience");
@@ -1217,7 +1318,7 @@ fn reports_nested_root_cause_patterns_and_competing_effect_interpretations() {
 
 #[test]
 fn reports_event_restrictions_and_parses_interface_expressions() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
 
     let absorbed = session
         .analyze_effect("send absorbed blocks to console")
@@ -1313,7 +1414,7 @@ fn reports_event_restrictions_and_parses_interface_expressions() {
 
 #[test]
 fn selected_event_context_enables_event_restricted_expressions() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_event_header("\"on join:\"")
         .expect("quoted Event header with a trailing colon must parse")
@@ -1408,7 +1509,7 @@ fn selected_event_context_enables_event_restricted_expressions() {
 
 #[test]
 fn event_headers_accept_articles_for_entity_and_item_literals() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
 
     let death = session
         .select_event_header("death of a player")
@@ -1441,7 +1542,7 @@ fn event_headers_accept_articles_for_entity_and_item_literals() {
         "{error}"
     );
 
-    let mut legacy = SkriptSession::load(legacy_fixture()).expect("legacy fixture must load");
+    let mut legacy = historical_session(legacy_fixture()).expect("legacy fixture must load");
     legacy
         .select_event_header("rightclick holding a diamond sword")
         .expect("legacy snapshots must use their own collected Alias inventory");
@@ -1449,7 +1550,7 @@ fn event_headers_accept_articles_for_entity_and_item_literals() {
 
 #[test]
 fn damage_headers_expose_role_constraints_without_inventing_event_values() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let event = session
         .select_event_header("on damage of player by zombie")
         .expect("EvtDamage header literals must parse");
@@ -1498,7 +1599,7 @@ fn damage_headers_expose_role_constraints_without_inventing_event_values() {
 
 #[test]
 fn event_header_modifiers_follow_struct_event_semantics() {
-    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
+    let mut session = historical_session(archived_modern_fixture()).expect("fixture must load");
 
     let error = session
         .select_event_header("cancelled join")
@@ -1520,11 +1621,16 @@ fn event_header_modifiers_follow_struct_event_semantics() {
         selected.reference_events,
         ["org.bukkit.event.player.PlayerJoinEvent"]
     );
+    let mut current = SkriptSession::load(modern_fixture()).unwrap();
+    let selected = current
+        .select_event_header("on join with priority monitor:")
+        .unwrap();
+    assert_eq!(selected.event_priority.as_deref(), Some("monitor"));
 }
 
 #[test]
 fn legacy_snapshot_uses_the_synthetic_struct_event_path() {
-    let mut session = SkriptSession::load(legacy_fixture()).expect("fixture must load");
+    let mut session = historical_session(legacy_fixture()).expect("fixture must load");
     let selected = session
         .select_event_header("on join:")
         .expect("Skript 2.6.4 must expose the legacy Event root through CoreLibrary");
@@ -1540,7 +1646,7 @@ fn legacy_snapshot_uses_the_synthetic_struct_event_path() {
 
 #[test]
 fn section_headers_enable_loop_scoped_effects_and_expressions() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
 
     let without_colon = session
         .select_section_header("loop all players")
@@ -1615,7 +1721,7 @@ fn section_headers_enable_loop_scoped_effects_and_expressions() {
 
 #[test]
 fn integer_range_keeps_its_long_type_through_shuffle_and_loop_value() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_section_header("loop shuffled (integers between 0 and 8)")
         .expect("ExprNumbers must resolve its mark before SecLoop inspects the source");
@@ -1638,7 +1744,7 @@ fn integer_range_keeps_its_long_type_through_shuffle_and_loop_value() {
 
 #[test]
 fn legacy_sec_while_provides_loop_control_without_loop_section_flag() {
-    let mut session = SkriptSession::load(legacy_fixture()).expect("fixture must load");
+    let mut session = historical_session(legacy_fixture()).expect("fixture must load");
     session
         .select_section_header("while 1 is 1")
         .expect("Skript 2.6.4 SecWhile must establish a Section context");
@@ -1655,7 +1761,7 @@ fn legacy_sec_while_provides_loop_control_without_loop_section_flag() {
 
 #[test]
 fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     session
         .select_section_header("loop all players")
         .expect("outer loop must parse");
@@ -1758,7 +1864,7 @@ fn nested_section_contexts_restore_on_rejection_pop_and_clear() {
 
 #[test]
 fn conditional_exit_uses_the_registered_section_frame() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let section = session
         .select_section_header("if true is true:")
         .expect("a SecConditional header must establish a Section context");
@@ -1790,7 +1896,7 @@ fn conditional_exit_uses_the_registered_section_frame() {
 
 #[test]
 fn json_report_preserves_registered_section_identity() {
-    let mut session = SkriptSession::load(type_parser_216_fixture()).expect("fixture must load");
+    let mut session = historical_session(type_parser_216_fixture()).expect("fixture must load");
     let selected = session
         .select_section_header("loop all players:")
         .expect("loop Section must parse")
@@ -1833,7 +1939,7 @@ fn json_report_preserves_registered_section_identity() {
 
 #[test]
 fn one_shot_and_repl_section_commands_manage_nested_contexts() {
-    let snapshot = type_parser_216_fixture();
+    let snapshot = modern_fixture();
     let mut output = Vec::new();
     let mut error = Vec::new();
     let code = run_with_io(
@@ -1937,7 +2043,7 @@ fn one_shot_and_repl_event_commands_apply_and_clear_context() {
 
 #[test]
 fn one_shot_json_uses_stable_no_match_exit_code() {
-    let snapshot = legacy_fixture();
+    let snapshot = modern_fixture();
     let mut output = Vec::new();
     let mut error = Vec::new();
     let code = run_with_io(
@@ -1956,12 +2062,19 @@ fn one_shot_json_uses_stable_no_match_exit_code() {
     assert!(error.is_empty());
     let json: Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(json["result"]["status"], "unknown");
+    // The current multi-addon profile retains a failed catch-all candidate.
+    assert!(json["result"]["failure"].is_object());
+    let mut historical = historical_session(legacy_fixture()).unwrap();
+    let report = historical
+        .analyze_effect("__skript_repl_no_match__")
+        .unwrap();
+    let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
     assert!(json["result"]["failure"].is_null());
 }
 
 #[test]
 fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
-    let snapshot = legacy_fixture();
+    let snapshot = modern_fixture();
     let input = Cursor::new(
         b"__skript_repl_no_match__\n:json on\nsend 1 to console\n:json off\n:reload\nsend 1 to console\n:quit\n"
             .to_vec(),
@@ -1988,7 +2101,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
 
 #[test]
 fn manifest_path_is_accepted_by_the_complete_cli() {
-    let manifest = legacy_fixture().join("Manifest.json");
+    let manifest = modern_fixture().join("Manifest.json");
     let mut output = Vec::new();
     let mut error = Vec::new();
     let code = run_with_io(
