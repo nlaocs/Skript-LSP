@@ -8,6 +8,11 @@ tags/marks and diagnostics. It calls the same native library host used by
 `SkriptSession`, not the CLI display renderer. No Java or Minecraft server is
 needed to run the checked-in tests.
 
+Historical cases deliberately call `SkriptSession::from_snapshot(ssg::load(...))`.
+This explicit library analysis preserves the archived inputs and their known
+incomplete results. Normal file loading and `:reload` require schema 7 and current
+Core metadata; an archive comparison does not certify that runtime contract.
+
 `runner.rs` is a child test module of `session.rs`, so Event setup uses the actual
 Event header and private parser context without a new public API. Each case
 uses a fresh session, host/store/transaction and 32 MiB parser-thread stack in a

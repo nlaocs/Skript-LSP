@@ -14,6 +14,186 @@ fn legacy_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy-2.6.4-mc-1.12.2")
 }
 
+fn current_parser_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../utilities/skript-repl/tests/data/current-multi-addon-2.15.4")
+}
+
+fn current_parser_copy() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().unwrap();
+    for file in ssg::ALL_FILES {
+        fs::copy(
+            current_parser_fixture().join(file),
+            directory.path().join(file),
+        )
+        .unwrap();
+    }
+    directory
+}
+
+fn edit_current_types(directory: &Path, edit: impl FnOnce(&mut serde_json::Value)) {
+    let path = directory.join("Types.json");
+    let mut types =
+        serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&path).unwrap()).unwrap();
+    edit(&mut types);
+    fs::write(path, serde_json::to_vec(&types).unwrap()).unwrap();
+    refresh_manifest(directory);
+}
+
+fn entity_data(types: &mut serde_json::Value) -> &mut serde_json::Value {
+    types
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|value| value["originalClass"] == "ch.njol.skript.entity.EntityData")
+        .unwrap()
+}
+
+#[test]
+fn parser_contract_accepts_the_complete_current_export() {
+    let snapshot = ssg::load_for_parsing(current_parser_fixture()).unwrap();
+    assert_eq!(snapshot.manifest().schema_version, 7);
+    assert_eq!(snapshot.manifest().plugins.len(), 9);
+    assert!(
+        snapshot
+            .catalog()
+            .type_by_code_name("entitydata")
+            .unwrap()
+            .type_literals
+            .iter()
+            .any(|literal| literal.text == "player")
+    );
+}
+
+#[test]
+fn parser_contract_rejects_old_and_future_schemas_before_reading_data() {
+    for schema in [3, 4, 5, 6, 8] {
+        let directory = tempfile::tempdir().unwrap();
+        let manifest = serde_json::json!({"schemaVersion": schema, "capabilities": {"syntaxApi": "future-api"}});
+        fs::write(
+            directory.path().join("Manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let error = ssg::load_for_parsing(directory.path()).unwrap_err();
+        assert!(
+            matches!(error, SnapshotError::UnsupportedSchema { minimum: 7, maximum: 7, actual } if actual == schema)
+        );
+        assert!(error.to_string().contains("SkriptSyntaxGenerator"));
+    }
+}
+
+#[test]
+fn parser_contract_rejects_absent_or_null_entity_data_sources() {
+    for (field, null) in [
+        ("typeLiterals", false),
+        ("typeLiterals", true),
+        ("registeredParserPatterns", false),
+        ("registeredParserPatterns", true),
+    ] {
+        let directory = current_parser_copy();
+        edit_current_types(directory.path(), |types| {
+            let entity = entity_data(types).as_object_mut().unwrap();
+            if null {
+                entity.insert(field.to_owned(), serde_json::Value::Null);
+            } else {
+                entity.remove(field);
+            }
+        });
+        load(directory.path()).expect("the archive reader may inspect incomplete metadata");
+        let error = ssg::load_for_parsing(directory.path()).unwrap_err();
+        assert!(
+            matches!(&error, SnapshotError::ParserMetadata { path, .. } if path.ends_with(field))
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("Regenerate the complete snapshot")
+        );
+    }
+}
+
+#[test]
+fn parser_contract_accepts_present_empty_collections_and_absent_unused_supplier_data() {
+    for supplier in [true, false] {
+        let directory = current_parser_copy();
+        edit_current_types(directory.path(), |types| {
+            let entity = entity_data(types).as_object_mut().unwrap();
+            entity.insert("hasSupplier".into(), supplier.into());
+            // Empty is an explicit collection result, not unavailable metadata.
+            if supplier {
+                entity.insert("typeLiterals".into(), serde_json::json!([]));
+            } else {
+                entity.remove("typeLiterals");
+                entity.remove("literalValues");
+            }
+            entity.insert("registeredParserPatterns".into(), serde_json::json!([]));
+        });
+        ssg::load_for_parsing(directory.path()).unwrap();
+    }
+}
+
+#[test]
+fn parser_contract_rejects_missing_parser_and_entity_literal_classes() {
+    for missing in ["parserClass", "representedClass"] {
+        let directory = current_parser_copy();
+        edit_current_types(directory.path(), |types| {
+            let entity = entity_data(types);
+            if missing == "parserClass" {
+                entity.as_object_mut().unwrap().remove(missing);
+            } else {
+                entity["typeLiterals"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(missing);
+            }
+        });
+        let error = ssg::load_for_parsing(directory.path()).unwrap_err();
+        assert!(
+            matches!(error, SnapshotError::ParserMetadata { path, .. } if path.ends_with(missing))
+        );
+    }
+}
+
+#[test]
+fn parser_contract_rejects_blank_or_uncollected_required_classes() {
+    for field in ["parserClass", "representedClass"] {
+        for class in ["", "  ", "missing.UncollectedClass"] {
+            let directory = current_parser_copy();
+            edit_current_types(directory.path(), |types| {
+                let entity = entity_data(types);
+                if field == "parserClass" {
+                    entity[field] = class.into();
+                } else {
+                    entity["typeLiterals"][0][field] = class.into();
+                }
+            });
+            assert!(
+                matches!(ssg::load_for_parsing(directory.path()), Err(SnapshotError::ParserMetadata { path, .. }) if path.ends_with(field))
+            );
+        }
+    }
+}
+
+#[test]
+fn parser_contract_rejects_invalid_registered_and_literal_value_classes() {
+    for (collection, field) in [
+        ("registeredParserPatterns", "dataClass"),
+        ("registeredParserPatterns", "representedClass"),
+        ("typeLiterals", "valueClass"),
+    ] {
+        for class in ["", "  ", "missing.UncollectedClass"] {
+            let directory = current_parser_copy();
+            edit_current_types(directory.path(), |types| {
+                entity_data(types)[collection][0][field] = class.into();
+            });
+            assert!(
+                matches!(ssg::load_for_parsing(directory.path()), Err(SnapshotError::ParserMetadata { path, .. }) if path.ends_with(field))
+            );
+        }
+    }
+}
+
 #[test]
 fn optional_cardinality_source_metadata_reaches_the_public_catalog() {
     let snapshot = load(

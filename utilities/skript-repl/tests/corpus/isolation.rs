@@ -354,8 +354,7 @@ fn case_worker() {
                     Some(Fault::Abort) => std::process::abort(),
                     Some(Fault::MissingResponse) => std::process::exit(0),
                     Some(Fault::Component) => {
-                        let mut session = super::SkriptSession::load(super::fixture_path(&fixture))
-                            .map_err(|error| error.to_string())?;
+                        let mut session = super::historical_session(&fixture)?;
                         return session
                             .host
                             .load_addon(b"invalid component")
