@@ -61,6 +61,14 @@ const MATCHING_ADDON: ComponentSpec = ComponentSpec {
     feature: None,
 };
 
+const FUNCTION_ADDON: ComponentSpec = ComponentSpec {
+    package: "function-addon",
+    module_name: "function_addon.wasm",
+    artifact_name: "function-addon.wasm",
+    display_name: "Function parser test addon",
+    feature: None,
+};
+
 const TEXT_MACRO_ADDON: ComponentSpec = ComponentSpec {
     package: "text-macro-addon",
     module_name: "text_macro_addon.wasm",
@@ -127,6 +135,7 @@ fn build_test_components() -> Result<()> {
         &DYNAMIC_SYNTAX_ADDON,
         &EFFECT_ADDON,
         &MATCHING_ADDON,
+        &FUNCTION_ADDON,
         &TEXT_MACRO_ADDON,
         &TREE_MACRO_ADDON,
         &TYPE_PARSER_ADDON,

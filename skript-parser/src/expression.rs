@@ -1045,6 +1045,8 @@ pub struct ExpressionLeafCandidate {
     pub multiplicity: Option<Multiplicity>,
     /// Expressions parsed through host requests and owned by this leaf.
     pub children: Vec<ExpressionNode>,
+    /// Structured call and declaration-ordered ownership for Function leaves.
+    pub function: Option<FunctionCall>,
     /// Public schema-versioned analysis data to carry onto the resulting node.
     pub public_data: Vec<ExpressionPublicData>,
     pub metadata: BTreeMap<String, String>,
@@ -2313,7 +2315,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 let candidate = ExpressionCandidate {
                     node: ExpressionNode {
                         kind,
-                        function: None,
+                        function: leaf.function,
                         effects: leaf.effects,
                         span: self.map_range(leaf.range)?,
                         return_type: leaf.return_type,
@@ -3244,6 +3246,14 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         allow_expressions: bool,
     ) -> bool {
         range.contains(leaf.range)
+            && (leaf.kind == ExpressionLeafKind::Function) == leaf.function.is_some()
+            && leaf.function.as_ref().is_none_or(|call| {
+                call.validate_children(leaf.children.len()).is_ok()
+                    && leaf
+                        .children
+                        .iter()
+                        .all(|child| leaf.range.contains(child.span.local_range))
+            })
             && leaf.range.start == range.start
             && candidate_ends.contains(&leaf.range.end)
             && leaf.range.is_valid_for(self.source.virtual_source())

@@ -97,6 +97,7 @@ Skript/addon syntax; addon-specific semantics may also require a WASM addon.
 | [`catalog-data-addon`](./test-components/catalog-data-addon/) | test WASM component | Exercises complete source-document and record access, catalog queries, and response limits through WIT. |
 | [effect-addon](./test-components/effect-addon/) | test WASM component | Exercises Effect lifecycle replacement, rejection diagnostics, dynamic handlers, and selected-state rollback. |
 | [matching-addon](./test-components/matching-addon/) | test WASM component | Exercises typed matching overrides and selected-candidate StateStore rollback. |
+| [`function-addon`](./test-components/function-addon/) | test WASM component | Exercises structured Function leaves, nested arguments, invalid-output rollback, output quotas, and CLI/REPL reports. |
 | [`expression-data-addon`](./test-components/expression-data-addon/) | test WASM component | Exercises node-local schema-versioned Expression public data, Transform/Override replacement and removal, and lossless raw JSON across two feature variants. |
 | [`skript-repl`](./utilities/skript-repl/) | analysis utility | Builds `skript-repl`, a standalone one-shot Effect inspector and multiline document REPL backed by the shared parser and WASM host. |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/) | developer utility | Fetches SkriptHub data and groups patterns rejected by the parsers. |

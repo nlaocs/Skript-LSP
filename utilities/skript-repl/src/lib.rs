@@ -128,6 +128,8 @@ where
         CliAction::Run(options) => options,
     };
 
+    let color = color && !options.no_color;
+
     let mut session = match SkriptSession::load_with_addons(&options.snapshot, &options.addons) {
         Ok(session) => session,
         Err(load_error) => {
@@ -170,6 +172,46 @@ where
         }
         RunMode::Repl => {
             repl::run_stream(&mut session, options.output, input, output, error, color)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn no_color_flag_suppresses_ansi_with_color_enabled() {
+        let snapshot =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/current-multi-addon-2.15.4");
+        for no_color in [false, true] {
+            let mut args = vec![
+                OsString::from("--snapshot"),
+                snapshot.clone().into_os_string(),
+            ];
+            if no_color {
+                args.push("--no-color".into());
+            }
+            args.push("send sin(1) to console".into());
+            let mut output = Vec::new();
+            let mut error = Vec::new();
+            assert_eq!(
+                run_with_io_mode(
+                    args,
+                    PathBuf::from("unused"),
+                    Cursor::new(Vec::<u8>::new()),
+                    &mut output,
+                    &mut error,
+                    true,
+                    false
+                ),
+                EXIT_SUCCESS
+            );
+            assert!(error.is_empty(), "{}", String::from_utf8_lossy(&error));
+            let output = String::from_utf8(output).unwrap();
+            assert!(output.contains("resolved: function"));
+            assert_eq!(output.contains('\u{1b}'), !no_color);
         }
     }
 }

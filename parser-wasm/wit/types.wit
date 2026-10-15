@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.38.0;
+package nlaocs:skript-parser-addon@0.39.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -515,6 +515,22 @@ interface types {
         json: string,
     }
 
+    /// Parameter order and child ownership match the native Function AST.
+    record function-argument {
+        parameter-name: string,
+        supplied-name: option<string>,
+        child-start: u64,
+        child-count: u64,
+        omitted: bool,
+    }
+
+    record function-call {
+        name: string,
+        definition-id: string,
+        registration-id: string,
+        arguments: list<function-argument>,
+    }
+
     record expression-leaf-candidate {
         parser-id: string,
         kind: expression-leaf-kind,
@@ -523,6 +539,8 @@ interface types {
         return-type: option<string>,
         multiplicity: option<dynamic-multiplicity>,
         children: list<parse-result-reference>,
+        /// Required for Function leaves; forbidden on other leaf kinds.
+        function: option<function-call>,
         public-data: list<expression-public-data>,
         metadata: list<metadata-entry>,
     }

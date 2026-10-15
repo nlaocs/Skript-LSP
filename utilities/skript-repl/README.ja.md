@@ -148,8 +148,14 @@ multiplicity、default provider、metadata、addon定義public dataを保持で�
 diagnosticとrecoveryのspanは、確定したsource全体を参照します。
 色表示に対応したterminalでは、行番号付きsourceも一行Effectと同じ構文カテゴリ色で
 表示します。redirectされた出力とJSONには色を含めません。
+`--no-color`または環境変数`NO_COLOR`でterminalの色表示を明示的に無効化できます。
 補間文字列では引用符と本文を白、区切りの`%`を薄いグレーで表示し、内側のExpressionは
 通常の意味色を維持します。
+
+標準Functionとaddon/WASM Functionは、Function名、definition/registration ID、
+Catalogの登録addon、宣言順の引数と再帰Expression、省略・指定名、return type、
+multiplicityを同じreport構造で表示します。独自leaf parserはWIT 0.39.0 / ABI 21.0の
+型付きFunction情報を返します。この契約に合わせて外部Componentの再ビルドが必要です。
 
 JSONが機械読み取り用の契約です。
 

@@ -57,6 +57,7 @@ pub(crate) fn candidate(
     multiplicity: DynamicMultiplicity,
 ) -> ExpressionLeafCandidate {
     ExpressionLeafCandidate {
+        function: None,
         parser_id: parser_id.to_owned(),
         kind,
         timing: if kind == ExpressionLeafKind::Literal {

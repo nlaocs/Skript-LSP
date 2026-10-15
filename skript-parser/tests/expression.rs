@@ -1934,6 +1934,7 @@ impl ExpressionParseEnvironment for PublicDataEnvironment {
             return Ok(ExpressionLeafParse::default());
         };
         Ok(vec![ExpressionLeafCandidate {
+            function: None,
             effects: None,
             parser_id: "test.public-data.leaf".to_owned(),
             kind: ExpressionLeafKind::Literal,
@@ -2006,6 +2007,7 @@ impl ExpressionParseEnvironment for MultipleEnvironment {
         request: ExpressionLeafRequest<'_>,
     ) -> Result<ExpressionLeafParse, String> {
         Ok(vec![ExpressionLeafCandidate {
+            function: None,
             effects: None,
             parser_id: "test.multiple".to_owned(),
             kind: ExpressionLeafKind::Custom,
@@ -2106,6 +2108,7 @@ impl ExpressionParseEnvironment for NativeEffectsEnvironment {
             .candidates
             .iter()
             .map(|candidate| ExpressionLeafCandidate {
+                function: None,
                 effects: Some(ExpressionEffects::new(candidate.marker)),
                 parser_id: candidate.parser_id.to_owned(),
                 kind: ExpressionLeafKind::Custom,
@@ -2226,6 +2229,7 @@ impl ExpressionParseEnvironment for SemanticFallbackEnvironment {
             _ => return Ok(ExpressionLeafParse::default()),
         };
         Ok(vec![ExpressionLeafCandidate {
+            function: None,
             effects: Some(ExpressionEffects::new(marker)),
             parser_id: "test.semantic-fallback.value".to_owned(),
             kind: ExpressionLeafKind::Literal,
@@ -2321,6 +2325,7 @@ impl ExpressionParseEnvironment for TimedLeafEnvironment {
         });
         Ok(candidate
             .map(|range| ExpressionLeafCandidate {
+                function: None,
                 effects: None,
                 parser_id: self.parser_id.to_owned(),
                 kind: ExpressionLeafKind::Literal,
@@ -2370,6 +2375,7 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
         });
         Ok(candidate
             .map(|range| ExpressionLeafCandidate {
+                function: None,
                 effects: None,
                 parser_id: "test.string".to_owned(),
                 kind: ExpressionLeafKind::Literal,

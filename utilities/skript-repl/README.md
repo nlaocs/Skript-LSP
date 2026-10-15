@@ -165,8 +165,15 @@ addon-defined public data. Diagnostics and recoveries refer to spans in the
 whole submitted source.
 On color-capable terminals, the numbered source uses the same syntax-category
 colors as one-line Effect output; redirected and JSON output remain plain.
+Use `--no-color` or set `NO_COLOR` to disable terminal colors explicitly.
 In interpolated strings, the quotes and text remain white, `%` delimiters are
 light gray, and each embedded Expression keeps its normal semantic color.
+
+Standard and addon/WASM Function calls share the same report structure: Function
+name, definition/registration IDs, catalog addon, declaration-ordered arguments,
+recursive argument Expressions, omitted/supplied names, return type, and
+multiplicity. A custom leaf parser supplies the typed Function call data through
+WIT 0.39.0 / ABI 21.0; external Components must be rebuilt for this contract.
 
 JSON is the machine-readable contract:
 

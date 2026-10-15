@@ -75,6 +75,7 @@ impl ExpressionParseEnvironment for ScopedEnvironment {
         self.expression_frames
             .insert(value, request.context.section_stack.clone());
         Ok(vec![ExpressionLeafCandidate {
+            function: None,
             effects: None,
             parser_id: "test.string".to_owned(),
             kind: ExpressionLeafKind::Literal,

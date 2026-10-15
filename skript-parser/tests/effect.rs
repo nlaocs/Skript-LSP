@@ -330,6 +330,7 @@ impl ExpressionParseEnvironment for StringLiteralEnvironment {
                     .is_some_and(|value| value.len() >= 2 && value.ends_with('"'))
             })
             .map(|end| ExpressionLeafCandidate {
+                function: None,
                 effects: None,
                 parser_id: "test.string-literal".to_owned(),
                 kind: ExpressionLeafKind::Literal,
@@ -519,6 +520,7 @@ impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
                     return None;
                 };
                 Some(ExpressionLeafCandidate {
+                    function: None,
                     effects: None,
                     parser_id: parser_id.to_owned(),
                     kind,
