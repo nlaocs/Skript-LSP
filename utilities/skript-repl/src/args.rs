@@ -18,6 +18,7 @@ OPTIONS:
         --event <HEADER>     Parse Effects inside this Event context
         --section <HEADER>   Push a Section context; may be repeated
         --json               Emit structured JSON
+        --no-color           Disable ANSI colors
         --repl               Start the REPL explicitly
     -h, --help               Print help
     -V, --version            Print version
@@ -66,6 +67,8 @@ pub struct CliOptions {
     pub snapshot: PathBuf,
     /// Initial output representation.
     pub output: OutputFormat,
+    /// Explicitly disables ANSI colors even on a color-capable terminal.
+    pub no_color: bool,
     /// Optional parser WASM components loaded in command-line order.
     pub addons: Vec<PathBuf>,
     /// Event header applied before one-shot or REPL parsing.
@@ -96,6 +99,7 @@ impl CliOptions {
     {
         let mut snapshot = default_snapshot;
         let mut output = OutputFormat::Human;
+        let mut no_color = false;
         let mut addons = Vec::new();
         let mut event = None;
         let mut sections = Vec::new();
@@ -121,6 +125,10 @@ impl CliOptions {
             }
             if value == OsStr::new("--json") {
                 output = OutputFormat::Json;
+                continue;
+            }
+            if value == OsStr::new("--no-color") {
+                no_color = true;
                 continue;
             }
             if value == OsStr::new("--repl") {
@@ -215,6 +223,7 @@ impl CliOptions {
         Ok(CliAction::Run(Self {
             snapshot: snapshot_directory(snapshot),
             output,
+            no_color,
             addons,
             event,
             sections,

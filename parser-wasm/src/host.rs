@@ -6862,6 +6862,7 @@ fn wit_expression_candidate(
         .map_err(|_| "Expression candidate start does not fit usize".to_owned())?;
     let end = usize::try_from(candidate.range.end)
         .map_err(|_| "Expression candidate end does not fit usize".to_owned())?;
+    let function = wit_function_call(&candidate)?;
     let metadata = metadata_entries(candidate.metadata)?;
     let mut children = Vec::with_capacity(candidate.children.len());
     for reference in candidate.children {
@@ -6890,6 +6891,13 @@ fn wit_expression_candidate(
             })?;
         children.push(child.clone());
     }
+    if function.is_some()
+        && children
+            .iter()
+            .any(|child| !ParserTextRange::new(start, end).contains(child.span.local_range))
+    {
+        return Err("Function child lies outside the Function source range".to_owned());
+    }
     Ok(ExpressionLeafCandidate {
         effects: None,
         parser_id: candidate.parser_id,
@@ -6913,9 +6921,47 @@ fn wit_expression_candidate(
             WitDynamicMultiplicity::Both => Multiplicity::Both,
         }),
         children,
+        function,
         public_data: public_data::from_wit(candidate.public_data)?,
         metadata,
     })
+}
+
+fn wit_function_call(
+    candidate: &WitExpressionLeafCandidate,
+) -> Result<Option<skript_parser::FunctionCall>, String> {
+    let is_function = matches!(candidate.kind, WitExpressionLeafKind::Function);
+    if is_function != candidate.function.is_some() {
+        return Err(
+            "Function leaves require structured call data; other leaf kinds cannot supply it"
+                .to_owned(),
+        );
+    }
+    let Some(call) = &candidate.function else {
+        return Ok(None);
+    };
+    let call = skript_parser::FunctionCall {
+        name: call.name.clone(),
+        definition_id: call.definition_id.clone(),
+        registration_id: call.registration_id.clone(),
+        arguments: call
+            .arguments
+            .iter()
+            .map(|argument| {
+                Ok(skript_parser::FunctionArgument {
+                    parameter_name: argument.parameter_name.clone(),
+                    supplied_name: argument.supplied_name.clone(),
+                    child_start: usize::try_from(argument.child_start)
+                        .map_err(|_| "Function argument child start does not fit usize")?,
+                    child_count: usize::try_from(argument.child_count)
+                        .map_err(|_| "Function argument child count does not fit usize")?,
+                    omitted: argument.omitted,
+                })
+            })
+            .collect::<Result<_, String>>()?,
+    };
+    call.validate_children(candidate.children.len())?;
+    Ok(Some(call))
 }
 
 fn expression_type_options(
@@ -11152,7 +11198,15 @@ impl ParserHost {
 
                 if let Some(replacement) = output.replacement.as_mut()
                     && let Err(message) =
-                        normalize_hook_metadata(&payload, replacement, &component_id)
+                        normalize_hook_metadata(&payload, replacement, &component_id).and_then(
+                            |()| {
+                                validate_function_references(
+                                    replacement,
+                                    &candidate_parse_results,
+                                    &available_parse_results,
+                                )
+                            },
+                        )
                 {
                     state_invocation.rollback();
                     drop(dynamic_update);
@@ -12767,6 +12821,7 @@ fn normalize_hook_metadata(
         }
         (HookPayload::Expression(original), HookPayload::Expression(replacement)) => {
             for candidate in &mut replacement.candidates {
+                wit_function_call(candidate)?;
                 public_data::validate(&candidate.public_data)?;
                 let previous = original.candidates.iter().find(|previous| {
                     previous.parser_id == candidate.parser_id
@@ -12829,6 +12884,42 @@ fn normalize_hook_metadata(
         }
         _ => Ok(()),
     }
+}
+
+fn validate_function_references(
+    payload: &HookPayload,
+    current: &BTreeMap<u64, ExecutedParseResult>,
+    earlier: &BTreeMap<u64, ExecutedParseResult>,
+) -> Result<(), String> {
+    let HookPayload::Expression(payload) = payload else {
+        return Ok(());
+    };
+    for candidate in &payload.candidates {
+        if !matches!(candidate.kind, WitExpressionLeafKind::Function) {
+            continue;
+        }
+        let range = ParserTextRange::new(
+            usize::try_from(candidate.range.start)
+                .map_err(|_| "Function source start does not fit usize")?,
+            usize::try_from(candidate.range.end)
+                .map_err(|_| "Function source end does not fit usize")?,
+        );
+        for reference in &candidate.children {
+            let result = current
+                .get(&reference.host_token)
+                .or_else(|| earlier.get(&reference.host_token))
+                .ok_or("Function references an unavailable parse-result token")?;
+            let child = result
+                .expression_roots
+                .get(&reference.root_id)
+                .filter(|_| result.wire.parser_id == skript_parser::HOST_EXPRESSION_PARSER_ID)
+                .ok_or("Function references an unavailable Expression root")?;
+            if !range.contains(child.span.local_range) {
+                return Err("Function child lies outside the Function source range".to_owned());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn merge_owned_metadata(
@@ -14493,6 +14584,29 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .parser_id
                             .len()
                             .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
+                            .saturating_add(candidate.function.as_ref().map_or(0, |call| {
+                                call.name
+                                    .len()
+                                    .saturating_add(call.definition_id.len())
+                                    .saturating_add(call.registration_id.len())
+                                    .saturating_add(
+                                        call.arguments
+                                            .iter()
+                                            .map(|argument| {
+                                                argument
+                                                    .parameter_name
+                                                    .len()
+                                                    .saturating_add(
+                                                        argument
+                                                            .supplied_name
+                                                            .as_ref()
+                                                            .map_or(0, String::len),
+                                                    )
+                                                    .saturating_add(17) // Two u64 child offsets and the omitted flag.
+                                            })
+                                            .fold(0usize, usize::saturating_add),
+                                    )
+                            }))
                             .saturating_add(public_data::size(&candidate.public_data))
                             .saturating_add(metadata_entries_size(&candidate.metadata))
                     })

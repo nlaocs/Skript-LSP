@@ -86,6 +86,7 @@ flowchart LR
 | [`catalog-data-addon`](./test-components/catalog-data-addon/README.ja.md) | test WASM component | WIT経由の全source document・record取得、catalog query、response limitを検証します。 |
 | [effect-addon](./test-components/effect-addon/README.ja.md) | test WASM component | Effect lifecycleの置換、Reject diagnostic、dynamic handler、採用state rollbackを検証します。 |
 | [matching-addon](./test-components/matching-addon/README.ja.md) | test WASM component | 型付きmatching overrideと採用候補だけを残すStateStore rollbackを検証します。 |
+| [`function-addon`](./test-components/function-addon/) | test WASM component | 構造化Function leaf、入れ子引数、不正出力のrollback、出力量制限、CLI/REPL reportを検証します。 |
 | [`expression-data-addon`](./test-components/expression-data-addon/) | test WASM component | node-localなschema version付きExpression public data、Transform/Overrideによる置換・削除、raw JSON保持を2つのfeature variantで検証します。 |
 | [`skript-repl`](./utilities/skript-repl/README.ja.md) | 解析utility | 共通parserとWASM hostを利用し、単発Effect検証と複数行document REPLを提供する独立実行ファイル`skript-repl`を構築します。 |
 | [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/README.ja.md) | developer utility | SkriptHubデータを取得し、parserが拒否したpatternを分類します。 |

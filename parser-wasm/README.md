@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.38.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.39.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -98,7 +98,8 @@ multiple targets for each registered semantic handler, including dynamic
   capture presence, implicit summaries, and indexed ClassInfo lookup changed it
   to 0.35.0; typed DefaultExpression descriptors changed it to 0.36.0; and SSG
   runtime snapshot capabilities changed it to 0.37.0; host-indexed exact alias
-  and BlockData lookups changed it to 0.38.0. The manifest's current `abi` value is 20.0 and
+  and BlockData lookups changed it to 0.38.0; structured Function leaf calls changed
+  it to 0.39.0. The manifest's current `abi` value is 21.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -107,6 +108,16 @@ to the innermost. Frames distinguish the catalog addon from the owner WASM
 component of a dynamic registration. Capture summaries preserve syntax
 identity, return contracts, public schema data, and addon metadata; replacement
 payloads that alter the parser-owned stack are rejected.
+
+Function leaf providers set `expression-leaf-candidate.function` to a typed
+`function-call`: name, definition/registration IDs, and declaration-ordered
+arguments. Each argument owns a contiguous range in the candidate's existing
+host-token/root-ID child references; supplied names and omitted parameters are
+retained. All children must have exactly one owner and lie within the Function's
+source range. Missing Function data, invalid ranges, or data on another leaf kind
+is invalid hook output and rolls back the provider's state. Other leaf kinds set
+`function` to `none`. Native consumers use the same `FunctionCall` representation.
+This WIT/ABI change requires rebuilding CoreLibrary and external components.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an

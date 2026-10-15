@@ -342,6 +342,7 @@ impl hooks::Guest for TypeParserAddon {
         }
         payload.type_parser_outcome = Some(TypeParserOutcome::Handled);
         payload.candidates.push(ExpressionLeafCandidate {
+            function: None,
             parser_id: parser_id.to_owned(),
             kind: ExpressionLeafKind::Literal,
             timing: ExpressionLeafTiming::AfterRegistered,
@@ -373,6 +374,7 @@ fn candidate_with_effects(
     record_state(state_key)?;
     payload.type_parser_outcome = Some(TypeParserOutcome::Handled);
     payload.candidates.push(ExpressionLeafCandidate {
+        function: None,
         parser_id: parser_id.to_owned(),
         kind: ExpressionLeafKind::Literal,
         timing: ExpressionLeafTiming::AfterRegistered,

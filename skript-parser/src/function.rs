@@ -160,6 +160,57 @@ pub struct FunctionArgument {
     pub omitted: bool,
 }
 
+impl FunctionCall {
+    /// Validates declaration-ordered, exclusive ownership of the call's children.
+    ///
+    /// # Errors
+    /// Returns an explanation for blank identities, duplicate parameters, or
+    /// invalid child ranges. This checks structure, not a provider's semantics.
+    pub fn validate_children(&self, child_count: usize) -> Result<(), String> {
+        if [&self.name, &self.definition_id, &self.registration_id]
+            .iter()
+            .any(|value| value.trim().is_empty())
+        {
+            return Err("Function name and registration identities must not be blank".to_owned());
+        }
+        let mut names = std::collections::BTreeSet::new();
+        let mut next = 0;
+        for argument in &self.arguments {
+            if argument.parameter_name.trim().is_empty()
+                || !names.insert(argument.parameter_name.as_str())
+                || argument
+                    .supplied_name
+                    .as_ref()
+                    .is_some_and(|name| name.trim().is_empty())
+            {
+                return Err("Function parameter names must be nonblank and unique".to_owned());
+            }
+            let end = argument
+                .child_start
+                .checked_add(argument.child_count)
+                .ok_or("Function argument child range overflows")?;
+            if argument.child_start != next || end > child_count {
+                return Err(
+                    "Function argument children must be contiguous, ordered, and in range"
+                        .to_owned(),
+                );
+            }
+            if argument.omitted != (argument.child_count == 0)
+                || (argument.omitted && argument.supplied_name.is_some())
+            {
+                return Err(
+                    "Function omitted arguments must have no supplied name or children".to_owned(),
+                );
+            }
+            next = end;
+        }
+        if next != child_count {
+            return Err("Function has children not owned by a parameter".to_owned());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ArgumentKind {
     Named,

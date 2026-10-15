@@ -1,3 +1,4 @@
+use crate::report::presentation::{HumanStyle, Role};
 use crate::{EXIT_FAILURE, EXIT_SUCCESS, OutputFormat, SkriptSession};
 use rustyline::{DefaultEditor, error::ReadlineError};
 use skript_parser::{MappedSource, RawDiagnosticCode, RawNodeKind, RawTreeOptions, parse_raw_tree};
@@ -365,7 +366,7 @@ fn handle_action(
             let _ = writeln!(output, "multiline input discarded");
             ReplControl::Exit
         }
-        InputAction::Command(command) => repl_command(&command, session, format, output),
+        InputAction::Command(command) => repl_command(&command, session, format, output, color),
         InputAction::AnalyzeEffect(effect) => match session.analyze_repl_effect(&effect) {
             Ok(report) => {
                 if let Err(write_error) = report.write_with_color(*format, output, color) {
@@ -402,6 +403,7 @@ fn repl_command(
     session: &mut SkriptSession,
     format: &mut OutputFormat,
     output: &mut dyn Write,
+    color: bool,
 ) -> ReplControl {
     let command = command.trim();
     if let Some(selector) = event_selector(command) {
@@ -430,7 +432,11 @@ fn repl_command(
             ReplControl::Continue
         }
         ":event" | ":section" | ":context" => {
-            write_context(session, output);
+            write_context(
+                session,
+                output,
+                HumanStyle(color && *format == OutputFormat::Human),
+            );
             ReplControl::Continue
         }
         ":events" => {
@@ -574,15 +580,19 @@ fn select_section(selector: &str, session: &mut SkriptSession, output: &mut dyn 
     }
 }
 
-fn write_context(session: &SkriptSession, output: &mut dyn Write) {
+fn write_context(session: &SkriptSession, output: &mut dyn Write, style: HumanStyle) {
     if let Some(event) = session.event_context() {
         let _ = writeln!(output, "Event context:");
         let _ = writeln!(output, "  input: {}", event.input);
         let _ = writeln!(output, "  registrationId: {}", event.registration_id);
         if let Some(class) = &event.element_class {
-            let _ = writeln!(output, "  class: {class}");
+            let _ = writeln!(output, "  class: {}", style.paint(Role::JavaClass, class));
         }
-        let _ = writeln!(output, "  referenceEvents: {:?}", event.reference_events);
+        let _ = writeln!(
+            output,
+            "  referenceEvents: {}",
+            style.java_classes_debug(&event.reference_events)
+        );
         let _ = writeln!(output, "  eventValues: {}", event.event_values.len());
     } else {
         let _ = writeln!(output, "Event context: none");
@@ -607,6 +617,53 @@ fn write_context(session: &SkriptSession, output: &mut dyn Write) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_java_classes_share_report_color_and_obey_plain_and_json_modes() {
+        let mut session = SkriptSession::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/data/current-multi-addon-2.15.4"),
+        )
+        .unwrap();
+        session.select_event_header("on join:").unwrap();
+        let mut plain = None;
+        for format in [OutputFormat::Human, OutputFormat::Json] {
+            for color in [false, true] {
+                let mut format = format;
+                let mut output = Vec::new();
+                let mut error = Vec::new();
+                handle_action(
+                    InputAction::Command(":context".to_owned()),
+                    &mut session,
+                    &mut format,
+                    &mut output,
+                    &mut error,
+                    color,
+                );
+                assert!(error.is_empty());
+                let output = String::from_utf8(output).unwrap();
+                assert_eq!(
+                    output.contains('\x1b'),
+                    color && format == OutputFormat::Human
+                );
+                let stripped = output
+                    .replace("\x1b[38;2;255;134;47m", "")
+                    .replace("\x1b[0m", "");
+                if let Some(plain) = &plain {
+                    assert_eq!(&stripped, plain);
+                } else {
+                    plain = Some(stripped);
+                }
+                if color && format == OutputFormat::Human {
+                    println!("\n--- UX EXAMPLE context ---\n{output}--- UX END ---");
+                    assert!(output.contains(
+                        "class: \x1b[38;2;255;134;47mch.njol.skript.lang.util.SimpleEvent\x1b[0m"
+                    ));
+                    assert!(output.contains("referenceEvents: [\"\x1b[38;2;255;134;47morg.bukkit.event.player.PlayerJoinEvent\x1b[0m\"]"));
+                }
+            }
+        }
+    }
 
     fn options() -> RawTreeOptions {
         RawTreeOptions::for_skript_version(2, 16)

@@ -16,7 +16,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.38.0`とABI `20.0`
+- WIT package `nlaocs:skript-parser-addon@0.39.0`とABI `21.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、

@@ -170,24 +170,23 @@ impl DocumentAnalysisReport {
     }
 
     fn write_human(&self, writer: &mut dyn Write, color: bool) -> io::Result<()> {
+        let style = HumanStyle(color);
         writeln!(
             writer,
-            "snapshot: {} (Skript {}, Minecraft {}, {} plugins)",
-            self.data.snapshot.id,
-            self.data.snapshot.skript_version,
-            self.data.snapshot.minecraft_version,
-            self.data.snapshot.plugin_count,
+            "{} {} ({} diagnostics, {} recoveries)",
+            style.paint(Role::Heading, "document:"),
+            style.status(&self.data.status, &self.data.status),
+            self.data.diagnostics.len(),
+            self.data.recoveries.len()
         )?;
-        writeln!(
-            writer,
-            "parseTime: {}",
-            format_parse_duration(self.data.parse_duration_ns)
-        )?;
-        writeln!(writer, "document: {}", self.data.status)?;
-        writeln!(writer, "source:")?;
+        writeln!(writer, "\n{}", style.paint(Role::Heading, "source:"))?;
         write_source_lines(writer, &self.data.input, &self.source_colors, color)?;
         if self.data.virtual_source != self.data.input {
-            writeln!(writer, "expandedSource:")?;
+            writeln!(
+                writer,
+                "\n{}",
+                style.paint(Role::Heading, "expandedSource:")
+            )?;
             write_source_lines(
                 writer,
                 &self.data.virtual_source,
@@ -195,17 +194,17 @@ impl DocumentAnalysisReport {
                 color,
             )?;
         }
-        writeln!(writer, "tree:")?;
+        writeln!(writer, "\n{}", style.paint(Role::Heading, "tree:"))?;
         if self.data.roots.is_empty() {
             writeln!(writer, "  []")?;
         } else {
             let mut visited = HashSet::new();
             for root in &self.data.roots {
-                self.write_node(writer, *root, 1, &mut visited)?;
+                self.write_node(writer, *root, 1, &mut visited, style)?;
             }
         }
         if !self.data.recoveries.is_empty() {
-            writeln!(writer, "recoveries:")?;
+            writeln!(writer, "\n{}", style.paint(Role::Heading, "recoveries:"))?;
             for recovery in &self.data.recoveries {
                 writeln!(
                     writer,
@@ -245,7 +244,11 @@ impl DocumentAnalysisReport {
             write_document_diagnostic(writer, &self.data.input, diagnostic, color)?;
         }
         if !self.data.fault_regions.is_empty() {
-            writeln!(writer, "extensionFaults:")?;
+            writeln!(
+                writer,
+                "\n{}",
+                style.paint(Role::Heading, "extensionFaults:")
+            )?;
             for fault in &self.data.fault_regions {
                 writeln!(
                     writer,
@@ -272,12 +275,18 @@ impl DocumentAnalysisReport {
             }
         }
         if !self.data.component_failures.is_empty() {
-            writeln!(writer, "componentFailures:")?;
+            writeln!(
+                writer,
+                "\n{}",
+                style.paint(Role::Heading, "componentFailures:")
+            )?;
             for failure in &self.data.component_failures {
                 writeln!(
                     writer,
                     "  - {}/{}: {}",
-                    failure.component_id, failure.subscription_id, failure.message
+                    failure.component_id,
+                    failure.subscription_id,
+                    style.paint(Role::Error, &failure.message)
                 )?;
                 if let Some(span) = &failure.affected_span {
                     writeln!(
@@ -301,9 +310,26 @@ impl DocumentAnalysisReport {
                 self.data.macro_pipeline.expansions.len(),
             )?;
         }
+        writeln!(writer, "\n{}", style.paint(Role::Heading, "run:"))?;
         writeln!(
             writer,
-            "state: {} writes ({} records read, {} records written)",
+            "  snapshot: {} (Skript {}, Minecraft {}, {} plugins)",
+            style.paint(Role::Muted, &self.data.snapshot.id),
+            self.data.snapshot.skript_version,
+            self.data.snapshot.minecraft_version,
+            self.data.snapshot.plugin_count,
+        )?;
+        writeln!(
+            writer,
+            "  parseTime: {}",
+            style.paint(
+                Role::Muted,
+                format_parse_duration(self.data.parse_duration_ns)
+            )
+        )?;
+        writeln!(
+            writer,
+            "  state: {} writes ({} records read, {} records written)",
             self.data.state.writes, self.data.state.reads, self.data.state.written_records
         )
     }
@@ -314,6 +340,7 @@ impl DocumentAnalysisReport {
         id: u64,
         depth: usize,
         visited: &mut HashSet<u64>,
+        style: HumanStyle,
     ) -> io::Result<()> {
         let indent = "  ".repeat(depth);
         if depth > MAX_HUMAN_TREE_DEPTH {
@@ -336,27 +363,44 @@ impl DocumentAnalysisReport {
             .map_or(node.syntax_id.as_str(), |identity| identity.display_name());
         writeln!(
             writer,
-            "{indent}- {} {}{} at {}..{}: {:?}",
-            node.kind,
-            name,
+            "{indent}- {} {}{} at {}..{}: {}",
+            style.paint(Role::Heading, &node.kind),
+            style.paint(
+                node.identity
+                    .as_ref()
+                    .map_or(Role::Name, |identity| identity.display_role()),
+                name
+            ),
             if defaulted { " (default)" } else { "" },
             node.span.virtual_range.start,
             node.span.virtual_range.end,
-            node.text,
+            SourceHighlight::new(
+                &self.data.virtual_source,
+                &self.virtual_source_colors,
+                style.0
+            )
+            .quoted(
+                &node.text,
+                SpanReport {
+                    start: node.span.virtual_range.start as usize,
+                    end: node.span.virtual_range.end as usize
+                }
+            ),
         )?;
-        if let Some(pattern) = &node.pattern {
-            writeln!(
-                writer,
-                "{indent}  pattern[{}]: {}",
-                pattern.index, pattern.source
-            )?;
-        }
         if let Some(semantics) = &node.semantics {
             if let Some(return_type) = &semantics.return_type {
-                writeln!(writer, "{indent}  returnType: {return_type}")?;
+                writeln!(
+                    writer,
+                    "{indent}  returnType: {}",
+                    style.paint(Role::JavaClass, return_type)
+                )?;
             }
             if let Some(multiplicity) = &semantics.multiplicity {
-                writeln!(writer, "{indent}  multiplicity: {multiplicity}")?;
+                writeln!(
+                    writer,
+                    "{indent}  multiplicity: {}",
+                    style.paint(Role::Name, multiplicity)
+                )?;
             }
             if let Some(default) = &semantics.default_expression {
                 writeln!(
@@ -366,8 +410,21 @@ impl DocumentAnalysisReport {
                 )?;
             }
         }
+        if let Some(pattern) = &node.pattern {
+            writeln!(
+                writer,
+                "{indent}  {}",
+                style.paint(Role::Heading, "details:")
+            )?;
+            writeln!(
+                writer,
+                "{indent}    pattern[{}]: {}",
+                pattern.index,
+                pattern.render_source(style.0)
+            )?;
+        }
         for child in &node.children {
-            self.write_node(writer, *child, depth + 1, visited)?;
+            self.write_node(writer, *child, depth + 1, visited, style)?;
         }
         Ok(())
     }
@@ -1679,6 +1736,11 @@ fn write_document_diagnostic(
     let report = miette::Report::new(
         MietteDiagnostic::new(diagnostic.message.clone())
             .with_code(format!("skript-repl::{}", diagnostic.code))
+            .with_severity(match diagnostic.severity.as_str() {
+                "warning" => miette::Severity::Warning,
+                "info" => miette::Severity::Advice,
+                _ => miette::Severity::Error,
+            })
             .with_labels(labels),
     )
     .with_source_code(NamedSource::new("repl.sk", source.to_owned()));
@@ -1692,6 +1754,14 @@ fn write_document_diagnostic(
         .with_urls(false)
         .render_report(&mut rendered, report.as_ref())
         .map_err(io::Error::other)?;
+    let style = HumanStyle(color);
+    writeln!(
+        writer,
+        "\n{} [{}] {}",
+        style.paint(Role::Heading, "diagnostic:"),
+        style.status(&diagnostic.severity, &diagnostic.severity),
+        diagnostic.code
+    )?;
     write!(writer, "{rendered}")
 }
 
@@ -1846,7 +1916,7 @@ mod tests {
 
     #[test]
     fn human_diagnostics_render_every_distinct_original_origin() {
-        let diagnostic = DocumentDiagnosticReport {
+        let mut diagnostic = DocumentDiagnosticReport {
             code: "fixture.multi-origin".to_owned(),
             message: "generated syntax joins both ranges".to_owned(),
             severity: "error".to_owned(),
@@ -1867,12 +1937,18 @@ mod tests {
             },
             related: Vec::new(),
         };
-        let mut rendered = Vec::new();
-
-        write_document_diagnostic(&mut rendered, "a + b", &diagnostic, false).unwrap();
-
-        let rendered = String::from_utf8(rendered).unwrap();
-        assert!(rendered.contains("generated syntax joins both ranges"));
-        assert!(rendered.contains("also originates here"));
+        for severity in ["error", "warning", "info"] {
+            diagnostic.severity = severity.to_owned();
+            for color in [false, true] {
+                let mut rendered = Vec::new();
+                write_document_diagnostic(&mut rendered, "a + b", &diagnostic, color).unwrap();
+                let rendered = String::from_utf8(rendered).unwrap();
+                assert!(rendered.contains("generated syntax joins both ranges"));
+                assert!(rendered.contains("also originates here"));
+                let label = HumanStyle(color).status(severity, severity).to_string();
+                assert!(rendered.contains(&format!("[{label}] fixture.multi-origin")));
+                assert_eq!(rendered.contains('\x1b'), color);
+            }
+        }
     }
 }

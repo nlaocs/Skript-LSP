@@ -19,6 +19,13 @@ use syntax_pattern_parser::syntax::{
 use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Syntax};
 
 mod document;
+mod pattern_highlight;
+pub(crate) mod presentation;
+mod source_snippet;
+
+use source_snippet::SourceHighlight;
+
+use presentation::{HumanStyle, Role};
 
 pub use document::DocumentAnalysisReport;
 
@@ -215,123 +222,74 @@ impl AnalysisReport {
     }
 
     fn write_human(&self, writer: &mut dyn Write, color: bool) -> io::Result<()> {
+        let style = HumanStyle(color);
+        let status = match &self.data.result {
+            ParseResultReport::Matched { .. } => "matched",
+            ParseResultReport::Incomplete { .. } => "incomplete",
+            ParseResultReport::Unknown { .. } => "unknown",
+        };
         writeln!(
             writer,
-            "snapshot: {} (Skript {}, Minecraft {}, {} plugins)",
-            self.data.snapshot.id,
-            self.data.snapshot.skript_version,
-            self.data.snapshot.minecraft_version,
-            self.data.snapshot.plugin_count,
+            "{} {}",
+            style.paint(Role::Heading, "result:"),
+            style.status(status, status)
         )?;
-        writeln!(
-            writer,
-            "parseTime: {}",
-            format_parse_duration(self.data.parse_duration_ns)
-        )?;
-        if self.data.context.event.is_some() || !self.data.context.sections.is_empty() {
-            writeln!(writer, "context:")?;
-        }
-        if let Some(event) = &self.data.context.event {
-            writeln!(writer, "  event: {}", event.input)?;
-            writeln!(
-                writer,
-                "  class: {}",
-                event.element_class.as_deref().unwrap_or("dynamic")
-            )?;
-            if let Some(addon) = &event.addon {
-                writeln!(writer, "  addon: {} {}", addon.name, addon.version)?;
-            }
-            writeln!(writer, "  definitionId: {}", event.definition_id)?;
-            writeln!(writer, "  registrationId: {}", event.registration_id)?;
-            writeln!(writer, "  patternIndex: {}", event.pattern_index)?;
-            writeln!(writer, "  pattern: {}", event.pattern)?;
-            writeln!(writer, "  referenceEvents: {:?}", event.reference_events)?;
-            if event.registered_reference_events != event.reference_events {
-                writeln!(
-                    writer,
-                    "  registeredReferenceEvents: {:?}",
-                    event.registered_reference_events
-                )?;
-            }
-            if let Some(listening_behavior) = &event.listening_behavior {
-                writeln!(writer, "  listeningBehavior: {listening_behavior}")?;
-            }
-            if let Some(priority) = &event.event_priority {
-                writeln!(writer, "  eventPriority: {priority}")?;
-            }
-            writeln!(writer, "  eventValues: {}", event.event_values.len())?;
-            for diagnostic in &event.diagnostics {
-                writeln!(
-                    writer,
-                    "  diagnostic: [{}] {}: {}",
-                    diagnostic.severity, diagnostic.code, diagnostic.message
-                )?;
-            }
-            for failure in &event.component_failures {
-                writeln!(
-                    writer,
-                    "  componentFailure: {}/{}: {}",
-                    failure.component_id, failure.subscription_id, failure.message
-                )?;
-            }
-        }
-        for (depth, section) in self.data.context.sections.iter().enumerate() {
-            writeln!(writer, "  section[{}]: {}", depth + 1, section.input)?;
-            writeln!(writer, "    kind: {}", section.kind)?;
-            if let Some(class) = &section.element_class {
-                writeln!(writer, "    class: {class}")?;
-            }
-            if let Some(addon) = &section.addon {
-                if let Some(version) = &addon.version {
-                    writeln!(writer, "    addon: {} {version}", addon.name)?;
-                } else {
-                    writeln!(writer, "    addon: {}", addon.name)?;
-                }
-            }
-            if let Some(owner) = &section.owner_component_id {
-                writeln!(writer, "    ownerComponentId: {owner}")?;
-            }
-            writeln!(writer, "    scopeId: {}", section.scope_id)?;
-            if let Some(parent) = section.parent_scope_id {
-                writeln!(writer, "    parentScopeId: {parent}")?;
-            }
-            writeln!(writer, "    definitionId: {}", section.definition_id)?;
-            writeln!(writer, "    registrationId: {}", section.registration_id)?;
-            writeln!(writer, "    patternIndex: {}", section.pattern_index)?;
-            writeln!(writer, "    pattern: {}", section.pattern)?;
-            writeln!(writer, "    captures: {}", section.captures.len())?;
-        }
         match &self.data.result {
             ParseResultReport::Matched {
                 effect,
                 alternatives,
             } => {
+                let highlight =
+                    SourceHighlight::new(&self.data.input, &effect.source_colors, color);
                 writeln!(
                     writer,
-                    "source: {}",
+                    "\n{} {}",
+                    style.paint(Role::Heading, "source:"),
                     render_matched_source(&self.data.input, effect, color)
                 )?;
-                writeln!(writer, "effect:")?;
-                write_identity(writer, &effect.syntax, 1)?;
-                writeln!(writer, "  patternIndex: {}", effect.pattern.index)?;
-                writeln!(writer, "  pattern: {}", effect.pattern.source)?;
-                writeln!(writer, "  span: {}", effect.span)?;
-                if let Some(handler) = &effect.handler {
-                    writeln!(writer, "  handler: {handler}")?;
-                }
-                if !effect.metadata.is_empty() {
-                    writeln!(writer, "  metadata: {:?}", effect.metadata)?;
-                }
-                writeln!(writer, "  patternElements:")?;
-                write_pattern_elements(writer, &effect.pattern.elements, 2)?;
-                writeln!(writer, "  elements:")?;
+                writeln!(
+                    writer,
+                    "\n{} {}",
+                    style.paint(Role::Heading, "effect:"),
+                    style.paint(effect.syntax.display_role(), effect.syntax.display_name())
+                )?;
+                writeln!(writer, "  {}", style.paint(Role::Heading, "elements:"))?;
                 if effect.elements.is_empty() {
                     writeln!(writer, "    []")?;
                 } else {
-                    write_resolved_elements(writer, &effect.elements, 2)?;
+                    write_resolved_elements(writer, &effect.elements, 2, style, highlight)?;
                 }
+                writeln!(writer, "  {}", style.paint(Role::Heading, "details:"))?;
+                write_identity(writer, &effect.syntax, 2, style)?;
+                writeln!(writer, "    patternIndex: {}", effect.pattern.index)?;
+                writeln!(
+                    writer,
+                    "    pattern: {}",
+                    effect.pattern.render_source(color)
+                )?;
+                writeln!(
+                    writer,
+                    "    span: {}",
+                    style.paint(Role::Muted, effect.span)
+                )?;
+                if let Some(handler) = &effect.handler {
+                    writeln!(writer, "    handler: {handler}")?;
+                }
+                if !effect.metadata.is_empty() {
+                    writeln!(
+                        writer,
+                        "    metadata: {}",
+                        style.paint(Role::Muted, format_args!("{:?}", effect.metadata))
+                    )?;
+                }
+                writeln!(
+                    writer,
+                    "    {}",
+                    style.paint(Role::Heading, "patternElements:")
+                )?;
+                write_pattern_elements(writer, &effect.pattern.elements, 3, style)?;
                 if !effect.tags.is_empty() {
-                    writeln!(writer, "  parseTags:")?;
+                    writeln!(writer, "  {}", style.paint(Role::Heading, "parseTags:"))?;
                     for tag in &effect.tags {
                         writeln!(
                             writer,
@@ -343,7 +301,7 @@ impl AnalysisReport {
                     }
                 }
                 if !effect.marks.is_empty() {
-                    writeln!(writer, "  parseMarks:")?;
+                    writeln!(writer, "  {}", style.paint(Role::Heading, "parseMarks:"))?;
                     for mark in &effect.marks {
                         writeln!(
                             writer,
@@ -353,12 +311,15 @@ impl AnalysisReport {
                     }
                 }
                 if !alternatives.is_empty() {
-                    writeln!(writer, "alternatives:")?;
+                    writeln!(writer, "\n{}", style.paint(Role::Heading, "alternatives:"))?;
                     for alternative in alternatives {
                         writeln!(
                             writer,
                             "  - {} pattern[{}]: {}",
-                            alternative.syntax.display_name(),
+                            style.paint(
+                                alternative.syntax.display_role(),
+                                alternative.syntax.display_name()
+                            ),
                             alternative.pattern_index,
                             alternative.pattern,
                         )?;
@@ -370,9 +331,18 @@ impl AnalysisReport {
                 source,
                 failure,
             } => {
-                writeln!(writer, "effect:")?;
-                writeln!(writer, "  status: incomplete")?;
-                write_identity(writer, &effect.syntax, 1)?;
+                writeln!(
+                    writer,
+                    "\n{} {}",
+                    style.paint(Role::Heading, "effect:"),
+                    style.paint(effect.syntax.display_role(), effect.syntax.display_name())
+                )?;
+                writeln!(
+                    writer,
+                    "  status: {}",
+                    style.status("incomplete", "incomplete")
+                )?;
+                write_identity(writer, &effect.syntax, 1, style)?;
                 if let Some(index) = effect.pattern_index {
                     writeln!(writer, "  patternIndex: {index}")?;
                 }
@@ -399,7 +369,7 @@ impl AnalysisReport {
                 )?;
             }
             ParseResultReport::Unknown { source, failure } => {
-                writeln!(writer, "effect: unknown")?;
+                writeln!(writer, "effect: {}", style.status("unknown", "unknown"))?;
                 if let Some(failure) = failure {
                     write_failure(writer, source, failure, color, "No Effect matched")?;
                 } else {
@@ -408,25 +378,155 @@ impl AnalysisReport {
             }
         }
         if !self.data.diagnostics.is_empty() {
-            writeln!(writer, "diagnostics:")?;
+            writeln!(writer, "\n{}", style.paint(Role::Heading, "diagnostics:"))?;
             for diagnostic in &self.data.diagnostics {
                 writeln!(
                     writer,
                     "  - [{}] {}: {} at {}",
-                    diagnostic.severity, diagnostic.code, diagnostic.message, diagnostic.span,
+                    style.status(&diagnostic.severity, &diagnostic.severity),
+                    diagnostic.code,
+                    diagnostic.message,
+                    diagnostic.span,
                 )?;
             }
         }
         if !self.data.component_failures.is_empty() {
-            writeln!(writer, "componentFailures:")?;
+            writeln!(
+                writer,
+                "{}",
+                style.paint(Role::Heading, "componentFailures:")
+            )?;
             for failure in &self.data.component_failures {
                 writeln!(
                     writer,
                     "  - {}/{}: {}",
-                    failure.component_id, failure.subscription_id, failure.message,
+                    failure.component_id,
+                    failure.subscription_id,
+                    style.paint(Role::Error, &failure.message),
                 )?;
             }
         }
+        if self.data.context.event.is_some() || !self.data.context.sections.is_empty() {
+            writeln!(writer, "\n{}", style.paint(Role::Heading, "context:"))?;
+        }
+        if let Some(event) = &self.data.context.event {
+            writeln!(writer, "  event: {}", event.input)?;
+            writeln!(
+                writer,
+                "    class: {}",
+                style.paint(
+                    if event.element_class.is_some() {
+                        Role::JavaClass
+                    } else {
+                        Role::Name
+                    },
+                    event.element_class.as_deref().unwrap_or("dynamic")
+                )
+            )?;
+            if let Some(addon) = &event.addon {
+                writeln!(writer, "    addon: {} {}", addon.name, addon.version)?;
+            }
+            writeln!(
+                writer,
+                "    definitionId: {}",
+                style.paint(Role::Muted, &event.definition_id)
+            )?;
+            writeln!(
+                writer,
+                "    registrationId: {}",
+                style.paint(Role::Muted, &event.registration_id)
+            )?;
+            writeln!(writer, "    patternIndex: {}", event.pattern_index)?;
+            writeln!(writer, "    pattern: {}", event.pattern)?;
+            writeln!(
+                writer,
+                "    referenceEvents: {}",
+                style.java_classes_debug(&event.reference_events)
+            )?;
+            if event.registered_reference_events != event.reference_events {
+                writeln!(
+                    writer,
+                    "    registeredReferenceEvents: {}",
+                    style.java_classes_debug(&event.registered_reference_events)
+                )?;
+            }
+            if let Some(listening_behavior) = &event.listening_behavior {
+                writeln!(writer, "    listeningBehavior: {listening_behavior}")?;
+            }
+            if let Some(priority) = &event.event_priority {
+                writeln!(writer, "    eventPriority: {priority}")?;
+            }
+            writeln!(writer, "    eventValues: {}", event.event_values.len())?;
+            for diagnostic in &event.diagnostics {
+                writeln!(
+                    writer,
+                    "    diagnostic: [{}] {}: {}",
+                    style.status(&diagnostic.severity, &diagnostic.severity),
+                    diagnostic.code,
+                    diagnostic.message
+                )?;
+            }
+            for failure in &event.component_failures {
+                writeln!(
+                    writer,
+                    "    componentFailure: {}/{}: {}",
+                    failure.component_id,
+                    failure.subscription_id,
+                    style.paint(Role::Error, &failure.message)
+                )?;
+            }
+        }
+        for (depth, section) in self.data.context.sections.iter().enumerate() {
+            writeln!(writer, "  section[{}]: {}", depth + 1, section.input)?;
+            writeln!(writer, "    kind: {}", section.kind)?;
+            if let Some(class) = &section.element_class {
+                writeln!(writer, "    class: {}", style.paint(Role::JavaClass, class))?;
+            }
+            if let Some(addon) = &section.addon {
+                if let Some(version) = &addon.version {
+                    writeln!(writer, "    addon: {} {version}", addon.name)?;
+                } else {
+                    writeln!(writer, "    addon: {}", addon.name)?;
+                }
+            }
+            if let Some(owner) = &section.owner_component_id {
+                writeln!(writer, "    ownerComponentId: {owner}")?;
+            }
+            writeln!(writer, "    scopeId: {}", section.scope_id)?;
+            if let Some(parent) = section.parent_scope_id {
+                writeln!(writer, "    parentScopeId: {parent}")?;
+            }
+            writeln!(
+                writer,
+                "    definitionId: {}",
+                style.paint(Role::Muted, &section.definition_id)
+            )?;
+            writeln!(
+                writer,
+                "    registrationId: {}",
+                style.paint(Role::Muted, &section.registration_id)
+            )?;
+            writeln!(writer, "    patternIndex: {}", section.pattern_index)?;
+            writeln!(writer, "    pattern: {}", section.pattern)?;
+            writeln!(writer, "    captures: {}", section.captures.len())?;
+        }
+        writeln!(writer, "\n{}", style.paint(Role::Heading, "run:"))?;
+        writeln!(
+            writer,
+            "  snapshot: {} (Skript {}, Minecraft {}, {} plugins)",
+            style.paint(Role::Muted, &self.data.snapshot.id),
+            self.data.snapshot.skript_version,
+            self.data.snapshot.minecraft_version,
+            self.data.snapshot.plugin_count,
+        )?;
+        writeln!(
+            writer,
+            "  parseTime: {}",
+            style.paint(
+                Role::Muted,
+                format_parse_duration(self.data.parse_duration_ns)
+            )
+        )?;
         Ok(())
     }
 }
@@ -824,6 +924,14 @@ struct SyntaxIdentityReport {
 }
 
 impl SyntaxIdentityReport {
+    fn display_role(&self) -> Role {
+        if self.element_class.is_some() {
+            Role::JavaClass
+        } else {
+            Role::Name
+        }
+    }
+
     fn display_name(&self) -> &str {
         self.element_class
             .as_deref()
@@ -844,6 +952,18 @@ struct PatternReport {
     index: usize,
     source: String,
     elements: Vec<PatternElementReport>,
+    #[serde(skip)]
+    colors: Vec<SourceColorSpan>,
+}
+
+impl PatternReport {
+    fn render_source(&self, color: bool) -> String {
+        if color {
+            render_source_colors(&self.source, &self.colors)
+        } else {
+            self.source.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1171,7 +1291,7 @@ enum FailureReasonReport {
 }
 
 impl FailureReasonReport {
-    fn human(&self) -> String {
+    fn human(&self, style: HumanStyle) -> String {
         match self {
             Self::DefaultExpression {
                 capture_index,
@@ -1191,12 +1311,15 @@ impl FailureReasonReport {
                 format!("expected expression of type {}", expected.join(" or "))
             }
             Self::EventRestricted { supported, current } if current.is_empty() => {
-                format!("requires event context: {}", supported.join(" or "))
+                format!(
+                    "requires event context: {}",
+                    style.java_classes(supported, " or ")
+                )
             }
             Self::EventRestricted { supported, current } => format!(
                 "only available in {}; current event is {}",
-                supported.join(" or "),
-                current.join(" or ")
+                style.java_classes(supported, " or "),
+                style.java_classes(current, " or ")
             ),
             Self::TypeParserUnresolved {
                 reason,
@@ -1697,8 +1820,13 @@ fn pattern_report(
     catalog: &Catalog,
     include_elements: bool,
 ) -> PatternReport {
+    let parsed = parse(source, catalog.plural_rules()).ok();
+    let colors = parsed
+        .as_ref()
+        .map(|parsed| pattern_highlight::collect(source, &parsed.elements))
+        .unwrap_or_default();
     let elements = if include_elements {
-        parse(source, catalog.plural_rules())
+        parsed
             .map(|parsed| pattern_elements(&parsed.elements, catalog, 0))
             .unwrap_or_default()
     } else {
@@ -1708,6 +1836,7 @@ fn pattern_report(
         index,
         source: source.to_owned(),
         elements,
+        colors,
     }
 }
 
@@ -2433,7 +2562,7 @@ fn write_failure_named(
         .or((!failure.reasons.is_empty()).then_some(0));
     let primary = primary_index
         .and_then(|index| failure.reasons.get(index))
-        .map(FailureReasonReport::human)
+        .map(|reason| reason.human(HumanStyle(color)))
         .unwrap_or_else(|| "Effect parsing stopped here".to_owned());
     let span = failure_display_span(failure.span, failure.mapped_span.as_ref(), original);
     let start = span.start.min(source.len());
@@ -2452,7 +2581,7 @@ fn write_failure_named(
             .iter()
             .find(|reason| matches!(reason, FailureReasonReport::TypeExpression { .. }))
             .or_else(|| related.reasons.first())
-            .map(FailureReasonReport::human)
+            .map(|reason| reason.human(HumanStyle(color)))
             .unwrap_or_else(|| "related parse failure".to_owned());
         labels.push(LabeledSpan::new(
             Some(label),
@@ -2500,7 +2629,7 @@ fn write_failure_named(
                     FailureReasonReport::Literal { .. } | FailureReasonReport::Regex { .. }
                 )
         })
-        .map(FailureReasonReport::human)
+        .map(|reason| reason.human(HumanStyle(color)))
         .collect::<Vec<_>>();
     let mut patterns = Vec::new();
     for context in &failure.contexts {
@@ -2514,7 +2643,10 @@ fn write_failure_named(
         if let Some(pattern) = &interpretation.pattern {
             help.push(format!(
                 "also considered {} pattern: {pattern}",
-                interpretation.syntax.display_name()
+                HumanStyle(color).paint(
+                    interpretation.syntax.display_role(),
+                    interpretation.syntax.display_name()
+                )
             ));
         }
     }
@@ -2548,22 +2680,35 @@ fn write_identity(
     writer: &mut dyn Write,
     identity: &SyntaxIdentityReport,
     indent: usize,
+    style: HumanStyle,
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     if let Some(syntax_id) = &identity.syntax_id {
-        writeln!(writer, "{prefix}syntaxId: {syntax_id}")?;
+        writeln!(
+            writer,
+            "{prefix}syntaxId: {}",
+            style.paint(Role::Muted, syntax_id)
+        )?;
     }
     if let Some(element_class) = &identity.element_class {
-        writeln!(writer, "{prefix}class: {element_class}")?;
+        writeln!(
+            writer,
+            "{prefix}class: {}",
+            style.paint(Role::JavaClass, element_class)
+        )?;
     }
     if let Some(addon) = &identity.addon {
         writeln!(writer, "{prefix}addon: {} {}", addon.name, addon.version)?;
     }
-    writeln!(writer, "{prefix}definitionId: {}", identity.definition_id)?;
+    writeln!(
+        writer,
+        "{prefix}definitionId: {}",
+        style.paint(Role::Muted, &identity.definition_id)
+    )?;
     writeln!(
         writer,
         "{prefix}registrationId: {}",
-        identity.registration_id
+        style.paint(Role::Muted, &identity.registration_id)
     )
 }
 
@@ -2571,6 +2716,7 @@ fn write_pattern_elements(
     writer: &mut dyn Write,
     elements: &[PatternElementReport],
     indent: usize,
+    style: HumanStyle,
 ) -> io::Result<()> {
     if elements.is_empty() {
         writeln!(writer, "{}[]", "  ".repeat(indent))?;
@@ -2586,16 +2732,16 @@ fn write_pattern_elements(
                 writeln!(writer, "{prefix}- choice at {span}")?;
                 for (index, branch) in branches.iter().enumerate() {
                     writeln!(writer, "{prefix}  branch[{index}]:")?;
-                    write_pattern_elements(writer, branch, indent + 2)?;
+                    write_pattern_elements(writer, branch, indent + 2, style)?;
                 }
             }
             PatternElementReport::Group { span, elements } => {
                 writeln!(writer, "{prefix}- group at {span}")?;
-                write_pattern_elements(writer, elements, indent + 1)?;
+                write_pattern_elements(writer, elements, indent + 1, style)?;
             }
             PatternElementReport::Option { span, elements } => {
                 writeln!(writer, "{prefix}- option at {span}")?;
-                write_pattern_elements(writer, elements, indent + 1)?;
+                write_pattern_elements(writer, elements, indent + 1, style)?;
             }
             PatternElementReport::Regex { span, pattern } => {
                 writeln!(writer, "{prefix}- regex <{pattern}> at {span}")?;
@@ -2604,7 +2750,7 @@ fn write_pattern_elements(
                 writeln!(
                     writer,
                     "{prefix}- type {} at {span}",
-                    format_expected_types(expression)
+                    format_expected_types(expression, style)
                 )?;
             }
             PatternElementReport::ParseTag { span, value } => {
@@ -2628,12 +2774,18 @@ fn write_resolved_elements(
     writer: &mut dyn Write,
     elements: &[ResolvedElementReport],
     indent: usize,
+    style: HumanStyle,
+    highlight: SourceHighlight<'_>,
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     for element in elements {
         match element {
             ResolvedElementReport::Regex { source, span, .. } => {
-                writeln!(writer, "{prefix}- regex {source:?} at {span}")?;
+                writeln!(
+                    writer,
+                    "{prefix}- regex {} at {span}",
+                    highlight.quoted(source, *span)
+                )?;
             }
             ResolvedElementReport::Expression {
                 source,
@@ -2647,18 +2799,19 @@ fn write_resolved_elements(
             } => {
                 writeln!(
                     writer,
-                    "{prefix}- expression {source:?} at {span} (capture #{capture_index}, {state})"
+                    "{prefix}- expression {} at {span} (capture #{capture_index}, {state})",
+                    highlight.quoted(source, *span)
                 )?;
                 writeln!(
                     writer,
                     "{prefix}  expectedTypes: {}",
-                    format_expected_types(expected)
+                    format_expected_types(expected, style)
                 )?;
                 if let Some(index) = selected_alternative {
                     writeln!(writer, "{prefix}  selectedAlternative: {index}")?;
                 }
                 if let Some(resolved) = resolved {
-                    write_expression(writer, resolved, indent + 1)?;
+                    write_expression(writer, resolved, indent + 1, style, highlight)?;
                 } else {
                     writeln!(writer, "{prefix}  resolved: null")?;
                 }
@@ -2672,6 +2825,8 @@ fn write_expression(
     writer: &mut dyn Write,
     expression: &ExpressionReport,
     indent: usize,
+    style: HumanStyle,
+    highlight: SourceHighlight<'_>,
 ) -> io::Result<()> {
     let prefix = "  ".repeat(indent);
     match &expression.expression {
@@ -2681,7 +2836,11 @@ fn write_expression(
         } => {
             writeln!(
                 writer,
-                "{prefix}resolved: implicit / default ({component_id}/{provider_id})"
+                "{prefix}resolved: {}",
+                style.paint(
+                    Role::Name,
+                    format_args!("implicit / default ({component_id}/{provider_id})")
+                )
             )?;
             if let Some(info) = &expression.default_expression {
                 writeln!(
@@ -2692,43 +2851,65 @@ fn write_expression(
             }
         }
         ExpressionIdentityReport::Grouped => {
-            writeln!(writer, "{prefix}resolved: groupedExpression")?;
+            writeln!(
+                writer,
+                "{prefix}resolved: {}",
+                style.paint(Role::Name, format_args!("groupedExpression"))
+            )?;
         }
         ExpressionIdentityReport::List { conjunction } => {
             writeln!(
                 writer,
-                "{prefix}resolved: expressionList ({})",
-                match conjunction {
-                    ExpressionListConjunctionReport::And => "and",
-                    ExpressionListConjunctionReport::Or => "or",
-                }
+                "{prefix}resolved: {}",
+                style.paint(
+                    Role::Name,
+                    format_args!(
+                        "expressionList ({})",
+                        match conjunction {
+                            ExpressionListConjunctionReport::And => "and",
+                            ExpressionListConjunctionReport::Or => "or",
+                        }
+                    )
+                )
             )?;
         }
-        ExpressionIdentityReport::Registered { syntax } => {
-            writeln!(writer, "{prefix}resolved: registeredExpression")?;
-            write_identity(writer, syntax, indent + 1)?;
+        ExpressionIdentityReport::Registered { .. } => {
+            writeln!(
+                writer,
+                "{prefix}resolved: {}",
+                style.paint(Role::Name, format_args!("registeredExpression"))
+            )?;
         }
         ExpressionIdentityReport::Variable { parser_id } => {
-            writeln!(writer, "{prefix}resolved: variable ({parser_id})")?;
+            writeln!(
+                writer,
+                "{prefix}resolved: {}",
+                style.paint(Role::Name, format_args!("variable ({parser_id})"))
+            )?;
         }
         ExpressionIdentityReport::Literal { parser_id } => {
-            writeln!(writer, "{prefix}resolved: literal ({parser_id})")?;
+            writeln!(
+                writer,
+                "{prefix}resolved: {}",
+                style.paint(Role::Name, format_args!("literal ({parser_id})"))
+            )?;
         }
         ExpressionIdentityReport::Function {
             parser_id,
             structured,
             name,
-            syntax,
+            syntax: _,
         } => {
             writeln!(
                 writer,
-                "{prefix}resolved: function ({parser_id}, structured={structured})"
+                "{prefix}resolved: {}",
+                style.paint(
+                    Role::Name,
+                    format_args!("function ({parser_id}, structured={structured})")
+                )
             )?;
             if let Some(name) = name {
-                writeln!(writer, "{prefix}name: {name}")?;
-            }
-            if let Some(syntax) = syntax {
-                write_identity(writer, syntax, indent + 1)?;
+                writeln!(writer, "{prefix}name: {}", style.paint(Role::Name, name))?;
             }
         }
         ExpressionIdentityReport::Arithmetic {
@@ -2736,33 +2917,142 @@ fn write_expression(
             operation_registration_id,
             addon,
         } => {
-            writeln!(writer, "{prefix}resolved: arithmetic ({operator})")?;
             writeln!(
                 writer,
-                "{prefix}operationRegistrationId: {operation_registration_id}"
+                "{prefix}resolved: {}",
+                style.paint(Role::Name, format_args!("arithmetic ({operator})"))
+            )?;
+            writeln!(
+                writer,
+                "{prefix}operationRegistrationId: {}",
+                style.paint(Role::Muted, operation_registration_id)
             )?;
             if let Some(addon) = addon {
                 writeln!(writer, "{prefix}addon: {} {}", addon.name, addon.version)?;
             }
         }
         ExpressionIdentityReport::Custom { parser_id } => {
-            writeln!(writer, "{prefix}resolved: custom ({parser_id})")?;
+            writeln!(
+                writer,
+                "{prefix}resolved: {}",
+                style.paint(Role::Name, format_args!("custom ({parser_id})"))
+            )?;
         }
     }
-    writeln!(writer, "{prefix}source: {:?}", expression.source)?;
+    writeln!(
+        writer,
+        "{prefix}source: {}",
+        highlight.quoted(&expression.source, expression.span)
+    )?;
     if let Some(return_type) = &expression.return_type {
-        writeln!(writer, "{prefix}returnType: {return_type}")?;
+        writeln!(
+            writer,
+            "{prefix}returnType: {}",
+            style.paint(Role::JavaClass, return_type)
+        )?;
     }
     if let Some(multiplicity) = expression.multiplicity {
-        writeln!(writer, "{prefix}multiplicity: {multiplicity:?}")?;
+        writeln!(
+            writer,
+            "{prefix}multiplicity: {}",
+            style.paint(Role::Name, format_args!("{multiplicity:?}"))
+        )?;
+    }
+    if let Some(pattern) = &expression.pattern {
+        writeln!(
+            writer,
+            "{prefix}pattern[{}]: {}",
+            pattern.index,
+            pattern.render_source(style.0)
+        )?;
+    }
+    if expression.truncated {
+        writeln!(writer, "{prefix}elements: truncated")?;
+    } else if !expression.arguments.is_empty() {
+        writeln!(
+            writer,
+            "{prefix}{}",
+            style.paint(Role::Heading, "arguments:")
+        )?;
+        for argument in &expression.arguments {
+            writeln!(
+                writer,
+                "{prefix}  {}:",
+                style.paint(Role::Name, &argument.parameter_name)
+            )?;
+            if let Some(supplied_name) = &argument.supplied_name {
+                writeln!(
+                    writer,
+                    "{prefix}    suppliedName: {}",
+                    style.paint(Role::Name, supplied_name)
+                )?;
+            }
+            if argument.omitted {
+                writeln!(
+                    writer,
+                    "{prefix}    omitted: {}",
+                    style.paint(Role::Muted, "true")
+                )?;
+            } else {
+                for (index, value) in argument.values.iter().enumerate() {
+                    writeln!(writer, "{prefix}    value[{index}]:")?;
+                    write_expression(writer, value, indent + 3, style, highlight)?;
+                }
+            }
+        }
+    } else if !expression.operands.is_empty() {
+        writeln!(
+            writer,
+            "{prefix}{}",
+            style.paint(Role::Heading, "operands:")
+        )?;
+        for (index, operand) in expression.operands.iter().enumerate() {
+            let side = ["left", "right"].get(index).copied().unwrap_or("operand");
+            writeln!(writer, "{prefix}  {side}:")?;
+            write_expression(writer, operand, indent + 2, style, highlight)?;
+        }
+    } else if !expression.items.is_empty() {
+        writeln!(writer, "{prefix}{}", style.paint(Role::Heading, "items:"))?;
+        for (index, item) in expression.items.iter().enumerate() {
+            writeln!(writer, "{prefix}  item[{index}]:")?;
+            write_expression(writer, item, indent + 2, style, highlight)?;
+        }
+    } else if !expression.embedded_expressions.is_empty() {
+        writeln!(
+            writer,
+            "{prefix}{}",
+            style.paint(Role::Heading, "embeddedExpressions:")
+        )?;
+        for (index, embedded) in expression.embedded_expressions.iter().enumerate() {
+            writeln!(writer, "{prefix}  expression[{index}]:")?;
+            write_expression(writer, embedded, indent + 2, style, highlight)?;
+        }
+    } else if let Some(inner) = &expression.inner {
+        writeln!(writer, "{prefix}{}", style.paint(Role::Heading, "inner:"))?;
+        write_expression(writer, inner, indent + 1, style, highlight)?;
+    } else if !expression.elements.is_empty() {
+        writeln!(
+            writer,
+            "{prefix}{}",
+            style.paint(Role::Heading, "elements:")
+        )?;
+        write_resolved_elements(writer, &expression.elements, indent + 1, style, highlight)?;
     }
     if !expression.public_data.is_empty() {
-        writeln!(writer, "{prefix}publicData:")?;
+        writeln!(
+            writer,
+            "{prefix}{}",
+            style.paint(Role::Heading, "publicData:")
+        )?;
         for data in &expression.public_data {
             writeln!(writer, "{prefix}  - schemaId: {}", data.schema_id)?;
             writeln!(writer, "{prefix}    schemaVersion: {}", data.schema_version)?;
             if let Some(json) = &data.json {
-                writeln!(writer, "{prefix}    json: {}", json.get())?;
+                writeln!(
+                    writer,
+                    "{prefix}    json: {}",
+                    style.paint(Role::Muted, json.get())
+                )?;
             }
             if let Some(raw_json) = &data.raw_json {
                 writeln!(writer, "{prefix}    rawJson: {raw_json:?}")?;
@@ -2773,66 +3063,36 @@ fn write_expression(
         }
     }
     if !expression.metadata.is_empty() {
-        writeln!(writer, "{prefix}metadata:")?;
-        for (key, value) in &expression.metadata {
-            writeln!(writer, "{prefix}  {key}: {value}")?;
-        }
-    }
-    if let Some(pattern) = &expression.pattern {
         writeln!(
             writer,
-            "{prefix}pattern[{}]: {}",
-            pattern.index, pattern.source
+            "{prefix}{}",
+            style.paint(Role::Heading, "metadata:")
         )?;
+        for (key, value) in &expression.metadata {
+            writeln!(
+                writer,
+                "{prefix}  {key}: {}",
+                style.paint(Role::Muted, value)
+            )?;
+        }
     }
-    if expression.truncated {
-        writeln!(writer, "{prefix}elements: truncated")?;
-    } else if !expression.arguments.is_empty() {
-        writeln!(writer, "{prefix}arguments:")?;
-        for argument in &expression.arguments {
-            writeln!(writer, "{prefix}  {}:", argument.parameter_name)?;
-            if let Some(supplied_name) = &argument.supplied_name {
-                writeln!(writer, "{prefix}    suppliedName: {supplied_name}")?;
-            }
-            if argument.omitted {
-                writeln!(writer, "{prefix}    omitted: true")?;
-            } else {
-                for (index, value) in argument.values.iter().enumerate() {
-                    writeln!(writer, "{prefix}    value[{index}]:")?;
-                    write_expression(writer, value, indent + 3)?;
-                }
-            }
-        }
-    } else if !expression.operands.is_empty() {
-        writeln!(writer, "{prefix}operands:")?;
-        for (index, operand) in expression.operands.iter().enumerate() {
-            let side = ["left", "right"].get(index).copied().unwrap_or("operand");
-            writeln!(writer, "{prefix}  {side}:")?;
-            write_expression(writer, operand, indent + 2)?;
-        }
-    } else if !expression.items.is_empty() {
-        writeln!(writer, "{prefix}items:")?;
-        for (index, item) in expression.items.iter().enumerate() {
-            writeln!(writer, "{prefix}  item[{index}]:")?;
-            write_expression(writer, item, indent + 2)?;
-        }
-    } else if !expression.embedded_expressions.is_empty() {
-        writeln!(writer, "{prefix}embeddedExpressions:")?;
-        for (index, embedded) in expression.embedded_expressions.iter().enumerate() {
-            writeln!(writer, "{prefix}  expression[{index}]:")?;
-            write_expression(writer, embedded, indent + 2)?;
-        }
-    } else if let Some(inner) = &expression.inner {
-        writeln!(writer, "{prefix}inner:")?;
-        write_expression(writer, inner, indent + 1)?;
-    } else if !expression.elements.is_empty() {
-        writeln!(writer, "{prefix}elements:")?;
-        write_resolved_elements(writer, &expression.elements, indent + 1)?;
+    let identity = match &expression.expression {
+        ExpressionIdentityReport::Registered { syntax } => Some(syntax),
+        ExpressionIdentityReport::Function { syntax, .. } => syntax.as_ref(),
+        _ => None,
+    };
+    if let Some(identity) = identity {
+        writeln!(
+            writer,
+            "{prefix}{}",
+            style.paint(Role::Heading, "identity:")
+        )?;
+        write_identity(writer, identity, indent + 1, style)?;
     }
     Ok(())
 }
 
-fn format_expected_types(expression: &TypeExpressionReport) -> String {
+fn format_expected_types(expression: &TypeExpressionReport, style: HumanStyle) -> String {
     if expression.alternatives.is_empty() {
         return "[]".to_owned();
     }
@@ -2843,7 +3103,14 @@ fn format_expected_types(expression: &TypeExpressionReport) -> String {
             let plurality = if expected.plural { "[]" } else { "" };
             expected.java_class.as_ref().map_or_else(
                 || format!("{}{}", expected.code_name, plurality),
-                |class| format!("{}{} ({class})", expected.code_name, plurality),
+                |class| {
+                    format!(
+                        "{}{} ({})",
+                        expected.code_name,
+                        plurality,
+                        style.paint(Role::JavaClass, class)
+                    )
+                },
             )
         })
         .collect::<Vec<_>>()
@@ -2874,6 +3141,69 @@ fn format_parse_duration(nanoseconds: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn java_class_fields_stay_distinct_from_type_codes_and_identity_fallbacks() {
+        let expected = TypeExpressionReport {
+            alternatives: vec![
+                ExpectedTypeReport {
+                    code_name: "object".into(),
+                    plural: true,
+                    java_class: Some("java.lang.Object".into()),
+                    addon: None,
+                },
+                ExpectedTypeReport {
+                    code_name: "example.looks.like.Class".into(),
+                    plural: false,
+                    java_class: None,
+                    addon: None,
+                },
+            ],
+            nullable: false,
+            allow_literals: true,
+            allow_expressions: true,
+            time: 0,
+        };
+        assert_eq!(
+            format_expected_types(&expected, HumanStyle(false)),
+            "object[] (java.lang.Object) | example.looks.like.Class"
+        );
+        assert_eq!(
+            format_expected_types(&expected, HumanStyle(true)),
+            "object[] (\x1b[38;2;255;134;47mjava.lang.Object\x1b[0m) | example.looks.like.Class"
+        );
+        let mut identity = SyntaxIdentityReport {
+            syntax_id: Some("example.looks.like.Class".into()),
+            definition_id: String::new(),
+            registration_id: "fallback.id".into(),
+            element_class: None,
+            addon: None,
+        };
+        let display = |identity: &SyntaxIdentityReport| {
+            HumanStyle(true)
+                .paint(identity.display_role(), identity.display_name())
+                .to_string()
+        };
+        assert_eq!(display(&identity), "example.looks.like.Class");
+        identity.element_class = Some("example.ActualClass".into());
+        assert_eq!(
+            display(&identity),
+            "\x1b[38;2;255;134;47mexample.ActualClass\x1b[0m"
+        );
+        let restricted = FailureReasonReport::EventRestricted {
+            supported: vec!["org.bukkit.event.player.PlayerJoinEvent".into()],
+            current: Vec::new(),
+        };
+        assert_eq!(
+            restricted.human(HumanStyle(true)),
+            "requires event context: \x1b[38;2;255;134;47morg.bukkit.event.player.PlayerJoinEvent\x1b[0m"
+        );
+        let classes = vec!["example.With$Nested".to_owned(), "escape\"\\\n".to_owned()];
+        assert_eq!(
+            HumanStyle(false).java_classes_debug(&classes),
+            format!("{classes:?}")
+        );
+    }
 
     #[test]
     fn public_data_json_keeps_large_numbers_raw() {
@@ -2910,7 +3240,7 @@ mod tests {
             FailureReasonReport::TypeExpression {
                 expected: vec!["string".to_owned(), "number".to_owned()],
             }
-            .human(),
+            .human(HumanStyle(false)),
             "expected expression of type string or number"
         );
     }
@@ -2923,7 +3253,7 @@ mod tests {
                 supported: supported.clone(),
                 current: Vec::new(),
             }
-            .human(),
+            .human(HumanStyle(false)),
             "requires event context: org.bukkit.event.player.PlayerJoinEvent"
         );
         assert_eq!(
@@ -2931,7 +3261,7 @@ mod tests {
                 supported,
                 current: vec!["org.bukkit.event.player.PlayerQuitEvent".to_owned()],
             }
-            .human(),
+            .human(HumanStyle(false)),
             "only available in org.bukkit.event.player.PlayerJoinEvent; current event is org.bukkit.event.player.PlayerQuitEvent"
         );
     }
@@ -3084,6 +3414,7 @@ mod tests {
                 index: 0,
                 source: String::new(),
                 elements: Vec::new(),
+                colors: Vec::new(),
             },
             span: SpanReport { start: 0, end: 6 },
             elements: Vec::new(),

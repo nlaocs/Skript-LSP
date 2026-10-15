@@ -588,6 +588,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "function-addon"
+version = "0.1.0"
+dependencies = [
+ "parser-wasm",
+ "wit-bindgen 0.59.0",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

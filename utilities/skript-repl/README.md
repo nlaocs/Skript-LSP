@@ -157,6 +157,24 @@ manual selections remain active for the next one-line Effect.
 
 ## Reports
 
+Human reports put the match status first, followed by source and resolved structure.
+Arguments and return types precede registration details; snapshot and timing appear
+in the final `run` block. Headings use neutral bold text, names and multiplicity
+use the default foreground, and IDs are dim. Values from Java-class fields share
+the existing orange type color: implementation classes, return types, expected-type
+classes, and reference-event classes. Type code names, IDs, labels, and arbitrary
+metadata strings remain neutral. Status colors remain meaningful. Quoted
+Expression/element source snippets reuse the input syntax colors. Text labels and indentation
+carry the same meaning without color. These roles do not change source syntax colors
+or the JSON schema.
+
+For matched Effect/Expression/document patterns, an experimental palette keeps literal text at the default
+foreground, type placeholders orange, choice/group delimiters cyan, and optional
+brackets gray. It uses the registration-pattern parser's original spans, separately
+from Skript source highlighting; malformed patterns remain unchanged and plain.
+This palette is a comparison draft, not a finalized color scheme.
+Incomplete candidates and manually selected context patterns keep their plain display.
+
 Human document output shows the original numbered source followed by a
 `Structure -> Event/Section -> Effect/Condition -> Expression/Type` tree. Each
 resolved node can include its registration identity, implementation class,
@@ -165,8 +183,15 @@ addon-defined public data. Diagnostics and recoveries refer to spans in the
 whole submitted source.
 On color-capable terminals, the numbered source uses the same syntax-category
 colors as one-line Effect output; redirected and JSON output remain plain.
+Use `--no-color` or set `NO_COLOR` to disable terminal colors explicitly.
 In interpolated strings, the quotes and text remain white, `%` delimiters are
 light gray, and each embedded Expression keeps its normal semantic color.
+
+Standard and addon/WASM Function calls share the same report structure: Function
+name, definition/registration IDs, catalog addon, declaration-ordered arguments,
+recursive argument Expressions, omitted/supplied names, return type, and
+multiplicity. A custom leaf parser supplies the typed Function call data through
+WIT 0.39.0 / ABI 21.0; external Components must be rebuilt for this contract.
 
 JSON is the machine-readable contract:
 

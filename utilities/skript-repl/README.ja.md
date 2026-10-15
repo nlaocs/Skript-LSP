@@ -141,6 +141,22 @@ Skript source自体へ`:submit`のような行を入れる場合は、複数行b
 
 ## Report
 
+通常表示は結果を先頭に置き、原文・解決済み構造、登録情報の詳細、最後に`run`の
+snapshot・計測情報を表示します。引数と戻り値の型を登録IDより先に表示します。
+見出しは端末の既定色の太字、名前やmultiplicityは既定色、IDなどは淡く表示します。
+Javaクラスの値は、実装class・returnType・expectedTypes内のclass・参照Event classで
+共通の従来のorangeを使います。型コード名・ID・説明label・一般のmetadata文字列は中立表示です。
+成功・警告・エラーは意味色を保ちます。
+Expression/elementの元コード抜粋にも入力と同じ構文色を適用します。色なしでもラベル・字下げ・区切りで構造を読み取れます。
+入力の構文色とJSON schemaは変更しません。
+
+matchedのEffect/Expression/documentの登録patternを対象とした試作配色では、
+固定文字を既定色、型placeholderをorange、選択肢・groupの
+区切りをcyan、optionalの括弧をgrayで表示します。Skript sourceとは別文法として既存の
+登録pattern parserの原文spanを使い、壊れたpatternは原文のまま無色で表示します。
+この配色は比較案で、最終決定したものではありません。
+incomplete候補と手動選択contextのpatternは、従来どおり無色で表示します。
+
 通常のdocument出力は、行番号付き原文と
 `Structure -> Event/Section -> Effect/Condition -> Expression/Type` treeを表示します。
 解決済みnodeにはregistration identity、実装class、addon、pattern、return type、
@@ -148,8 +164,14 @@ multiplicity、default provider、metadata、addon定義public dataを保持で�
 diagnosticとrecoveryのspanは、確定したsource全体を参照します。
 色表示に対応したterminalでは、行番号付きsourceも一行Effectと同じ構文カテゴリ色で
 表示します。redirectされた出力とJSONには色を含めません。
+`--no-color`または環境変数`NO_COLOR`でterminalの色表示を明示的に無効化できます。
 補間文字列では引用符と本文を白、区切りの`%`を薄いグレーで表示し、内側のExpressionは
 通常の意味色を維持します。
+
+標準Functionとaddon/WASM Functionは、Function名、definition/registration ID、
+Catalogの登録addon、宣言順の引数と再帰Expression、省略・指定名、return type、
+multiplicityを同じreport構造で表示します。独自leaf parserはWIT 0.39.0 / ABI 21.0の
+型付きFunction情報を返します。この契約に合わせて外部Componentの再ビルドが必要です。
 
 JSONが機械読み取り用の契約です。
 
