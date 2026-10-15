@@ -143,8 +143,10 @@ Skript source自体へ`:submit`のような行を入れる場合は、複数行b
 
 通常表示は結果を先頭に置き、原文・解決済み構造、登録情報の詳細、最後に`run`の
 snapshot・計測情報を表示します。引数と戻り値の型を登録IDより先に表示します。
-配色の比較案として、見出しと型は端末の既定色の太字、名前やmultiplicityは
-既定色、IDなどは淡く表示します。成功・警告・エラーは意味色を保ちます。
+見出しは端末の既定色の太字、名前やmultiplicityは既定色、IDなどは淡く表示します。
+Javaクラスの値は、実装class・returnType・expectedTypes内のclass・参照Event classで
+共通の従来のorangeを使います。型コード名・ID・説明label・一般のmetadata文字列は中立表示です。
+成功・警告・エラーは意味色を保ちます。
 Expression/elementの元コード抜粋にも入力と同じ構文色を適用します。色なしでもラベル・字下げ・区切りで構造を読み取れます。
 入力の構文色とJSON schemaは変更しません。
 

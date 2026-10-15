@@ -159,8 +159,11 @@ manual selections remain active for the next one-line Effect.
 
 Human reports put the match status first, followed by source and resolved structure.
 Arguments and return types precede registration details; snapshot and timing appear
-in the final `run` block. The current comparison draft uses neutral bold headings and types, default-color
-names and multiplicity, and dim IDs. Status colors remain meaningful. Quoted
+in the final `run` block. Headings use neutral bold text, names and multiplicity
+use the default foreground, and IDs are dim. Values from Java-class fields share
+the existing orange type color: implementation classes, return types, expected-type
+classes, and reference-event classes. Type code names, IDs, labels, and arbitrary
+metadata strings remain neutral. Status colors remain meaningful. Quoted
 Expression/element source snippets reuse the input syntax colors. Text labels and indentation
 carry the same meaning without color. These roles do not change source syntax colors
 or the JSON schema.

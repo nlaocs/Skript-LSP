@@ -20,7 +20,7 @@ use syntaxes::{Catalog, CommonSyntax, Multiplicity, PossibleReturnTypesState, Sy
 
 mod document;
 mod pattern_highlight;
-mod presentation;
+pub(crate) mod presentation;
 mod source_snippet;
 
 use source_snippet::SourceHighlight;
@@ -251,7 +251,7 @@ impl AnalysisReport {
                     writer,
                     "\n{} {}",
                     style.paint(Role::Heading, "effect:"),
-                    style.paint(Role::Name, effect.syntax.display_name())
+                    style.paint(effect.syntax.display_role(), effect.syntax.display_name())
                 )?;
                 writeln!(writer, "  {}", style.paint(Role::Heading, "elements:"))?;
                 if effect.elements.is_empty() {
@@ -316,7 +316,10 @@ impl AnalysisReport {
                         writeln!(
                             writer,
                             "  - {} pattern[{}]: {}",
-                            alternative.syntax.display_name(),
+                            style.paint(
+                                alternative.syntax.display_role(),
+                                alternative.syntax.display_name()
+                            ),
                             alternative.pattern_index,
                             alternative.pattern,
                         )?;
@@ -332,7 +335,7 @@ impl AnalysisReport {
                     writer,
                     "\n{} {}",
                     style.paint(Role::Heading, "effect:"),
-                    style.paint(Role::Name, effect.syntax.display_name())
+                    style.paint(effect.syntax.display_role(), effect.syntax.display_name())
                 )?;
                 writeln!(
                     writer,
@@ -412,7 +415,11 @@ impl AnalysisReport {
                 writer,
                 "    class: {}",
                 style.paint(
-                    Role::Type,
+                    if event.element_class.is_some() {
+                        Role::JavaClass
+                    } else {
+                        Role::Name
+                    },
                     event.element_class.as_deref().unwrap_or("dynamic")
                 )
             )?;
@@ -431,12 +438,16 @@ impl AnalysisReport {
             )?;
             writeln!(writer, "    patternIndex: {}", event.pattern_index)?;
             writeln!(writer, "    pattern: {}", event.pattern)?;
-            writeln!(writer, "    referenceEvents: {:?}", event.reference_events)?;
+            writeln!(
+                writer,
+                "    referenceEvents: {}",
+                style.java_classes_debug(&event.reference_events)
+            )?;
             if event.registered_reference_events != event.reference_events {
                 writeln!(
                     writer,
-                    "    registeredReferenceEvents: {:?}",
-                    event.registered_reference_events
+                    "    registeredReferenceEvents: {}",
+                    style.java_classes_debug(&event.registered_reference_events)
                 )?;
             }
             if let Some(listening_behavior) = &event.listening_behavior {
@@ -469,7 +480,7 @@ impl AnalysisReport {
             writeln!(writer, "  section[{}]: {}", depth + 1, section.input)?;
             writeln!(writer, "    kind: {}", section.kind)?;
             if let Some(class) = &section.element_class {
-                writeln!(writer, "    class: {}", style.paint(Role::Type, class))?;
+                writeln!(writer, "    class: {}", style.paint(Role::JavaClass, class))?;
             }
             if let Some(addon) = &section.addon {
                 if let Some(version) = &addon.version {
@@ -913,6 +924,14 @@ struct SyntaxIdentityReport {
 }
 
 impl SyntaxIdentityReport {
+    fn display_role(&self) -> Role {
+        if self.element_class.is_some() {
+            Role::JavaClass
+        } else {
+            Role::Name
+        }
+    }
+
     fn display_name(&self) -> &str {
         self.element_class
             .as_deref()
@@ -1272,7 +1291,7 @@ enum FailureReasonReport {
 }
 
 impl FailureReasonReport {
-    fn human(&self) -> String {
+    fn human(&self, style: HumanStyle) -> String {
         match self {
             Self::DefaultExpression {
                 capture_index,
@@ -1292,12 +1311,15 @@ impl FailureReasonReport {
                 format!("expected expression of type {}", expected.join(" or "))
             }
             Self::EventRestricted { supported, current } if current.is_empty() => {
-                format!("requires event context: {}", supported.join(" or "))
+                format!(
+                    "requires event context: {}",
+                    style.java_classes(supported, " or ")
+                )
             }
             Self::EventRestricted { supported, current } => format!(
                 "only available in {}; current event is {}",
-                supported.join(" or "),
-                current.join(" or ")
+                style.java_classes(supported, " or "),
+                style.java_classes(current, " or ")
             ),
             Self::TypeParserUnresolved {
                 reason,
@@ -2540,7 +2562,7 @@ fn write_failure_named(
         .or((!failure.reasons.is_empty()).then_some(0));
     let primary = primary_index
         .and_then(|index| failure.reasons.get(index))
-        .map(FailureReasonReport::human)
+        .map(|reason| reason.human(HumanStyle(color)))
         .unwrap_or_else(|| "Effect parsing stopped here".to_owned());
     let span = failure_display_span(failure.span, failure.mapped_span.as_ref(), original);
     let start = span.start.min(source.len());
@@ -2559,7 +2581,7 @@ fn write_failure_named(
             .iter()
             .find(|reason| matches!(reason, FailureReasonReport::TypeExpression { .. }))
             .or_else(|| related.reasons.first())
-            .map(FailureReasonReport::human)
+            .map(|reason| reason.human(HumanStyle(color)))
             .unwrap_or_else(|| "related parse failure".to_owned());
         labels.push(LabeledSpan::new(
             Some(label),
@@ -2607,7 +2629,7 @@ fn write_failure_named(
                     FailureReasonReport::Literal { .. } | FailureReasonReport::Regex { .. }
                 )
         })
-        .map(FailureReasonReport::human)
+        .map(|reason| reason.human(HumanStyle(color)))
         .collect::<Vec<_>>();
     let mut patterns = Vec::new();
     for context in &failure.contexts {
@@ -2621,7 +2643,10 @@ fn write_failure_named(
         if let Some(pattern) = &interpretation.pattern {
             help.push(format!(
                 "also considered {} pattern: {pattern}",
-                interpretation.syntax.display_name()
+                HumanStyle(color).paint(
+                    interpretation.syntax.display_role(),
+                    interpretation.syntax.display_name()
+                )
             ));
         }
     }
@@ -2669,7 +2694,7 @@ fn write_identity(
         writeln!(
             writer,
             "{prefix}class: {}",
-            style.paint(Role::Type, element_class)
+            style.paint(Role::JavaClass, element_class)
         )?;
     }
     if let Some(addon) = &identity.addon {
@@ -2725,7 +2750,7 @@ fn write_pattern_elements(
                 writeln!(
                     writer,
                     "{prefix}- type {} at {span}",
-                    style.paint(Role::Type, format_expected_types(expression))
+                    format_expected_types(expression, style)
                 )?;
             }
             PatternElementReport::ParseTag { span, value } => {
@@ -2780,7 +2805,7 @@ fn write_resolved_elements(
                 writeln!(
                     writer,
                     "{prefix}  expectedTypes: {}",
-                    style.paint(Role::Type, format_expected_types(expected))
+                    format_expected_types(expected, style)
                 )?;
                 if let Some(index) = selected_alternative {
                     writeln!(writer, "{prefix}  selectedAlternative: {index}")?;
@@ -2923,7 +2948,7 @@ fn write_expression(
         writeln!(
             writer,
             "{prefix}returnType: {}",
-            style.paint(Role::Type, return_type)
+            style.paint(Role::JavaClass, return_type)
         )?;
     }
     if let Some(multiplicity) = expression.multiplicity {
@@ -3067,7 +3092,7 @@ fn write_expression(
     Ok(())
 }
 
-fn format_expected_types(expression: &TypeExpressionReport) -> String {
+fn format_expected_types(expression: &TypeExpressionReport, style: HumanStyle) -> String {
     if expression.alternatives.is_empty() {
         return "[]".to_owned();
     }
@@ -3078,7 +3103,14 @@ fn format_expected_types(expression: &TypeExpressionReport) -> String {
             let plurality = if expected.plural { "[]" } else { "" };
             expected.java_class.as_ref().map_or_else(
                 || format!("{}{}", expected.code_name, plurality),
-                |class| format!("{}{} ({class})", expected.code_name, plurality),
+                |class| {
+                    format!(
+                        "{}{} ({})",
+                        expected.code_name,
+                        plurality,
+                        style.paint(Role::JavaClass, class)
+                    )
+                },
             )
         })
         .collect::<Vec<_>>()
@@ -3109,6 +3141,69 @@ fn format_parse_duration(nanoseconds: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn java_class_fields_stay_distinct_from_type_codes_and_identity_fallbacks() {
+        let expected = TypeExpressionReport {
+            alternatives: vec![
+                ExpectedTypeReport {
+                    code_name: "object".into(),
+                    plural: true,
+                    java_class: Some("java.lang.Object".into()),
+                    addon: None,
+                },
+                ExpectedTypeReport {
+                    code_name: "example.looks.like.Class".into(),
+                    plural: false,
+                    java_class: None,
+                    addon: None,
+                },
+            ],
+            nullable: false,
+            allow_literals: true,
+            allow_expressions: true,
+            time: 0,
+        };
+        assert_eq!(
+            format_expected_types(&expected, HumanStyle(false)),
+            "object[] (java.lang.Object) | example.looks.like.Class"
+        );
+        assert_eq!(
+            format_expected_types(&expected, HumanStyle(true)),
+            "object[] (\x1b[38;2;255;134;47mjava.lang.Object\x1b[0m) | example.looks.like.Class"
+        );
+        let mut identity = SyntaxIdentityReport {
+            syntax_id: Some("example.looks.like.Class".into()),
+            definition_id: String::new(),
+            registration_id: "fallback.id".into(),
+            element_class: None,
+            addon: None,
+        };
+        let display = |identity: &SyntaxIdentityReport| {
+            HumanStyle(true)
+                .paint(identity.display_role(), identity.display_name())
+                .to_string()
+        };
+        assert_eq!(display(&identity), "example.looks.like.Class");
+        identity.element_class = Some("example.ActualClass".into());
+        assert_eq!(
+            display(&identity),
+            "\x1b[38;2;255;134;47mexample.ActualClass\x1b[0m"
+        );
+        let restricted = FailureReasonReport::EventRestricted {
+            supported: vec!["org.bukkit.event.player.PlayerJoinEvent".into()],
+            current: Vec::new(),
+        };
+        assert_eq!(
+            restricted.human(HumanStyle(true)),
+            "requires event context: \x1b[38;2;255;134;47morg.bukkit.event.player.PlayerJoinEvent\x1b[0m"
+        );
+        let classes = vec!["example.With$Nested".to_owned(), "escape\"\\\n".to_owned()];
+        assert_eq!(
+            HumanStyle(false).java_classes_debug(&classes),
+            format!("{classes:?}")
+        );
+    }
 
     #[test]
     fn public_data_json_keeps_large_numbers_raw() {
@@ -3145,7 +3240,7 @@ mod tests {
             FailureReasonReport::TypeExpression {
                 expected: vec!["string".to_owned(), "number".to_owned()],
             }
-            .human(),
+            .human(HumanStyle(false)),
             "expected expression of type string or number"
         );
     }
@@ -3158,7 +3253,7 @@ mod tests {
                 supported: supported.clone(),
                 current: Vec::new(),
             }
-            .human(),
+            .human(HumanStyle(false)),
             "requires event context: org.bukkit.event.player.PlayerJoinEvent"
         );
         assert_eq!(
@@ -3166,7 +3261,7 @@ mod tests {
                 supported,
                 current: vec!["org.bukkit.event.player.PlayerQuitEvent".to_owned()],
             }
-            .human(),
+            .human(HumanStyle(false)),
             "only available in org.bukkit.event.player.PlayerJoinEvent; current event is org.bukkit.event.player.PlayerQuitEvent"
         );
     }

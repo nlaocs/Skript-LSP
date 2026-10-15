@@ -365,7 +365,12 @@ impl DocumentAnalysisReport {
             writer,
             "{indent}- {} {}{} at {}..{}: {}",
             style.paint(Role::Heading, &node.kind),
-            style.paint(Role::Name, name),
+            style.paint(
+                node.identity
+                    .as_ref()
+                    .map_or(Role::Name, |identity| identity.display_role()),
+                name
+            ),
             if defaulted { " (default)" } else { "" },
             node.span.virtual_range.start,
             node.span.virtual_range.end,
@@ -387,7 +392,7 @@ impl DocumentAnalysisReport {
                 writeln!(
                     writer,
                     "{indent}  returnType: {}",
-                    style.paint(Role::Type, return_type)
+                    style.paint(Role::JavaClass, return_type)
                 )?;
             }
             if let Some(multiplicity) = &semantics.multiplicity {

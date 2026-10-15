@@ -2,15 +2,15 @@ use std::fmt::{self, Display};
 
 /// Presentation only: the caller decides whether this stream supports color.
 #[derive(Clone, Copy)]
-pub(super) struct HumanStyle(pub bool);
+pub(crate) struct HumanStyle(pub bool);
 
 #[derive(Clone, Copy)]
-pub(super) enum Role {
+pub(crate) enum Role {
     Heading,
     Success,
     Warning,
     Error,
-    Type,
+    JavaClass,
     Name,
     Muted,
 }
@@ -35,6 +35,29 @@ impl HumanStyle {
             value,
         )
     }
+
+    pub fn java_classes_debug(self, classes: &[String]) -> String {
+        let classes = classes
+            .iter()
+            .map(|class| {
+                let quoted = format!("{class:?}");
+                format!(
+                    "\"{}\"",
+                    self.paint(Role::JavaClass, &quoted[1..quoted.len() - 1])
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{classes}]")
+    }
+
+    pub fn java_classes(self, classes: &[String], separator: &str) -> String {
+        classes
+            .iter()
+            .map(|class| self.paint(Role::JavaClass, class).to_string())
+            .collect::<Vec<_>>()
+            .join(separator)
+    }
 }
 
 struct Painted<T> {
@@ -53,7 +76,7 @@ impl<T: Display> Display for Painted<T> {
             Role::Success => "1;38;2;131;193;103",
             Role::Warning => "1;38;2;240;172;95",
             Role::Error => "1;38;2;252;98;85",
-            Role::Type => "1",
+            Role::JavaClass => super::SourceColor::TypeName.ansi_code(),
             Role::Name => return self.value.fmt(f),
             Role::Muted => "2",
         };
@@ -107,11 +130,18 @@ mod tests {
             .unwrap();
         assert!(element.contains("\x1b[38;2;160;160;160msin("));
         assert!(!element.contains("\\u{1b}"));
-        for line in colored.lines().filter(|line| {
-            line.contains("expectedTypes:")
-                || line.contains("returnType:")
-                || line.contains("multiplicity:")
-        }) {
+        let class_prefix = "\x1b[38;2;255;134;47m";
+        assert!(colored.contains(&format!(
+            "returnType: {class_prefix}java.lang.Number\x1b[0m"
+        )));
+        assert!(colored.contains(&format!(
+            "expectedTypes: object[] ({class_prefix}java.lang.Object\x1b[0m)"
+        )));
+        assert!(colored.contains(&format!("class: {class_prefix}org.skriptlang.skript.bukkit.text.elements.effects.EffMessage\x1b[0m")));
+        for line in colored
+            .lines()
+            .filter(|line| line.contains("multiplicity:") || line.contains("name:"))
+        {
             assert!(
                 !line.contains("38;2;"),
                 "metadata must stay neutral: {line}"
@@ -123,7 +153,7 @@ mod tests {
         assert!(plain.find("arguments:").unwrap() < plain.find("identity:").unwrap());
         assert!(plain.find("arguments:").unwrap() < plain.find("metadata:").unwrap());
         assert!(plain.find("\nrun:\n").unwrap() > plain.find("effect:").unwrap());
-        for role in [Role::Heading, Role::Success, Role::Type, Role::Muted] {
+        for role in [Role::Heading, Role::Success, Role::JavaClass, Role::Muted] {
             let marker = HumanStyle(true).paint(role, "ROLE").to_string();
             let prefix = marker.split("ROLE").next().unwrap();
             assert!(colored.contains(prefix), "missing role {prefix:?}");
@@ -156,6 +186,8 @@ mod tests {
         assert!(plain.contains("\nsource:\n"));
         assert!(plain.contains("\ntree:\n"));
         assert!(plain.contains("\nrun:\n  snapshot:"));
+        assert!(colored.contains("- \x1b[1mEvent\x1b[0m \x1b[38;2;255;134;47mch.njol.skript.lang.util.SimpleEvent\x1b[0m at"));
+        assert!(colored.contains("returnType: \x1b[38;2;255;134;47mjava.lang.Number\x1b[0m"));
         let mut json = Vec::new();
         report
             .write_with_color(OutputFormat::Json, &mut json, true)
