@@ -415,6 +415,57 @@ fn class_assignability_terminates_on_cycles() {
 }
 
 #[test]
+fn hierarchy_distance_terminates_when_only_an_interface_is_reachable_from_a_cycle() {
+    let mut data = parts();
+    let mut interface = class("test.I", None, &[]);
+    interface.kind = ClassKind::Interface;
+    data.classes = vec![
+        class("test.A", Some("test.B"), &["test.I"]),
+        class("test.B", Some("test.A"), &[]),
+        interface,
+    ];
+    let catalog = Catalog::new(data);
+    assert!(catalog.is_class_assignable("test.A", "test.I"));
+    assert_eq!(catalog.hierarchy_distance("test.I", "test.A"), None);
+    assert_eq!(catalog.hierarchy_distance("test.B", "test.A"), Some(1));
+    assert_eq!(catalog.hierarchy_distance("test.A", "test.A"), Some(0));
+    assert_eq!(catalog.hierarchy_distance("test.Other", "test.A"), None);
+}
+
+#[test]
+fn hierarchy_distance_keeps_missing_targets_and_last_wins_class_boundaries() {
+    let mut data = parts();
+    data.classes.clear();
+    let empty = Catalog::new(data.clone());
+    assert_eq!(
+        empty.hierarchy_distance("test.Unknown", "test.Unknown"),
+        Some(0)
+    );
+    assert_eq!(empty.hierarchy_distance("test.Other", "test.Unknown"), None);
+
+    data.classes = vec![
+        class("test.A", Some("test.B"), &[]),
+        class("test.B", Some("test.Missing"), &[]),
+    ];
+    let incomplete = Catalog::new(data.clone());
+    // The target check must precede the exhausted known-class budget.
+    assert_eq!(
+        incomplete.hierarchy_distance("test.Missing", "test.A"),
+        Some(2)
+    );
+
+    data.classes = vec![
+        class("test.A", Some("test.Ignored"), &[]),
+        class("test.A", Some("test.B"), &["test.I"]),
+        class("test.B", None, &[]),
+    ];
+    let duplicate = Catalog::new(data);
+    assert_eq!(duplicate.hierarchy_distance("test.B", "test.A"), Some(1));
+    assert_eq!(duplicate.hierarchy_distance("test.I", "test.A"), Some(2));
+    assert_eq!(duplicate.hierarchy_distance("test.Ignored", "test.A"), None);
+}
+
+#[test]
 fn class_reachability_keeps_missing_parents_and_catalogs_separate() {
     let mut original = parts();
     original.classes = vec![class("test.Leaf", Some("test.MissingParent"), &[])];

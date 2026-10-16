@@ -989,6 +989,7 @@ impl Catalog {
     /// first, then only the concrete superclass chain contributes to the distance.
     /// Implemented interfaces therefore use the depth from the class to the end
     /// of that chain, matching Skript's runtime comparator.
+    /// An incomplete or cyclic superclass chain can leave the distance unknown.
     pub fn hierarchy_distance(&self, superclass: &str, subclass: &str) -> Option<u64> {
         if !self.is_class_assignable(subclass, superclass) {
             return None;
@@ -999,11 +1000,17 @@ impl Catalog {
 
         let mut distance = 0_u64;
         let mut current = Some(subclass);
+        let mut remaining = self.index.classes_by_name.len();
         while let Some(class_name) = current {
             if class_name == superclass {
                 break;
             }
+            // A finite chain cannot visit more known classes than the index has.
+            if remaining == 0 {
+                return None;
+            }
             let class = self.class(class_name)?;
+            remaining -= 1;
             current = class.super_class.as_ref().map(ClassName::as_str);
             distance = distance.saturating_add(1);
         }
