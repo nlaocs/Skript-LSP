@@ -954,6 +954,10 @@ fn parse_skript_version(version: &str) -> Result<(u32, u32), SkriptSessionError>
 mod corpus;
 
 #[cfg(test)]
+#[path = "../tests/measurements/capture_pipeline.rs"]
+mod capture_pipeline;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

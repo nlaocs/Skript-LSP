@@ -93,3 +93,88 @@ and list summaries can still inspect descendants. Owning callers, parse memo
 clones and result construction are unchanged. These results do not establish
 linear complexity for the whole parser or a speedup on real addon documents.
 Cancellation and SSG collection health remain separate work units.
+
+## Archived server export: warm document pipeline
+
+A second measurement compares baseline `982531dfeb8a1047b9ecc101ceb6857d31f37450`
+with the borrowed implementation committed as `afdf925`. Both receive the same
+manual test harness from `utilities/skript-repl/tests/measurements/` and its test
+module declaration in `session.rs`. They use separate build targets and fixed
+copies of the resulting test binaries. No cancellation changes are in these
+binaries.
+
+The fixture is the existing complete 21-file `skript-2.16.2-java25` server export:
+schema 7, Snapshot ID
+`b7c14c3cf6b8864973c14d5cfa773334e9e502013e5c8fae70b3afc9506be04d`,
+Paper 26.2 / Java 25 / Skript 2.16.2, two captured plugins (Skript and SSG).
+See the existing corpus README for producer and JAR provenance. This comparison
+does not certify collection health for every domain or multi-addon behavior.
+
+Three existing corpus Effects are wrapped in their recorded Event header and
+one indented body line: `doc-message-event`, `short-teleport` and
+`research-teleport`. These are curated documentation/research inputs against a
+real registry export, not a survey of production script projects. All three
+documents must be matched, without component faults.
+
+For each case, a fresh host is initialized outside the timed interval. One
+warmup revision precedes one measured revision using that same host. Fifteen
+independent processes per implementation alternate baseline/borrowed order by
+sample index. Each batch contains one parse. The CPU, Rust version, test profile
+and build limits are the same as above; no build runs concurrently with this
+measurement.
+
+`parse` times `ParserHost::parse_document`: raw tree, macros, native/WASM syntax,
+AdditionalParse results, AstTree projection and commit. `report` times
+`DocumentAnalysisReport::from_result`, including document DTO/color/diagnostic
+construction and destruction of the consumed native result. JSON serialization,
+output comparison, thread creation and host initialization are outside both
+intervals. The changed single-line Effect coloring traversal is not exercised
+by this document-report interval.
+
+Milliseconds per document, median [minimum, maximum] over 15 samples:
+
+| Case | Baseline parse | Borrowed parse | Observed median change |
+| --- | ---: | ---: | ---: |
+| doc-message-event | 168.868 [161.625, 172.995] | 162.749 [158.167, 171.749] | -3.62% |
+| short-teleport | 1229.078 [1199.846, 1353.726] | 1201.294 [1175.479, 1232.366] | -2.26% |
+| research-teleport | 8056.842 [7830.031, 8171.359] | 7915.703 [7854.569, 8149.988] | -1.75% |
+
+| Case | Baseline report | Borrowed report |
+| --- | ---: | ---: |
+| doc-message-event | 0.078 [0.072, 0.117] | 0.081 [0.074, 0.086] |
+| short-teleport | 0.139 [0.127, 0.148] | 0.142 [0.133, 0.164] |
+| research-teleport | 0.293 [0.275, 0.535] | 0.291 [0.274, 0.303] |
+
+The observed parse medians are 1.75–3.62% lower, with overlapping ranges.
+CPU frequency and scheduling are uncontrolled; these measurements do not
+establish a general parser speedup or predict other documents. The long case
+still takes about eight seconds. Report-construction times show no consistent
+improvement. Synthetic traversal ratios therefore cannot be used as pipeline
+speedup factors.
+
+For each case, all 30 full JSON observations agree exactly after removing only the
+`parseDurationNs` field. All 45 paired checksums agree, and all processes exit
+successfully. The [raw samples](capture-pipeline-samples.csv) contain 90 batches.
+Both measured harness hashes, all 21 fixture file hashes and the embedded
+CoreLibrary hash agree. The six borrowed Rust source hashes match the earlier
+verified implementation. Binary hashes, complete observations, per-process logs
+and source fingerprints are retained with the review evidence.
+
+To repeat, apply only the harness and its module declaration to both source
+copies, use the same fixed WASM artifacts, and compile each copy separately:
+
+```sh
+CARGO_PROFILE_TEST_DEBUG=line-tables-only CARGO_INCREMENTAL=0 \
+  cargo test -p skript-repl --lib --locked --no-run --message-format=json
+```
+
+Take each `skript_repl` test executable from its compiler-artifact record, then:
+
+```sh
+python3 utilities/skript-repl/tests/measurements/run_capture_pipeline.py \
+  BASELINE_TEST_BINARY BORROWED_TEST_BINARY NEW_OUTPUT_DIRECTORY
+```
+
+The driver preserves every log and batch, records binary/harness hashes and
+execution order, and rejects differing full observations. It does not replace
+the regression suites or establish upstream final-tree equivalence.
