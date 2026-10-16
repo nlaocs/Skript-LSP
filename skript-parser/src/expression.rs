@@ -31,6 +31,14 @@ use syntaxes::{
 };
 use thiserror::Error;
 
+#[cfg(test)]
+#[path = "expression/capture_view_tests.rs"]
+mod capture_view_tests;
+
+#[cfg(test)]
+#[path = "expression/cancellation_tests.rs"]
+mod cancellation_tests;
+
 /// Stable parser context included in recursive-expression memo keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ExpressionParseContext {
@@ -488,6 +496,96 @@ pub struct ParsedCapture {
     pub result: ParsedCaptureResult,
 }
 
+/// Borrowed capture value; recursive nodes remain in their original storage.
+#[derive(Debug, Clone, Copy)]
+pub enum ParsedCaptureValueRef<'a> {
+    Expression(&'a ExpressionNode),
+    Condition(&'a ConditionNode),
+    Effect(&'a crate::EffectCandidate),
+    Event(&'a crate::EventCandidate),
+    Section(&'a crate::SectionCandidate),
+    Raw(&'a str),
+}
+
+impl<'a> From<&'a ParsedCaptureValue> for ParsedCaptureValueRef<'a> {
+    fn from(value: &'a ParsedCaptureValue) -> Self {
+        match value {
+            ParsedCaptureValue::Expression(value) => Self::Expression(value),
+            ParsedCaptureValue::Condition(value) => Self::Condition(value),
+            ParsedCaptureValue::Effect(value) => Self::Effect(value),
+            ParsedCaptureValue::Event(value) => Self::Event(value),
+            ParsedCaptureValue::Section(value) => Self::Section(value),
+            ParsedCaptureValue::Raw(value) => Self::Raw(value),
+        }
+    }
+}
+
+/// Read-only view of a typed child or an already stored routed capture.
+#[derive(Debug, Clone, Copy)]
+pub enum ParsedCaptureRef<'a> {
+    Expression {
+        capture_index: usize,
+        node: &'a ExpressionNode,
+    },
+    Routed(&'a ParsedCapture),
+}
+
+impl<'a> From<&'a ParsedCapture> for ParsedCaptureRef<'a> {
+    fn from(capture: &'a ParsedCapture) -> Self {
+        Self::Routed(capture)
+    }
+}
+
+impl<'a> ParsedCaptureRef<'a> {
+    pub fn capture_index(self) -> usize {
+        match self {
+            Self::Expression { capture_index, .. } => capture_index,
+            Self::Routed(capture) => capture.capture_index,
+        }
+    }
+
+    /// Parser declared by the binding, which may differ from the result parser.
+    pub fn binding_parser_id(self) -> &'a str {
+        match self {
+            Self::Expression { .. } => HOST_EXPRESSION_PARSER_ID,
+            Self::Routed(capture) => &capture.binding.parser_id,
+        }
+    }
+
+    pub fn span(self) -> &'a MatchSpan {
+        match self {
+            Self::Expression { node, .. } => &node.span,
+            Self::Routed(capture) => &capture.result.span,
+        }
+    }
+
+    pub fn value(self) -> Option<ParsedCaptureValueRef<'a>> {
+        match self {
+            Self::Expression { node, .. } => Some(ParsedCaptureValueRef::Expression(node)),
+            Self::Routed(capture) => capture.result.value.as_ref().map(Into::into),
+        }
+    }
+
+    /// Builds a typed child's summary only when requested, without cloning its tree.
+    pub fn summary(self) -> Option<Cow<'a, ParsedCaptureSemanticSummary>> {
+        match self {
+            Self::Expression { node, .. } => Some(Cow::Owned(expression_semantic_summary(node))),
+            Self::Routed(capture) => capture.result.summary.as_ref().map(Cow::Borrowed),
+        }
+    }
+
+    /// Explicitly clones this capture and its recursive value for an owning caller.
+    pub fn to_owned(self) -> ParsedCapture {
+        match self {
+            Self::Expression {
+                capture_index,
+                node,
+            } => expression_parsed_capture(capture_index, node.clone()),
+            Self::Routed(capture) => capture.clone(),
+        }
+    }
+}
+
 impl ParsedCaptureResult {
     pub(crate) fn success(
         parser_id: impl Into<String>,
@@ -579,51 +677,54 @@ impl ExpressionNode {
         })
     }
 
-    /// Returns all recursively parsed captures in source/pattern order.
+    /// Borrows recursively parsed captures in the same order as [`Self::parsed_captures`].
     ///
     /// Typed children and routed captures use distinct compact storage
-    /// internally; this method presents both through one parser-neutral view.
-    pub fn parsed_captures(&self) -> Vec<ParsedCapture> {
+    /// internally. Iteration neither clones their subtrees nor builds summaries.
+    pub fn parsed_capture_refs(&self) -> impl Iterator<Item = ParsedCaptureRef<'_>> {
         let mut children = self.children.iter();
-        let routed = self.routed_captures.iter();
-        let mut captures = Vec::new();
-        if self.captures.is_empty() {
-            return self
-                .children
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(capture_index, node)| expression_parsed_capture(capture_index, node))
-                .collect();
-        }
-        for capture in &self.captures {
+        let implicit = if self.captures.is_empty() {
+            self.children.as_slice()
+        } else {
+            &[]
+        };
+        let explicit = self.captures.iter().filter_map(move |capture| {
             let capture_index = capture.capture_index();
             match capture {
                 PatternCapture::TypeExpression {
                     resolution_id: Some(_),
-                    span,
                     ..
-                } => {
-                    if let Some(node) = children.next() {
-                        captures.push(expression_parsed_capture(capture_index, node.clone()));
-                    }
-                    let _ = span;
-                }
-                PatternCapture::Regex { .. } => {
-                    if let Some(capture) = routed
-                        .clone()
-                        .find(|capture| capture.capture_index == capture_index)
-                    {
-                        captures.push(capture.clone());
-                    }
-                }
+                } => children.next().map(|node| ParsedCaptureRef::Expression {
+                    capture_index,
+                    node,
+                }),
+                PatternCapture::Regex { .. } => self
+                    .routed_captures
+                    .iter()
+                    .find(|capture| capture.capture_index == capture_index)
+                    .map(ParsedCaptureRef::Routed),
                 PatternCapture::TypeExpression {
                     resolution_id: None,
                     ..
-                } => {}
+                } => None,
             }
-        }
-        captures
+        });
+        implicit
+            .iter()
+            .enumerate()
+            .map(|(capture_index, node)| ParsedCaptureRef::Expression {
+                capture_index,
+                node,
+            })
+            .chain(explicit)
+    }
+
+    /// Returns owned captures in source/pattern order, cloning recursive values.
+    /// Prefer [`Self::parsed_capture_refs`] for read-only traversal.
+    pub fn parsed_captures(&self) -> Vec<ParsedCapture> {
+        self.parsed_capture_refs()
+            .map(ParsedCaptureRef::to_owned)
+            .collect()
     }
 }
 
@@ -961,6 +1062,11 @@ pub struct ExpressionCandidate {
 }
 
 impl ExpressionCandidate {
+    /// Borrows the candidate's recursively parsed captures without cloning subtrees.
+    pub fn parsed_capture_refs(&self) -> impl Iterator<Item = ParsedCaptureRef<'_>> {
+        self.node.parsed_capture_refs()
+    }
+
     /// Returns the candidate's recursively parsed captures as one collection.
     pub fn parsed_captures(&self) -> Vec<ParsedCapture> {
         self.node.parsed_captures()
@@ -1338,6 +1444,8 @@ impl ExpressionParseEnvironment for NoopExpressionEnvironment {
 #[derive(Debug, Clone, Error)]
 pub enum ExpressionParseError {
     #[error("{0}")]
+    Cancelled(#[from] crate::ParseCancelled),
+    #[error("{0}")]
     ExtensionFault(#[from] crate::ExtensionFault),
     #[error("invalid expression input range {range}")]
     InvalidInputRange { range: TextRange },
@@ -1413,6 +1521,7 @@ pub(crate) struct RecoveryCheckpoint {
 }
 
 pub(crate) struct ExpressionSession<'a, E> {
+    forwarded_cancellation: Option<crate::ParseCancelled>,
     forwarded_fault: Option<crate::ExtensionFault>,
     catalog: &'a Catalog,
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
@@ -1558,6 +1667,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         &mut self,
         node: &ExpressionNode,
     ) -> Result<(), ExpressionParseError> {
+        self.check_cancelled()?;
         if let Some(effects) = &node.effects {
             self.environment
                 .apply_expression_effects(effects)
@@ -1632,6 +1742,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let pattern_prefilters = pattern_prefilter_index(&registered_candidates);
         let pattern_initials = pattern_initial_index(&registered_candidates, &pattern_prefilters);
         ExpressionSession {
+            forwarded_cancellation: None,
             forwarded_fault: None,
             catalog,
             dynamic_snapshot,
@@ -2078,6 +2189,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         depth: usize,
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
+        self.check_cancelled()?;
         if depth > self.config.max_depth {
             return Err(ExpressionParseError::DepthLimit {
                 limit: self.config.max_depth,
@@ -2188,6 +2300,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         include_leaves: bool,
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
+        self.check_cancelled()?;
         let mut candidates = Vec::new();
         let mut deferred_candidates = Vec::new();
         let mut failure = None;
@@ -2391,6 +2504,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 let first_candidate = candidates.len();
                 failure = choose_failure_trace(failure, matched.primary_failure().cloned());
                 for matched in matched.selected.into_iter().chain(matched.alternatives) {
+                    self.check_cancelled()?;
                     self.begin_semantic_candidate()
                         .map_err(|message| self.environment_error(message))?;
                     let resolution: Result<_, ExpressionParseError> = (|| {
@@ -3958,6 +4072,9 @@ fn expression_failure_ranges(
 }
 
 fn nested_expression_error(error: impl std::error::Error + 'static) -> ExpressionParseError {
+    if let Some(cancelled) = crate::parse_cancellation(&error) {
+        return (*cancelled).into();
+    }
     crate::extension_fault(&error).cloned().map_or_else(
         || ExpressionParseError::Environment {
             message: error.to_string(),
@@ -3983,6 +4100,25 @@ fn list_return_type(catalog: &Catalog, children: &[ExpressionNode]) -> Option<Cl
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
+    fn cancellation_requested(&mut self) -> bool {
+        let cancelled = self.environment.cancellation_requested();
+        if cancelled {
+            self.memo.clear();
+        }
+        cancelled
+    }
+
+    fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
+        let cancelled = self
+            .forwarded_cancellation
+            .take()
+            .or_else(|| self.environment.take_parse_cancellation());
+        if cancelled.is_some() {
+            self.memo.clear();
+        }
+        cancelled
+    }
+
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
         self.forwarded_fault
             .take()
@@ -4072,7 +4208,18 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
 }
 
 impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
+    pub(crate) fn check_cancelled(&mut self) -> Result<(), ExpressionParseError> {
+        if self.cancellation_requested() {
+            Err(crate::ParseCancelled.into())
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn environment_error(&mut self, message: String) -> ExpressionParseError {
+        if let Some(cancelled) = self.take_parse_cancellation() {
+            return cancelled.into();
+        }
         self.environment.take_extension_fault().map_or(
             ExpressionParseError::Environment { message },
             ExpressionParseError::ExtensionFault,
@@ -4080,6 +4227,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
     }
 
     fn forward_environment_error(&mut self, error: ExpressionParseError) -> String {
+        self.forwarded_cancellation = crate::parse_cancellation(&error).copied();
         self.forwarded_fault = crate::extension_fault(&error).cloned();
         error.to_string()
     }
@@ -4097,6 +4245,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             .dynamic_handler_for_registration(&candidate.registration_id)
             .map(str::to_owned);
         for capture in &mut matched.captures {
+            self.check_cancelled()?;
             let PatternCapture::TypeExpression {
                 capture_index,
                 pattern_span,

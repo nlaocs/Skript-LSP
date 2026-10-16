@@ -937,8 +937,13 @@ native recovery trace and is not rewritten by AST macros. A future Rust
 semantic database can consume the neutral AST; StateStore remains addon state
 and cache rather than the canonical LSP symbol database.
 
-Cancellation is cooperative at phase boundaries. A request cancelled during a
-long native parse is prevented from committing as soon as that phase returns.
+Cancellation is cooperative at phase boundaries and inside native syntax
+matching. The document token is shared with recursive AdditionalParse sessions;
+candidate, matcher-state, regex-boundary, and guest-call probes return a typed
+`Cancelled` error and roll back the document. An executing regex or guest call
+still returns under its own quotas. RawTree construction, preparation, and AST
+projection retain their stage-boundary checks. See
+[native cancellation](../docs/native-cancellation.md) for scope and memo rules.
 
 `HostConfig` controls call fuel, epoch timeout, Wasmtime memory/table/instance
 limits, dispatch, Text, Tree, and AST macro quotas, StateStore configuration,

@@ -282,6 +282,7 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     let initial_context = session.context().clone();
     let mut selected_context = None;
     for matched in ranked.drain(..) {
+        session.check_cancelled()?;
         session.replace_context(initial_context.clone());
         let resolved_order = candidates
             .iter()

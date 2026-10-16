@@ -11,6 +11,9 @@ use syntax_pattern_parser::syntax::{
     self, ParseResult, PatternElement, PluralRules, Span, Spanned,
 };
 
+#[path = "cancellation/pattern.rs"]
+mod cancellation;
+
 fn parse(source: &str) -> ParseResult {
     let rules = PluralRules::from_json(include_str!(
         "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"

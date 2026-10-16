@@ -199,6 +199,7 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
     let initial_context = session.context().clone();
     let mut selected_context = None;
     for matched in matched.selected.into_iter().chain(matched.alternatives) {
+        session.check_cancelled()?;
         session.replace_context(initial_context.clone());
         if let Some(restricted) =
             session.event_restriction_failure(&matched.registration_id, session.map_range(trimmed)?)

@@ -255,6 +255,16 @@ pub enum PatternHookControl {
 
 /// Observer/override interface spanning definition through element scopes.
 pub trait PatternMatchHooks {
+    /// Cooperative probe. Once requested, cancellation remains active for this parse.
+    fn cancellation_requested(&mut self) -> bool {
+        false
+    }
+
+    /// Retrieves a cancellation cause forwarded through an environment String error.
+    fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
+        None
+    }
+
     /// Retrieves the typed cause of an environment error, if it is an extension fault.
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
         None
@@ -315,6 +325,16 @@ pub trait PatternMatchHooks {
 /// hook host. This is particularly important for WASM-backed expression
 /// parsing, where both operations share one transactional parse session.
 pub trait PatternMatchEnvironment {
+    /// Cooperative probe. Once requested, cancellation remains active for this parse.
+    fn cancellation_requested(&mut self) -> bool {
+        false
+    }
+
+    /// Retrieves a cancellation cause forwarded through an environment String error.
+    fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
+        None
+    }
+
     /// Retrieves the typed cause of an environment error, if it is an extension fault.
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
         None
@@ -423,6 +443,14 @@ struct SplitPatternMatchEnvironment<'a, R, H> {
 impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
     for SplitPatternMatchEnvironment<'_, R, H>
 {
+    fn cancellation_requested(&mut self) -> bool {
+        self.hooks.cancellation_requested()
+    }
+
+    fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
+        self.hooks.take_parse_cancellation()
+    }
+
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
         self.hooks.take_extension_fault()
     }
@@ -542,6 +570,8 @@ impl PatternMatcherConfig {
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 /// Configuration, extension, regex, mapping, or resource failure.
 pub enum PatternMatchError {
+    #[error("{0}")]
+    Cancelled(#[from] crate::ParseCancelled),
     #[error("{0}")]
     ExtensionFault(#[from] crate::ExtensionFault),
     #[error("pattern matcher limits must be greater than zero")]
@@ -1186,6 +1216,9 @@ pub fn match_pattern_candidates_with_environment<E: PatternMatchEnvironment>(
     config: PatternMatcherConfig,
 ) -> Result<CandidateMatches, PatternMatchError> {
     config.validate()?;
+    if environment.cancellation_requested() {
+        return Err(crate::ParseCancelled.into());
+    }
     environment.begin_pattern_match().map_err(|message| {
         pattern_environment_error(environment, PatternMatchError::Hook { message })
     })?;
@@ -1205,6 +1238,9 @@ fn pattern_environment_error<E: PatternMatchEnvironment>(
     environment: &mut E,
     error: PatternMatchError,
 ) -> PatternMatchError {
+    if let Some(cancelled) = environment.take_parse_cancellation() {
+        return cancelled.into();
+    }
     environment
         .take_extension_fault()
         .map_or(error, PatternMatchError::ExtensionFault)
@@ -1256,6 +1292,9 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
     let mut aggregate_failure = FailureTracker::default();
     let mut candidate_failures = Vec::new();
     for (_, candidate) in ranked {
+        if engine.environment.cancellation_requested() {
+            return Err(crate::ParseCancelled.into());
+        }
         engine.failure = FailureTracker::default();
         let matched = engine.match_candidate(candidate)?;
         let candidate_failure = std::mem::take(&mut engine.failure);
@@ -1792,7 +1831,10 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             })?;
         let result = self
             .environment
-            .complete_typed_captures(candidate, pattern, matched);
+            .complete_typed_captures(candidate, pattern, matched)
+            .map_err(|message| {
+                pattern_environment_error(self.environment, PatternMatchError::Hook { message })
+            });
         if !matches!(result, Ok(None))
             && let Some(checkpoint) = checkpoint
         {
@@ -1802,9 +1844,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     pattern_environment_error(self.environment, PatternMatchError::Hook { message })
                 })?;
         }
-        if let Some(trace) = result.map_err(|message| {
-            pattern_environment_error(self.environment, PatternMatchError::Hook { message })
-        })? {
+        if let Some(trace) = result? {
             let frame = self.failure_frame(
                 &[],
                 None,
@@ -2329,6 +2369,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             let regex = self.regex(pattern, pattern_span)?;
             let mut values = Vec::new();
             for end in skript_boundaries(self.input.text(), state.cursor, self.trim_range.end) {
+                if self.environment.cancellation_requested() {
+                    return Err(crate::ParseCancelled.into());
+                }
                 self.regex_executions = self.regex_executions.saturating_add(1);
                 if self.regex_executions > self.config.max_regex_executions {
                     return Err(PatternMatchError::LimitExceeded {
@@ -2798,6 +2841,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
     }
 
     fn visit_state(&mut self) -> Result<(), PatternMatchError> {
+        if self.environment.cancellation_requested() {
+            return Err(crate::ParseCancelled.into());
+        }
         self.states = self.states.saturating_add(1);
         if self.states > self.config.max_states {
             Err(PatternMatchError::LimitExceeded {

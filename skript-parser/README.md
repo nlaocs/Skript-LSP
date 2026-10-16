@@ -211,8 +211,19 @@ understood syntax when that route is unavailable.
 Left-recursive forms such as `%strings% in upper case` use seed-and-grow parsing.
 Leading and trailing literal constraints are extracted conservatively from the
 Pattern AST before matching, while depth, candidate, matcher, and memo limits
-bound hostile recursion. Memo keys include source range, expected type/context,
-StateStore revision, and dynamic registry revision.
+bound hostile recursion. Memo keys include source range, ordered expected types,
+flags/context, and the environment's state revision. Source, Catalog, config and
+the dynamic syntax snapshot remain fixed within a session. This is not a
+cross-document or cross-transaction semantic cache; a StateStore revision does
+not capture arbitrary guest globals or depth-dependent semantics.
+
+Environments may implement `cancellation_requested()` to stop native work at
+cooperative probes. `ParseCancelled` remains a typed cause through recursive
+matcher errors and is never a no-match or recoverable extension fault. A probe
+precedes memo lookup, and observed cancellation clears the session memo.
+The default environment never requests cancellation. See
+[native cancellation](../docs/native-cancellation.md) for the String-error
+forwarding contract, cleanup priority and remaining limits.
 
 ## Function Call Parsing
 

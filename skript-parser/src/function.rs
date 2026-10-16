@@ -327,6 +327,7 @@ fn select_unique<E: ExpressionParseEnvironment>(
     let mut selected = None;
     let mut failure = None;
     for definition in definitions {
+        session.check_cancelled()?;
         session
             .begin_semantic_candidate()
             .map_err(environment_error)?;

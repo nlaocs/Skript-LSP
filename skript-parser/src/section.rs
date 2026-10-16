@@ -288,6 +288,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     let raw_children = raw_child_summaries(session, tree, node)?;
     let mut diagnostics = Vec::new();
     for matched in ranked {
+        session.check_cancelled()?;
         session.replace_context(initial_context.clone());
         let local = matched.matched.span.local_range;
         let span = session.map_range(TextRange::new(
@@ -832,6 +833,7 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
     let mut diagnostics = Vec::new();
     let mut preceding_sections = Vec::new();
     for (child_index, id) in node.children.iter().enumerate() {
+        session.check_cancelled()?;
         let Some(child) = tree.get(*id) else {
             continue;
         };

@@ -7,8 +7,8 @@ use skript_parser::{
     CandidateMatch, ConditionNode, EffectCandidate, EffectCandidateFailure,
     ExpressionListConjunction, ExpressionNode, ExpressionNodeKind, ExpressionPublicData,
     FailureFrameRole, FailureTrace, MatchSpan, MatchSyntaxKind, OriginKind as NativeOriginKind,
-    ParseMarkCapture, ParseTagCapture, ParsedCapture, ParsedCaptureStatus, ParsedCaptureValue,
-    PatternCapture, PatternFailure, PatternFailureReason, TextRange,
+    ParseMarkCapture, ParseTagCapture, ParsedCaptureRef, ParsedCaptureStatus, ParsedCaptureValue,
+    ParsedCaptureValueRef, PatternCapture, PatternFailure, PatternFailureReason, TextRange,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -1426,7 +1426,12 @@ fn collect_effect_colors(
         SourceColor::Effect,
         depth,
     );
-    collect_parsed_capture_colors(input, &effect.parsed_captures, spans, depth + 1);
+    collect_parsed_capture_colors(
+        input,
+        effect.parsed_captures.iter().map(Into::into),
+        spans,
+        depth + 1,
+    );
 }
 
 fn collect_condition_colors(
@@ -1491,7 +1496,7 @@ fn collect_expression_node_colors(
         }
     }
 
-    collect_parsed_capture_colors(input, &expression.parsed_captures(), spans, depth + 1);
+    collect_parsed_capture_colors(input, expression.parsed_capture_refs(), spans, depth + 1);
 }
 
 fn is_variable_string_syntax_id(syntax_id: &str) -> bool {
@@ -1523,27 +1528,30 @@ fn interpolation_delimiter_spans(
     delimiters
 }
 
-fn collect_parsed_capture_colors(
+fn collect_parsed_capture_colors<'a>(
     input: &str,
-    captures: &[ParsedCapture],
+    captures: impl Iterator<Item = ParsedCaptureRef<'a>>,
     spans: &mut Vec<SourceColorSpan>,
     depth: usize,
 ) {
     for capture in captures {
-        match capture.result.value.as_ref() {
-            Some(ParsedCaptureValue::Expression(expression)) => {
+        match capture.value() {
+            Some(ParsedCaptureValueRef::Expression(expression)) => {
                 collect_expression_node_colors(input, expression, spans, depth)
             }
-            Some(ParsedCaptureValue::Condition(condition)) => {
+            Some(ParsedCaptureValueRef::Condition(condition)) => {
                 collect_condition_colors(input, condition, spans, depth)
             }
-            Some(ParsedCaptureValue::Effect(effect)) => {
+            Some(ParsedCaptureValueRef::Effect(effect)) => {
                 collect_effect_colors(input, effect, spans, depth)
             }
-            Some(ParsedCaptureValue::Section(section)) => {
-                collect_parsed_capture_colors(input, &section.parsed_captures, spans, depth)
-            }
-            Some(ParsedCaptureValue::Event(_) | ParsedCaptureValue::Raw(_)) | None => {}
+            Some(ParsedCaptureValueRef::Section(section)) => collect_parsed_capture_colors(
+                input,
+                section.parsed_captures.iter().map(Into::into),
+                spans,
+                depth,
+            ),
+            Some(ParsedCaptureValueRef::Event(_) | ParsedCaptureValueRef::Raw(_)) | None => {}
         }
     }
 }
@@ -3141,6 +3149,7 @@ fn format_parse_duration(nanoseconds: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use skript_parser::ParsedCapture;
 
     #[test]
     fn java_class_fields_stay_distinct_from_type_codes_and_identity_fallbacks() {
@@ -3333,6 +3342,332 @@ mod tests {
     fn parse_duration_uses_the_smallest_useful_display_unit() {
         assert_eq!(format_parse_duration(999_999), "999999 ns");
         assert_eq!(format_parse_duration(1_000_000), "1.000 ms");
+    }
+
+    fn color_fixture_node() -> ExpressionNode {
+        let catalog = ssg::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../parser-wasm/tests/data/type-parser-versions/skript-2.16.0"),
+        )
+        .unwrap()
+        .into_catalog();
+        let input = "dummy direct registry expression";
+        let source = skript_parser::MappedSource::identity(input);
+        skript_parser::parse_expression(
+            &catalog,
+            skript_parser::ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, input.len()),
+                expected_types: Vec::new(),
+                context: skript_parser::ExpressionParseContext::default(),
+            },
+            &mut skript_parser::NoopExpressionEnvironment,
+            skript_parser::ExpressionParserConfig::default(),
+        )
+        .unwrap()
+        .selected
+        .unwrap()
+        .node
+    }
+
+    // Pre-view traversal: keep recursive visits on the owning capture API.
+    fn owned_expression_colors(
+        input: &str,
+        expression: &ExpressionNode,
+        spans: &mut Vec<SourceColorSpan>,
+        depth: usize,
+    ) {
+        let color = match &expression.kind {
+            ExpressionNodeKind::Variable { .. } => SourceColor::Variable,
+            ExpressionNodeKind::Literal { parser_id } => {
+                literal_source_color(parser_id, &expression.metadata)
+            }
+            ExpressionNodeKind::Function { .. } => SourceColor::Function,
+            _ => SourceColor::Expression,
+        };
+        push_source_color_span(spans, match_span(&expression.span), color, depth);
+        if let Some(alias) = literal_alias_span(&expression.metadata, match_span(&expression.span))
+        {
+            push_source_color_span(spans, alias, SourceColor::Alias, depth + 1);
+        }
+        if matches!(
+            &expression.kind,
+            ExpressionNodeKind::Literal { parser_id } if is_variable_string_syntax_id(parser_id)
+        ) {
+            for delimiter in interpolation_delimiter_spans(
+                input,
+                match_span(&expression.span),
+                expression
+                    .children
+                    .iter()
+                    .map(|child| match_span(&child.span)),
+            ) {
+                push_source_color_span(
+                    spans,
+                    delimiter,
+                    SourceColor::InterpolationDelimiter,
+                    depth + 1,
+                );
+            }
+        }
+        owned_capture_colors(input, &expression.parsed_captures(), spans, depth + 1);
+    }
+
+    fn owned_condition_colors(
+        input: &str,
+        condition: &ConditionNode,
+        spans: &mut Vec<SourceColorSpan>,
+        depth: usize,
+    ) {
+        push_source_color_span(
+            spans,
+            match_span(&condition.span),
+            SourceColor::Condition,
+            depth,
+        );
+        for expression in &condition.expressions {
+            owned_expression_colors(input, expression, spans, depth + 1);
+        }
+        for child in &condition.children {
+            owned_condition_colors(input, child, spans, depth + 1);
+        }
+    }
+
+    fn owned_capture_colors(
+        input: &str,
+        captures: &[ParsedCapture],
+        spans: &mut Vec<SourceColorSpan>,
+        depth: usize,
+    ) {
+        for capture in captures {
+            match capture.result.value.as_ref() {
+                Some(ParsedCaptureValue::Expression(expression)) => {
+                    owned_expression_colors(input, expression, spans, depth)
+                }
+                Some(ParsedCaptureValue::Condition(condition)) => {
+                    owned_condition_colors(input, condition, spans, depth)
+                }
+                Some(ParsedCaptureValue::Effect(effect)) => {
+                    push_source_color_span(
+                        spans,
+                        match_span(&effect.matched.matched.span),
+                        SourceColor::Effect,
+                        depth,
+                    );
+                    owned_capture_colors(input, &effect.parsed_captures, spans, depth + 1);
+                }
+                Some(ParsedCaptureValue::Section(section)) => {
+                    owned_capture_colors(input, &section.parsed_captures, spans, depth)
+                }
+                Some(ParsedCaptureValue::Event(_) | ParsedCaptureValue::Raw(_)) | None => {}
+            }
+        }
+    }
+
+    fn color_span_values(
+        spans: &[SourceColorSpan],
+    ) -> Vec<(usize, usize, SourceColor, usize, usize)> {
+        spans
+            .iter()
+            .map(|span| {
+                (
+                    span.span.start,
+                    span.span.end,
+                    span.color,
+                    span.depth,
+                    span.order,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn borrowed_expression_colors_match_owned_typed_and_implicit_traversal() {
+        let input = "f(({v}), 1)";
+        let source = skript_parser::MappedSource::identity(input);
+        let template = color_fixture_node();
+        let node = |kind, start, end| {
+            let mut node = template.clone();
+            node.kind = kind;
+            node.captures.clear();
+            node.children.clear();
+            node.metadata.clear();
+            node.span = MatchSpan {
+                local_range: TextRange::new(start, end),
+                mapped: source.map_range(TextRange::new(start, end)).unwrap(),
+            };
+            node
+        };
+        let variable = node(
+            ExpressionNodeKind::Variable {
+                parser_id: "fixture.variable".into(),
+            },
+            3,
+            6,
+        );
+        let literal = node(
+            ExpressionNodeKind::Literal {
+                parser_id: "core.literal.number".into(),
+            },
+            9,
+            10,
+        );
+        let mut grouped = node(ExpressionNodeKind::Grouped, 2, 7);
+        grouped.children = vec![variable];
+        let mut function = node(
+            ExpressionNodeKind::Function {
+                parser_id: "fixture.function".into(),
+            },
+            0,
+            input.len(),
+        );
+        function.children = vec![grouped, literal];
+        let expression = PatternTypeExpr {
+            alternatives: vec![syntax_pattern_parser::syntax::PatternTypeAlternative {
+                name: "object".into(),
+                plural: true,
+            }],
+            nullable: false,
+            allow_literals: true,
+            allow_expressions: true,
+            time: 0,
+        };
+        let typed = |capture_index, resolved: bool| PatternCapture::TypeExpression {
+            capture_index,
+            state: skript_parser::TypeCaptureState::Explicit,
+            pattern_span: PatternSpan::new(0, 9),
+            expression: expression.clone(),
+            value: input.into(),
+            span: function.span.clone(),
+            alternative_index: Some(0),
+            resolution_id: resolved.then(|| "fixture.resolved".into()),
+        };
+        function.captures = vec![typed(8, true), typed(4, false), typed(1, true)];
+        let mut owned = Vec::new();
+        owned_expression_colors(input, &function, &mut owned, 0);
+        let mut borrowed = Vec::new();
+        collect_expression_node_colors(input, &function, &mut borrowed, 0);
+        assert_eq!(color_span_values(&borrowed), color_span_values(&owned));
+        assert_eq!(
+            color_span_values(&borrowed),
+            [
+                (0, 11, SourceColor::Function, 0, 0),
+                (2, 7, SourceColor::Expression, 1, 1),
+                (3, 6, SourceColor::Variable, 2, 2),
+                (9, 10, SourceColor::Literal, 1, 3),
+            ]
+        );
+        assert_eq!(
+            render_source_colors(input, &borrowed),
+            render_source_colors(input, &owned)
+        );
+        assert_eq!(
+            render_source_colors(input, &borrowed),
+            concat!(
+                "\x1b[38;2;160;160;160mf(",
+                "\x1b[38;2;131;193;103m(",
+                "\x1b[38;2;0;255;255m{v}",
+                "\x1b[38;2;131;193;103m)",
+                "\x1b[38;2;160;160;160m, ",
+                "\x1b[38;2;255;255;255m1",
+                "\x1b[38;2;160;160;160m)\x1b[0m",
+            )
+        );
+    }
+
+    #[test]
+    fn borrowed_routed_colors_match_owned_partial_condition_raw_and_failure() {
+        let input = "v 1";
+        let source = skript_parser::MappedSource::identity(input);
+        let mut variable = color_fixture_node();
+        variable.kind = ExpressionNodeKind::Variable {
+            parser_id: "fixture.variable".into(),
+        };
+        variable.captures.clear();
+        variable.children.clear();
+        variable.metadata.clear();
+        variable.span = MatchSpan {
+            local_range: TextRange::new(0, 1),
+            mapped: source.map_range(TextRange::new(0, 1)).unwrap(),
+        };
+        let mut literal = variable.clone();
+        literal.kind = ExpressionNodeKind::Literal {
+            parser_id: "core.literal.number".into(),
+        };
+        literal.span = MatchSpan {
+            local_range: TextRange::new(2, 3),
+            mapped: source.map_range(TextRange::new(2, 3)).unwrap(),
+        };
+        let condition = ConditionNode {
+            kind: skript_parser::ConditionNodeKind::Grouped,
+            span: literal.span.clone(),
+            captures: Vec::new(),
+            tags: Vec::new(),
+            mark: 0,
+            marks: Vec::new(),
+            expressions: vec![literal],
+            children: Vec::new(),
+            handler: None,
+            metadata: BTreeMap::new(),
+        };
+        let span = variable.span.clone();
+        let capture = |capture_index, status, value| ParsedCapture {
+            capture_index,
+            binding: skript_parser::RegisteredCaptureBinding {
+                capture_index,
+                parser_id: "fixture.binding".into(),
+                required: false,
+                options: BTreeMap::new(),
+            },
+            result: skript_parser::ParsedCaptureResult {
+                parser_id: "fixture.result".into(),
+                status,
+                span: span.clone(),
+                summary: None,
+                value,
+                diagnostics: Vec::new(),
+                attachments: Vec::new(),
+            },
+        };
+        let captures = vec![
+            capture(9, ParsedCaptureStatus::Failed, None),
+            capture(
+                3,
+                ParsedCaptureStatus::Success,
+                Some(ParsedCaptureValue::Raw("ignored".into())),
+            ),
+            capture(
+                7,
+                ParsedCaptureStatus::Partial,
+                Some(ParsedCaptureValue::Expression(variable)),
+            ),
+            capture(
+                1,
+                ParsedCaptureStatus::Success,
+                Some(ParsedCaptureValue::Condition(condition)),
+            ),
+        ];
+        let mut owned = Vec::new();
+        owned_capture_colors(input, &captures, &mut owned, 2);
+        let mut borrowed = Vec::new();
+        collect_parsed_capture_colors(input, captures.iter().map(Into::into), &mut borrowed, 2);
+        assert_eq!(color_span_values(&borrowed), color_span_values(&owned));
+        assert_eq!(
+            color_span_values(&borrowed),
+            [
+                (0, 1, SourceColor::Variable, 2, 0),
+                (2, 3, SourceColor::Condition, 2, 1),
+                (2, 3, SourceColor::Literal, 3, 2),
+            ]
+        );
+        assert_eq!(
+            render_source_colors(input, &borrowed),
+            render_source_colors(input, &owned)
+        );
+        assert_eq!(
+            render_source_colors(input, &borrowed),
+            "\x1b[38;2;0;255;255mv\x1b[0m \x1b[38;2;255;255;255m1\x1b[0m"
+        );
     }
 
     #[test]
