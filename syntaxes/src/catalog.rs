@@ -13,7 +13,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 use syntax_pattern_parser::syntax::{
     ParseResult, PatternElement, PluralRules, SpannedPatternElement, parse as parse_pattern,
@@ -316,6 +316,7 @@ struct CatalogIndex {
     converters_by_from: HashMap<String, Vec<usize>>,
     converters_by_to: HashMap<String, Vec<usize>>,
     classes_by_name: HashMap<String, usize>,
+    class_ancestors: Vec<OnceLock<HashSet<String>>>,
     type_literals: HashMap<String, Vec<TypeLiteralIndexEntry>>,
     registered_type_patterns: HashMap<String, Vec<RegisteredTypePatternIndexEntry>>,
 }
@@ -546,6 +547,9 @@ impl Catalog {
                 .classes_by_name
                 .insert(class.name.as_str().to_owned(), position);
         }
+        index.class_ancestors = std::iter::repeat_with(OnceLock::new)
+            .take(parts.classes.len())
+            .collect();
 
         Self {
             parts,
@@ -951,28 +955,32 @@ impl Catalog {
             return true;
         }
 
-        let mut pending = VecDeque::from([from]);
-        let mut visited = HashSet::new();
-        while let Some(current) = pending.pop_front() {
-            if !visited.insert(current) {
-                continue;
-            }
-            let Some(class) = self.class(current) else {
-                continue;
-            };
-            let parents = class
-                .super_class
-                .iter()
-                .chain(class.interfaces.iter())
-                .map(|parent| parent.as_str());
-            for parent in parents {
-                if parent == to {
-                    return true;
+        let Some(position) = self.index.classes_by_name.get(from) else {
+            return false;
+        };
+        // The hierarchy belongs to this immutable Catalog. Cache complete
+        // reachability per known source class, not per caller-supplied pair.
+        self.index.class_ancestors[*position]
+            .get_or_init(|| {
+                let mut pending = VecDeque::from([from]);
+                let mut visited = HashSet::new();
+                while let Some(current) = pending.pop_front() {
+                    if !visited.insert(current) {
+                        continue;
+                    }
+                    if let Some(class) = self.class(current) {
+                        pending.extend(
+                            class
+                                .super_class
+                                .iter()
+                                .chain(class.interfaces.iter())
+                                .map(ClassName::as_str),
+                        );
+                    }
                 }
-                pending.push_back(parent);
-            }
-        }
-        false
+                visited.into_iter().map(str::to_owned).collect()
+            })
+            .contains(to)
     }
 
     /// Returns Skript's superclass-chain distance from `subclass` to `superclass`.
@@ -981,6 +989,7 @@ impl Catalog {
     /// first, then only the concrete superclass chain contributes to the distance.
     /// Implemented interfaces therefore use the depth from the class to the end
     /// of that chain, matching Skript's runtime comparator.
+    /// An incomplete or cyclic superclass chain can leave the distance unknown.
     pub fn hierarchy_distance(&self, superclass: &str, subclass: &str) -> Option<u64> {
         if !self.is_class_assignable(subclass, superclass) {
             return None;
@@ -991,11 +1000,17 @@ impl Catalog {
 
         let mut distance = 0_u64;
         let mut current = Some(subclass);
+        let mut remaining = self.index.classes_by_name.len();
         while let Some(class_name) = current {
             if class_name == superclass {
                 break;
             }
+            // A finite chain cannot visit more known classes than the index has.
+            if remaining == 0 {
+                return None;
+            }
             let class = self.class(class_name)?;
+            remaining -= 1;
             current = class.super_class.as_ref().map(ClassName::as_str);
             distance = distance.saturating_add(1);
         }
