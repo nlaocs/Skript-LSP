@@ -7,6 +7,23 @@ use crate::{
 };
 use syntax_pattern_parser::syntax::Span as PatternSpan;
 
+/// Execution was cancelled, independently of syntax mismatch or extension failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("native parsing was cancelled")]
+pub struct ParseCancelled;
+
+/// Finds cancellation through nested parser errors without inspecting message text.
+pub fn parse_cancellation<'a>(
+    mut error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a ParseCancelled> {
+    loop {
+        if let Some(cancelled) = error.downcast_ref::<ParseCancelled>() {
+            return Some(cancelled);
+        }
+        error = error.source()?;
+    }
+}
+
 /// An extension execution failed; this is not an input mismatch or rejection.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("extension {component_id}/{subscription_id} failed during {phase}: {message}")]

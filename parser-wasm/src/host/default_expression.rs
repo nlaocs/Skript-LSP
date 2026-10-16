@@ -37,6 +37,7 @@ pub(super) fn provide(
     );
     if let Err(error) = rollback {
         environment.hooks.pending_fault = None;
+        environment.hooks.pending_cancellation = None;
         return Err(error.to_string());
     }
     match result {
@@ -633,6 +634,7 @@ mod tests {
                 branch_states: Vec::new(),
                 last_candidate: None,
                 pending_fault: None,
+                pending_cancellation: None,
                 effects: empty_effects(),
                 calls: Vec::new(),
                 failures: Vec::new(),

@@ -533,6 +533,8 @@ impl HostConfig {
 #[derive(Debug, Clone, thiserror::Error)]
 /// Host setup, component execution, output validation, or quota failure.
 pub enum HostError {
+    #[error("{0}")]
+    Cancelled(#[from] skript_parser::ParseCancelled),
     #[error("source mapping failed: {message}")]
     SourceMapping { message: String },
     #[error("component {component_id} is unavailable: {reason}")]
@@ -3143,6 +3145,7 @@ struct WasmPatternHooks<'a> {
     branch_states: Vec<PatternBranchState>,
     last_candidate: Option<SavedPatternCandidate>,
     pending_fault: Option<skript_parser::ExtensionFault>,
+    pending_cancellation: Option<skript_parser::ParseCancelled>,
     effects: HookEffects,
     calls: Vec<HookCall>,
     failures: Vec<ComponentFailure>,
@@ -3150,6 +3153,7 @@ struct WasmPatternHooks<'a> {
 
 impl WasmPatternHooks<'_> {
     fn host_error(&mut self, error: impl std::error::Error + 'static) -> String {
+        self.pending_cancellation = skript_parser::parse_cancellation(&error).copied();
         if let Some(fault) = skript_parser::extension_fault(&error).cloned() {
             self.pending_fault = Some(fault.clone());
             self.failures.push(ComponentFailure {
@@ -3517,6 +3521,17 @@ impl WasmPatternHooks<'_> {
     }
 }
 impl PatternMatchHooks for WasmPatternHooks<'_> {
+    fn cancellation_requested(&mut self) -> bool {
+        self.host
+            .native_cancellation
+            .as_ref()
+            .is_some_and(DocumentCancellationToken::native_cancelled)
+    }
+
+    fn take_parse_cancellation(&mut self) -> Option<skript_parser::ParseCancelled> {
+        self.pending_cancellation.take()
+    }
+
     fn take_extension_fault(&mut self) -> Option<skript_parser::ExtensionFault> {
         self.pending_fault.take()
     }
@@ -3875,6 +3890,14 @@ struct DeferredExpressionEffects {
 }
 
 impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
+    fn cancellation_requested(&mut self) -> bool {
+        self.hooks.cancellation_requested()
+    }
+
+    fn take_parse_cancellation(&mut self) -> Option<skript_parser::ParseCancelled> {
+        self.hooks.take_parse_cancellation()
+    }
+
     fn take_extension_fault(&mut self) -> Option<skript_parser::ExtensionFault> {
         self.hooks.pending_fault.take()
     }
@@ -4263,6 +4286,9 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .collect::<Result<Vec<_>, String>>()?;
         let mut unresolved_type_reasons = Vec::new();
         for active_type in &parser_types {
+            if self.hooks.cancellation_requested() {
+                return Err(self.hooks.host_error(skript_parser::ParseCancelled));
+            }
             payload.active_type = Some(active_type.clone());
             payload.type_parser_unresolved.clear();
             payload.type_parser_outcome = None;
@@ -8554,6 +8580,7 @@ fn shared_host_runtime(epoch_tick: Duration) -> Result<Arc<SharedHostRuntime>, H
 pub struct ParserHost {
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
+    native_cancellation: Option<DocumentCancellationToken>,
     state_store: StateStore,
     dynamic_syntax_registry: Option<DynamicSyntaxRegistry>,
     capabilities: Vec<Capability>,
@@ -8594,6 +8621,18 @@ impl ParseRequestKey {
 }
 
 impl ParserHost {
+    fn check_native_cancellation(&self) -> Result<(), HostError> {
+        if self
+            .native_cancellation
+            .as_ref()
+            .is_some_and(DocumentCancellationToken::native_cancelled)
+        {
+            Err(skript_parser::ParseCancelled.into())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Creates a host and synchronously loads the mandatory CoreLibrary component.
     pub fn new(core_library: &[u8], mut config: HostConfig) -> Result<Self, HostError> {
         if core_library.is_empty() {
@@ -8621,6 +8660,7 @@ impl ParserHost {
         let mut host = Self {
             runtime,
             config,
+            native_cancellation: None,
             state_store,
             dynamic_syntax_registry,
             capabilities,
@@ -8728,6 +8768,7 @@ impl ParserHost {
             branch_states: Vec::new(),
             last_candidate: None,
             pending_fault: None,
+            pending_cancellation: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8803,6 +8844,7 @@ impl ParserHost {
             branch_states: Vec::new(),
             last_candidate: None,
             pending_fault: None,
+            pending_cancellation: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -8906,6 +8948,7 @@ impl ParserHost {
             branch_states: Vec::new(),
             last_candidate: None,
             pending_fault: None,
+            pending_cancellation: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -9007,6 +9050,7 @@ impl ParserHost {
             branch_states: Vec::new(),
             last_candidate: None,
             pending_fault: None,
+            pending_cancellation: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -9110,6 +9154,7 @@ impl ParserHost {
             branch_states: Vec::new(),
             last_candidate: None,
             pending_fault: None,
+            pending_cancellation: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -9324,6 +9369,7 @@ impl ParserHost {
             branch_states: Vec::new(),
             last_candidate: None,
             pending_fault: None,
+            pending_cancellation: None,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -10751,6 +10797,7 @@ impl ParserHost {
         let mut results = Vec::with_capacity(requests.len());
         let mut node_count = 0usize;
         for request in requests {
+            self.check_native_cancellation()?;
             let request = inherit_parse_request_context(request, parent_context);
             let key = ParseRequestKey::new(&request, context);
             let mut result = if self.active_parse_requests.contains(&key) {
@@ -11056,6 +11103,11 @@ impl ParserHost {
             let mut candidate_parse_results = BTreeMap::new();
             let mut continuation_base = None;
             let (output, state_invocation, dynamic_update) = loop {
+                if let Err(cancelled) = self.check_native_cancellation() {
+                    transaction
+                        .rollback_to(continuation_base.as_ref().unwrap_or(&dispatch_base))?;
+                    return Err(cancelled);
+                }
                 if calls.len() >= self.config.max_calls_per_dispatch {
                     return Err(HostError::CallQuotaExceeded {
                         limit: self.config.max_calls_per_dispatch,

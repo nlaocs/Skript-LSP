@@ -334,6 +334,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
 
     // Skript initializes every top-level Structure before loading any body.
     for node_id in &request.tree.roots {
+        session.check_cancelled()?;
         let Some(node) = request.tree.get(*node_id) else {
             continue;
         };
@@ -404,6 +405,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
     }
 
     for item in pending {
+        session.check_cancelled()?;
         let Some(StructureDocumentNode::Structure(matches)) = roots.get_mut(item.root_index) else {
             continue;
         };
@@ -425,6 +427,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         let mut best_rejection = None;
 
         while !candidates.is_empty() {
+            session.check_cancelled()?;
             let (mut candidate, initialized) = candidates.remove(0);
             session.replace_context(document_context.clone());
             session
@@ -663,6 +666,7 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
     let mut selected_body_mode = None;
 
     for matched in ranked.drain(..) {
+        session.check_cancelled()?;
         session.replace_context(initial_context.clone());
         session
             .begin_semantic_candidate()
@@ -1072,6 +1076,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
     let mut seen = BTreeSet::new();
     let mut valid = true;
     for child_id in &parent.children {
+        session.check_cancelled()?;
         let Some(child) = tree.get(*child_id) else {
             continue;
         };
@@ -1469,10 +1474,22 @@ fn section_diagnostic_to_structure(value: SectionDiagnostic) -> StructureDiagnos
 }
 
 fn nested_structure_error(error: impl std::error::Error + 'static) -> StructureParseError {
+    if let Some(cancelled) = crate::parse_cancellation(&error) {
+        return ExpressionParseError::from(*cancelled).into();
+    }
     match crate::extension_fault(&error).cloned() {
         Some(fault) => ExpressionParseError::ExtensionFault(fault).into(),
         None => StructureParseError::Body {
             message: error.to_string(),
         },
     }
+}
+
+#[cfg(test)]
+#[test]
+fn nested_body_cancellation_preserves_its_typed_cause() {
+    let error = crate::SectionParseError::Expression(crate::ParseCancelled.into());
+    let error = nested_structure_error(error);
+    assert!(crate::parse_cancellation(&error).is_some());
+    assert!(crate::extension_fault(&error).is_none());
 }

@@ -35,6 +35,10 @@ use thiserror::Error;
 #[path = "expression/capture_view_tests.rs"]
 mod capture_view_tests;
 
+#[cfg(test)]
+#[path = "expression/cancellation_tests.rs"]
+mod cancellation_tests;
+
 /// Stable parser context included in recursive-expression memo keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ExpressionParseContext {
@@ -1440,6 +1444,8 @@ impl ExpressionParseEnvironment for NoopExpressionEnvironment {
 #[derive(Debug, Clone, Error)]
 pub enum ExpressionParseError {
     #[error("{0}")]
+    Cancelled(#[from] crate::ParseCancelled),
+    #[error("{0}")]
     ExtensionFault(#[from] crate::ExtensionFault),
     #[error("invalid expression input range {range}")]
     InvalidInputRange { range: TextRange },
@@ -1515,6 +1521,7 @@ pub(crate) struct RecoveryCheckpoint {
 }
 
 pub(crate) struct ExpressionSession<'a, E> {
+    forwarded_cancellation: Option<crate::ParseCancelled>,
     forwarded_fault: Option<crate::ExtensionFault>,
     catalog: &'a Catalog,
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
@@ -1660,6 +1667,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         &mut self,
         node: &ExpressionNode,
     ) -> Result<(), ExpressionParseError> {
+        self.check_cancelled()?;
         if let Some(effects) = &node.effects {
             self.environment
                 .apply_expression_effects(effects)
@@ -1734,6 +1742,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         let pattern_prefilters = pattern_prefilter_index(&registered_candidates);
         let pattern_initials = pattern_initial_index(&registered_candidates, &pattern_prefilters);
         ExpressionSession {
+            forwarded_cancellation: None,
             forwarded_fault: None,
             catalog,
             dynamic_snapshot,
@@ -2180,6 +2189,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         depth: usize,
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
+        self.check_cancelled()?;
         if depth > self.config.max_depth {
             return Err(ExpressionParseError::DepthLimit {
                 limit: self.config.max_depth,
@@ -2290,6 +2300,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         include_leaves: bool,
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
+        self.check_cancelled()?;
         let mut candidates = Vec::new();
         let mut deferred_candidates = Vec::new();
         let mut failure = None;
@@ -2493,6 +2504,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 let first_candidate = candidates.len();
                 failure = choose_failure_trace(failure, matched.primary_failure().cloned());
                 for matched in matched.selected.into_iter().chain(matched.alternatives) {
+                    self.check_cancelled()?;
                     self.begin_semantic_candidate()
                         .map_err(|message| self.environment_error(message))?;
                     let resolution: Result<_, ExpressionParseError> = (|| {
@@ -4060,6 +4072,9 @@ fn expression_failure_ranges(
 }
 
 fn nested_expression_error(error: impl std::error::Error + 'static) -> ExpressionParseError {
+    if let Some(cancelled) = crate::parse_cancellation(&error) {
+        return (*cancelled).into();
+    }
     crate::extension_fault(&error).cloned().map_or_else(
         || ExpressionParseError::Environment {
             message: error.to_string(),
@@ -4085,6 +4100,25 @@ fn list_return_type(catalog: &Catalog, children: &[ExpressionNode]) -> Option<Cl
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
+    fn cancellation_requested(&mut self) -> bool {
+        let cancelled = self.environment.cancellation_requested();
+        if cancelled {
+            self.memo.clear();
+        }
+        cancelled
+    }
+
+    fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
+        let cancelled = self
+            .forwarded_cancellation
+            .take()
+            .or_else(|| self.environment.take_parse_cancellation());
+        if cancelled.is_some() {
+            self.memo.clear();
+        }
+        cancelled
+    }
+
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
         self.forwarded_fault
             .take()
@@ -4174,7 +4208,18 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
 }
 
 impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
+    pub(crate) fn check_cancelled(&mut self) -> Result<(), ExpressionParseError> {
+        if self.cancellation_requested() {
+            Err(crate::ParseCancelled.into())
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn environment_error(&mut self, message: String) -> ExpressionParseError {
+        if let Some(cancelled) = self.take_parse_cancellation() {
+            return cancelled.into();
+        }
         self.environment.take_extension_fault().map_or(
             ExpressionParseError::Environment { message },
             ExpressionParseError::ExtensionFault,
@@ -4182,6 +4227,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
     }
 
     fn forward_environment_error(&mut self, error: ExpressionParseError) -> String {
+        self.forwarded_cancellation = crate::parse_cancellation(&error).copied();
         self.forwarded_fault = crate::extension_fault(&error).cloned();
         error.to_string()
     }
@@ -4199,6 +4245,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             .dynamic_handler_for_registration(&candidate.registration_id)
             .map(str::to_owned);
         for capture in &mut matched.captures {
+            self.check_cancelled()?;
             let PatternCapture::TypeExpression {
                 capture_index,
                 pattern_span,
