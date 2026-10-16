@@ -8,6 +8,8 @@ mod ast_macro;
 mod ast_tree;
 #[cfg(test)]
 mod capture_view_tests;
+#[cfg(test)]
+mod checkpoint_tests;
 mod default_expression;
 mod document;
 mod public_data;
@@ -3069,15 +3071,19 @@ fn type_selector_match(
 #[derive(Debug, Clone)]
 struct HookEffectsCheckpoint {
     effects: HookEffects,
-    calls: Vec<HookCall>,
+    calls: Arc<Vec<HookCall>>,
     failures: Vec<ComponentFailure>,
 }
 
 impl HookEffectsCheckpoint {
-    fn capture(effects: &HookEffects, calls: &[HookCall], failures: &[ComponentFailure]) -> Self {
+    fn capture(
+        effects: &HookEffects,
+        calls: &Arc<Vec<HookCall>>,
+        failures: &[ComponentFailure],
+    ) -> Self {
         Self {
             effects: effects.clone(),
-            calls: calls.to_vec(),
+            calls: Arc::clone(calls),
             failures: failures.to_vec(),
         }
     }
@@ -3085,13 +3091,20 @@ impl HookEffectsCheckpoint {
     fn restore(
         &self,
         effects: &mut HookEffects,
-        calls: &mut Vec<HookCall>,
+        calls: &mut Arc<Vec<HookCall>>,
         failures: &mut Vec<ComponentFailure>,
     ) {
         effects.clone_from(&self.effects);
         calls.clone_from(&self.calls);
         // Failures are observations, not adopted semantic effects.
         debug_assert!(failures.len() >= self.failures.len());
+    }
+}
+
+fn extend_hook_calls(calls: &mut Arc<Vec<HookCall>>, added: Vec<HookCall>) {
+    // Empty dispatch results must not detach a shared checkpoint.
+    if !added.is_empty() {
+        Arc::make_mut(calls).extend(added);
     }
 }
 
@@ -3147,7 +3160,7 @@ struct WasmPatternHooks<'a> {
     pending_fault: Option<skript_parser::ExtensionFault>,
     pending_cancellation: Option<skript_parser::ParseCancelled>,
     effects: HookEffects,
-    calls: Vec<HookCall>,
+    calls: Arc<Vec<HookCall>>,
     failures: Vec<ComponentFailure>,
 }
 
@@ -3167,7 +3180,7 @@ impl WasmPatternHooks<'_> {
     }
 
     fn checked_dispatch(&mut self, mut result: DispatchResult) -> Result<DispatchResult, String> {
-        self.calls.append(&mut result.calls);
+        extend_hook_calls(&mut self.calls, mem::take(&mut result.calls));
         self.failures.append(&mut result.failures);
         if let Some(fault) = result.fault.take() {
             let message = fault.to_string();
@@ -3389,7 +3402,11 @@ impl WasmPatternHooks<'_> {
     }
 
     fn into_parts(self) -> (HookEffects, Vec<HookCall>, Vec<ComponentFailure>) {
-        (self.effects, self.calls, self.failures)
+        (
+            self.effects,
+            Arc::unwrap_or_clone(self.calls),
+            self.failures,
+        )
     }
 
     fn resolve_condition_candidate(
@@ -3431,7 +3448,7 @@ impl WasmPatternHooks<'_> {
         let updates = result.effects.context_updates.clone();
         let result = self.checked_dispatch(result)?;
         merge_effects(&mut self.effects, result.effects);
-        self.calls.extend(result.calls);
+        extend_hook_calls(&mut self.calls, result.calls);
         self.failures.extend(result.failures);
         let HookPayload::Condition(output) = result.payload else {
             return Err("Condition hook returned a different payload kind".to_owned());
@@ -3497,7 +3514,7 @@ impl WasmPatternHooks<'_> {
         let updates = result.effects.context_updates.clone();
         let result = self.checked_dispatch(result)?;
         merge_effects(&mut self.effects, result.effects);
-        self.calls.extend(result.calls);
+        extend_hook_calls(&mut self.calls, result.calls);
         self.failures.extend(result.failures);
         let HookPayload::Effect(output) = result.payload else {
             return Err("Effect hook returned a different payload kind".to_owned());
@@ -3757,7 +3774,7 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
             .map_err(|error| self.host_error(error))?;
         let result = self.checked_dispatch(result)?;
         merge_effects(&mut self.effects, result.effects);
-        self.calls.extend(result.calls);
+        extend_hook_calls(&mut self.calls, result.calls);
         self.failures.extend(result.failures);
 
         let HookPayload::Matching(output) = result.payload else {
@@ -4011,7 +4028,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .map_err(|error| self.hooks.host_error(error))?
         {
             merge_effects(&mut self.hooks.effects, effects.effects.clone());
-            self.hooks.calls.extend(effects.calls.clone());
+            extend_hook_calls(&mut self.hooks.calls, effects.calls.clone());
             self.hooks.failures.extend(effects.failures.clone());
         }
         Ok(())
@@ -4248,7 +4265,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
+        extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         if let HookDecision::Reject(rejection) = result.decision {
             self.pending_leaf = Some((leaf_savepoint, effects_checkpoint));
@@ -4342,7 +4359,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 semantic_rejection_diagnostics(&result.decision, &result.effects)?;
             let result = self.hooks.checked_dispatch(result)?;
             merge_effects(&mut self.hooks.effects, result.effects);
-            self.hooks.calls.extend(result.calls);
+            extend_hook_calls(&mut self.hooks.calls, result.calls);
             self.hooks.failures.extend(result.failures);
             if let HookDecision::Reject(rejection) = result.decision {
                 self.hooks
@@ -4632,7 +4649,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
+        extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         self.pending_registered = Some((savepoint, effects_checkpoint));
 
@@ -4744,7 +4761,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let updates = result.effects.context_updates.clone();
         let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
+        extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Section(output) = result.payload else {
             return Err("Section hook returned a different payload kind".to_owned());
@@ -4815,7 +4832,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let updates = result.effects.context_updates.clone();
         let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
+        extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Section(output) = result.payload else {
             return Err("Section hook returned a different payload kind".to_owned());
@@ -4877,7 +4894,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let updates = result.effects.context_updates.clone();
         let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
+        extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Structure(output) = result.payload else {
             return Err("Structure hook returned a different payload kind".to_owned());
@@ -4968,7 +4985,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let result = self.hooks.checked_dispatch(result)?;
         merge_effects(&mut self.hooks.effects, result.effects);
-        self.hooks.calls.extend(result.calls);
+        extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Structure(output) = result.payload else {
             return Err("Structure hook returned a different payload kind".to_owned());
@@ -8770,7 +8787,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             effects: empty_effects(),
-            calls: Vec::new(),
+            calls: Arc::default(),
             failures: Vec::new(),
         };
         let result = run_pattern_matcher(input, candidates, resolver, &mut hooks, config);
@@ -8846,7 +8863,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             effects: empty_effects(),
-            calls: Vec::new(),
+            calls: Arc::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -8950,7 +8967,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             effects: empty_effects(),
-            calls: Vec::new(),
+            calls: Arc::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -9052,7 +9069,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             effects: empty_effects(),
-            calls: Vec::new(),
+            calls: Arc::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -9156,7 +9173,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             effects: empty_effects(),
-            calls: Vec::new(),
+            calls: Arc::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -9371,7 +9388,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             effects: empty_effects(),
-            calls: Vec::new(),
+            calls: Arc::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
