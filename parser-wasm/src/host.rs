@@ -3104,7 +3104,13 @@ impl HookEffectsCheckpoint {
 fn extend_hook_calls(calls: &mut Arc<Vec<HookCall>>, added: Vec<HookCall>) {
     // Empty dispatch results must not detach a shared checkpoint.
     if !added.is_empty() {
-        Arc::make_mut(calls).extend(added);
+        let was_shared = Arc::strong_count(calls) > 1;
+        let calls = Arc::make_mut(calls);
+        // Checkpoints retain each detached Vec, including its unused capacity.
+        if was_shared {
+            calls.reserve_exact(added.len());
+        }
+        calls.extend(added);
     }
 }
 

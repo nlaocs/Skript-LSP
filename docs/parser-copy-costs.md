@@ -1,5 +1,9 @@
 # パーサーのコピー費用とHookCallログの世代共有
 
+releaseでの再比較、peak RSS、生存要求量、保持寿命とCOW時の容量確保は
+[最終検証](parser-copy-costs-final-validation.md) に記録した。
+以下は容量調整前の測定で、最終候補の数値とは区別する。
+
 ## 変更と採用範囲
 
 PR #130のmerge後のmain `f7ffc78c362149c14d1b66eba2170a7ab4c0d0a6` を基準に、
