@@ -17,10 +17,10 @@ on ordinary success and typed error paths, before mapping the document result.
 
 Probes run before matcher/candidate work, matcher states and regex endpoints,
 Expression recursion and memo lookup, Function candidates and default capture
-completion, semantic candidate scopes, Structure/Section/Entry nodes, Type dispatch and each
-AdditionalParse request. Each syntax guest invocation or continuation also
-checks before opening its invocation. Probes neither consume existing matcher
-quotas nor reorder candidates.
+completion, semantic candidate scopes, Structure/Section/Entry nodes, Type
+dispatch and each AdditionalParse request. Each syntax guest invocation or
+continuation also checks before opening its invocation. Probes neither consume
+existing matcher quotas nor reorder candidates.
 
 `ParseCancelled` is a dedicated Rust error cause. Matcher, Expression and host
 error enums add a `Cancelled` variant; exhaustive downstream Rust matches need
@@ -74,20 +74,28 @@ The SSG main checked on 2026-10-16 is still the audited
 `27366cdeff5b120b0cafe4ef21a79ed7788eb8e9`: `ConverterCollector` reads the hook
 map, while `HookManager.init` logs initialization failure without returning a
 collection outcome to Snapshot generation. A producer failure signal and the
-consumer's handling of unavailable domains need a separate cross-repository
-scope decision.
+consumer's handling of unavailable domains are deferred from this PR and need
+their own cross-repository scope.
 
 The known FunctionCall argument-binding omission in the final AstTree/ParseResult
 projection remains separate from capture equivalence and cancellation.
 
 ## Regression coverage
 
-Nine cancellation tests cover typed nested errors and the String forwarding
+Ten cancellation tests cover typed nested errors and the String forwarding
 channel, cancellation before a memo hit, matcher cleanup, cleanup-failure
 priority, nested Structure bodies, native document interruption/next revision,
 pending StateStore rollback, dispatch before the first guest, and cancellation
 inside a fresh builtin AdditionalParse session. The last two include uncancelled
 controls proving that their targets perform real work.
+
+The additional `cancellation_during_recursive_work_is_not_memoized` test requests
+cancellation in an inner literal callback while parsing `(x)`. With registered
+Expressions disabled, the inner parse accepts a literal and inserts a nonempty
+memo seed. The next seed-growth pass observes cancellation. The typed error
+unwinds both nested active keys, and the test asserts that memo and active keys
+are empty. This covers interrupted exploration separately from the memo-hit
+test; no failed or partial cancellation result is retained.
 
 The document tests use a `cfg(test)` probe budget, rather than wall-clock sleeps
 or a production work limit, to request cancellation reproducibly inside syntax
@@ -99,18 +107,21 @@ state, restore the host token, unfreeze dynamic syntax, discard the Function
 registry, and permit a successful next revision. A separate test seeds a real
 pending StateStore write and verifies it is absent after document rollback.
 
+Initial regression runs at `984f48c`, before publication-preparation additions:
+
 | Run | Passed | Failed | Ignored |
 | --- | ---: | ---: | ---: |
 | Three affected crates, including doctests | 658 | 0 | 7 |
 | Final document tests after the last two test-only additions | 5 | 0 | 0 |
 
-Three document tests repeat the first run; the final two add dispatch and
+Three document tests repeated the first run; the final two added dispatch and
 AdditionalParse position controls. Thus 660 distinct regression tests passed
-across the runs. No production Rust source changed between these runs or after
-the no-cancellation measurement. All 14 changed Rust files match the final LXC
-copy by SHA-256; the measured source differs only by the two final `cfg(test)`
-test functions. Formatting and diff-whitespace checks pass. Full-workspace CI,
-native Windows execution and release-profile performance were not run.
+across those runs. No production Rust source changed between those runs or after
+the no-cancellation measurement. All 14 changed Rust files matched the LXC
+copy by SHA-256 at `984f48c`; its measured source differed only by the two final
+`cfg(test)` test functions. Those initial runs did not cover full-workspace CI,
+native Windows execution or release-profile performance. The later verification
+below records the publication-preparation additions.
 
 Printed `native-cancel` elapsed times start before the whole parse, including
 preprocessing before the request is triggered. They are diagnostic single
@@ -149,8 +160,10 @@ does not establish release overhead, allocation counts or peak memory.
 The first binary-copy attempt ran out of disk space before any sample ran.
 The task's redundant baseline build target was removed while source, frozen
 binaries and prior evidence were retained. A hardlink to the completed native
-test executable avoids duplicating it. The comparison then ran once; its
+test executable avoided duplicating it. The comparison then ran once; its
 failed setup log is retained separately from the complete sample logs.
+Before later CI builds, the fixed native binary was detached into an independent
+copy and its SHA-256 rechecked to protect the measured bytes from Cargo writes.
 
 Milliseconds per document, median [minimum, maximum] over 15 samples per mode:
 
@@ -187,3 +200,63 @@ described in the linked measurement, then run:
 python3 utilities/skript-repl/tests/measurements/run_capture_pipeline.py \
   BORROWED_ONLY_TEST_BINARY NATIVE_CANCEL_TEST_BINARY NEW_OUTPUT_DIRECTORY
 ```
+
+## Publication-preparation verification
+
+The additional memo-seed test is committed as `6c5bb6b`. Production Rust code is
+unchanged from `984f48c`. The PR path in `.github/workflows/ci.yml` rebuilds
+CoreLibrary and the parser test components, then runs workspace tests with all
+features, including doctests. There is no fmt or clippy job in that workflow.
+The local verification uses the existing Debian 13 LXC and Rust 1.97.1; the
+workflow's runner is `ubuntu-latest` with the stable toolchain.
+
+```sh
+cargo run -p xtask --locked --offline -- build-core-library
+cargo run -p xtask --locked --offline -- build-test-components
+cargo test --workspace --all-features --locked --offline --jobs 2 -- \
+  --test-threads=2
+```
+
+The two build commands inherit two Cargo jobs and niceness 10. Test-profile
+assertions, overflow checks and `opt-level=1` are retained, with line-table debug
+information and incremental compilation disabled. The local run adds offline
+mode and limits runtime test threads to two. All 542 tracked files in the source
+archive for `6c5bb6b` were checked by SHA-256 before building, before the retry
+and after testing; all three manifests agree.
+
+Both artifact-build commands exited successfully. The workspace run completed
+with **1194 passed, zero failed and seven ignored** across 84 test-result groups,
+including doctests. These are the final workspace results, not a sum with the
+earlier three-crate runs. All 12 WASM artifacts were byte-identical before the
+rebuild and after testing, including the previously measured CoreLibrary. The
+three fixed document-pipeline binaries also retained their recorded SHA-256.
+
+The first workspace attempt failed during compilation with `ENOSPC` (exit 101),
+before tests ran. After that process exited, 84 old ELF test executables totaling
+9,051,887,264 bytes were removed only from this task's
+`target-candidate/debug/deps` directory. Paths, sizes, inodes and SHA-256 were
+recorded before removal; source, rlibs and fixed measurement binaries were kept.
+The same source and workspace command then completed successfully. The original
+failure and recovery records remain alongside the successful retry logs. This
+is local CI-equivalent verification, not a hosted GitHub Actions result.
+
+On Windows x86_64 MSVC, Rust 1.97.1 ran the existing native cancellation targets:
+
+```sh
+cargo test -p skript-parser --lib --test pattern_match --locked --offline \
+  --jobs 1 cancellation -- --nocapture --test-threads=1
+```
+
+All six selected tests passed (four library and two matcher integration tests),
+with zero failures. The process used BelowNormal priority, a separate local
+target directory, one Cargo job and one runtime test thread. The same test
+profile settings were used. This verifies the native cancellation paths on
+Windows; the WASM host and full workspace were not run on Windows. No RVC
+process or system setting was changed.
+
+The manual [release traversal follow-up](capture-view-measurement.md#release-traversal-follow-up-2026-10-16-utc)
+also completed successfully: 150 batches, all 75 paired checksums equal. It is
+the same preconstructed-tree read traversal, not a release document pipeline or
+a cancellation response test. The full release document/WASM pipeline was not
+built or measured because of its additional build/cache cost. Release
+cancellation overhead and request-to-stop latency therefore remain unverified.

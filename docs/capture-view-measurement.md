@@ -55,6 +55,42 @@ All scenarios returned equal traversal checksums. These values describe the
 synthetic read traversal above; they are not estimates of document parse latency.
 The [raw samples](capture-view-samples.csv) contain all 150 batches.
 
+## Release traversal follow-up (2026-10-16 UTC)
+
+The same synthetic traversal harness was run at `6c5bb6b` using the default
+`--release` profile, with no release-profile overrides. Production Rust remains
+unchanged from `984f48c`. It keeps the frozen pre-change owning algorithm and
+borrowed iterator in one binary, using the same five warmups, 15 alternating
+samples per mode and 50 traversals per sample. The machine, toolchain and
+uncontrolled CPU/page-cache conditions are the same as above. Compilation used
+one Cargo job and niceness 10, after all workspace/Windows tests had finished;
+no build overlapped measurement.
+
+```sh
+CARGO_INCREMENTAL=0 cargo test -p skript-parser --release --lib --locked \
+  --offline --jobs 1 measure_capture_traversal -- \
+  --ignored --nocapture --test-threads=1
+```
+
+Microseconds per traversal, median [minimum, maximum] over 15 samples per mode:
+
+| Shape | Owning | Borrowed |
+| --- | ---: | ---: |
+| chain-8 | 24.497 [23.778, 25.372] | 0.026 [0.025, 0.028] |
+| chain-32 | 322.114 [314.866, 394.355] | 0.111 [0.101, 0.247] |
+| chain-128 | 5902.033 [5527.467, 6453.541] | 0.808 [0.726, 0.933] |
+| wide-128 | 160.313 [157.035, 190.517] | 0.377 [0.361, 0.398] |
+| routed-condition-32 | 371.482 [361.256, 376.253] | 0.117 [0.109, 0.124] |
+
+All 75 paired checksums agree. The
+[raw release samples](capture-view-release-samples.csv) contain all 150 batches;
+the complete log and binary SHA-256 are retained with the evidence. These values
+measure only the synthetic read traversal. A release document/WASM pipeline
+build was not attempted because of its additional build/cache cost. Release
+document speed, cancellation overhead, request-to-stop latency, allocation
+counts and peak memory remain unmeasured. This does not establish whole-parser
+linear complexity or a pipeline speedup factor.
+
 ## Regression verification
 
 | Run | Passed | Failed | Ignored |
@@ -69,7 +105,9 @@ ignored entries; one is the manually run microbenchmark. Seven equivalence
 tests were added. All 12 test WASM artifacts were rebuilt from the baseline
 source and held fixed. Baseline and candidate used distinct target directories;
 new test names and source hashes were checked. Formatting and diff whitespace
-checks passed. Full-workspace CI and native Windows execution were not run.
+checks passed. These initial runs did not include full-workspace CI or native
+Windows execution; later verification is recorded in
+[native cancellation](native-cancellation.md).
 An import-only cleanup was followed by another REPL suite run: 114 passed,
 zero failed, two ignored; this repeat is excluded from the 651 total. The six
 changed Rust source files matched the measured/tested copy by SHA-256.
