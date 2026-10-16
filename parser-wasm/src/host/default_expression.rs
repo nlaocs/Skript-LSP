@@ -206,7 +206,7 @@ fn provide_inner(
         effects: None,
     };
     merge_effects(&mut environment.hooks.effects, result.effects);
-    environment.hooks.calls.extend(result.calls);
+    extend_hook_calls(&mut environment.hooks.calls, result.calls);
     Ok(Decision::Resolved(Box::new(resolution)))
 }
 
@@ -636,7 +636,7 @@ mod tests {
                 pending_fault: None,
                 pending_cancellation: None,
                 effects: empty_effects(),
-                calls: Vec::new(),
+                calls: Arc::default(),
                 failures: Vec::new(),
             },
             pending_leaf: None,

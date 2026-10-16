@@ -1,0 +1,13 @@
+mode,case,revision,allocation_requests,requested_bytes,reallocation_requests,deallocations
+baseline,doc-message-event,1,592402,90973719,85386,496776
+baseline,doc-message-event,2,522649,39265181,75937,446285
+baseline,short-teleport,1,1881425,182381815,82986,1795331
+baseline,short-teleport,2,1877952,181607341,82587,1794361
+baseline,research-teleport,1,45983647,3582364565,756413,45222347
+baseline,research-teleport,2,45979505,3581522857,756059,45220882
+candidate,doc-message-event,1,591892,90961984,85421,496229
+candidate,doc-message-event,2,522139,39253446,75972,445738
+candidate,short-teleport,1,1810565,180569586,83796,1723659
+candidate,short-teleport,2,1807092,179795112,83397,1722689
+candidate,research-teleport,1,36692642,3289387491,768689,35919064
+candidate,research-teleport,2,36688500,3288545783,768335,35917599
