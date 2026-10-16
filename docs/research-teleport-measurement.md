@@ -1,10 +1,10 @@
 # Catalog class reachability reuse
 
-The local `perf/research-teleport` branch starts at
+The measurements used `perf/research-teleport`, originally created from
 `ec4e47ccb5bd32fd6460de7618fec7eeb80d7a2f`, the head of
 [PR #129](https://github.com/nlaocs/Skript-LSP/pull/129). That PR was open and
-unmerged when this branch was created. This follow-up has not been pushed or
-opened as another PR.
+unmerged when this branch was created. The follow-up was local and unpublished
+when these measurements were recorded.
 
 ## Reproduction and timing boundaries
 
