@@ -415,6 +415,118 @@ fn class_assignability_terminates_on_cycles() {
 }
 
 #[test]
+fn class_reachability_keeps_missing_parents_and_catalogs_separate() {
+    let mut original = parts();
+    original.classes = vec![class("test.Leaf", Some("test.MissingParent"), &[])];
+    let catalog = Catalog::new(original);
+    assert!(!catalog.is_class_assignable("test.Leaf", "test.Other"));
+    assert!(catalog.is_class_assignable("test.Leaf", "test.MissingParent"));
+    assert!(!catalog.is_class_assignable("test.MissingParent", "java.lang.Object"));
+    assert!(catalog.is_class_assignable("test.MissingParent", "test.MissingParent"));
+    let cloned = catalog.clone();
+
+    let mut different = parts();
+    different.classes = vec![class("test.Leaf", None, &[])];
+    let different = Catalog::new(different);
+    assert!(!different.is_class_assignable("test.Leaf", "test.MissingParent"));
+    assert!(cloned.is_class_assignable("test.Leaf", "test.MissingParent"));
+}
+
+// Freeze the pre-cache query algorithm independently of the cached closure.
+fn reference_class_assignability(catalog: &Catalog, from: &str, to: &str) -> bool {
+    use std::collections::{HashSet, VecDeque};
+    if from == to {
+        return true;
+    }
+    if to == "java.lang.Object"
+        && catalog
+            .class(from)
+            .is_some_and(|class| class.kind != ClassKind::Primitive)
+    {
+        return true;
+    }
+    let mut pending = VecDeque::from([from]);
+    let mut visited = HashSet::new();
+    while let Some(current) = pending.pop_front() {
+        if !visited.insert(current) {
+            continue;
+        }
+        if let Some(class) = catalog.class(current) {
+            for parent in class.super_class.iter().chain(class.interfaces.iter()) {
+                if parent.as_str() == to {
+                    return true;
+                }
+                pending.push_back(parent.as_str());
+            }
+        }
+    }
+    false
+}
+
+#[test]
+fn class_reachability_matches_frozen_queries_cold_warm_cloned_and_concurrent() {
+    let names = (0..8)
+        .map(|index| format!("test.C{index}"))
+        .collect::<Vec<_>>();
+    let mut queries = names.clone();
+    queries.extend([
+        "test.MissingParent".to_owned(),
+        "java.lang.Object".to_owned(),
+    ]);
+    for seed in 0..32 {
+        let mut data = parts();
+        for (index, name) in names.iter().enumerate() {
+            let parent = if (seed + index) % 3 == 0 {
+                "test.MissingParent"
+            } else {
+                &names[(seed + index * 3) % names.len()]
+            };
+            let mut value = class(
+                name,
+                Some(parent),
+                &[&names[(seed * 3 + index) % names.len()]],
+            );
+            value.kind = match (seed + index) % 4 {
+                0 => ClassKind::Primitive,
+                1 => ClassKind::Interface,
+                2 => ClassKind::Array,
+                _ => ClassKind::Class,
+            };
+            data.classes.push(value);
+        }
+        let catalog = Catalog::new(data);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let catalog = &catalog;
+                let queries = &queries;
+                scope.spawn(move || {
+                    for _ in 0..2 {
+                        for from in queries {
+                            for to in queries {
+                                assert_eq!(
+                                    catalog.is_class_assignable(from, to),
+                                    reference_class_assignability(catalog, from, to),
+                                    "seed {seed}: {from} -> {to}"
+                                );
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        let cloned = catalog.clone();
+        for from in &queries {
+            for to in &queries {
+                assert_eq!(
+                    cloned.is_class_assignable(from, to),
+                    reference_class_assignability(&catalog, from, to)
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn known_java_reference_types_are_assignable_to_object() {
     let mut interface = class("test.Named", None, &[]);
     interface.kind = ClassKind::Interface;

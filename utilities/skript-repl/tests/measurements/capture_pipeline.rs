@@ -90,6 +90,13 @@ fn measure() {
             let mut hash = DefaultHasher::new();
             hash.write(observation.to_string().as_bytes());
             checksum = hash.finish();
+            if iteration == 0 {
+                println!(
+                    "capture-pipeline-first,{suffix},{sample},1,{},{},{checksum}",
+                    parse_elapsed.as_nanos(),
+                    report_elapsed.as_nanos()
+                );
+            }
             if iteration >= 1 {
                 parse_ns += parse_elapsed.as_nanos();
                 report_ns += report_elapsed.as_nanos();
