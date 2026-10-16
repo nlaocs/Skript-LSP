@@ -33,7 +33,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.39.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.40.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -82,8 +82,9 @@ host側で索引化するruntime Type pattern照合の追加で0.32.0へ、read-
 追加で0.33.0へ、hygiene付きAST macroの追加で0.34.0へ、型付きdefault provider、capture状態、
 implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefaultExpression descriptorの
 追加で0.36.0へ、SSG runtime snapshot capabilityの追加で0.37.0へ、host側の
-完全一致Alias・BlockData検索の追加で0.38.0へ、構造化Function leaf callの追加で0.39.0へ変わりました。
-manifestの現在の`abi`値は21.0で、
+完全一致Alias・BlockData検索の追加で0.38.0へ、構造化Function leaf callの追加で0.39.0へ、
+最終ASTと追加解析nodeへのFunction binding投影で0.40.0へ変わりました。
+manifestの現在の`abi`値は22.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -98,6 +99,17 @@ host-token/root-ID child参照内の連続範囲を所有します。入力名�
 Function情報は不正なhook出力として拒否し、providerのstateをrollbackします。
 他のleaf種別は`function = none`とし、native側も同じ`FunctionCall`を使います。
 このWIT/ABI変更ではCoreLibraryと外部componentの再ビルドが必要です。
+WIT 0.39.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
+`@0.39.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 21.0の
+componentは、必要なABI 22.0を示すhandshake診断で拒否されます。
+現行WITとSDKを使って再ビルドしてください。manifestのversion変更だけでは移行できません。
+
+最終結果の`ast-node.function`と`parse-result-node.function`も同じbindingを保持します。
+引数範囲は、そのnodeの`children`配列内の位置でありarena IDではありません。
+Grouped自身はbindingを持たず、内側のFunction nodeが所有します。成功Functionにはcall情報が必須です。
+Partial/FailedなFunction結果は未確定のcall情報を省略できますが、渡された情報は常に検証します。
+AST macroはFunctionの各childを1個で置換するか、整合するbindingを含めてFunction全体を置換します。
+document JSONでもnodeごとの`function`にcall情報を公開します。
 
 capabilityはclosed enumではなく、安定した文字列IDと独立した整数versionで表します。
 新しいcomponentが未知のcapabilityを記述しても、古いhostがmanifestをliftできます。

@@ -746,6 +746,12 @@ fn validate_ast_tree(
             ));
         }
         validate_metadata(&node.metadata)?;
+        validate_projected_function(
+            matches!(node.kind, SyntaxKind::Function),
+            true,
+            node.function.as_ref(),
+            node.children.len(),
+        )?;
         if let Some(summary) = &node.summary {
             validate_metadata(&summary.metadata)?;
             public_data::validate(&summary.public_data)?;
@@ -1228,6 +1234,9 @@ fn validate_parent_capture_replacement(
     let parent = ast_node_at_path(tree, &path[..path.len() - 1])
         .and_then(|id| ast_node(tree, id))
         .ok_or_else(|| "AST replacement parent does not exist".to_owned())?;
+    if parent.function.is_some() && replacement_count != 1 {
+        return Err("Function argument children require exactly one replacement node".to_owned());
+    }
     for capture in &parent.captures {
         if matches!(capture.value, CaptureValue::Node(id) if id == target) && replacement_count != 1
         {
@@ -1372,6 +1381,7 @@ fn hash_ast_subtree(id: u64, nodes: &HashMap<u64, &AstNode>, digest: &mut Sha256
     hash_mapped_span(&node.span, digest);
     hash_debug(&node.context_origin, digest);
     hash_debug(&node.summary, digest);
+    hash_debug(&node.function, digest);
     hash_len(node.captures.len(), digest);
     for capture in &node.captures {
         hash_text(&capture.name, digest);
@@ -1463,6 +1473,78 @@ fn ast_macro_output_size(output: &AstMacroOutput) -> usize {
             | HookDecision::ContinueProcessing
             | HookDecision::Handled => 0,
         })
+}
+
+#[cfg(test)]
+mod function_binding_tests {
+    use super::*;
+
+    fn tree() -> (MappedSource, AstTree) {
+        let (source, root, _) = crate::host::capture_view_tests::fixture();
+        let tree = ast_tree::expression_for_test(&source, &root.children[0]);
+        (source, tree)
+    }
+
+    #[test]
+    fn ast_function_bindings_are_validated_even_without_captures() {
+        let (source, tree) = tree();
+        let id = tree.roots[0] as usize;
+        let mut valid = tree.clone();
+        valid.nodes[id].captures.clear();
+        validate_ast_tree(&source, &valid, 20, 20).unwrap();
+        let mut moved = valid.clone();
+        moved.nodes[id].span = mapped_span_to_wit(
+            source
+                .map_range(ParserTextRange::new(1, source.virtual_source().len() - 1))
+                .unwrap(),
+        );
+        validate_ast_tree(&source, &moved, 20, 20).unwrap();
+        for mutation in 0..4 {
+            let mut invalid = valid.clone();
+            match mutation {
+                0 => invalid.nodes[id].function = None,
+                1 => invalid.nodes[id].kind = SyntaxKind::Expression,
+                2 => invalid.nodes[id].function.as_mut().unwrap().arguments[0].child_count = 2,
+                3 => invalid.nodes[id].function.as_mut().unwrap().arguments[0].omitted = true,
+                _ => unreachable!(),
+            }
+            assert!(
+                validate_ast_tree(&source, &invalid, 20, 20).is_err(),
+                "mutation {mutation}"
+            );
+        }
+    }
+
+    #[test]
+    fn function_binding_changes_affect_macro_cycle_identity() {
+        let (_, tree) = tree();
+        let root = tree.roots[0];
+        let key = ast_macro_cycle_key("fixture", "macro", &tree, root);
+        for mutation in 0..3 {
+            let mut changed = tree.clone();
+            let call = changed.nodes[root as usize].function.as_mut().unwrap();
+            match mutation {
+                0 => call.registration_id.push_str(".other"),
+                1 => call.arguments[0].parameter_name = "other".into(),
+                2 => call.arguments[0].supplied_name = None,
+                _ => unreachable!(),
+            }
+            assert_ne!(key, ast_macro_cycle_key("fixture", "macro", &changed, root));
+        }
+    }
+
+    #[test]
+    fn function_parent_rejects_cardinality_changes_without_singular_captures() {
+        let (_, mut tree) = tree();
+        let root = tree.roots[0] as usize;
+        tree.nodes[root].captures.clear();
+        let child = tree.nodes[root].children[0];
+        assert!(validate_parent_capture_replacement(&tree, &[0, 0], child, 1).is_ok());
+        for count in [0, 2] {
+            assert!(validate_parent_capture_replacement(&tree, &[0, 0], child, count).is_err());
+            assert!(validate_parent_capture_replacement(&tree, &[0], tree.roots[0], count).is_ok());
+        }
+    }
 }
 
 fn record_invalid_ast_output(

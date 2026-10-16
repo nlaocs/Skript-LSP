@@ -19,7 +19,7 @@ use super::{
     AstContextOrigin, AstNode, AstTree, Capture, CaptureValue, SyntaxKind, WitMetadataEntry,
     WitParseSummary, WitPossibleReturnTypesState, default_expression,
     expression_node_element_class, expression_node_identity, expression_node_registration,
-    mapped_span_to_wit, metadata_to_wit, multiplicity_to_wit, public_data,
+    function_call_to_wit, mapped_span_to_wit, metadata_to_wit, multiplicity_to_wit, public_data,
 };
 
 pub(super) fn from_structure_document(
@@ -50,6 +50,19 @@ pub(super) fn from_structure_document(
 struct AstBuilder<'a> {
     source: &'a MappedSource,
     nodes: Vec<AstNode>,
+}
+
+#[cfg(test)]
+pub(super) fn expression_for_test(source: &MappedSource, expression: &ExpressionNode) -> AstTree {
+    let mut builder = AstBuilder {
+        source,
+        nodes: Vec::new(),
+    };
+    let root = builder.expression(expression);
+    AstTree {
+        roots: vec![root],
+        nodes: builder.nodes,
+    }
 }
 
 impl AstBuilder<'_> {
@@ -85,6 +98,7 @@ impl AstBuilder<'_> {
         );
         self.push(NodeInput {
             kind: SyntaxKind::Structure,
+            function: None,
             syntax_id: structure.matched.registration_id.clone(),
             span: &structure.matched.matched.span,
             summary: Some(candidate_summary(
@@ -122,6 +136,7 @@ impl AstBuilder<'_> {
         );
         self.push(NodeInput {
             kind: SyntaxKind::Section,
+            function: None,
             syntax_id: section.matched.registration_id.clone(),
             span: &section.matched.matched.span,
             summary: Some(candidate_summary(
@@ -142,6 +157,7 @@ impl AstBuilder<'_> {
         let metadata = candidate_metadata(&effect.matched, effect.metadata.clone(), []);
         self.push(NodeInput {
             kind: SyntaxKind::Effect,
+            function: None,
             syntax_id: effect.matched.registration_id.clone(),
             span: &effect.matched.matched.span,
             summary: Some(candidate_summary(
@@ -170,6 +186,7 @@ impl AstBuilder<'_> {
         );
         self.push(NodeInput {
             kind: SyntaxKind::Event,
+            function: None,
             syntax_id: event.matched.registration_id.clone(),
             span: &event.span,
             summary: Some(candidate_summary(
@@ -248,6 +265,7 @@ impl AstBuilder<'_> {
         metadata.extend(standard);
         self.push(NodeInput {
             kind: SyntaxKind::Condition,
+            function: None,
             syntax_id,
             span: &condition.span,
             summary,
@@ -288,6 +306,7 @@ impl AstBuilder<'_> {
         };
         self.push(NodeInput {
             kind,
+            function: expression.function.as_ref(),
             syntax_id,
             span: &expression.span,
             summary: Some(summary),
@@ -344,6 +363,7 @@ impl AstBuilder<'_> {
         ];
         self.push(NodeInput {
             kind: SyntaxKind::Structure,
+            function: None,
             syntax_id: format!("parser:structure-entry.{}", entry_kind(&entry.kind)),
             span: &entry.span,
             summary: None,
@@ -438,6 +458,7 @@ impl AstBuilder<'_> {
             summary: input.summary,
             captures: input.captures,
             children: input.children,
+            function: input.function.map(function_call_to_wit),
             metadata: input.metadata,
         });
         id
@@ -446,6 +467,7 @@ impl AstBuilder<'_> {
 
 struct NodeInput<'a> {
     kind: SyntaxKind,
+    function: Option<&'a skript_parser::FunctionCall>,
     syntax_id: String,
     span: &'a MatchSpan,
     summary: Option<WitParseSummary>,
@@ -587,6 +609,26 @@ fn entry_kind(kind: &EntryKind) -> &'static str {
 mod tests {
     use super::*;
     use skript_parser::{ParsedCapture, ParsedCaptureValue};
+
+    #[test]
+    fn function_argument_bindings_survive_ast_projection() {
+        let (source, root, _) = crate::host::capture_view_tests::fixture();
+        let function = &root.children[0];
+        let mut builder = AstBuilder {
+            source: &source,
+            nodes: Vec::new(),
+        };
+        let id = builder.expression(function);
+        assert_eq!(
+            function.function.as_ref().unwrap().arguments[0].parameter_name,
+            "value"
+        );
+        let projected = builder.nodes[id as usize].function.as_ref().unwrap();
+        assert_eq!(
+            function.function.as_ref().unwrap(),
+            &super::super::function_call_from_wit(projected, 1).unwrap()
+        );
+    }
 
     // Pre-view projection, using owned capture fields directly.
     fn legacy_captures(

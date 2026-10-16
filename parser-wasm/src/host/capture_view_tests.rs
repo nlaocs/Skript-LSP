@@ -7,6 +7,33 @@ use skript_parser::{
 use std::path::Path;
 use syntax_pattern_parser::syntax::{PatternElement, Span};
 
+#[test]
+fn function_argument_bindings_survive_parse_result_projection() {
+    let (source, root, _) = fixture();
+    let function = &root.children[0];
+    let request = ParseRequest {
+        request_id: 1,
+        parser_id: skript_parser::HOST_EXPRESSION_PARSER_ID.into(),
+        input: source.virtual_source().into(),
+        expected_types: Vec::new(),
+        span: mapped_span_to_wit(function.span.mapped.clone()),
+        options: Vec::new(),
+    };
+    let result = expression_parse_result(&request, function, None);
+    assert_eq!(
+        function.function.as_ref().unwrap().arguments[0].parameter_name,
+        "value"
+    );
+    let projected = result.nodes[result.roots[0] as usize]
+        .function
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        function.function.as_ref().unwrap(),
+        &function_call_from_wit(projected, 1).unwrap()
+    );
+}
+
 pub(super) fn fixture() -> (MappedSource, ExpressionNode, Vec<ParserParsedCapture>) {
     let catalog = ssg::load(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.16.0"),
@@ -227,7 +254,7 @@ fn capture_view_parse_result_matches_owned_capture_projection() {
         format!("{:?}", legacy.nodes)
     );
     assert_eq!(actual.nodes.len(), 5);
-    // The final projection still omits FunctionCall argument binding, as before.
+    assert!(actual.nodes[2].function.is_some());
     assert_eq!(
         root.children[0].function.as_ref().unwrap().arguments[0].child_count,
         1

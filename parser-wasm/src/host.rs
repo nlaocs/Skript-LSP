@@ -12,6 +12,8 @@ mod capture_view_tests;
 mod checkpoint_tests;
 mod default_expression;
 mod document;
+#[cfg(test)]
+mod function_projection_tests;
 mod public_data;
 mod subscriptions;
 
@@ -128,7 +130,8 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionPossibleReturnTypesState as WitPossibleReturnTypesState,
     ExpressionPublicData as WitExpressionPublicData,
     ExpressionReturnTypeState as WitReturnTypeState,
-    ExpressionTypeOption as WitExpressionTypeOption, FunctionDeclaration as WitFunctionDeclaration,
+    ExpressionTypeOption as WitExpressionTypeOption, FunctionArgument as WitFunctionArgument,
+    FunctionCall as WitFunctionCall, FunctionDeclaration as WitFunctionDeclaration,
     FunctionDeclarationScope as WitFunctionDeclarationScope,
     GeneratedRawNodeKind as WitGeneratedRawNodeKind, IndentKind as WitIndentKind,
     Indentation as WitIndentation, LineEnding as WitLineEnding, MetadataEntry as WitMetadataEntry,
@@ -6991,6 +6994,13 @@ fn wit_function_call(
     let Some(call) = &candidate.function else {
         return Ok(None);
     };
+    function_call_from_wit(call, candidate.children.len()).map(Some)
+}
+
+fn function_call_from_wit(
+    call: &WitFunctionCall,
+    child_count: usize,
+) -> Result<skript_parser::FunctionCall, String> {
     let call = skript_parser::FunctionCall {
         name: call.name.clone(),
         definition_id: call.definition_id.clone(),
@@ -7011,8 +7021,62 @@ fn wit_function_call(
             })
             .collect::<Result<_, String>>()?,
     };
-    call.validate_children(candidate.children.len())?;
-    Ok(Some(call))
+    call.validate_children(child_count)?;
+    Ok(call)
+}
+
+fn function_call_to_wit(call: &skript_parser::FunctionCall) -> WitFunctionCall {
+    WitFunctionCall {
+        name: call.name.clone(),
+        definition_id: call.definition_id.clone(),
+        registration_id: call.registration_id.clone(),
+        arguments: call
+            .arguments
+            .iter()
+            .map(|argument| WitFunctionArgument {
+                parameter_name: argument.parameter_name.clone(),
+                supplied_name: argument.supplied_name.clone(),
+                child_start: argument.child_start as u64,
+                child_count: argument.child_count as u64,
+                omitted: argument.omitted,
+            })
+            .collect(),
+    }
+}
+
+fn validate_projected_function(
+    is_function: bool,
+    successful: bool,
+    call: Option<&WitFunctionCall>,
+    child_count: usize,
+) -> Result<(), String> {
+    match call {
+        Some(call) if is_function => function_call_from_wit(call, child_count).map(|_| ()),
+        Some(_) => Err("Only Function nodes may carry structured call data".to_owned()),
+        None if is_function && successful => {
+            Err("Successful Function nodes require structured call data".to_owned())
+        }
+        None => Ok(()),
+    }
+}
+
+fn function_call_size(call: &WitFunctionCall) -> usize {
+    call.name
+        .len()
+        .saturating_add(call.definition_id.len())
+        .saturating_add(call.registration_id.len())
+        .saturating_add(
+            call.arguments
+                .iter()
+                .map(|argument| {
+                    argument
+                        .parameter_name
+                        .len()
+                        .saturating_add(argument.supplied_name.as_ref().map_or(0, String::len))
+                        .saturating_add(17) // Two u64 child offsets and the omitted flag.
+                })
+                .fold(0usize, usize::saturating_add),
+        )
 }
 
 fn expression_type_options(
@@ -14111,6 +14175,7 @@ impl<'a> ParseResultArena<'a> {
                 metadata: metadata_to_wit(&node.metadata),
             }),
             children,
+            function: node.function.as_ref().map(function_call_to_wit),
             attachments: Vec::new(),
             diagnostics: Vec::new(),
             metadata: metadata_to_wit(&node.metadata),
@@ -14166,6 +14231,7 @@ impl<'a> ParseResultArena<'a> {
                 metadata: metadata_to_wit(&node.metadata),
             }),
             children,
+            function: None,
             attachments: Vec::new(),
             diagnostics: Vec::new(),
             metadata: metadata_to_wit(&node.metadata),
@@ -14275,6 +14341,7 @@ impl<'a> ParseResultArena<'a> {
             expected_types: Vec::new(),
             summary,
             children: Vec::new(),
+            function: None,
             attachments: Vec::new(),
             diagnostics: Vec::new(),
             metadata: Vec::new(),
@@ -14382,6 +14449,13 @@ fn validate_parse_result(request: &ParseRequest, result: &ParseResult) -> Result
     }
     let mut nodes = HashMap::with_capacity(result.nodes.len());
     for (index, node) in result.nodes.iter().enumerate() {
+        validate_projected_function(
+            node.kind == "function",
+            matches!(node.status, WitParseResultStatus::Success),
+            node.function.as_ref(),
+            node.children.len(),
+        )
+        .map_err(&invalid)?;
         if let Some(summary) = &node.summary {
             public_data::validate(&summary.public_data).map_err(&invalid)?;
         }
@@ -14669,29 +14743,9 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
                             .parser_id
                             .len()
                             .saturating_add(candidate.return_type.as_ref().map_or(0, String::len))
-                            .saturating_add(candidate.function.as_ref().map_or(0, |call| {
-                                call.name
-                                    .len()
-                                    .saturating_add(call.definition_id.len())
-                                    .saturating_add(call.registration_id.len())
-                                    .saturating_add(
-                                        call.arguments
-                                            .iter()
-                                            .map(|argument| {
-                                                argument
-                                                    .parameter_name
-                                                    .len()
-                                                    .saturating_add(
-                                                        argument
-                                                            .supplied_name
-                                                            .as_ref()
-                                                            .map_or(0, String::len),
-                                                    )
-                                                    .saturating_add(17) // Two u64 child offsets and the omitted flag.
-                                            })
-                                            .fold(0usize, usize::saturating_add),
-                                    )
-                            }))
+                            .saturating_add(
+                                candidate.function.as_ref().map_or(0, function_call_size),
+                            )
                             .saturating_add(public_data::size(&candidate.public_data))
                             .saturating_add(metadata_entries_size(&candidate.metadata))
                     })
@@ -15148,6 +15202,7 @@ fn ast_node_size(node: &AstNode) -> usize {
         .saturating_add(node.text.len())
         .saturating_add(metadata_entries_size(&node.metadata))
         .saturating_add(node.summary.as_ref().map_or(0, ast_summary_size))
+        .saturating_add(node.function.as_ref().map_or(0, function_call_size))
         .saturating_add(captures_size(&node.captures))
         .saturating_add(node.children.len().saturating_mul(mem::size_of::<u64>()))
 }
@@ -15283,6 +15338,7 @@ fn parse_result_node_size(node: &ParseResultNode) -> usize {
     node.parser_id
         .len()
         .saturating_add(node.summary.as_ref().map_or(0, parse_summary_data_size))
+        .saturating_add(node.function.as_ref().map_or(0, function_call_size))
         .saturating_add(node.kind.len())
         .saturating_add(node.text.len())
         .saturating_add(metadata_entries_size(&node.metadata))
@@ -17815,6 +17871,7 @@ mod tests {
                 expected_types: Vec::new(),
                 summary: None,
                 children: Vec::new(),
+                function: None,
                 attachments: vec![WitAddonAttachment {
                     owner_component_id: "guest-spoof".to_owned(),
                     schema_id: "fixture.schema".to_owned(),

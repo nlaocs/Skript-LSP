@@ -191,12 +191,17 @@ Standard and addon/WASM Function calls share the same report structure: Function
 name, definition/registration IDs, catalog addon, declaration-ordered arguments,
 recursive argument Expressions, omitted/supplied names, return type, and
 multiplicity. A custom leaf parser supplies the typed Function call data through
-WIT 0.39.0 / ABI 21.0; external Components must be rebuilt for this contract.
+WIT 0.40.0 / ABI 22.0; external Components must be rebuilt for this contract.
+
+Document JSON also preserves Function call bindings on each node's `function`
+field. Argument child ranges index that node's `children` list, retaining
+declaration order, supplied names, omitted parameters, and multiple values.
 
 JSON is the machine-readable contract:
 
 - one-shot and one-line Effect reports use `schemaVersion: 7`;
-- multiline document reports use `schemaVersion: 1`;
+- multiline document reports use `schemaVersion: 2`, adding Function call bindings
+  on document nodes to schema 1;
 - document nodes form an arena: `roots`, `children`, and node captures contain
   numeric node IDs, avoiding recursively serialized values;
 - mapped spans retain every original source origin and macro expansion ID;

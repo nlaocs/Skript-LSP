@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.39.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.40.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -99,7 +99,8 @@ multiple targets for each registered semantic handler, including dynamic
   to 0.35.0; typed DefaultExpression descriptors changed it to 0.36.0; and SSG
   runtime snapshot capabilities changed it to 0.37.0; host-indexed exact alias
   and BlockData lookups changed it to 0.38.0; structured Function leaf calls changed
-  it to 0.39.0. The manifest's current `abi` value is 21.0 and
+  it to 0.39.0; Function bindings on final AST and additional-parse nodes changed
+  it to 0.40.0. The manifest's current `abi` value is 22.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -118,6 +119,19 @@ source range. Missing Function data, invalid ranges, or data on another leaf kin
 is invalid hook output and rolls back the provider's state. Other leaf kinds set
 `function` to `none`. Native consumers use the same `FunctionCall` representation.
 This WIT/ABI change requires rebuilding CoreLibrary and external components.
+Components built for WIT 0.39.0 fail during instantiation with an unresolved
+`@0.39.0` host import, before their manifest can be read. A component using the
+current WIT with an ABI 21.0 manifest is instead rejected by the ABI handshake,
+which reports the required ABI 22.0. Rebuild against the current WIT and SDK;
+changing only the manifest version is insufficient.
+
+Final `ast-node.function` and `parse-result-node.function` retain the same call
+binding. Its child ranges index that node's `children` array, not arena IDs.
+Grouped wrappers carry no binding; the Function child owns it. Successful Function
+nodes require call data. Partial/failed Function results may omit unresolved call
+data, while supplied data is always validated. AST macros must replace each
+Function child with exactly one node, or replace the whole Function with a valid
+binding. Document JSON exposes the call under each node's `function` field.
 
 Capabilities use stable string IDs and independent integer versions instead of
 a closed enum. This allows a newer component to describe a capability to an

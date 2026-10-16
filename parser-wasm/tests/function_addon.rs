@@ -32,6 +32,58 @@ fn function_host(max_generated_output_bytes: usize) -> ParserHost {
 }
 
 #[test]
+#[ignore = "requires preserved WIT 0.39 / ABI 21 CoreLibrary and Function addon"]
+fn diagnoses_previous_wit_components() {
+    let old_core = std::fs::read(
+        std::env::var_os("SKRIPT_PREVIOUS_CORE_LIBRARY").expect("set SKRIPT_PREVIOUS_CORE_LIBRARY"),
+    )
+    .unwrap();
+    let old_addon = std::fs::read(
+        std::env::var_os("SKRIPT_PREVIOUS_FUNCTION_COMPONENT")
+            .expect("set SKRIPT_PREVIOUS_FUNCTION_COMPONENT"),
+    )
+    .unwrap();
+    let mut config = HostConfig::default();
+    config.runtime_profile.skript_version = Some("2.15.4".into());
+    let error = match ParserHost::new(&old_core, config) {
+        Err(error) => error,
+        Ok(_) => panic!("previous CoreLibrary must be rejected"),
+    };
+    eprintln!("previous-core: {error}");
+    assert!(error.to_string().contains("@0.39.0"));
+    let mut host = function_host(HostConfig::default().max_generated_output_bytes);
+    let error = host.load_addon(&old_addon).unwrap_err();
+    eprintln!("previous-addon: {error}");
+    assert!(error.to_string().contains("@0.39.0"));
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///function.sk", 1)
+        .unwrap();
+    let source = MappedSource::identity("sin(abs(-1))");
+    let parsed = host
+        .parse_expression_in_parse(
+            &transaction,
+            InvocationContext {
+                invocation_id: 1,
+                subscription_id: String::new(),
+                document_id: "file:///function.sk".into(),
+                document_revision: 1,
+                expansion: None,
+                syntax_context: 0,
+            },
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, source.virtual_source().len()),
+                expected_types: Vec::new(),
+                context: ExpressionParseContext::default(),
+            },
+            ExpressionParserConfig::default(),
+        )
+        .unwrap();
+    assert!(parsed.matches.selected.is_some());
+    transaction.cancel().unwrap();
+}
+
+#[test]
 fn invalid_function_output_rolls_back_its_state_and_keeps_the_host_usable() {
     let mut host = function_host(HostConfig::default().max_generated_output_bytes);
     for (index, mode) in [
