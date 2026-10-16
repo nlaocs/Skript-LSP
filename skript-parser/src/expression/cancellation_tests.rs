@@ -3,11 +3,16 @@ use super::*;
 #[derive(Default)]
 struct Environment {
     cancelled: bool,
+    cancel_after_leaf: bool,
+    probes_after_request: usize,
     leaves: usize,
 }
 
 impl PatternMatchEnvironment for Environment {
     fn cancellation_requested(&mut self) -> bool {
+        if self.cancelled {
+            self.probes_after_request += 1;
+        }
         self.cancelled
     }
 
@@ -33,10 +38,11 @@ impl ExpressionParseEnvironment for Environment {
         request: ExpressionLeafRequest<'_>,
     ) -> Result<ExpressionLeafParse, String> {
         self.leaves += 1;
+        self.cancelled |= self.cancel_after_leaf;
         Ok(vec![ExpressionLeafCandidate {
             effects: None,
             parser_id: "test.literal".into(),
-            kind: ExpressionLeafKind::Custom,
+            kind: ExpressionLeafKind::Literal,
             timing: ExpressionLeafTiming::BeforeRegistered,
             range: request.remaining,
             return_type: Some(ClassName("java.lang.Object".into())),
@@ -78,6 +84,36 @@ fn cancellation_precedes_memo_hits_and_clears_the_session_memo() {
         .unwrap_err();
     assert!(crate::parse_cancellation(&error).is_some());
     assert_eq!(session.environment.leaves, leaves);
+    assert!(session.memo.is_empty());
+    assert!(session.active.is_empty());
+}
+
+#[test]
+fn cancellation_during_recursive_work_is_not_memoized() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+    let catalog = ssg::load(path).unwrap().into_catalog();
+    let source = MappedSource::identity("(x)");
+    let mut environment = Environment {
+        cancel_after_leaf: true,
+        ..Default::default()
+    };
+    let mut session = ExpressionSession::new(
+        &catalog,
+        None,
+        &source,
+        &mut environment,
+        ExpressionParseContext::default(),
+        ExpressionParserConfig::default(),
+    );
+    // With registered expressions disabled, the inner literal seeds memo before
+    // the next native seed-growth pass observes the request from its callback.
+    let error = session
+        .parse_complete_range(TextRange::new(0, 3), &[], true, false, 0)
+        .unwrap_err();
+    assert!(crate::parse_cancellation(&error).is_some());
+    assert_eq!(session.environment.leaves, 1);
+    assert!(session.environment.probes_after_request > 0);
     assert!(session.memo.is_empty());
     assert!(session.active.is_empty());
 }
