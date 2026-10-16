@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use skript_parser::{
     ConditionNode, ConditionNodeKind, EffectCandidate, EventCandidate, ExpressionNode,
-    ExpressionNodeKind, MappedSource, MatchSpan, ParsedCapture, ParsedCaptureValue,
+    ExpressionNodeKind, MappedSource, MatchSpan, ParsedCaptureRef, ParsedCaptureValueRef,
     SectionBodyNode, SectionCandidate, StructureBody, StructureCandidate, StructureDocument,
     StructureDocumentNode, StructureEntry, StructureEntryValue,
 };
@@ -54,7 +54,8 @@ struct AstBuilder<'a> {
 
 impl AstBuilder<'_> {
     fn structure(&mut self, structure: &StructureCandidate) -> u64 {
-        let (mut captures, mut children) = self.parsed_captures(&structure.parsed_captures);
+        let (mut captures, mut children) =
+            self.parsed_captures(structure.parsed_captures.iter().map(Into::into));
         match &structure.body {
             StructureBody::Entries(entries) => {
                 for entry in entries {
@@ -99,7 +100,8 @@ impl AstBuilder<'_> {
     }
 
     fn section(&mut self, section: &SectionCandidate) -> u64 {
-        let (mut captures, mut children) = self.parsed_captures(&section.parsed_captures);
+        let (mut captures, mut children) =
+            self.parsed_captures(section.parsed_captures.iter().map(Into::into));
         let body = self.body(&section.body);
         children.extend(body.iter().copied());
         captures.push(Capture {
@@ -135,7 +137,8 @@ impl AstBuilder<'_> {
     }
 
     fn effect(&mut self, effect: &EffectCandidate) -> u64 {
-        let (captures, children) = self.parsed_captures(&effect.parsed_captures);
+        let (captures, children) =
+            self.parsed_captures(effect.parsed_captures.iter().map(Into::into));
         let metadata = candidate_metadata(&effect.matched, effect.metadata.clone(), []);
         self.push(NodeInput {
             kind: SyntaxKind::Effect,
@@ -255,7 +258,7 @@ impl AstBuilder<'_> {
     }
 
     fn expression(&mut self, expression: &ExpressionNode) -> u64 {
-        let (captures, children) = self.parsed_captures(&expression.parsed_captures());
+        let (captures, children) = self.parsed_captures(expression.parsed_capture_refs());
         let (kind, syntax_id) = expression_syntax_identity(expression);
         let (definition_id, registration_id, pattern_index) =
             expression_node_registration(expression);
@@ -368,20 +371,23 @@ impl AstBuilder<'_> {
             .collect()
     }
 
-    fn parsed_captures(&mut self, values: &[ParsedCapture]) -> (Vec<Capture>, Vec<u64>) {
-        let mut captures = Vec::with_capacity(values.len());
+    fn parsed_captures<'a>(
+        &mut self,
+        values: impl Iterator<Item = ParsedCaptureRef<'a>>,
+    ) -> (Vec<Capture>, Vec<u64>) {
+        let mut captures = Vec::with_capacity(values.size_hint().0);
         let mut children = Vec::new();
         for capture in values {
-            let node = match capture.result.value.as_ref() {
-                Some(ParsedCaptureValue::Expression(value)) => Some(self.expression(value)),
-                Some(ParsedCaptureValue::Condition(value)) => Some(self.condition(value)),
-                Some(ParsedCaptureValue::Effect(value)) => Some(self.effect(value)),
-                Some(ParsedCaptureValue::Event(value)) => Some(self.event(value)),
-                Some(ParsedCaptureValue::Section(value)) => Some(self.section(value)),
-                Some(ParsedCaptureValue::Raw(value)) => {
+            let node = match capture.value() {
+                Some(ParsedCaptureValueRef::Expression(value)) => Some(self.expression(value)),
+                Some(ParsedCaptureValueRef::Condition(value)) => Some(self.condition(value)),
+                Some(ParsedCaptureValueRef::Effect(value)) => Some(self.effect(value)),
+                Some(ParsedCaptureValueRef::Event(value)) => Some(self.event(value)),
+                Some(ParsedCaptureValueRef::Section(value)) => Some(self.section(value)),
+                Some(ParsedCaptureValueRef::Raw(value)) => {
                     captures.push(Capture {
                         name: capture_name(capture),
-                        value: CaptureValue::Text(value.clone()),
+                        value: CaptureValue::Text(value.to_owned()),
                     });
                     None
                 }
@@ -389,7 +395,7 @@ impl AstBuilder<'_> {
                     captures.push(Capture {
                         name: capture_name(capture),
                         value: CaptureValue::Span(mapped_span_to_wit(
-                            capture.result.span.mapped.clone(),
+                            capture.span().mapped.clone(),
                         )),
                     });
                     None
@@ -552,8 +558,12 @@ fn metadata(key: impl Into<String>, value: impl Into<String>) -> WitMetadataEntr
     }
 }
 
-fn capture_name(capture: &ParsedCapture) -> String {
-    format!("{}:{}", capture.capture_index, capture.binding.parser_id)
+fn capture_name(capture: ParsedCaptureRef<'_>) -> String {
+    format!(
+        "{}:{}",
+        capture.capture_index(),
+        capture.binding_parser_id()
+    )
 }
 
 fn optional_bool(value: Option<bool>) -> String {
@@ -570,5 +580,100 @@ fn entry_kind(kind: &EntryKind) -> &'static str {
         EntryKind::Section => "section",
         EntryKind::KeyValue => "key-value",
         EntryKind::Unknown => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use skript_parser::{ParsedCapture, ParsedCaptureValue};
+
+    // Pre-view projection, using owned capture fields directly.
+    fn legacy_captures(
+        builder: &mut AstBuilder<'_>,
+        values: &[ParsedCapture],
+    ) -> (Vec<Capture>, Vec<u64>) {
+        let mut captures = Vec::new();
+        let mut children = Vec::new();
+        for capture in values {
+            let name = format!("{}:{}", capture.capture_index, capture.binding.parser_id);
+            let child = match capture.result.value.as_ref() {
+                Some(ParsedCaptureValue::Expression(value)) => Some(builder.expression(value)),
+                Some(ParsedCaptureValue::Condition(value)) => Some(builder.condition(value)),
+                Some(ParsedCaptureValue::Effect(value)) => Some(builder.effect(value)),
+                Some(ParsedCaptureValue::Event(value)) => Some(builder.event(value)),
+                Some(ParsedCaptureValue::Section(value)) => Some(builder.section(value)),
+                Some(ParsedCaptureValue::Raw(value)) => {
+                    captures.push(Capture {
+                        name: name.clone(),
+                        value: CaptureValue::Text(value.clone()),
+                    });
+                    None
+                }
+                None => {
+                    captures.push(Capture {
+                        name: name.clone(),
+                        value: CaptureValue::Span(mapped_span_to_wit(
+                            capture.result.span.mapped.clone(),
+                        )),
+                    });
+                    None
+                }
+            };
+            if let Some(child) = child {
+                children.push(child);
+                captures.push(Capture {
+                    name,
+                    value: CaptureValue::Node(child),
+                });
+            }
+        }
+        (captures, children)
+    }
+
+    #[test]
+    fn capture_view_ast_matches_owned_projection_for_typed_and_routed_values() {
+        let (source, root, routed) = super::super::capture_view_tests::fixture();
+        for values in [root.parsed_captures(), routed] {
+            let mut borrowed = AstBuilder {
+                source: &source,
+                nodes: Vec::new(),
+            };
+            let actual = borrowed.parsed_captures(values.iter().map(Into::into));
+            let mut legacy = AstBuilder {
+                source: &source,
+                nodes: Vec::new(),
+            };
+            let expected = legacy_captures(&mut legacy, &values);
+            assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+            assert_eq!(
+                format!("{:?}", borrowed.nodes),
+                format!("{:?}", legacy.nodes)
+            );
+        }
+        let mut builder = AstBuilder {
+            source: &source,
+            nodes: Vec::new(),
+        };
+        let id = builder.expression(&root);
+        let parent = &builder.nodes[id as usize];
+        assert_eq!(
+            parent
+                .captures
+                .iter()
+                .map(|capture| capture.name.as_str())
+                .collect::<Vec<_>>(),
+            ["7:host.expression", "2:host.expression"]
+        );
+        assert_eq!(parent.children, [2, 3]);
+        assert_eq!(builder.nodes.len(), 5);
+        assert!(
+            builder.nodes[3]
+                .summary
+                .as_ref()
+                .unwrap()
+                .default_expression
+                .is_some()
+        );
     }
 }

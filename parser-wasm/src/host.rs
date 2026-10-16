@@ -6,6 +6,8 @@
 
 mod ast_macro;
 mod ast_tree;
+#[cfg(test)]
+mod capture_view_tests;
 mod default_expression;
 mod document;
 mod public_data;
@@ -13966,9 +13968,8 @@ impl<'a> ParseResultArena<'a> {
 
     fn push_expression(&mut self, node: &ExpressionNode) -> u64 {
         let children = node
-            .parsed_captures()
-            .iter()
-            .filter_map(|capture| self.push_capture(capture))
+            .parsed_capture_refs()
+            .filter_map(|capture| self.push_capture_ref(capture))
             .collect();
         let (kind, definition_id, registration_id, pattern_index) = match &node.kind {
             ExpressionNodeKind::Default { .. } => ("default-expression", None, None, None),
@@ -14094,6 +14095,15 @@ impl<'a> ParseResultArena<'a> {
             diagnostics: Vec::new(),
             metadata: metadata_to_wit(&node.metadata),
         })
+    }
+
+    fn push_capture_ref(&mut self, capture: skript_parser::ParsedCaptureRef<'_>) -> Option<u64> {
+        match capture {
+            skript_parser::ParsedCaptureRef::Expression { node, .. } => {
+                Some(self.push_expression(node))
+            }
+            skript_parser::ParsedCaptureRef::Routed(capture) => self.push_capture(capture),
+        }
     }
 
     fn push_capture(&mut self, capture: &ParserParsedCapture) -> Option<u64> {
