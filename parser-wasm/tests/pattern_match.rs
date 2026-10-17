@@ -2,6 +2,7 @@ use parser_wasm::host::{
     HostConfig, HostError, InvocationContext, ParserHost, RuntimeProfile, WasmEffectParseResult,
     WasmPatternMatchResult,
 };
+use parser_wasm::state::{NamespaceVisibility, StateEncoding, StateScope, StateValue};
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, ExpressionParseContext, MappedSource, MatchInput,
     MatchPattern, MatchSyntaxKind, PatternCandidate, PatternMatcherConfig, RawTreeOptions,
@@ -85,6 +86,40 @@ fn assert_failed_candidate_has_no_side_effects(
         "failed candidate StateStore writes leaked: {:#?}",
         transaction.read_write_set().unwrap().writes
     );
+}
+
+fn assert_matching_writes_were_executed_and_discarded(
+    transaction: &parser_wasm::state::ParseTransaction,
+) {
+    assert_eq!(transaction.state_revision().unwrap(), 0);
+    assert!(transaction.read_write_set().unwrap().writes.is_empty());
+    let before_probe = transaction.savepoint().unwrap();
+    let mut probe = transaction.begin_invocation("test.matching-addon").unwrap();
+    probe
+        .put(
+            StateScope::Parse,
+            NamespaceVisibility::Private,
+            "matching-state",
+            "write-observation-probe",
+            StateValue::new(
+                "nlaocs.test.matching-state",
+                StateEncoding::Json,
+                b"0".to_vec(),
+            ),
+        )
+        .unwrap();
+    probe.commit().unwrap();
+    // next_overlay_revision intentionally survives rollback and advances only
+    // when writes merge into the parse overlay. Without any speculative write,
+    // this first probe would receive revision 1. It is not an invoke counter.
+    assert!(
+        transaction.state_revision().unwrap() > 1,
+        "no matching write was merged before rollback"
+    );
+    // Remove only this test's probe, after observing the product's rollback.
+    transaction.rollback_to(&before_probe).unwrap();
+    assert_eq!(transaction.state_revision().unwrap(), 0);
+    assert!(transaction.read_write_set().unwrap().writes.is_empty());
 }
 
 fn effect_fixture() -> impl AsRef<Path> {
@@ -355,6 +390,7 @@ fn failed_registration_scope_rolls_back_matching_state_calls_and_effects() {
     // registration cannot be selected. Nothing from that failed branch may
     // escape the candidate transaction.
     assert_failed_candidate_has_no_side_effects(&result, &transaction);
+    assert_matching_writes_were_executed_and_discarded(&transaction);
     transaction.cancel().unwrap();
 }
 
@@ -403,6 +439,7 @@ fn failed_pattern_scope_rolls_back_matching_state_calls_and_effects() {
     // cannot consume the non-empty input. Its parse-scoped write and matching
     // call must be discarded together with the failed candidate.
     assert_failed_candidate_has_no_side_effects(&result, &transaction);
+    assert_matching_writes_were_executed_and_discarded(&transaction);
     transaction.cancel().unwrap();
 }
 
@@ -452,6 +489,7 @@ fn failed_element_scope_error_rolls_back_matching_state_before_returning() {
     // transaction assertion proves that the Element hook's attempted write
     // was nevertheless rolled back before the error escaped.
     assert!(transaction.read_write_set().unwrap().writes.is_empty());
+    assert_matching_writes_were_executed_and_discarded(&transaction);
     transaction.cancel().unwrap();
 }
 
