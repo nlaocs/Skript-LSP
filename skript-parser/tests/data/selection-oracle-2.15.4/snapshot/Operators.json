@@ -1,0 +1,94 @@
+[ {
+  "sign" : "^",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    }, {
+      "after" : [ ],
+      "before" : [ {
+        "after" : [ ],
+        "before" : [ ]
+      } ]
+    } ]
+  },
+  "key" : "operators.exponentiate",
+  "registrationOrder" : 0,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "operator:skript:b30b908b67ca2460d1e946ab18ef6337c638624bde57ca4d700efa55c694d3d1"
+}, {
+  "sign" : "*",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ]
+  },
+  "key" : "operators.multiply",
+  "registrationOrder" : 1,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "operator:skript:9582c46ac31e4cd369856cfbb2ae9aeea3942a93c222deeabba85609d32c97fb"
+}, {
+  "sign" : "/",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ {
+      "after" : [ ],
+      "before" : [ ]
+    } ]
+  },
+  "key" : "operators.divide",
+  "registrationOrder" : 2,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "operator:skript:d8d7c170840270f93aa11c6405bd6e35a362e7ebe479a289224ed975754537dd"
+}, {
+  "sign" : "+",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "key" : "operators.add",
+  "registrationOrder" : 3,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "registrationId" : "operator:skriptdummyaddon:1874a52b0c8ad894690ef715fef786d275b0e45ea68c4312c93f919501b92685"
+}, {
+  "sign" : "-",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "key" : "operators.subtract",
+  "registrationOrder" : 4,
+  "addon" : {
+    "name" : "Skript",
+    "version" : "2.15.4"
+  },
+  "registrationId" : "operator:skript:e6096935191ae4d049398f03622f89b3d9a8f2d8b1211dd2f32849f60e4b513d"
+}, {
+  "sign" : "<~>",
+  "priority" : {
+    "after" : [ ],
+    "before" : [ ]
+  },
+  "key" : "operators.dummy fixture operator",
+  "registrationOrder" : 5,
+  "addon" : {
+    "name" : "SkriptDummyAddon",
+    "version" : "1.1.0"
+  },
+  "registrationId" : "operator:skriptdummyaddon:1f6d319710527918484e2a5aec6c545e953e3bfbb71e0815e2d95132392ced58"
+} ]

@@ -1,0 +1,235 @@
+SkriptDummyAddon.jar SHA-256: 56e280d3259360411060f05c3b9f44dbad613fc26cd36282f672e8b65f97e252
+Compiled from "ModernFixtures.java"
+public final class jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression extends ch.njol.skript.lang.util.SimpleExpression<java.lang.String> {
+  private final java.lang.String suppliedBy;
+
+  public jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression(java.lang.String);
+    Code:
+       0: aload_0
+       1: invokespecial #30                 // Method ch/njol/skript/lang/util/SimpleExpression."<init>":()V
+       4: aload_0
+       5: aload_1
+       6: putfield      #32                 // Field suppliedBy:Ljava/lang/String;
+       9: return
+
+  public boolean init(ch.njol.skript.lang.Expression<?>[], int, ch.njol.util.Kleenean, ch.njol.skript.lang.SkriptParser$ParseResult);
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  protected java.lang.String[] get(org.bukkit.event.Event);
+    Code:
+       0: iconst_1
+       1: anewarray     #50                 // class java/lang/String
+       4: dup
+       5: iconst_0
+       6: aload_0
+       7: getfield      #32                 // Field suppliedBy:Ljava/lang/String;
+      10: aastore
+      11: areturn
+
+  public boolean isSingle();
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  public java.lang.Class<? extends java.lang.String> getReturnType();
+    Code:
+       0: ldc           #50                 // class java/lang/String
+       2: areturn
+
+  public java.lang.String toString(org.bukkit.event.Event, boolean);
+    Code:
+       0: ldc           #61                 // String dummy direct registry expression
+       2: areturn
+
+  protected java.lang.Object[] get(org.bukkit.event.Event);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #66                 // Method get:(Lorg/bukkit/event/Event;)[Ljava/lang/String;
+       5: areturn
+}
+Compiled from "ModernFixtures.java"
+public final class jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression extends ch.njol.skript.lang.util.SimpleExpression<java.lang.String> {
+  public jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression();
+    Code:
+       0: aload_0
+       1: invokespecial #27                 // Method ch/njol/skript/lang/util/SimpleExpression."<init>":()V
+       4: return
+
+  public boolean init(ch.njol.skript.lang.Expression<?>[], int, ch.njol.util.Kleenean, ch.njol.skript.lang.SkriptParser$ParseResult);
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  protected java.lang.String[] get(org.bukkit.event.Event);
+    Code:
+       0: iconst_1
+       1: anewarray     #45                 // class java/lang/String
+       4: dup
+       5: iconst_0
+       6: ldc           #47                 // String dynamic
+       8: aastore
+       9: areturn
+
+  public boolean isSingle();
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  public java.lang.Class<? extends java.lang.String> getReturnType();
+    Code:
+       0: ldc           #45                 // class java/lang/String
+       2: areturn
+
+  public java.lang.String toString(org.bukkit.event.Event, boolean);
+    Code:
+       0: ldc           #58                 // String dummy re-registered expression
+       2: areturn
+
+  protected java.lang.Object[] get(org.bukkit.event.Event);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #63                 // Method get:(Lorg/bukkit/event/Event;)[Ljava/lang/String;
+       5: areturn
+}
+Compiled from "ModernFixtures.java"
+public final class jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression extends ch.njol.skript.lang.util.SimpleExpression<java.lang.String> implements ch.njol.skript.lang.EventRestrictedSyntax {
+  public jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression();
+    Code:
+       0: aload_0
+       1: invokespecial #29                 // Method ch/njol/skript/lang/util/SimpleExpression."<init>":()V
+       4: return
+
+  public boolean init(ch.njol.skript.lang.Expression<?>[], int, ch.njol.util.Kleenean, ch.njol.skript.lang.SkriptParser$ParseResult);
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  protected java.lang.String[] get(org.bukkit.event.Event);
+    Code:
+       0: iconst_1
+       1: anewarray     #47                 // class java/lang/String
+       4: dup
+       5: iconst_0
+       6: ldc           #49                 // String dummy
+       8: aastore
+       9: areturn
+
+  public boolean isSingle();
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  public java.lang.Class<? extends java.lang.String> getReturnType();
+    Code:
+       0: ldc           #47                 // class java/lang/String
+       2: areturn
+
+  public java.lang.Class<? extends org.bukkit.event.Event>[] supportedEvents();
+    Code:
+       0: iconst_1
+       1: anewarray     #61                 // class java/lang/Class
+       4: dup
+       5: iconst_0
+       6: ldc           #63                 // class org/bukkit/event/player/PlayerJoinEvent
+       8: aastore
+       9: areturn
+
+  public java.lang.String toString(org.bukkit.event.Event, boolean);
+    Code:
+       0: ldc           #67                 // String dummy restricted event value
+       2: areturn
+
+  protected java.lang.Object[] get(org.bukkit.event.Event);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #72                 // Method get:(Lorg/bukkit/event/Event;)[Ljava/lang/String;
+       5: areturn
+}
+Compiled from "LegacySyntaxes.java"
+public final class jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression extends jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$BaseDummyExpression<jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue> {
+  public jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression();
+    Code:
+       0: aload_0
+       1: aconst_null
+       2: invokespecial #31                 // Method jp/nlaocs/skriptDummyAddon/fixture/LegacySyntaxes$BaseDummyExpression."<init>":(Ljp/nlaocs/skriptDummyAddon/fixture/LegacySyntaxes$1;)V
+       5: return
+
+  protected jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue[] get(org.bukkit.event.Event);
+    Code:
+       0: iconst_1
+       1: anewarray     #37                 // class jp/nlaocs/skriptDummyAddon/fixture/model/DummyValue
+       4: dup
+       5: iconst_0
+       6: new           #37                 // class jp/nlaocs/skriptDummyAddon/fixture/model/DummyValue
+       9: dup
+      10: iconst_1
+      11: invokespecial #40                 // Method jp/nlaocs/skriptDummyAddon/fixture/model/DummyValue."<init>":(I)V
+      14: aastore
+      15: areturn
+
+  public boolean isSingle();
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  public java.lang.Class<? extends jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue> getReturnType();
+    Code:
+       0: ldc           #37                 // class jp/nlaocs/skriptDummyAddon/fixture/model/DummyValue
+       2: areturn
+
+  public java.lang.String toString(org.bukkit.event.Event, boolean);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: iload_2
+       3: invokespecial #51                 // Method jp/nlaocs/skriptDummyAddon/fixture/LegacySyntaxes$BaseDummyExpression.toString:(Lorg/bukkit/event/Event;Z)Ljava/lang/String;
+       6: areturn
+
+  public boolean init(ch.njol.skript.lang.Expression[], int, ch.njol.util.Kleenean, ch.njol.skript.lang.SkriptParser$ParseResult);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: iload_2
+       3: aload_3
+       4: aload         4
+       6: invokespecial #55                 // Method jp/nlaocs/skriptDummyAddon/fixture/LegacySyntaxes$BaseDummyExpression.init:([Lch/njol/skript/lang/Expression;ILch/njol/util/Kleenean;Lch/njol/skript/lang/SkriptParser$ParseResult;)Z
+       9: ireturn
+
+  protected java.lang.Object[] get(org.bukkit.event.Event);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #58                 // Method get:(Lorg/bukkit/event/Event;)[Ljp/nlaocs/skriptDummyAddon/fixture/model/DummyValue;
+       5: areturn
+}
+Compiled from "LegacySyntaxes.java"
+abstract class jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$BaseDummyExpression<T> extends ch.njol.skript.lang.util.SimpleExpression<T> {
+  private jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$BaseDummyExpression();
+    Code:
+       0: aload_0
+       1: invokespecial #20                 // Method ch/njol/skript/lang/util/SimpleExpression."<init>":()V
+       4: return
+
+  public boolean init(ch.njol.skript.lang.Expression<?>[], int, ch.njol.util.Kleenean, ch.njol.skript.lang.SkriptParser$ParseResult);
+    Code:
+       0: iconst_1
+       1: ireturn
+
+  public java.lang.String toString(org.bukkit.event.Event, boolean);
+    Code:
+       0: aload_0
+       1: invokevirtual #43                 // Method java/lang/Object.getClass:()Ljava/lang/Class;
+       4: invokevirtual #49                 // Method java/lang/Class.getSimpleName:()Ljava/lang/String;
+       7: areturn
+
+  jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$BaseDummyExpression(jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$1);
+    Code:
+       0: aload_0
+       1: invokespecial #55                 // Method "<init>":()V
+       4: return
+}

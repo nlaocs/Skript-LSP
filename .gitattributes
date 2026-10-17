@@ -5,3 +5,4 @@ ssg/tests/data/**/*.json text eol=crlf
 parser-wasm/tests/data/type-parser-versions/**/*.json text eol=crlf
 parser-wasm/tests/data/type-parser-versions/skript-2.16.2-java25/*.json text eol=lf
 utilities/skript-repl/tests/data/current-multi-addon-2.15.4/*.json text eol=lf
+skript-parser/tests/data/selection-oracle-2.15.4/snapshot/*.json text eol=lf

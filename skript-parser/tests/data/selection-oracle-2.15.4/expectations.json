@@ -1,0 +1,341 @@
+{
+  "snapshotId": "61e05eef5d46d8991e4c50bed34c13fefd0acb1eea7f3138d35c0845feb80de1",
+  "evidence": "selected class/type/single observed from upstream; identities and pattern indices uniquely mapped from complete raw export; lower matcher candidates are a native contract from resolved registry order before Expression type/Event filtering, not observed upstream alternatives",
+  "cases": [
+    {
+      "id": "registry-rank",
+      "input": "selection contract rank",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+        "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:22fe0b0e9bcbe6c86e90ce0a9b03a76ecd6298ca449e21b2a5422b28d67360cd:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "patternIndex": 0,
+        "registryIndex": 2
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:22fe0b0e9bcbe6c86e90ce0a9b03a76ecd6298ca449e21b2a5422b28d67360cd:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 0,
+          "registryIndex": 2
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+          "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:c904b19ff9d1c6191a171245769146a4f5cc79c9c878882044922f156cfde21a:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+          "patternIndex": 0,
+          "registryIndex": 325
+        }
+      ]
+    },
+    {
+      "id": "registry-reverse",
+      "input": "selection contract reverse",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+        "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:d01cfb1b31d07a9a8d1f24483b16bd6b9d27943c834d85c31b4affd779f08769:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+        "patternIndex": 0,
+        "registryIndex": 1
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+          "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:d01cfb1b31d07a9a8d1f24483b16bd6b9d27943c834d85c31b4affd779f08769:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+          "patternIndex": 0,
+          "registryIndex": 1
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:980d03ef8476d46ff4d5fa8c9fe4ec09d26dfa6a399cf367084ee5883ead64e5:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 0,
+          "registryIndex": 326
+        }
+      ]
+    },
+    {
+      "id": "registry-tie",
+      "input": "selection contract tie",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+        "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:ae6316897f7941303cfb6ef50ce19237d74e8b86f1cb608760cf0970893387f8:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+        "patternIndex": 0,
+        "registryIndex": 144
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+          "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:ae6316897f7941303cfb6ef50ce19237d74e8b86f1cb608760cf0970893387f8:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+          "patternIndex": 0,
+          "registryIndex": 144
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:4087fe3fb6183e983b90ee2d1820a22f527631e9026d6a580b124473d52bb006:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 0,
+          "registryIndex": 178
+        }
+      ]
+    },
+    {
+      "id": "pattern-index",
+      "input": "selection contract pattern",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+        "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:68de344c583beaa5b97cd2f6ef3e9a572bae86908911e7b36aeaf322da9d8677:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "patternIndex": 1,
+        "registryIndex": 4
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:68de344c583beaa5b97cd2f6ef3e9a572bae86908911e7b36aeaf322da9d8677:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 1,
+          "registryIndex": 4
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+          "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:a0e887b0fdfed7e668976ea8388ae0146ad7869b8f3ea4426bf27f1184179b4f:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+          "patternIndex": 0,
+          "registryIndex": 327
+        }
+      ]
+    },
+    {
+      "id": "broad-type",
+      "input": "selection contract typed",
+      "expectedTypes": [
+        "java.lang.Object"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+        "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:76feb4de1527e9560dc8ea14b0cec1e7878e991ec27c44bf68c75c639f3e29f4:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "patternIndex": 0,
+        "registryIndex": 6
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:76feb4de1527e9560dc8ea14b0cec1e7878e991ec27c44bf68c75c639f3e29f4:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 0,
+          "registryIndex": 6
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:9c3a5c6b3283b41694ccfea5c08201fde632655b3855a97fbb3a697e115886d7",
+          "registrationId": "expression:skriptdummyaddon:9c3a5c6b3283b41694ccfea5c08201fde632655b3855a97fbb3a697e115886d7:e1f4cfd91adb0e5c58a1d1fd0cb067588f100ecfd2e4cf1e195fba4811d07166:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression",
+          "patternIndex": 0,
+          "registryIndex": 324
+        }
+      ]
+    },
+    {
+      "id": "specific-type",
+      "input": "selection contract typed",
+      "expectedTypes": [
+        "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression",
+        "returnType": "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:9c3a5c6b3283b41694ccfea5c08201fde632655b3855a97fbb3a697e115886d7",
+        "registrationId": "expression:skriptdummyaddon:9c3a5c6b3283b41694ccfea5c08201fde632655b3855a97fbb3a697e115886d7:e1f4cfd91adb0e5c58a1d1fd0cb067588f100ecfd2e4cf1e195fba4811d07166:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression",
+        "patternIndex": 0,
+        "registryIndex": 324
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:76feb4de1527e9560dc8ea14b0cec1e7878e991ec27c44bf68c75c639f3e29f4:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 0,
+          "registryIndex": 6
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:9c3a5c6b3283b41694ccfea5c08201fde632655b3855a97fbb3a697e115886d7",
+          "registrationId": "expression:skriptdummyaddon:9c3a5c6b3283b41694ccfea5c08201fde632655b3855a97fbb3a697e115886d7:e1f4cfd91adb0e5c58a1d1fd0cb067588f100ecfd2e4cf1e195fba4811d07166:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression",
+          "patternIndex": 0,
+          "registryIndex": 324
+        }
+      ]
+    },
+    {
+      "id": "allowed-event",
+      "input": "selection contract event",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:72acbdb4461fb75ec7d186c5fe9c98d1b507fd1b0571889f16961f2a06c440dd",
+        "registrationId": "expression:skriptdummyaddon:72acbdb4461fb75ec7d186c5fe9c98d1b507fd1b0571889f16961f2a06c440dd:22385234c98e9a62b938851682f64a86fe7c4525301fee82b47be30d88550c49:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression",
+        "patternIndex": 0,
+        "registryIndex": 0
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:72acbdb4461fb75ec7d186c5fe9c98d1b507fd1b0571889f16961f2a06c440dd",
+          "registrationId": "expression:skriptdummyaddon:72acbdb4461fb75ec7d186c5fe9c98d1b507fd1b0571889f16961f2a06c440dd:22385234c98e9a62b938851682f64a86fe7c4525301fee82b47be30d88550c49:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression",
+          "patternIndex": 0,
+          "registryIndex": 0
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+          "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:c682ca57792842ae2e20a37e78f29517e8e7d02e3b266e3466e23ae0e3db46fe:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+          "patternIndex": 0,
+          "registryIndex": 323
+        }
+      ]
+    },
+    {
+      "id": "other-event",
+      "input": "selection contract event",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerQuitEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+        "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:c682ca57792842ae2e20a37e78f29517e8e7d02e3b266e3466e23ae0e3db46fe:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+        "patternIndex": 0,
+        "registryIndex": 323
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:72acbdb4461fb75ec7d186c5fe9c98d1b507fd1b0571889f16961f2a06c440dd",
+          "registrationId": "expression:skriptdummyaddon:72acbdb4461fb75ec7d186c5fe9c98d1b507fd1b0571889f16961f2a06c440dd:22385234c98e9a62b938851682f64a86fe7c4525301fee82b47be30d88550c49:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression",
+          "patternIndex": 0,
+          "registryIndex": 0
+        },
+        {
+          "definitionId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef",
+          "registrationId": "expression:skriptdummyaddon:66cfb3695ea3d939f0ee9f7e498ca54f5a6841af48f78e6346e58918666a8cef:c682ca57792842ae2e20a37e78f29517e8e7d02e3b266e3466e23ae0e3db46fe:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+          "patternIndex": 0,
+          "registryIndex": 323
+        }
+      ]
+    },
+    {
+      "id": "existing-supplier",
+      "input": "dummy supplier-backed expression",
+      "expectedTypes": [
+        "java.lang.String"
+      ],
+      "eventClasses": [
+        "org.bukkit.event.player.PlayerJoinEvent"
+      ],
+      "observed": {
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "returnType": "java.lang.String",
+        "single": true
+      },
+      "mapped": {
+        "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+        "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:6a7c381b029fddd70ba909f713b61ca9769ae9a66f9d9b9f396d5ec2ac0274d8:0",
+        "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+        "patternIndex": 1,
+        "registryIndex": 5
+      },
+      "expectedMatcherCandidates": [
+        {
+          "definitionId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127",
+          "registrationId": "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:6a7c381b029fddd70ba909f713b61ca9769ae9a66f9d9b9f396d5ec2ac0274d8:0",
+          "elementClass": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+          "patternIndex": 1,
+          "registryIndex": 5
+        }
+      ]
+    }
+  ]
+}
