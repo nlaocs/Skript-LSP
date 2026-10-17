@@ -1,0 +1,29 @@
+{
+  "upstream": {
+    "repository": "SkriptLang/Skript",
+    "tag": "2.15.4",
+    "treeSha": "702e3484bc5ab533fc66a039c81f4e8909767571",
+    "officialAssetSha256": "c59854d869562e822a182a5ea66219030718a213d53b67182e5d9bdecb15865d",
+    "paperRemappedSha256": "277393a965e164e854f5280aa1c30ce92e69b3fab4df5063711743f9d7847327",
+    "paperMappingsHash": "5028247881868F33795961B8387BB1B13C018B83E4523A77C8A8D8EFCD8F6FEE"
+  },
+  "capture": {
+    "snapshotId": "61e05eef5d46d8991e4c50bed34c13fefd0acb1eea7f3138d35c0845feb80de1",
+    "cases": 9,
+    "sameBootRegistry": true,
+    "freshExport": true,
+    "registryAndPluginMapping": "exact",
+    "parseOnly": true
+  },
+  "observerSha256": "30f32e945531fc8ed9fa1d1a278b28125c50187c38fdeacdb1a26fb10f8c6df8",
+  "checks": {
+    "freshExport": true,
+    "completeExpressionRegistry": true,
+    "pluginVersionsHashesOrder": true,
+    "registryStableAcrossExport": true,
+    "parseOnly": true,
+    "onlinePlayers": 0,
+    "ownedServerExited": 0,
+    "originalServerHashesPreserved": true
+  }
+}

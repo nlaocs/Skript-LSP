@@ -1,0 +1,231 @@
+[
+  {
+    "input": "selection contract rank",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression.suppliedBy": "custom supplier",
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "registry-rank"
+  },
+  {
+    "input": "selection contract reverse",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "registry-reverse"
+  },
+  {
+    "input": "selection contract tie",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "registry-tie"
+  },
+  {
+    "input": "selection contract pattern",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression.suppliedBy": "custom supplier",
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "pattern-index"
+  },
+  {
+    "input": "selection contract typed",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.Object"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression.suppliedBy": "custom supplier",
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "broad-type"
+  },
+  {
+    "input": "selection contract typed",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression",
+      "returnType": "jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue",
+      "single": true,
+      "observedScalarFields": {
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "specific-type"
+  },
+  {
+    "input": "selection contract event",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "allowed-event"
+  },
+  {
+    "input": "selection contract event",
+    "event": "quit",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerQuitEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "other-event"
+  },
+  {
+    "input": "dummy supplier-backed expression",
+    "event": "join",
+    "parseFlags": "PARSE_EXPRESSIONS",
+    "parseContext": "DEFAULT",
+    "eventClasses": [
+      "org.bukkit.event.player.PlayerJoinEvent"
+    ],
+    "expectedTypes": [
+      "java.lang.String"
+    ],
+    "selected": {
+      "class": "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression",
+      "returnType": "java.lang.String",
+      "single": true,
+      "observedScalarFields": {
+        "jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression.suppliedBy": "custom supplier",
+        "ch.njol.skript.lang.util.SimpleExpression.time": 0
+      },
+      "matchedPattern": null,
+      "matchedPatternEvidence": "not retained by these upstream fixture instances; map only unique exact registered literal patterns separately"
+    },
+    "errors": [],
+    "parseOnly": "SkriptParser.parseExpression; no validateScript/postLoad/execute",
+    "id": "existing-supplier"
+  }
+]

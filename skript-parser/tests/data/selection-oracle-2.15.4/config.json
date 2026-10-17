@@ -1,0 +1,29 @@
+{
+  "owner": "SkriptDummyAddon",
+  "definitions": [
+    {"id":"rank-first","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression","patterns":["selection contract rank"],"priority":"before"},
+    {"id":"rank-second","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression","patterns":["selection contract rank"],"priority":"after"},
+    {"id":"reverse-first","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression","patterns":["selection contract reverse"],"priority":"after"},
+    {"id":"reverse-second","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression","patterns":["selection contract reverse"],"priority":"before"},
+    {"id":"tie-first","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression","patterns":["selection contract tie"],"priority":"same"},
+    {"id":"tie-second","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression","patterns":["selection contract tie"],"priority":"same"},
+    {"id":"pattern-first","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression","patterns":["selection pattern unrelated first","selection contract pattern","selection pattern unrelated last"],"priority":"before"},
+    {"id":"pattern-second","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression","patterns":["selection contract pattern"],"priority":"after"},
+    {"id":"typed-string","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression","patterns":["selection contract typed"],"priority":"before"},
+    {"id":"typed-custom","class":"jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$FixedSingleExpression","patterns":["selection contract typed"],"priority":"after"},
+    {"id":"event-restricted","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$RestrictedExpression","patterns":["selection contract event"],"priority":"before"},
+    {"id":"event-fallback","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression","patterns":["selection contract event"],"priority":"after"},
+    {"id":"unrelated","class":"jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$ReRegisteredExpression","patterns":["unrelated selection noise"],"priority":"before"}
+  ],
+  "cases": [
+    {"id":"registry-rank","input":"selection contract rank","expectedTypes":["java.lang.String"],"event":"join"},
+    {"id":"registry-reverse","input":"selection contract reverse","expectedTypes":["java.lang.String"],"event":"join"},
+    {"id":"registry-tie","input":"selection contract tie","expectedTypes":["java.lang.String"],"event":"join"},
+    {"id":"pattern-index","input":"selection contract pattern","expectedTypes":["java.lang.String"],"event":"join"},
+    {"id":"broad-type","input":"selection contract typed","expectedTypes":["java.lang.Object"],"event":"join"},
+    {"id":"specific-type","input":"selection contract typed","expectedTypes":["jp.nlaocs.skriptDummyAddon.fixture.model.DummyValue"],"event":"join"},
+    {"id":"allowed-event","input":"selection contract event","expectedTypes":["java.lang.String"],"event":"join"},
+    {"id":"other-event","input":"selection contract event","expectedTypes":["java.lang.String"],"event":"quit"},
+    {"id":"existing-supplier","input":"dummy supplier-backed expression","expectedTypes":["java.lang.String"],"event":"join"}
+  ]
+}

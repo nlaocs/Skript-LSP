@@ -725,7 +725,7 @@ fn filtered_expression_patterns_keep_their_registration_index() {
 }
 
 #[test]
-fn expression_candidate_order_is_deterministic() {
+fn supplier_registration_identity_and_pattern_index_are_repeatable() {
     let catalog = expression_fixture();
     let source = MappedSource::identity("dummy supplier-backed expression");
     let parse = || {
@@ -743,7 +743,28 @@ fn expression_candidate_order_is_deterministic() {
         .unwrap()
     };
 
-    assert_eq!(parse(), parse());
+    let first = parse();
+    let selected = first
+        .selected
+        .as_ref()
+        .expect("supplier pattern must select a registration");
+    // These identities and index come from Expressions.json:20-26, rather than
+    // a second call to the parser. Repeated no-match results must not pass.
+    assert_eq!(
+        selected.node.kind,
+        ExpressionNodeKind::Registered {
+            definition_id: "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127".to_owned(),
+            registration_id: "expression:skriptdummyaddon:92d06378bb1bfd32fb8f1765f1a2f6dd6622cccdd24374ce0ae5bcb3ec6ec127:6a7c381b029fddd70ba909f713b61ca9769ae9a66f9d9b9f396d5ec2ac0274d8:0".to_owned(),
+            element_class: ClassName("jp.nlaocs.skriptDummyAddon.fixture.modern.ModernFixtures$DirectRegistryExpression".to_owned()),
+            pattern_index: 1,
+        }
+    );
+    assert_eq!(
+        selected.node.span.local_range,
+        TextRange::new(0, source.virtual_source().len())
+    );
+    assert!(first.alternatives.is_empty());
+    assert_eq!(first, parse());
 }
 
 #[test]
