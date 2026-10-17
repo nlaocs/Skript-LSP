@@ -7,6 +7,33 @@ use worker::{Analysis, Analyzer};
 const URI: &str = "file:///project/example.sk";
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+#[test]
+fn hover_content_format_uses_first_supported_client_preference_and_defaults_to_plaintext() {
+    for (hover, expected) in [
+        (json!(null), MarkupKind::PlainText),
+        (json!({}), MarkupKind::PlainText),
+        (json!({"contentFormat":[]}), MarkupKind::PlainText),
+        (
+            json!({"contentFormat":["markdown","plaintext"]}),
+            MarkupKind::Markdown,
+        ),
+        (
+            json!({"contentFormat":["plaintext","markdown"]}),
+            MarkupKind::PlainText,
+        ),
+    ] {
+        let params = serde_json::from_value(json!({
+            "rootUri":"file:///project", "capabilities":{"textDocument":{"hover":hover}},
+            "initializationOptions":{"snapshotPath":"snapshot"}
+        }))
+        .unwrap();
+        assert_eq!(
+            ProjectConfig::from_params(params).unwrap().hover_format,
+            expected
+        );
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Action {
     Started(i32),

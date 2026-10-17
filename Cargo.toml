@@ -8,6 +8,7 @@ members = ["core-library", "parser-wasm", "skript-parser", "skripthub", "ssg", "
 
 [dependencies]
 crossbeam-channel = "0.5.15"
+html-escape = "=0.3.0"
 lsp-server = "=0.10.0"
 lsp-types = "=0.97.0"
 parser-wasm = { path = "parser-wasm" }

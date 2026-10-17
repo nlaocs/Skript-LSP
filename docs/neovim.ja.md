@@ -55,12 +55,19 @@ nvim -n -i NONE --noplugin -u .\examples\neovim\skript-lsp.lua .\example.sk
 空白・コメント・未知の構文・位置対応が曖昧なマクロ展開では表示を返さない。
 編集直後の再解析中もnullになり、完了後に再度要求すると現在の情報を表示する。
 変数の型表示は解析文脈の型で、代入値からの型推論ではない。
+Neovim標準のcapabilitiesではMarkdown表示を選び、説明のHTMLタグを変換して表示する。
+定義元Javaクラス、採用pattern、型、Addon、Examplesを確認できる。
 
 同じ隔離環境で `tests/neovim/hover.lua` を実行すると、標準の
 `vim.lsp.buf.hover()` が作った実floating bufferの本文と範囲extmarkを確認する。
 構文のSSG説明、関数signature、local/global変数、日本語と絵文字のUTF-16、未完成文書の正常な兄弟、
 空白/コメント、編集、close/reopenを確認し、実要求と応答をJSONへ記録する。
 制御workerによる決定的な旧結果破棄の検証はRustの単体試験が担当する。
+
+`tests/neovim/hover_formatting.lua` はMarkdownを要求し、実SSGのName、Display Name、Player List Nameを
+標準floating windowで確認する。HTMLタグと文字参照、色タグ、複数行の例の字下げ・境界、
+完全修飾Javaクラス、2回目のhoverによるfocus、scroll、close、編集後の表示更新をJSONへ記録する。
+headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktopの画面描画までは保証しない。
 
 ## 独立した headless smoke
 

@@ -66,13 +66,24 @@ optionsによる生成文もこの規則でcall-siteへ対応付ける。元位�
 
 ## ホバーの情報と寿命
 
-`hoverProvider: true` を公開し、現在の文書の最終ASTで採用された要素からPlainTextと原文のUTF-16範囲を返す。
+`hoverProvider: true` を公開し、現在の文書の最終ASTで採用された要素から説明と原文のUTF-16範囲を返す。
+`textDocument.hover.contentFormat` の先頭から対応するMarkdownまたはPlainTextを選ぶ。
+指定がない場合はPlainTextを使う。
 重なる要素では狭い範囲を優先し、同範囲なら深い子要素を選ぶ。同順位で異なる要素が残る場合はnullを返す。
 空白・コメント・未解析の位置・拡張障害の領域・空範囲にはホバーを返さない。
 Exact originだけを使い、Replaced/Anchored originの位置は親要素へのfallbackも含めて対象外にする。
 マクロ展開内の異なる要素が同じ原文位置に潰れる場合に、確定した意味を推測しないためである。
 
 構文はdefinition ID・registration ID・種類を照合してSSGの名前・採用pattern・Addon・説明と例を表示する。
+定義元JavaクラスはSSGの `elementClass` を使い、短いクラス名と完全修飾名を併記する。
+情報を持たない関数や型について、戻り値のJava表現から実装クラスを推測しない。
+説明のHTMLは強調・段落・箇条書き・コード・安全な外部リンクをMarkdownまたはPlainTextへ変換する。
+HTMLを識別した後で文字参照を一段だけ復号し、Skriptの `<red>` 等をコードから削除しない。
+相対リンクやSSG内の参照anchorは表示ラベルを残す。URLの基点は推測しない。
+Examples見出しは一つにし、単一行itemのうちsection開始行より深い字下げの継続行だけを結合する。
+元から複数行のitem、同じ深さのitem、独立した例の境界と字下げを保持する。
+Markdownのコード区切りは内容中のbacktickより長くする。処理入力と出力には上限を設け、
+上限に達した場合は例全体を省略するか本文内に省略記号を付け、コード区切りを途中で切らない。
 型名はcatalogのcode nameへ変換し、戻り値型・個数・候補型のcomplete/partial/unresolvedを区別する。
 関数のsignatureは解決済みIDに一致する文書内宣言、またはSSGの関数定義を使う。
 変数名とlocal/global scopeは `nlaocs.skript.variable` version 1のpublic dataだけを解釈する。

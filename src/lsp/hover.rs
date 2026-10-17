@@ -19,6 +19,7 @@ pub(super) struct Document {
     lines: LineIndex,
     targets: Vec<Target>,
     blocked: Vec<TextRange>,
+    format: MarkupKind,
 }
 
 struct Target {
@@ -33,6 +34,7 @@ impl Document {
         result: DocumentParseResult,
         source: Arc<str>,
         catalog: Arc<Catalog>,
+        format: MarkupKind,
     ) -> Result<Self, String> {
         if source.as_ref() != result.source.original() {
             return Err("hover source does not match the parsed original revision".into());
@@ -76,7 +78,7 @@ impl Document {
             .iter()
             .map(|registration| registration.definition.clone())
             .collect();
-        Self::from_ast(source, result.ast, functions, catalog, blocked)
+        Self::from_ast(source, result.ast, functions, catalog, blocked, format)
     }
 
     fn from_ast(
@@ -85,6 +87,7 @@ impl Document {
         functions: Vec<FunctionDefinition>,
         catalog: Arc<Catalog>,
         mut blocked: Vec<TextRange>,
+        format: MarkupKind,
     ) -> Result<Self, String> {
         let lines = LineIndex::new(&source);
         for range in &blocked {
@@ -110,7 +113,11 @@ impl Document {
             pending.extend(node.children.iter().map(|child| (*child, depth + 1)));
         }
         let mut targets = Vec::new();
-        let descriptions = Descriptions { functions, catalog };
+        let descriptions = Descriptions {
+            functions,
+            catalog,
+            format: format.clone(),
+        };
         let mut contents: HashSet<Arc<str>> = HashSet::new();
         for (id, depth) in depths {
             let node = nodes.remove(&id).unwrap();
@@ -154,6 +161,7 @@ impl Document {
             lines,
             targets,
             blocked,
+            format,
         })
     }
 
@@ -201,7 +209,7 @@ impl Document {
         let (target, range) = selected?;
         Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::PlainText,
+                kind: self.format.clone(),
                 value: target.content.to_string(),
             }),
             range: Some(self.lines.range(&self.source, range).ok()?),
@@ -212,6 +220,7 @@ impl Document {
 struct Descriptions {
     functions: Vec<FunctionDefinition>,
     catalog: Arc<Catalog>,
+    format: MarkupKind,
 }
 
 impl Descriptions {
@@ -251,48 +260,81 @@ impl Descriptions {
                 None
             }
         });
-        let mut text = if let Some(function) = &node.function {
-            format!("Function: {}\n", function.name)
+        let title = if let Some(function) = &node.function {
+            format!("Function: {}", function.name)
         } else if variable {
-            "Variable\n".into()
+            "Variable".into()
         } else {
             let name = common
                 .and_then(|common| common.documentation.name.as_deref())
-                .unwrap_or(&node.syntax_id);
-            format!("{}: {name}\n", kind_name(node.kind))
+                .map(str::to_owned)
+                .or_else(|| {
+                    (node.kind == parser_wasm::host::SyntaxKind::Type)
+                        .then(|| summary.return_type.as_deref().map(|ty| self.type_name(ty)))
+                        .flatten()
+                })
+                .unwrap_or_else(|| node.syntax_id.clone());
+            format!("{}: {name}", kind_name(node.kind))
         };
+        let mut fields = Vec::new();
         if let Some(common) = common {
-            if let Some(index) = summary
+            fields.push((
+                "Addon",
+                format!("{} {}", common.addon.name, common.addon.version),
+            ));
+        } else if let Some(function) = catalog_function {
+            fields.push((
+                "Addon",
+                format!("{} {}", function.addon.name, function.addon.version),
+            ));
+        }
+        // A syntax implementation class is distinct from a Type's Java value
+        // representation. Functions do not expose an implementation class here.
+        let implementation = common
+            .map(|common| common.element_class.as_str())
+            .or_else(|| {
+                (!matches!(
+                    node.kind,
+                    parser_wasm::host::SyntaxKind::Type | parser_wasm::host::SyntaxKind::Function
+                ))
+                .then_some(summary.element_class.as_deref())
+                .flatten()
+            });
+        if let Some(class) = implementation {
+            fields.push((
+                "Java class",
+                class.rsplit('.').next().unwrap_or(class).to_owned(),
+            ));
+            fields.push(("Qualified Java class", class.to_owned()));
+        }
+        if let Some(common) = common {
+            if let Some(pattern) = summary
                 .pattern_index
                 .and_then(|index| usize::try_from(index).ok())
+                .and_then(|index| common.patterns.get(index))
             {
-                if let Some(pattern) = common.patterns.get(index) {
-                    text.push_str(&format!("Pattern: {}\n", pattern.source));
-                }
+                fields.push(("Pattern", pattern.source.clone()));
             }
-            text.push_str(&format!(
-                "Addon: {} {}\n",
-                common.addon.name, common.addon.version
-            ));
+            if common.deprecated == Some(true) {
+                fields.push(("Deprecated", "yes".into()));
+            }
         } else if let Some(pattern) = node
             .metadata
             .iter()
             .find(|entry| entry.key == "parser.pattern")
         {
-            text.push_str(&format!("Pattern: {}\n", pattern.value));
-        }
-        if let Some(function) = catalog_function {
-            text.push_str(&format!(
-                "Addon: {} {}\n",
-                function.addon.name, function.addon.version
-            ));
+            fields.push(("Pattern", pattern.value.clone()));
         }
         if variable {
             match variable_details(node) {
                 Some((scope, template)) => {
-                    text.push_str(&format!("Scope: {scope}\nName template: {template}\n"))
+                    fields.push(("Scope", scope));
+                    fields.push(("Name template", template));
                 }
-                None => text.push_str("Variable details: unavailable for this provider/schema\n"),
+                None => fields.push((
+                    "Variable details",
+                    "unavailable for this provider/schema".into(),
+                )),
             }
         }
         if let Some(function) = &node.function {
@@ -314,59 +356,62 @@ impl Descriptions {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                text.push_str(&format!(
-                    "Signature: {}({parameters}) -> {}\n",
-                    definition.name,
-                    definition
-                        .return_type
-                        .as_ref()
-                        .map_or_else(|| "none".into(), |ty| self.type_name(ty.as_str()))
-                ));
-            } else {
-                if let Some(definition) = catalog_function {
-                    let parameters = definition
-                        .parameters
-                        .iter()
-                        .map(|parameter| {
-                            self.parameter(
-                                &parameter.name,
-                                parameter.parameter_type.as_str(),
-                                parameter.single,
-                                parameter.modifiers.contains(&ParameterModifier::Optional),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    text.push_str(&format!(
-                        "Signature: {}({parameters}) -> {}\n",
+                fields.push((
+                    "Signature",
+                    format!(
+                        "{}({parameters}) -> {}",
                         definition.name,
                         definition
                             .return_type
                             .as_ref()
                             .map_or_else(|| "none".into(), |ty| self.type_name(ty.as_str()))
-                    ));
-                }
+                    ),
+                ));
+            } else if let Some(definition) = catalog_function {
+                let parameters = definition
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        self.parameter(
+                            &parameter.name,
+                            parameter.parameter_type.as_str(),
+                            parameter.single,
+                            parameter.modifiers.contains(&ParameterModifier::Optional),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                fields.push((
+                    "Signature",
+                    format!(
+                        "{}({parameters}) -> {}",
+                        definition.name,
+                        definition
+                            .return_type
+                            .as_ref()
+                            .map_or_else(|| "none".into(), |ty| self.type_name(ty.as_str()))
+                    ),
+                ));
             }
         }
         if let Some(ty) = &summary.return_type {
-            let label = if variable {
-                "Type (parse context, not inferred)"
-            } else {
-                "Return type"
-            };
-            text.push_str(&format!("{label}: {}\n", self.type_name(ty)));
+            fields.push((
+                if variable {
+                    "Type (parse context, not inferred)"
+                } else {
+                    "Return type"
+                },
+                self.type_name(ty),
+            ));
         }
-        let multiplicity = summary
-            .multiplicity
-            .as_ref()
-            .map(|value| match value {
-                DynamicMultiplicity::Single => "single",
-                DynamicMultiplicity::Multiple => "multiple",
-                DynamicMultiplicity::Both => "both",
-            })
-            .unwrap_or("unknown");
         if summary.return_type.is_some() || variable {
-            text.push_str(&format!("Multiplicity: {multiplicity}\n"));
+            let multiplicity = match summary.multiplicity {
+                Some(DynamicMultiplicity::Single) => "single",
+                Some(DynamicMultiplicity::Multiple) => "multiple",
+                Some(DynamicMultiplicity::Both) => "both",
+                None => "unknown",
+            };
+            fields.push(("Multiplicity", multiplicity.into()));
         }
         if !summary.possible_return_types.is_empty()
             || !matches!(
@@ -380,15 +425,24 @@ impl Descriptions {
                 .map(|ty| self.type_name(ty))
                 .collect::<Vec<_>>()
                 .join(", ");
-            text.push_str(&format!(
-                "Possible return types ({}): {}\n",
-                match summary.possible_return_types_state {
-                    parser_wasm::host::ExpressionPossibleReturnTypesState::Complete => "complete",
-                    parser_wasm::host::ExpressionPossibleReturnTypesState::Partial => "partial",
-                    parser_wasm::host::ExpressionPossibleReturnTypesState::Unresolved =>
-                        "unresolved",
+            let label = match summary.possible_return_types_state {
+                parser_wasm::host::ExpressionPossibleReturnTypesState::Complete => {
+                    "Possible return types (complete)"
+                }
+                parser_wasm::host::ExpressionPossibleReturnTypesState::Partial => {
+                    "Possible return types (partial)"
+                }
+                parser_wasm::host::ExpressionPossibleReturnTypesState::Unresolved => {
+                    "Possible return types (unresolved)"
+                }
+            };
+            fields.push((
+                label,
+                if types.is_empty() {
+                    "unknown".into()
+                } else {
+                    types
                 },
-                if types.is_empty() { "unknown" } else { &types }
             ));
         }
         let documentation = catalog_function
@@ -402,30 +456,14 @@ impl Descriptions {
                 })
             });
         if let Some(documentation) = documentation {
-            for line in &documentation.description {
-                if text.len() >= 32768 {
-                    break;
-                }
-                text.push('\n');
-                text.push_str(line);
+            if !documentation.since.is_empty() {
+                fields.push(("Since", documentation.since.join(", ")));
             }
-            for example in documentation.examples.iter().take(3) {
-                if text.len() >= 32768 {
-                    break;
-                }
-                text.push_str("\n\nExample:\n");
-                text.push_str(example);
+            if !documentation.requires.is_empty() {
+                fields.push(("Requires", documentation.requires.join(", ")));
             }
         }
-        if text.len() > 32768 {
-            let mut end = 32768;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-            text.push_str("\n…");
-        }
-        text.trim_end().to_owned()
+        super::hover_text::render(&title, &fields, documentation, &self.format)
     }
 
     fn type_name(&self, class: &str) -> String {
@@ -539,6 +577,7 @@ impl Document {
             Vec::new(),
             tests::catalog(),
             Vec::new(),
+            MarkupKind::PlainText,
         )
         .expect("the controlled worker's synthetic hover AST must be valid")
     }
@@ -645,6 +684,7 @@ mod tests {
             Vec::new(),
             catalog(),
             Vec::new(),
+            MarkupKind::PlainText,
         )
         .unwrap()
     }
@@ -769,6 +809,7 @@ mod tests {
                 Vec::new(),
                 catalog(),
                 Vec::new(),
+                MarkupKind::PlainText,
             )
             .err()
             .expect("an unusable original source range must reject the hover document");
@@ -787,6 +828,7 @@ mod tests {
             Vec::new(),
             catalog(),
             vec![TextRange::new(1, 3), TextRange::new(4, 4)],
+            MarkupKind::PlainText,
         )
         .unwrap();
 

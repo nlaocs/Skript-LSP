@@ -85,8 +85,12 @@ impl Client {
     }
 
     fn initialized(addons: &[PathBuf]) -> Self {
+        Self::initialized_with_capabilities(addons, json!({}))
+    }
+
+    fn initialized_with_capabilities(addons: &[PathBuf], capabilities: Value) -> Self {
         let mut client = Self::spawn();
-        client.initialize(&snapshot(), addons);
+        client.initialize_with_capabilities(&snapshot(), addons, capabilities);
         let result = client.response(1).response_result.unwrap();
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(
@@ -100,6 +104,15 @@ impl Client {
     }
 
     fn initialize(&mut self, snapshot: &Path, addons: &[PathBuf]) {
+        self.initialize_with_capabilities(snapshot, addons, json!({}));
+    }
+
+    fn initialize_with_capabilities(
+        &mut self,
+        snapshot: &Path,
+        addons: &[PathBuf],
+        capabilities: Value,
+    ) {
         let root = url::Url::from_directory_path(self.project.path()).unwrap();
         self.send(Request::new(
             1.into(),
@@ -107,7 +120,7 @@ impl Client {
             json!({
                 "processId": null,
                 "rootUri": root.as_str(),
-                "capabilities": {},
+                "capabilities": capabilities,
                 "initializationOptions": {"snapshotPath": snapshot, "addonPaths": addons}
             }),
         ));
@@ -737,4 +750,88 @@ fn hover_does_not_guess_a_node_inside_an_options_expansion() {
     };
     assert!(content.value.contains("Effect: Message"));
     client.finish();
+}
+
+#[test]
+fn hover_formats_real_ssg_docs_examples_and_implementation_classes_for_both_client_preferences() {
+    for formats in [["markdown", "plaintext"], ["plaintext", "markdown"]] {
+        let mut client = Client::initialized_with_capabilities(
+            &[],
+            json!({"textDocument":{"hover":{"contentFormat":formats}}}),
+        );
+        client.open(1, "on join:\n    send name of player to console\n    send display name of player to console\n    send player list name of player to console\n    send sin(1) to console\n");
+        let report = client.diagnostics(1);
+        assert!(report.diagnostics.is_empty(), "{report:#?}");
+        for (id, line, class, block_count) in [
+            (
+                10,
+                1,
+                "org.skriptlang.skript.common.properties.elements.expressions.PropExprName",
+                2,
+            ),
+            (
+                11,
+                2,
+                "org.skriptlang.skript.common.properties.elements.expressions.PropExprCustomName",
+                1,
+            ),
+            (
+                12,
+                3,
+                "org.skriptlang.skript.bukkit.entity.player.elements.expressions.ExprPlayerListName",
+                1,
+            ),
+        ] {
+            let hover = client.hover(id, line, 11).unwrap();
+            assert_eq!(hover.range.unwrap().start, Position::new(line, 9));
+            let HoverContents::Markup(content) = hover.contents else {
+                panic!("MarkupContent required")
+            };
+            assert_eq!(serde_json::to_value(content.kind).unwrap(), formats[0]);
+            let text = content.value;
+            assert!(text.contains(class), "{text}");
+            assert!(text.contains("<red>"), "{text}");
+            assert!(
+                !text.contains("&lt;") && !text.contains("<strong>") && !text.contains("<em>"),
+                "{text}"
+            );
+            assert_eq!(
+                text.matches(if formats[0] == "markdown" {
+                    "### Examples"
+                } else {
+                    "Examples:"
+                })
+                .count(),
+                1,
+                "{text}"
+            );
+            if formats[0] == "markdown" {
+                assert_eq!(text.matches("```skript\n").count(), block_count, "{text}");
+            }
+            if line == 1 {
+                assert!(text.contains("on join:\n\tplayer has permission \"name.red\"\n\tset the player's display name to \"<red>[admin] <gold>%name of player%\""), "{text}");
+                assert!(
+                    text.contains(
+                        "set the name of the player's tool to \"Legendary Sword of Awesomeness\""
+                    ),
+                    "last example lost: {text}"
+                );
+                assert!(text.contains(if formats[0] == "markdown" {
+                    "**Players:**"
+                } else {
+                    "Players:"
+                }));
+            }
+        }
+        let HoverContents::Markup(function) = client.hover(13, 4, 10).unwrap().contents else {
+            panic!("function markup")
+        };
+        assert!(function.value.contains("sin(n: number) -> number"));
+        assert!(
+            !function.value.contains("Java class"),
+            "function catalog has no implementation class: {}",
+            function.value
+        );
+        client.finish();
+    }
 }

@@ -2,6 +2,7 @@
 
 mod diagnostics;
 mod hover;
+mod hover_text;
 mod positions;
 mod worker;
 
@@ -9,7 +10,7 @@ use crossbeam_channel::{bounded, select};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Response};
 use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    HoverParams, InitializeParams, PublishDiagnosticsParams, Uri,
+    HoverParams, InitializeParams, MarkupKind, PublishDiagnosticsParams, Uri,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -21,6 +22,7 @@ struct ProjectConfig {
     project_uri: String,
     snapshot_path: PathBuf,
     addon_paths: Vec<PathBuf>,
+    hover_format: MarkupKind,
 }
 
 #[derive(Deserialize)]
@@ -34,6 +36,19 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let hover_format = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|document| document.hover.as_ref())
+            .and_then(|hover| hover.content_format.as_ref())
+            .and_then(|formats| {
+                formats
+                    .iter()
+                    .find(|format| matches!(**format, MarkupKind::Markdown | MarkupKind::PlainText))
+            })
+            .cloned()
+            .unwrap_or(MarkupKind::PlainText);
         let root = match params.workspace_folders {
             Some(folders) if folders.len() > 1 => {
                 return Err("only one project workspace is supported".into());
@@ -67,6 +82,7 @@ impl ProjectConfig {
             project_uri: root.to_string(),
             snapshot_path: absolute(options.snapshot_path),
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
+            hover_format,
         })
     }
 }

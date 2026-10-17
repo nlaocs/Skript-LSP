@@ -72,6 +72,7 @@ struct ParserAnalyzer {
     project_uri: String,
     host: ParserHost,
     catalog: Arc<syntaxes::Catalog>,
+    hover_format: lsp_types::MarkupKind,
 }
 pub(super) fn parser_factory() -> Factory {
     Box::new(|config| {
@@ -99,6 +100,7 @@ pub(super) fn parser_factory() -> Factory {
             project_uri: config.project_uri,
             host,
             catalog,
+            hover_format: config.hover_format,
         }))
     })
 }
@@ -134,6 +136,7 @@ impl Analyzer for ParserAnalyzer {
                         result,
                         Arc::clone(&job.source),
                         Arc::clone(&self.catalog),
+                        self.hover_format.clone(),
                     ) {
                         Ok(document) => {
                             hover = Some(document);
