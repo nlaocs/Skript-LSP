@@ -170,13 +170,16 @@ diagnosticとrecoveryのspanは、確定したsource全体を参照します。
 
 標準Functionとaddon/WASM Functionは、Function名、definition/registration ID、
 Catalogの登録addon、宣言順の引数と再帰Expression、省略・指定名、return type、
-multiplicityを同じreport構造で表示します。独自leaf parserはWIT 0.39.0 / ABI 21.0の
+multiplicityを同じreport構造で表示します。独自leaf parserはWIT 0.40.0 / ABI 22.0の
 型付きFunction情報を返します。この契約に合わせて外部Componentの再ビルドが必要です。
+
+document JSONでもnodeごとの`function`へcall bindingを保持します。
+引数範囲はそのnodeの`children`配列内の位置を指し、宣言順、指定名、省略、複数値を保持します。
 
 JSONが機械読み取り用の契約です。
 
 - 単発および一行Effect reportは`schemaVersion: 7`。
-- 複数行document reportは`schemaVersion: 1`。
+- 複数行document reportは`schemaVersion: 2`。schema 1にnodeごとのFunction call bindingを追加。
 - document nodeはarena形式で、`roots`、`children`、captureが数値node IDを参照する。
 - mapped spanは全original originとmacro expansion IDを保持する。
 - `state`はdocument revisionでcommitされたread/writeを要約する。

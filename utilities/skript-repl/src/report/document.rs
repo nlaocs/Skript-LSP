@@ -19,7 +19,7 @@ use skript_parser::{
 };
 use std::collections::{HashMap, HashSet};
 
-const DOCUMENT_REPORT_SCHEMA_VERSION: u32 = 1;
+const DOCUMENT_REPORT_SCHEMA_VERSION: u32 = 2;
 const MAX_HUMAN_TREE_DEPTH: usize = 128;
 
 /// Stable report for one submitted multiline Skript document.
@@ -486,7 +486,28 @@ struct DocumentNodeReport {
     semantics: Option<DocumentSemanticsReport>,
     captures: Vec<DocumentCaptureReport>,
     children: Vec<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    function: Option<DocumentFunctionCallReport>,
     metadata: Vec<DocumentMetadataReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentFunctionCallReport {
+    name: String,
+    definition_id: String,
+    registration_id: String,
+    arguments: Vec<DocumentFunctionArgumentReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentFunctionArgumentReport {
+    parameter_name: String,
+    supplied_name: Option<String>,
+    child_start: u64,
+    child_count: u64,
+    omitted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1019,6 +1040,25 @@ fn document_node(node: &AstNode, catalog: &Catalog) -> DocumentNodeReport {
             })
             .collect(),
         children: node.children.clone(),
+        function: node
+            .function
+            .as_ref()
+            .map(|call| DocumentFunctionCallReport {
+                name: call.name.clone(),
+                definition_id: call.definition_id.clone(),
+                registration_id: call.registration_id.clone(),
+                arguments: call
+                    .arguments
+                    .iter()
+                    .map(|argument| DocumentFunctionArgumentReport {
+                        parameter_name: argument.parameter_name.clone(),
+                        supplied_name: argument.supplied_name.clone(),
+                        child_start: argument.child_start,
+                        child_count: argument.child_count,
+                        omitted: argument.omitted,
+                    })
+                    .collect(),
+            }),
         metadata: node
             .metadata
             .iter()
@@ -1797,6 +1837,7 @@ mod tests {
             semantics: None,
             captures: Vec::new(),
             children,
+            function: None,
             metadata: Vec::new(),
         }
     }

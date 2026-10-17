@@ -153,7 +153,7 @@ fn parses_a_multiline_event_with_nested_sections_as_one_document_tree() {
     assert!(report.matched(), "{}", report.clone().to_json().unwrap());
     let json = document_json(report);
 
-    assert_eq!(json["schemaVersion"], 1);
+    assert_eq!(json["schemaVersion"], 2);
     assert_eq!(json["input"], source);
     assert_eq!(json["status"], "matched");
     assert!(json["recoveries"].as_array().unwrap().is_empty());

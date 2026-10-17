@@ -4,8 +4,8 @@ use std::{
 };
 
 use parser_wasm::bindings::nlaocs::skript_parser_addon::types::{
-    AstContextOrigin, AstNode, AstTree, HookDecision, MappedSpan, OriginKind, SourceOrigin,
-    SyntaxKind, TextRange as WitTextRange,
+    AstContextOrigin, AstNode, AstTree, FunctionArgument, FunctionCall, HookDecision, MappedSpan,
+    OriginKind, SourceOrigin, SyntaxKind, TextRange as WitTextRange,
 };
 use parser_wasm::host::{
     AstMacroRequest, DocumentParseRequest, DocumentParserConfig, HostConfig, HostError,
@@ -65,6 +65,7 @@ fn node(id: u64, text: &str, start: usize, end: usize) -> AstNode {
         syntax_context: 0,
         context_origin: AstContextOrigin::Preserved,
         summary: None,
+        function: None,
         captures: Vec::new(),
         children: Vec::new(),
         metadata: Vec::new(),
@@ -99,6 +100,111 @@ fn root_texts(tree: &AstTree) -> Vec<&str> {
                 .as_str()
         })
         .collect()
+}
+
+#[test]
+fn function_argument_cardinality_cannot_change_when_captures_are_absent() {
+    let mut host = fixture_host(HostConfig::default());
+    for (revision, text) in [(1, "delete"), (2, "many")] {
+        let source = format!("f({text})");
+        let mut parent = node(0, &source, 0, source.len());
+        parent.kind = SyntaxKind::Function;
+        parent.syntax_id = "parser:function.fixture".into();
+        parent.children = vec![1];
+        parent.function = Some(FunctionCall {
+            name: "f".into(),
+            definition_id: "fixture.f".into(),
+            registration_id: "fixture.f.0".into(),
+            arguments: vec![FunctionArgument {
+                parameter_name: "value".into(),
+                supplied_name: None,
+                child_start: 0,
+                child_count: 1,
+                omitted: false,
+            }],
+        });
+        let mut child = node(1, text, 2, 2 + text.len());
+        child.kind = SyntaxKind::Expression;
+        child.syntax_id = "parser:expression.fixture".into();
+        let original = AstTree {
+            roots: vec![0],
+            nodes: vec![parent, child],
+        };
+        let transaction = host
+            .begin_parse("file:///workspace", "file:///workspace/ast.sk", revision)
+            .unwrap();
+        let result = host
+            .expand_ast_in_parse(
+                &transaction,
+                request(revision, MappedSource::identity(source), original.clone()),
+            )
+            .unwrap();
+        assert_eq!(result.failures.len(), 1);
+        assert!(
+            matches!(
+                result.failures[0].error,
+                HostError::InvalidAstMacroOutput { .. }
+            ),
+            "{result:?}"
+        );
+        assert!(
+            result.failures[0]
+                .error
+                .to_string()
+                .contains("Function argument children require exactly one")
+        );
+        assert_eq!(format!("{:?}", result.tree), format!("{original:?}"));
+        assert!(result.source.expansions().is_empty());
+        assert!(
+            result
+                .calls
+                .iter()
+                .any(|call| call.target == 1 && !call.accepted)
+        );
+        assert_eq!(
+            written_keys(&transaction),
+            [format!("invocation/{revision}/0")]
+        );
+        transaction.cancel().unwrap();
+    }
+}
+
+#[test]
+fn function_binding_alone_can_exceed_ast_macro_output_quota() {
+    let mut host = fixture_host(HostConfig {
+        max_generated_output_bytes: 1024,
+        ..HostConfig::default()
+    });
+    for (revision, name, rejected) in [(1, "f".to_owned(), false), (2, "f".repeat(2048), true)] {
+        let mut root = node(0, "metadata", 0, 8);
+        root.kind = SyntaxKind::Function;
+        root.syntax_id = "parser:function.fixture".into();
+        root.function = Some(FunctionCall {
+            name,
+            definition_id: "fixture.f".into(),
+            registration_id: "fixture.f.0".into(),
+            arguments: Vec::new(),
+        });
+        let result = host.expand_ast(
+            "file:///workspace",
+            AstMacroRequest {
+                context: context(revision),
+                source: MappedSource::identity("metadata"),
+                tree: AstTree {
+                    roots: vec![0],
+                    nodes: vec![root],
+                },
+            },
+        );
+        if rejected {
+            assert!(
+                matches!(result, Err(HostError::GeneratedOutputQuotaExceeded { .. })),
+                "{result:?}"
+            );
+        } else {
+            assert!(result.is_ok(), "{result:?}");
+        }
+    }
 }
 
 fn request(revision: u64, source: MappedSource, tree: AstTree) -> AstMacroRequest {

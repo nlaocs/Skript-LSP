@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.39.0;
+package nlaocs:skript-parser-addon@0.40.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -848,6 +848,9 @@ interface types {
         expected-types: list<expression-expected-type>,
         summary: option<parse-summary>,
         children: list<u64>,
+        /// Binding ranges index this node's children, not arena node IDs.
+        /// Required on successful Function nodes; unresolved results may omit it.
+        function: option<function-call>,
         attachments: list<addon-attachment>,
         diagnostics: list<diagnostic>,
         metadata: list<metadata-entry>,
@@ -1511,6 +1514,8 @@ interface types {
         summary: option<parse-summary>,
         captures: list<capture>,
         children: list<node-id>,
+        /// Required only on Function nodes. Argument ranges index children.
+        function: option<function-call>,
         metadata: list<metadata-entry>,
     }
 

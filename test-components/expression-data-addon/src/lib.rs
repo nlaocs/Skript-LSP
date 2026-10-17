@@ -458,6 +458,7 @@ fn invalid_summary_result(request: &ParseRequest) -> ParseResult {
                 metadata: Vec::new(),
             }),
             children: Vec::new(),
+            function: None,
             attachments: Vec::new(),
             diagnostics: Vec::new(),
             metadata: Vec::new(),

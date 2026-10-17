@@ -13,6 +13,70 @@ fn addon() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/function-addon.wasm")
 }
 
+#[test]
+fn document_json_preserves_native_and_wasm_function_bindings() {
+    let mut session = SkriptSession::load_with_addons(fixture(), [addon()]).unwrap();
+    for call in [
+        "log(base: 2, n: abs(-8))",
+        "wasm named(2;abs(-8))",
+        "sum(1, 2)",
+        "log(8)",
+    ] {
+        let source = format!("on load:\n    send {call} to console\n");
+        let report = session.analyze_document(&source).unwrap();
+        let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+        assert_eq!(json["schemaVersion"], 2);
+        assert_eq!(json["status"], "matched", "{json}");
+        let nodes = json["nodes"].as_array().unwrap();
+        let functions = nodes
+            .iter()
+            .filter(|node| node["kind"] == "Function")
+            .collect::<Vec<_>>();
+        assert!(!functions.is_empty(), "{json}");
+        for node in &functions {
+            let function = &node["function"];
+            assert!(function["definitionId"].as_str().is_some());
+            assert!(function["registrationId"].as_str().is_some());
+            let children = node["children"].as_array().unwrap();
+            let mut next = 0;
+            for argument in function["arguments"].as_array().unwrap() {
+                assert_eq!(argument["childStart"].as_u64().unwrap(), next);
+                let count = argument["childCount"].as_u64().unwrap();
+                assert_eq!(argument["omitted"], count == 0);
+                next += count;
+            }
+            assert_eq!(next as usize, children.len());
+        }
+        let outer = functions
+            .iter()
+            .find(|node| {
+                node["function"]["name"]
+                    == if call.starts_with("sum") {
+                        "sum"
+                    } else {
+                        "log"
+                    }
+            })
+            .unwrap();
+        let arguments = outer["function"]["arguments"].as_array().unwrap();
+        if call.contains("base:") || call.starts_with("wasm named") {
+            assert_eq!(arguments[0]["parameterName"], "n");
+            assert_eq!(arguments[0]["suppliedName"], "n");
+            assert_eq!(arguments[1]["parameterName"], "base");
+            assert_eq!(arguments[1]["suppliedName"], "base");
+            let first = &outer["children"][0];
+            let child = nodes.iter().find(|node| node["id"] == *first).unwrap();
+            assert_eq!(child["function"]["name"], "abs");
+            assert_eq!(child["text"], "abs(-8)");
+        } else if call.starts_with("sum") {
+            assert_eq!(arguments[0]["childCount"], 2);
+        } else {
+            assert_eq!(arguments[1]["omitted"], true);
+            assert_eq!(arguments[1]["childCount"], 0);
+        }
+    }
+}
+
 fn assert_function(value: &Value, catalog: &syntaxes::Catalog) {
     if value["expression"]["kind"] != "function" {
         return;

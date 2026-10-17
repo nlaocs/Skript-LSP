@@ -31,7 +31,7 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(21, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(22, 0);
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -278,15 +278,20 @@ mod tests {
 
     #[test]
     fn rejects_abi_version_mismatches_explicitly() {
-        let error =
-            validate_compatibility(ABI_VERSION, AbiVersion::new(2, 0), &[], &[]).unwrap_err();
-        assert_eq!(
-            error,
-            CompatibilityError::AbiVersionMismatch {
-                expected: ABI_VERSION,
-                actual: AbiVersion::new(2, 0),
-            }
-        );
+        for actual in [AbiVersion::new(2, 0), AbiVersion::new(21, 0)] {
+            let error = validate_compatibility(ABI_VERSION, actual, &[], &[]).unwrap_err();
+            assert_eq!(
+                error,
+                CompatibilityError::AbiVersionMismatch {
+                    expected: ABI_VERSION,
+                    actual
+                }
+            );
+            assert_eq!(
+                error.to_string(),
+                format!("ABI version mismatch: expected 22.0, found {actual}")
+            );
+        }
     }
 
     #[test]
