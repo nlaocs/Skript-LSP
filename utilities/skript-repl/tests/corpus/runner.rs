@@ -275,18 +275,7 @@ fn native_corpus_regressions() {
         &corpus.cases,
         |case| run_case(&corpus, case, &mut runner),
         |case, actual| {
-            let mut failures = Vec::new();
-            if expected[&case.id]["status"] == "incomplete" && actual["status"] == "matchedClean" {
-                eprintln!(
-                    "{} improved; no upstream certification is inferred",
-                    case.id
-                );
-            } else if actual != expected[&case.id] {
-                failures.push(format!(
-                    "{} ({:?}, event={:?}):\nexpected {}\nactual {}",
-                    case.id, case.input, case.event, expected[&case.id], actual
-                ));
-            }
+            let mut failures = check_native(case, &actual, &expected[&case.id]);
             failures.extend(check_upstream(case, &actual, &upstream));
             failures
         },
@@ -297,6 +286,117 @@ fn native_corpus_regressions() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+fn check_native(case: &Case, actual: &Value, expected: &Value) -> Vec<String> {
+    if actual == expected {
+        Vec::new()
+    } else {
+        vec![format!(
+            "{} ({:?}, event={:?}):\nexpected {}\nactual {}",
+            case.id, case.input, case.event, expected, actual
+        )]
+    }
+}
+
+#[test]
+fn native_checks_reject_unreviewed_clean_selections() {
+    let corpus = corpus();
+    let expected: BTreeMap<String, Value> =
+        serde_json::from_str(include_str!("expected.json")).unwrap();
+    let mut wrong_root = expected["skript-2.16.2-java25/doc-message-event"]["root"].clone();
+    wrong_root["selected"]["identity"]["class"] = json!("wrong.Effect");
+    for case in &corpus.cases {
+        let baseline = &expected[&case.id];
+        let mut changed = baseline.clone();
+        changed["status"] = json!("matchedClean");
+        changed["root"] = wrong_root.clone();
+        changed["failure"] = Value::Null;
+        assert!(
+            !check_native(case, &changed, baseline).is_empty(),
+            "{}: clean status must not exempt an unreviewed selection",
+            case.id
+        );
+    }
+}
+
+#[test]
+fn native_checks_preserve_clean_identity_context_types_spans_and_ownership() {
+    let corpus = corpus();
+    let expected: BTreeMap<String, Value> =
+        serde_json::from_str(include_str!("expected.json")).unwrap();
+    let mut reversed_children =
+        expected["skript-2.16.2-java25/named-function-arguments"]["root"]["children"].clone();
+    reversed_children.as_array_mut().unwrap().reverse();
+    for (suffix, path, value) in [
+        (
+            "doc-message-event",
+            "/root/selected/identity/definition",
+            json!("wrong-definition"),
+        ),
+        (
+            "doc-message-event",
+            "/root/selected/identity/registration",
+            json!("wrong-registration"),
+        ),
+        ("doc-message-event", "/context", Value::Null),
+        ("doc-message-event", "/root/span", json!([1, 49])),
+        (
+            "doc-message-event",
+            "/root/captures/0/resolved/returnType",
+            json!("java.lang.Object"),
+        ),
+        ("doc-message-event", "/root/captures/0/index", json!(1)),
+        (
+            "named-function-arguments",
+            "/root/function/arguments/0/parameter",
+            json!("base"),
+        ),
+        (
+            "named-function-arguments",
+            "/root/function/arguments/0/suppliedName",
+            json!("base"),
+        ),
+        (
+            "named-function-arguments",
+            "/root/function/arguments/0/childStart",
+            json!(1),
+        ),
+        (
+            "named-function-arguments",
+            "/root/function/arguments/0/childCount",
+            json!(0),
+        ),
+        (
+            "named-function-arguments",
+            "/root/function/arguments/1/omitted",
+            json!(true),
+        ),
+        (
+            "named-function-arguments",
+            "/root/children",
+            reversed_children,
+        ),
+        ("nested-function", "/root/children/0/children", json!([])),
+    ] {
+        let case = corpus
+            .cases
+            .iter()
+            .find(|case| case.id == format!("skript-2.16.2-java25/{suffix}"))
+            .unwrap();
+        let baseline = &expected[&case.id];
+        assert_eq!(baseline["status"], "matchedClean");
+        let mut changed = baseline.clone();
+        let target = changed
+            .pointer_mut(path)
+            .expect("mutation target must exist");
+        assert_ne!(*target, value, "{suffix} {path} must actually change");
+        *target = value;
+        assert!(
+            !check_native(case, &changed, baseline).is_empty(),
+            "{suffix} {path} must be compared even when status remains clean"
+        );
+    }
 }
 
 fn upstream() -> Value {

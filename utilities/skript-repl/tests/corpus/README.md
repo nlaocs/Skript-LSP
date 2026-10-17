@@ -32,11 +32,14 @@ successful retries are not inserted into the selected tree.
 - `expected.json` is a **native regression baseline**. It is not evidence of
   upstream final-tree agreement. A change in identity, parent slot/parameter,
   types, cardinality, default/null or diagnostics fails even if parsing still
-  succeeds. Incomplete -> clean improvements are reported and allowed; they do
-  not acquire upstream certification.
-- Schema 5 historical snapshots lack structured default-expression shapes;
-  eight current cases are incomplete rather than silently skipped. Their
-  collection completeness has not been recertified with SSG #9.
+  succeeds. Incomplete -> clean changes also require review and an explicit
+  baseline update; clean status never exempts the selected result from comparison.
+  Reviewed clean baselines use the same comparison as all other results. Neither
+  the change nor a baseline update establishes upstream certification.
+- Six schema 5 cases remain incomplete because their default expressions lack
+  verified return type and multiplicity. Two schema 6/7 no-Event message cases
+  have structured descriptors but reject the omitted audience without an Event.
+  Historical collection completeness has not been recertified with SSG #9.
 - The `skript-2.16.2-java25` snapshot is the complete 21-file export from
   final SSG source `f7542b9ba42a54d1eb6478d8ff82ebef7fdb572f`, based on SSG main
   `1b6a796d3f5242d1010b8e61903a5b1d5c526baa`. SSG JAR SHA-256 is
@@ -53,6 +56,41 @@ successful retries are not inserted into the selected tree.
   order (89 registry entries include 39 derived chains). That collection
   observation and the new loader/digest/reference/owner tests are separate
   evidence. Neither establishes every domain's runtime collection completeness.
+
+### Reviewing the eight incomplete baselines
+
+The current results are retained individually, not approved for automatic clean
+upgrades. `ssg/src/convert.rs` preserves a legacy `defaultExpressionClass` with
+unknown literal/return-type/single fields. `core-library/src/default_expression.rs`
+reports an unresolved static shape before trying Event values. Once that shape is
+known, an EventValueExpression still requires an active Event; missing metadata
+does not justify inventing one.
+
+| Case ID | Retained reason | Evidence needed before changing the result |
+| --- | --- | --- |
+| `skript-2.15.4/doc-message-event` | audience shape unknown | Same-version default type/multiplicity and join EventValue |
+| `skript-2.15.4/doc-message-no-event` | audience shape unknown | Shape evidence may refine the failure; no Event is available for a clean default |
+| `skript-2.15.4/doc-teleport-event` | direction shape unknown | Same-version default and selected captures, including UUID/Player inside the variable |
+| `skript-2.16.0/doc-message-no-event` | omitted audience rejected without Event | Structured CommandSender descriptor is present; clean success would require a justified contract change |
+| `skript-2.16.2-java25/doc-message-no-event` | omitted audience rejected without Event | Same restriction despite the complete schema 7 export |
+| `skript-2.6.4-mc-1.12.2/doc-message-event` | commandsender shape unknown | Same-version default type/multiplicity and join EventValue |
+| `skript-2.6.4-mc-1.12.2/doc-message-no-event` | commandsender shape unknown | Shape evidence may refine the failure; no Event is available for a clean default |
+| `skript-2.6.4-mc-1.12.2/doc-teleport-event` | direction shape unknown | Old teleport pattern and variable-child ownership; this pattern has no teleportflags slot |
+
+None of these eight requests has a same-fixture/context upstream returned graph.
+The recognized failure candidate is not proof of the future selected identity.
+In particular, do not copy the modern teleport baseline into the older fixtures:
+the selected implementation/registration and capture shape differ across versions.
+Review any future result change against the pinned input, snapshot and Event, then
+update the specific baseline with its evidence. Do not hide a production bug by
+recording the current output as the new expectation.
+
+The comparison negatives cover unreviewed clean selections for every native case,
+including these eight, and same-status clean mutations of identity, context,
+return type, local spans, capture slots, nested children and Function argument
+ownership. Existing clean cases are positive controls. The eight inputs contain
+no Function calls, so named/nested Function controls provide that separate
+coverage. Local spans do not certify mapped-source provenance as a whole.
 
 ### Final producer adoption
 
