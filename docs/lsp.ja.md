@@ -1,6 +1,6 @@
 # 最小 stdio Language Server
 
-`skript-lsp --stdio` は、設定した一つのprojectとSSG snapshotを使い、開いている文書の診断を更新する。
+`skript-lsp --stdio` は、設定した一つのprojectとSSG snapshotを使い、開いている文書の診断とホバー情報を提供する。
 必須CoreLibraryはexeへ埋め込まれ、通常の解析にJavaやMinecraftサーバーは必要ない。
 全構文・全Addonの互換性を保証する完成版ではなく、補完・定義移動・複数ファイル索引・変数型flow・incremental parseは含まない。
 
@@ -17,7 +17,7 @@ clientは `rootUri` または一件の `workspaceFolders` と、次の `initiali
 }
 ```
 
-対応する要求は `initialize`、`shutdown`、通知は `initialized`、`exit`、
+対応する要求は `initialize`、`textDocument/hover`、`shutdown`、通知は `initialized`、`exit`、
 `textDocument/didOpen`、`didChange`、`didClose`。
 同期方式はFullで、変更は文書全体の `text` と増加するclient versionを送る。
 位置encodingはUTF-16。診断はversion付きの `publishDiagnostics` で置換し、
@@ -64,11 +64,30 @@ primaryはparserが返した最初のorigin、残りのoriginとrelated spanはr
 optionsによる生成文もこの規則でcall-siteへ対応付ける。元位置が不正ならsource-mapping failureを明示し、仮のvirtual位置へ置き換えない。
 単独Function呼び出し文等、現parserの未対応部分はそのまま制約として残る。
 
+## ホバーの情報と寿命
+
+`hoverProvider: true` を公開し、現在の文書の最終ASTで採用された要素からPlainTextと原文のUTF-16範囲を返す。
+重なる要素では狭い範囲を優先し、同範囲なら深い子要素を選ぶ。同順位で異なる要素が残る場合はnullを返す。
+空白・コメント・未解析の位置・拡張障害の領域・空範囲にはホバーを返さない。
+Exact originだけを使い、Replaced/Anchored originの位置は親要素へのfallbackも含めて対象外にする。
+マクロ展開内の異なる要素が同じ原文位置に潰れる場合に、確定した意味を推測しないためである。
+
+構文はdefinition ID・registration ID・種類を照合してSSGの名前・採用pattern・Addon・説明と例を表示する。
+型名はcatalogのcode nameへ変換し、戻り値型・個数・候補型のcomplete/partial/unresolvedを区別する。
+関数のsignatureは解決済みIDに一致する文書内宣言、またはSSGの関数定義を使う。
+変数名とlocal/global scopeは `nlaocs.skript.variable` version 1のpublic dataだけを解釈する。
+動的な名前の式は評価せずtemplateとして表示する。変数の型は解析文脈が要求した型であり、値や代入履歴から推論した型ではない。
+未知schemaでは名前の綴りからscopeや値を推測しない。
+
+ホバー用の不変データは解析workerで作る。protocol処理は再解析を行わず、解析待ちにはnullを返す。
+受理した編集で直ちに旧キャッシュを捨て、世代・revision・client versionが一致した完了結果だけを保持する。
+closeではキャッシュを解放し、同じURIをversion 0で開き直しても旧情報を引き継がない。
+
 ## 計測と検証
 
 `window/logMessage` にstartupと解析単位のJSONを出力する。
 `startupMs` はsnapshot読み込み・WASM host初期化を含むworker準備時間。
-`queueMs` は要求の待機、`parseMs` は `parse_document`、`reportMs` は診断変換と結果の後始末、
+`queueMs` は要求の待機、`parseMs` は `parse_document`、`reportMs` は診断・ホバー変換と結果の後始末、
 `analysisMs` はworker処理全体、`cancelToFinishMs` は取消要求からworkerが返るまでの時間を表す。
 取消前に終了していた場合や取消されなかった場合はnullになる。
 これらはRustのbuild/compile時間や、clientが画面へ診断を描くまでの時間を含まない。

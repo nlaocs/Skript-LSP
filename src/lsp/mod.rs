@@ -1,13 +1,15 @@
 //! A single-project, full-document LSP frontend for the shared parser service.
 
 mod diagnostics;
+mod hover;
+mod positions;
 mod worker;
 
 use crossbeam_channel::{bounded, select};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Response};
 use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, PublishDiagnosticsParams, Uri,
+    HoverParams, InitializeParams, PublishDiagnosticsParams, Uri,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -151,6 +153,7 @@ struct Document {
     revision: u64,
     version: i32,
     control: Control,
+    hover: Option<hover::Document>,
 }
 struct Documents {
     open: HashMap<Uri, Document>,
@@ -205,6 +208,7 @@ impl Documents {
                 revision,
                 version: item.version,
                 control,
+                hover: None,
             },
         );
         worker.submit(job);
@@ -238,6 +242,7 @@ impl Documents {
         document.control = Control::new();
         document.revision = revision;
         document.version = params.text_document.version;
+        document.hover = None;
         worker.submit(Job {
             uri,
             generation: document.generation,
@@ -302,7 +307,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(()), startup_ms) => {
                         send(&connection, Response::new_ok(initialize_id.take().unwrap(), json!({
-                            "capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1}},
+                            "capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true},
                             "serverInfo":{"name":"skript-lsp","version":env!("CARGO_PKG_VERSION")}
                         })))?;
                         log(&connection, format!("skript-lsp startup {{\"startupMs\":{startup_ms}}}"))?;
@@ -311,11 +316,14 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                         send(&connection, Response::new_err(initialize_id.take().unwrap(), ErrorCode::InternalError as i32, format!("parser initialization failed: {error}")))?;
                         return Err(error);
                     }
-                    Event::Finished(job, outcome, metrics) => {
+                    Event::Finished(job, analysis, metrics) => {
                         if shutdown { continue; }
                         log(&connection, format!("skript-lsp timing {metrics}"))?;
                         if documents.current(&job) && !job.control.token.is_cancelled() {
-                            if let Outcome::Diagnostics(diagnostics, _) = outcome { publish(&connection, job.uri, job.version, diagnostics)?; }
+                            if let Outcome::Diagnostics(diagnostics, _) = analysis.outcome {
+                                documents.open.get_mut(&job.uri).unwrap().hover = analysis.hover;
+                                publish(&connection, job.uri, job.version, diagnostics)?;
+                            }
                         }
                     }
                     Event::Failed(error) => {
@@ -335,6 +343,16 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 documents.cancel_all();
                                 worker.stop();
                                 send(&connection, Response::new_ok(request.id, Value::Null))?;
+                            } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
+                                let response = match serde_json::from_value::<HoverParams>(request.params) {
+                                    Ok(params) => {
+                                        let target = params.text_document_position_params;
+                                        let result = documents.open.get(&target.text_document.uri).and_then(|document| document.hover.as_ref()).and_then(|document| document.at(target.position));
+                                        Response::new_ok(request.id, result)
+                                    }
+                                    Err(error) => Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()),
+                                };
+                                send(&connection, response)?;
                             } else {
                                 let code = if initialize_id.is_some() { ErrorCode::ServerNotInitialized } else if shutdown { ErrorCode::InvalidRequest } else { ErrorCode::MethodNotFound };
                                 send(&connection, Response::new_err(request.id, code as i32, "request is not supported in the current server state".into()))?;

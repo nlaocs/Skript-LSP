@@ -1,4 +1,4 @@
-# Neovim で文書診断を確認する
+# Neovim で文書診断とホバーを確認する
 
 Neovim 0.12 以降の標準 LSP client を使う。`nvim-lspconfig` や追加 plugin は不要で、
 この手順は既存の Neovim 設定ファイルを書き換えない。
@@ -47,6 +47,20 @@ nvim -n -i NONE --noplugin -u .\examples\neovim\skript-lsp.lua .\example.sk
 :edit /path/to/project/example.sk
 :checkhealth vim.lsp
 ```
+
+## ホバーを表示する
+
+解析が完了してから構文、文字列、変数、関数にカーソルを置き、`K` または
+`:lua vim.lsp.buf.hover()` で標準floating windowを開く。
+空白・コメント・未知の構文・位置対応が曖昧なマクロ展開では表示を返さない。
+編集直後の再解析中もnullになり、完了後に再度要求すると現在の情報を表示する。
+変数の型表示は解析文脈の型で、代入値からの型推論ではない。
+
+同じ隔離環境で `tests/neovim/hover.lua` を実行すると、標準の
+`vim.lsp.buf.hover()` が作った実floating bufferの本文と範囲extmarkを確認する。
+構文のSSG説明、関数signature、local/global変数、日本語と絵文字のUTF-16、未完成文書の正常な兄弟、
+空白/コメント、編集、close/reopenを確認し、実要求と応答をJSONへ記録する。
+制御workerによる決定的な旧結果破棄の検証はRustの単体試験が担当する。
 
 ## 独立した headless smoke
 

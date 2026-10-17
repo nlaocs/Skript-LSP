@@ -1,6 +1,7 @@
 use lsp_server::{Message, Notification, Request, Response};
 use lsp_types::{
-    Diagnostic, DiagnosticSeverity, NumberOrString, Position, PublishDiagnosticsParams, Range, Uri,
+    Diagnostic, DiagnosticSeverity, Hover, HoverContents, MarkupKind, NumberOrString, Position,
+    PublishDiagnosticsParams, Range, Uri,
 };
 use serde_json::{Value, json};
 use std::{
@@ -93,6 +94,7 @@ impl Client {
             true
         );
         assert_eq!(result["capabilities"]["textDocumentSync"]["change"], 1);
+        assert_eq!(result["capabilities"]["hoverProvider"], true);
         client.notify("initialized", json!({}));
         client
     }
@@ -200,6 +202,18 @@ impl Client {
         }
     }
 
+    fn hover(&mut self, id: i32, line: u32, character: u32) -> Option<Hover> {
+        self.send(Request::new(
+            id.into(),
+            "textDocument/hover".into(),
+            json!({
+                "textDocument": {"uri": self.uri},
+                "position": {"line": line, "character": character}
+            }),
+        ));
+        serde_json::from_value(self.response(id).response_result.unwrap()).unwrap()
+    }
+
     fn finish(mut self) {
         self.send(Request::new(2.into(), "shutdown".into(), Value::Null));
         assert_eq!(self.response(2).response_result.unwrap(), Value::Null);
@@ -268,6 +282,27 @@ fn assert_error(diagnostic: &Diagnostic) {
     assert_eq!(diagnostic.severity, Some(DiagnosticSeverity::ERROR));
     assert_eq!(diagnostic.source.as_deref(), Some("skript-lsp"));
     assert!(!diagnostic.message.is_empty());
+}
+
+fn assert_plain_text_hover(
+    hover: Option<Hover>,
+    expected_range: Range,
+    expected_lines: &[&str],
+) -> String {
+    let hover = hover.expect("the selected AST node must have hover information");
+    assert_eq!(hover.range, Some(expected_range));
+    let HoverContents::Markup(contents) = hover.contents else {
+        panic!("hover must use MarkupContent");
+    };
+    assert_eq!(contents.kind, MarkupKind::PlainText);
+    for expected in expected_lines {
+        assert!(
+            contents.value.lines().any(|line| line == *expected),
+            "missing hover line {expected:?}: {}",
+            contents.value
+        );
+    }
+    contents.value
 }
 
 #[test]
@@ -503,5 +538,203 @@ fn long_percent_encoded_japanese_uri_can_close_and_reopen_at_version_zero() {
     assert!(client.diagnostics(1).diagnostics.is_empty());
     client.open(0, HEALTHY);
     assert!(client.diagnostics(0).diagnostics.is_empty());
+    client.finish();
+}
+
+#[test]
+fn hover_distinguishes_registered_effect_function_argument_and_variables() {
+    let mut client = Client::initialized(&[]);
+    client.open(
+        1,
+        concat!(
+            "on load:\n",
+            "    send 1 to console\n",
+            "    send sin(1) to console\n",
+            "    send {_money} to console\n",
+            "    send {balance} to console\n",
+        ),
+    );
+    assert!(client.diagnostics(1).diagnostics.is_empty());
+
+    let effect = assert_plain_text_hover(
+        client.hover(10, 1, 5),
+        range(1, 4, 1, 21),
+        &[
+            "Effect: Message",
+            "Pattern: (message|send [message[s]]) %objects% [to %audiences%]",
+            "Addon: Skript 2.15.4",
+        ],
+    );
+    assert!(effect.contains("Sends a message to an audience"));
+    assert_plain_text_hover(
+        client.hover(11, 2, 10),
+        range(2, 9, 2, 15),
+        &[
+            "Function: sin",
+            "Signature: sin(n: number) -> number",
+            "Return type: number",
+            "Multiplicity: single",
+        ],
+    );
+    // The argument has its own parsed type and range, rather than its parent's.
+    assert_plain_text_hover(
+        client.hover(12, 2, 13),
+        range(2, 13, 2, 14),
+        &["Return type: long", "Multiplicity: single"],
+    );
+    assert_plain_text_hover(
+        client.hover(13, 3, 12),
+        range(3, 9, 3, 17),
+        &[
+            "Variable",
+            "Scope: local",
+            "Name template: money",
+            "Type (parse context, not inferred): object",
+            "Multiplicity: single",
+        ],
+    );
+    assert_plain_text_hover(
+        client.hover(14, 4, 12),
+        range(4, 9, 4, 18),
+        &[
+            "Variable",
+            "Scope: global",
+            "Name template: balance",
+            "Type (parse context, not inferred): object",
+        ],
+    );
+    client.finish();
+}
+
+#[test]
+fn hover_uses_original_utf16_ranges_and_skips_whitespace_and_comments() {
+    let mut client = Client::initialized(&[]);
+    client.open(
+        1,
+        "on load:\r\n    send \"日本😀\" to console\r\n    # 日本😀 comment\r\n\r\n",
+    );
+    assert!(client.diagnostics(1).diagnostics.is_empty());
+
+    // The emoji starts at UTF-16 column 12; the quoted string occupies [9,15).
+    assert_plain_text_hover(
+        client.hover(10, 1, 12),
+        range(1, 9, 1, 15),
+        &["Return type: string", "Multiplicity: single"],
+    );
+    for (id, line, character) in [(11, 1, 1), (12, 1, 8), (13, 1, 15), (14, 2, 6), (15, 3, 0)] {
+        assert!(
+            client.hover(id, line, character).is_none(),
+            "whitespace, comments, and the literal's half-open end have no target"
+        );
+    }
+    client.finish();
+}
+
+#[test]
+fn hover_follows_document_revisions_and_keeps_healthy_nodes_in_incomplete_documents() {
+    let mut client = Client::initialized(&[]);
+    assert!(client.hover(10, 1, 5).is_none());
+    client.send(Request::new(
+        11.into(),
+        "textDocument/hover".into(),
+        json!({
+            "textDocument": {"uri": client.uri},
+            "position": {"line": 0, "character": "invalid"}
+        }),
+    ));
+    assert_eq!(
+        client.response(11).response_result.unwrap_err().code,
+        lsp_server::ErrorCode::InvalidParams as i32
+    );
+
+    client.open(
+        1,
+        "on load:\n    send sin(1) to console\n    this effect does not exist\n",
+    );
+    let report = client.diagnostics(1);
+    assert!(
+        report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+                && diagnostic.range.start.line == 2
+        }),
+        "the document must remain incomplete: {report:#?}"
+    );
+    assert_plain_text_hover(
+        client.hover(12, 1, 10),
+        range(1, 9, 1, 15),
+        &["Function: sin", "Return type: number"],
+    );
+    assert!(client.hover(13, 2, 5).is_none());
+
+    client.change(2, "on load:\n    send {_money} to console\n");
+    assert!(client.diagnostics(2).diagnostics.is_empty());
+    let changed = assert_plain_text_hover(
+        client.hover(14, 1, 10),
+        range(1, 9, 1, 17),
+        &["Variable", "Scope: local", "Name template: money"],
+    );
+    assert!(!changed.contains("Function: sin"));
+
+    client.close();
+    assert!(client.diagnostics(2).diagnostics.is_empty());
+    assert!(client.hover(15, 1, 10).is_none());
+    client.open(0, HEALTHY);
+    assert!(client.diagnostics(0).diagnostics.is_empty());
+    assert_plain_text_hover(
+        client.hover(16, 1, 5),
+        range(1, 4, 1, 21),
+        &["Effect: Message"],
+    );
+    client.finish();
+}
+
+#[test]
+fn hover_uses_current_document_function_signature_without_borrowing_builtin_docs() {
+    let mut client = Client::initialized(&[]);
+    for (version, parameter) in [(1, "message"), (2, "payload")] {
+        let source = format!(
+            "function greet({parameter}: string) :: string:\n    send \"hello\" to console\non load:\n    send greet(\"hello\") to console\n"
+        );
+        if version == 1 {
+            client.open(version, &source);
+        } else {
+            client.change(version, &source);
+        }
+        let report = client.diagnostics(version);
+        assert!(report.diagnostics.is_empty(), "{report:#?}");
+        let text = assert_plain_text_hover(
+            client.hover(10 + version, 3, 10),
+            range(3, 9, 3, 23),
+            &[
+                "Function: greet",
+                &format!("Signature: greet({parameter}: string) -> string"),
+                "Return type: string",
+            ],
+        );
+        assert!(!text.contains("Addon: Skript"));
+        if version == 2 {
+            assert!(!text.contains("message: string"));
+        }
+    }
+    client.finish();
+}
+
+#[test]
+fn hover_does_not_guess_a_node_inside_an_options_expansion() {
+    let mut client = Client::initialized(&[]);
+    client.open(
+        1,
+        "options:\n    value: sin(1)\non load:\n    send {@value} to console\n    send 1 to console\n",
+    );
+    assert!(client.diagnostics(1).diagnostics.is_empty());
+    assert!(client.hover(10, 3, 12).is_none());
+    // The options macro replaces the entire generated line. An untouched
+    // sibling still has an exact origin and remains useful.
+    assert!(client.hover(11, 3, 5).is_none());
+    let hover = client.hover(12, 4, 5).expect("exact send token");
+    let HoverContents::Markup(content) = hover.contents else {
+        panic!("plain text hover")
+    };
+    assert!(content.value.contains("Effect: Message"));
     client.finish();
 }

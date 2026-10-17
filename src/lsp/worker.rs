@@ -1,4 +1,4 @@
-use super::{ProjectConfig, diagnostics};
+use super::{ProjectConfig, diagnostics, hover};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use lsp_types::Diagnostic;
 use parser_wasm::{
@@ -58,6 +58,7 @@ pub(super) enum Outcome {
 }
 pub(super) struct Analysis {
     pub outcome: Outcome,
+    pub hover: Option<hover::Document>,
     pub parse_ms: f64,
     pub report_ms: f64,
 }
@@ -70,13 +71,15 @@ pub(super) type Factory =
 struct ParserAnalyzer {
     project_uri: String,
     host: ParserHost,
+    catalog: Arc<syntaxes::Catalog>,
 }
 pub(super) fn parser_factory() -> Factory {
     Box::new(|config| {
         let snapshot =
             ssg::load_for_parsing(&config.snapshot_path).map_err(|error| error.to_string())?;
+        let catalog = Arc::new(snapshot.into_catalog());
         let mut host = crate::new_parser_host(HostConfig {
-            syntax_catalog: Some(Arc::new(snapshot.into_catalog())),
+            syntax_catalog: Some(Arc::clone(&catalog)),
             ..HostConfig::default()
         })
         .map_err(|error| error.to_string())?;
@@ -95,6 +98,7 @@ pub(super) fn parser_factory() -> Factory {
         Ok(Box::new(ParserAnalyzer {
             project_uri: config.project_uri,
             host,
+            catalog,
         }))
     })
 }
@@ -115,6 +119,7 @@ impl Analyzer for ParserAnalyzer {
         );
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
+        let mut hover = None;
         let outcome = match result {
             Ok(result) => {
                 let status =
@@ -125,7 +130,20 @@ impl Analyzer for ParserAnalyzer {
                     };
                 // Conversion and recursive destruction stay on the worker's large stack.
                 match diagnostics::from_result(&job.uri, &result) {
-                    Ok(diagnostics) => Outcome::Diagnostics(diagnostics, status),
+                    Ok(mut diagnostics) => match hover::Document::from_result(
+                        result,
+                        Arc::clone(&job.source),
+                        Arc::clone(&self.catalog),
+                    ) {
+                        Ok(document) => {
+                            hover = Some(document);
+                            Outcome::Diagnostics(diagnostics, status)
+                        }
+                        Err(error) => {
+                            diagnostics.push(diagnostics::fatal("lsp.source-mapping", error));
+                            Outcome::Diagnostics(diagnostics, "fatal")
+                        }
+                    },
                     Err(error) => Outcome::Diagnostics(
                         vec![diagnostics::fatal("lsp.source-mapping", error)],
                         "fatal",
@@ -141,6 +159,7 @@ impl Analyzer for ParserAnalyzer {
         };
         Analysis {
             outcome,
+            hover,
             parse_ms,
             report_ms: report_started.elapsed().as_secs_f64() * 1000.0,
         }
@@ -160,7 +179,7 @@ fn document_key(uri: &str) -> String {
 }
 pub(super) enum Event {
     Ready(Result<(), String>, f64),
-    Finished(Job, Outcome, Value),
+    Finished(Job, Analysis, Value),
     Failed(String),
 }
 #[derive(Default)]
@@ -233,7 +252,7 @@ impl Worker {
                         let analysis_ms = started.elapsed().as_secs_f64() * 1000.0;
                         let status = match &analysis.outcome { Outcome::Diagnostics(_, status) => *status, Outcome::Cancelled => "cancelled", Outcome::Stale => "stale" };
                         let metrics = json!({"uri":job.uri.as_str(), "revision":job.revision, "status":status, "queueMs":queue_ms, "parseMs":analysis.parse_ms, "reportMs":analysis.report_ms, "analysisMs":analysis_ms, "cancelToFinishMs":job.control.cancellation_ms()});
-                        if sender.send(Event::Finished(job, analysis.outcome, metrics)).is_err() { return; }
+                        if sender.send(Event::Finished(job, analysis, metrics)).is_err() { return; }
                     }
                 }
             }));

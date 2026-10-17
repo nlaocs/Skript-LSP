@@ -1,6 +1,7 @@
+use super::positions::LineIndex;
 use lsp_types::{
-    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, NumberOrString,
-    Position, Range, Uri,
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, NumberOrString, Range,
+    Uri,
 };
 use parser_wasm::{DocumentParseResult, host};
 use serde_json::json;
@@ -21,47 +22,10 @@ pub(super) fn fatal(code: &str, message: String) -> Diagnostic {
     }
 }
 
-struct LineIndex<'a> {
-    source: &'a str,
-    starts: Vec<usize>,
-}
-impl<'a> LineIndex<'a> {
-    fn new(source: &'a str) -> Self {
-        let mut starts = vec![0];
-        starts.extend(
-            source
-                .bytes()
-                .enumerate()
-                .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
-        );
-        Self { source, starts }
-    }
-    fn position(&self, offset: usize) -> Result<Position, String> {
-        if offset > self.source.len() || !self.source.is_char_boundary(offset) {
-            return Err(format!("invalid original UTF-8 offset {offset}"));
-        }
-        let line = self.starts.partition_point(|start| *start <= offset) - 1;
-        let prefix = &self.source[self.starts[line]..offset];
-        let character = prefix.trim_end_matches('\r').encode_utf16().count();
-        Ok(Position::new(
-            u32::try_from(line).map_err(|_| "too many lines")?,
-            u32::try_from(character).map_err(|_| "line is too long")?,
-        ))
-    }
-    fn range(&self, range: TextRange) -> Result<Range, String> {
-        if range.start > range.end {
-            return Err("reversed original range".into());
-        }
-        Ok(Range::new(
-            self.position(range.start)?,
-            self.position(range.end)?,
-        ))
-    }
-}
-
 struct Collector<'a> {
     uri: &'a Uri,
-    lines: LineIndex<'a>,
+    source: &'a str,
+    lines: LineIndex,
     diagnostics: Vec<Diagnostic>,
     unclaimed: Vec<(Option<RawNodeId>, usize)>,
     explained_body_nodes: BTreeSet<RawNodeId>,
@@ -70,6 +34,7 @@ impl<'a> Collector<'a> {
     fn new(uri: &'a Uri, source: &'a str) -> Self {
         Self {
             uri,
+            source,
             lines: LineIndex::new(source),
             diagnostics: Vec::new(),
             unclaimed: Vec::new(),
@@ -117,7 +82,7 @@ impl<'a> Collector<'a> {
                     "parser.macro-rejected",
                     &format!("{stage} macro rejected the document: {}", rejection.reason),
                     DiagnosticSeverity::ERROR,
-                    vec![TextRange::new(0, self.lines.source.len())],
+                    vec![TextRange::new(0, self.source.len())],
                     Vec::new(),
                 )?;
             }
@@ -227,7 +192,10 @@ impl<'a> Collector<'a> {
         for range in origins.iter().skip(1) {
             if *range != primary {
                 information.push(DiagnosticRelatedInformation {
-                    location: Location::new(self.uri.clone(), self.lines.range(*range)?),
+                    location: Location::new(
+                        self.uri.clone(),
+                        self.lines.range(self.source, *range)?,
+                    ),
                     message: "Also originates here".into(),
                 });
             }
@@ -235,13 +203,16 @@ impl<'a> Collector<'a> {
         for (message, ranges) in related {
             for range in ranges {
                 information.push(DiagnosticRelatedInformation {
-                    location: Location::new(self.uri.clone(), self.lines.range(range)?),
+                    location: Location::new(
+                        self.uri.clone(),
+                        self.lines.range(self.source, range)?,
+                    ),
                     message: message.clone(),
                 });
             }
         }
         Ok(Diagnostic {
-            range: self.lines.range(primary)?,
+            range: self.lines.range(self.source, primary)?,
             severity: Some(severity),
             code: Some(NumberOrString::String(code.into())),
             source: Some("skript-lsp".into()),
@@ -527,6 +498,7 @@ pub(super) fn from_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lsp_types::Position;
 
     fn failure(
         source: &str,
@@ -545,7 +517,7 @@ mod tests {
     }
 
     fn summary(collector: &mut Collector<'_>, node: Option<RawNodeId>, range: TextRange) {
-        let span = skript_parser::MappedSource::identity(collector.lines.source)
+        let span = skript_parser::MappedSource::identity(collector.source)
             .map_range(range)
             .unwrap();
         collector
@@ -584,7 +556,7 @@ mod tests {
             assert_eq!(diagnostics[0].message, "Unexpected trailing input");
             assert_eq!(
                 diagnostics[0].range,
-                LineIndex::new(source).range(cause_range).unwrap()
+                LineIndex::new(source).range(source, cause_range).unwrap()
             );
         }
     }
@@ -728,19 +700,28 @@ mod tests {
     fn original_positions_cover_utf16_crlf_empty_lines_and_eof() {
         let source = "日本😀x\r\n\r\n終";
         let index = LineIndex::new(source);
-        assert_eq!(index.position("日本😀".len()).unwrap(), Position::new(0, 4));
         assert_eq!(
-            index.position("日本😀x\r".len()).unwrap(),
+            index.position(source, "日本😀".len()).unwrap(),
+            Position::new(0, 4)
+        );
+        assert_eq!(
+            index.position(source, "日本😀x\r".len()).unwrap(),
             Position::new(0, 5)
         );
         assert_eq!(
-            index.position("日本😀x\r\n".len()).unwrap(),
+            index.position(source, "日本😀x\r\n".len()).unwrap(),
             Position::new(1, 0)
         );
-        assert_eq!(index.position(source.len()).unwrap(), Position::new(2, 1));
-        assert!(index.position(1).is_err());
-        assert!(index.position(source.len() + 1).is_err());
-        assert_eq!(LineIndex::new("").position(0).unwrap(), Position::new(0, 0));
+        assert_eq!(
+            index.position(source, source.len()).unwrap(),
+            Position::new(2, 1)
+        );
+        assert!(index.position(source, 1).is_err());
+        assert!(index.position(source, source.len() + 1).is_err());
+        assert_eq!(
+            LineIndex::new("").position("", 0).unwrap(),
+            Position::new(0, 0)
+        );
     }
     #[test]
     fn macro_origins_use_original_ranges_and_preserve_other_locations() {

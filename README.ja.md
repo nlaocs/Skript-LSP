@@ -17,7 +17,8 @@ transactional StateStore、dynamic syntax登録、Expression・Condition・Effec
 再帰解析が実装されています。トップレベルStructure解析にはEntryValidatorと二段階lifecycleがあり、
 document内のFunction宣言も登録して呼び出し解析に利用できます。
 
-ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで全文同期と原文位置付き診断を提供する
+ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで全文同期、原文位置付き診断、
+採用された構文・型・変数・関数のホバー情報を提供する
 最小のstdio Language Serverです。[LSPの契約](docs/lsp.ja.md)と[Neovim設定](docs/neovim.ja.md)を参照してください。
 ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
 共通document parserを利用する複数行REPLを提供し、version付きJSON treeも出力します。
@@ -73,7 +74,7 @@ flowchart LR
 
 | Crate | 種類 | 役割 |
 | --- | --- | --- |
-| [`skript-lsp`](./) | library / binary | CoreLibraryを埋め込み、parser hostを構築し、stdio LSPで単一projectの診断を提供します。 |
+| [`skript-lsp`](./) | library / binary | CoreLibraryを埋め込み、parser hostを構築し、stdio LSPで単一projectの診断とホバーを提供します。 |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
 | [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜7 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage data、schema 6のdefault Expression descriptor、schema 7のBlockData registry dataも含みます。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |

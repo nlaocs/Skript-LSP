@@ -17,6 +17,7 @@ sha2 = "0.10.9"
 skript-parser = { path = "skript-parser" }
 ssg = { path = "ssg" }
 syntax-pattern-parser = { path = "syntax-pattern-parser" }
+syntaxes = { path = "syntaxes" }
 url = "2.5.7"
 
 [dev-dependencies]

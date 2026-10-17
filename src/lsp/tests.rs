@@ -60,8 +60,16 @@ impl Analyzer for TestAnalyzer {
             .lock()
             .unwrap()
             .push(Action::Finished(job.version));
+        let hover = if !job.source.is_empty()
+            && matches!(outcome, Outcome::Diagnostics(_, "complete" | "partial"))
+        {
+            Some(hover::Document::test_fixture(Arc::clone(&job.source)))
+        } else {
+            None
+        };
         Analysis {
             outcome,
+            hover,
             parse_ms: 0.0,
             report_ms: 0.0,
         }
@@ -123,6 +131,7 @@ impl Client {
         let result = response.response_result.unwrap();
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(result["capabilities"]["textDocumentSync"]["change"], 1);
+        assert_eq!(result["capabilities"]["hoverProvider"], true);
         client.notify("initialized", json!({}));
         client
     }
@@ -157,6 +166,25 @@ impl Client {
         self.until(
             |message| matches!(message, Message::Response(response) if response.id == id.into()),
         );
+    }
+    fn hover(&self, id: i32) -> Value {
+        self.connection
+            .sender
+            .send(
+                lsp_server::Request::new(
+                    id.into(),
+                    "textDocument/hover".into(),
+                    json!({"textDocument":{"uri":URI},"position":{"line":0,"character":0}}),
+                )
+                .into(),
+            )
+            .unwrap();
+        let Message::Response(response) = self.until(
+            |message| matches!(message, Message::Response(response) if response.id == id.into()),
+        ) else {
+            unreachable!()
+        };
+        response.response_result.unwrap()
     }
     fn open(&self, version: i32, text: &str) {
         self.notify(
@@ -326,6 +354,56 @@ fn cancellation_stale_fatal_and_partial_remain_distinct() {
             assert!(client.connection.receiver.try_iter().all(|message| !matches!(message, Message::Notification(notification) if notification.method == "textDocument/publishDiagnostics")));
         }
     }
+    client.finish();
+}
+
+#[test]
+fn hover_cache_is_invalidated_before_a_blocked_reparse_and_old_results_cannot_restore_it() {
+    let client = Client::start();
+    client.open(1, "cached");
+    client.diagnostics(1);
+    assert!(
+        client.hover(30)["contents"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("cached")
+    );
+    client.change(2, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 2);
+    // The parser cannot finish until proceed is sent. A response here proves
+    // both immediate invalidation and that hover never waits for the worker.
+    assert!(client.hover(31).is_null());
+    client.change(3, "");
+    assert!(client.hover(32).is_null());
+    client.proceed.send(()).unwrap();
+    client.diagnostics(3);
+    assert!(client.hover(33).is_null());
+    client.finish();
+}
+
+#[test]
+fn hover_cache_does_not_survive_close_and_reopen_with_reset_version() {
+    let client = Client::start();
+    client.open(10, "cached");
+    client.diagnostics(10);
+    assert!(!client.hover(34).is_null());
+    client.change(11, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 10);
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 11);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.diagnostics(11);
+    assert!(client.hover(35).is_null());
+    client.open(0, "fresh");
+    assert!(client.hover(36).is_null());
+    client.proceed.send(()).unwrap();
+    client.diagnostics(0);
+    let content = client.hover(37)["contents"]["value"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(content.contains("fresh"));
+    assert!(!content.contains("hold"));
     client.finish();
 }
 
