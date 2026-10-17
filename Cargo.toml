@@ -7,10 +7,20 @@ edition = "2024"
 members = ["core-library", "parser-wasm", "skript-parser", "skripthub", "ssg", "syntax-pattern-parser", "syntaxes", "test-components/ast-macro-addon", "test-components/catalog-data-addon", "test-components/dynamic-syntax-addon", "test-components/effect-addon", "test-components/function-addon", "test-components/expression-data-addon", "test-components/matching-addon", "test-components/text-macro-addon", "test-components/tree-macro-addon", "test-components/type-parser-addon", "utilities/*", "xtask"]
 
 [dependencies]
+crossbeam-channel = "0.5.15"
+lsp-server = "=0.10.0"
+lsp-types = "=0.97.0"
 parser-wasm = { path = "parser-wasm" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+skript-parser = { path = "skript-parser" }
+ssg = { path = "ssg" }
 syntax-pattern-parser = { path = "syntax-pattern-parser" }
+url = "2.5.7"
 
 [dev-dependencies]
+tempfile = "3.25.0"
 wit-component = "=0.253.0"
 
 # Parser integration tests are CPU-bound and spend most of their time in

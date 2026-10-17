@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+pub mod lsp;
+
 /// The mandatory CoreLibrary component bundled into the LSP executable.
 ///
 /// A missing artifact is a compile-time error. Rebuild it with

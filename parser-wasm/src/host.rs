@@ -8780,6 +8780,35 @@ impl ParserHost {
         Ok(transaction)
     }
 
+    /// Releases one document's StateStore values and dynamic syntax layer.
+    ///
+    /// Project and persistent-project state, component instances, and the static
+    /// catalog are retained. A newer revision is never released; repeated calls
+    /// without another begin return `false`. Previously returned snapshots keep
+    /// their owned data until their callers drop them.
+    ///
+    /// The caller must cancel and finish in-flight parsing before release and
+    /// discard obsolete queued work. Use monotonically increasing internal
+    /// revisions across open lifetimes and guard delayed close requests by the
+    /// current open generation; a client version reset alone is insufficient.
+    pub fn release_document(
+        &mut self,
+        project_uri: &str,
+        document_id: &str,
+        through_revision: u64,
+    ) -> Result<bool, HostError> {
+        let state_released =
+            self.state_store
+                .release_document(project_uri, document_id, through_revision)?;
+        let syntax_released = self
+            .dynamic_syntax_registry
+            .as_ref()
+            .map(|registry| registry.release_document(document_id, through_revision))
+            .transpose()?
+            .unwrap_or(false);
+        Ok(state_released || syntax_released)
+    }
+
     /// Compiles, negotiates, initializes, and registers an optional addon Component.
     pub fn load_addon(&mut self, component: &[u8]) -> Result<ComponentInfo, HostError> {
         self.load_component(component, false)
@@ -15497,6 +15526,62 @@ mod tests {
         let second = shared_host_runtime(epoch_tick).expect("shared runtime must be reusable");
 
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn releasing_document_closes_state_and_dynamic_layers_and_allows_reopen() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let directory = tempfile::tempdir().unwrap();
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig {
+                syntax_catalog: Some(Arc::new(ssg::load(fixture).unwrap().into_catalog())),
+                state_store: StateStoreConfig {
+                    data_directory: Some(directory.path().to_owned()),
+                    ..StateStoreConfig::default()
+                },
+                ..core_test_config()
+            },
+        )
+        .unwrap();
+        let component_ids = host
+            .components()
+            .into_iter()
+            .map(|component| component.component_id)
+            .collect::<Vec<_>>();
+        let project = "file:///workspace";
+        let document = "file:///workspace/released.sk";
+        let transaction = host.begin_parse(project, document, 1).unwrap();
+        let snapshot = host.dynamic_syntax_snapshot(&transaction).unwrap();
+        assert!(host.release_document(project, document, 1).unwrap());
+        assert!(matches!(
+            transaction.commit(),
+            Err(StateError::TransactionClosed)
+        ));
+        assert!(matches!(
+            host.dynamic_syntax_snapshot(&transaction),
+            Err(HostError::DynamicSyntax(
+                DynamicRegistryError::UnknownDocument { .. }
+            ))
+        ));
+        assert!(!host.release_document(project, document, 1).unwrap());
+        let reopened = host.begin_parse(project, document, 2).unwrap();
+        assert_eq!(
+            host.dynamic_syntax_snapshot(&reopened).unwrap().candidates,
+            snapshot.candidates
+        );
+        assert_eq!(
+            host.components()
+                .into_iter()
+                .map(|component| component.component_id)
+                .collect::<Vec<_>>(),
+            component_ids
+        );
+        reopened.cancel().unwrap();
     }
 
     #[test]

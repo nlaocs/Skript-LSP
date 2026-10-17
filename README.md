@@ -21,9 +21,9 @@ syntax registration, and recursive Expression, Condition, Effect, Event, and
 Section parsing. Top-level Structure parsing includes EntryValidator handling
 and a two-pass lifecycle with document-local Function registration.
 
-These are parser APIs, not a finished language server. The root `skript-lsp`
-binary only references the bundled CoreLibrary bytes and prints a smoke-test
-message; it does not initialize a parser host or expose an LSP/HTTP transport.
+The root `skript-lsp` binary provides a minimal stdio language server: one explicit
+project/snapshot, full-document synchronization, and source-mapped diagnostics.
+See the [LSP contract](docs/lsp.ja.md) and [Neovim setup](docs/neovim.ja.md).
 The root library provides `new_parser_host`. The `skript-repl` utility exposes
 both the existing one-line Effect inspector and a multiline frontend for the
 shared whole-document parser, including a versioned JSON tree. There is no
@@ -49,7 +49,7 @@ flowchart LR
     Host --> Tree
     Tree --> Syntax["Structure / Section / Effect / Expression parsing"]
     Host --> Syntax
-    Syntax --> Consumers["library consumers; LSP integration planned"]
+    Syntax --> Consumers["LSP diagnostics / library consumers"]
     Dynamic --> Parser
     Patterns --> Parser
 ```
@@ -72,8 +72,8 @@ The intended data flow is:
 5. `ParserHost::parse_document` composes those stages into one transactional
    document service. It parses Structure headers and selected bodies, including
    nested syntax, source-mapped diagnostics, partial AST recovery, and
-   document-local Function registration. LSP lifecycle and cross-file indexing
-   remain integration work.
+   document-local Function registration. The stdio frontend connects document
+   lifecycle to diagnostics; cross-file indexing remains future work.
 
 Parsing uses a prepared snapshot and WASM components, not a running Minecraft,
 Paper, Java, or Skript instance. The snapshot still determines the available
@@ -83,7 +83,7 @@ Skript/addon syntax; addon-specific semantics may also require a WASM addon.
 
 | Crate | Kind | Responsibility |
 | --- | --- | --- |
-| [`skript-lsp`](./) | library and binary | Top-level integration crate. Embeds CoreLibrary and constructs the parser host. The binary is currently a scaffold. |
+| [`skript-lsp`](./) | library and binary | Embeds CoreLibrary, constructs the parser host, and serves single-project diagnostics over stdio LSP. |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
 | [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 through 7 snapshot directories, including schema 5+ language data, schema 6 default Expression descriptors, and schema 7 BlockData registry data. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |

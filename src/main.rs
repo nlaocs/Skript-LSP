@@ -1,10 +1,26 @@
-//! Minimal executable scaffold for the future language server.
-//!
-//! The binary currently forces the embedded CoreLibrary artifact to be linked
-//! and provides a smoke-test entry point. LSP transport and document lifecycle
-//! integration belong here once those layers are implemented.
+use std::process::ExitCode;
 
-fn main() {
-    std::hint::black_box(skript_lsp::core_library_component());
-    println!("Hello, world!");
+fn main() -> ExitCode {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    match arguments.as_slice() {
+        [] => {}
+        [argument] if argument == "--stdio" => {}
+        [argument] if argument == "--help" || argument == "-h" => {
+            println!(
+                "skript-lsp [--stdio]\n\nSet initializationOptions.snapshotPath and a single project rootUri in your LSP client."
+            );
+            return ExitCode::SUCCESS;
+        }
+        _ => {
+            eprintln!("usage: skript-lsp [--stdio]");
+            return ExitCode::FAILURE;
+        }
+    }
+    match skript_lsp::lsp::run_stdio() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("skript-lsp: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }

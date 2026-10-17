@@ -440,12 +440,17 @@ struct ProjectState {
     revisions: BTreeMap<RevisionKey, u64>,
 }
 
+struct DocumentRevision {
+    latest: u64,
+    lifetime: Arc<()>,
+}
+
 struct StateStoreInner {
     data_directory: PathBuf,
     quotas: StateQuotas,
     namespaces: NamespaceRegistry,
     projects: BTreeMap<String, ProjectState>,
-    latest_document_revisions: BTreeMap<(String, String), u64>,
+    latest_document_revisions: BTreeMap<(String, String), DocumentRevision>,
 }
 
 #[derive(Clone)]
@@ -563,6 +568,11 @@ impl StateStore {
     }
 
     /// Starts an isolated overlay for one project/document revision.
+    ///
+    /// After [`Self::release_document`], beginning again creates a new document
+    /// lifetime. Transactions from the released lifetime can no longer commit,
+    /// even if the new lifetime uses the same numeric revision. Callers must
+    /// discard obsolete requests that have not begun before releasing a document.
     pub fn begin_parse(
         &self,
         project_uri: &str,
@@ -572,11 +582,15 @@ impl StateStore {
         validate_identifier("document ID", document_id)?;
         let project_uri = canonical_project_uri(project_uri)?;
         let mut inner = self.lock()?;
-        let latest = inner
+        let document = inner
             .latest_document_revisions
             .entry((project_uri.clone(), document_id.to_owned()))
-            .or_insert(document_revision);
-        *latest = (*latest).max(document_revision);
+            .or_insert_with(|| DocumentRevision {
+                latest: document_revision,
+                lifetime: Arc::new(()),
+            });
+        document.latest = document.latest.max(document_revision);
+        let document_lifetime = Arc::clone(&document.lifetime);
         inner.projects.entry(project_uri.clone()).or_default();
         Ok(ParseTransaction {
             inner: Arc::new(Mutex::new(ParseTransactionInner {
@@ -585,6 +599,7 @@ impl StateStore {
                 project_uri,
                 document_id: document_id.to_owned(),
                 document_revision,
+                document_lifetime,
                 writes: BTreeMap::new(),
                 read_write_set: StateReadWriteSet::default(),
                 base_revisions: BTreeMap::new(),
@@ -596,6 +611,40 @@ impl StateStore {
                 closed: false,
             })),
         })
+    }
+
+    /// Releases document-scoped values and revision tracking through a revision.
+    ///
+    /// Returns `false` if the document is absent or a newer revision has begun.
+    /// Project and persistent-project state remain intact. Existing transactions
+    /// from a released lifetime fail to commit with [`StateError::TransactionClosed`].
+    /// A later [`Self::begin_parse`] creates a new lifetime. Callers must discard
+    /// obsolete requests that have not begun. Delayed release requests require
+    /// monotonically increasing revisions across lifetimes or an open-generation
+    /// check before calling this method. Owned transaction overlays remain alive
+    /// until their callers cancel or drop them.
+    pub fn release_document(
+        &self,
+        project_uri: &str,
+        document_id: &str,
+        through_revision: u64,
+    ) -> Result<bool, StateError> {
+        validate_identifier("document ID", document_id)?;
+        let project_uri = canonical_project_uri(project_uri)?;
+        let mut inner = self.lock()?;
+        let key = (project_uri.clone(), document_id.to_owned());
+        if inner
+            .latest_document_revisions
+            .get(&key)
+            .is_none_or(|document| document.latest > through_revision)
+        {
+            return Ok(false);
+        }
+        inner.latest_document_revisions.remove(&key);
+        if let Some(project) = inner.projects.get_mut(&project_uri) {
+            project.documents.remove(document_id);
+        }
+        Ok(true)
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, StateStoreInner>, StateError> {
@@ -611,6 +660,7 @@ struct ParseTransactionInner {
     project_uri: String,
     document_id: String,
     document_revision: u64,
+    document_lifetime: Arc<()>,
     writes: BTreeMap<Address, Option<StateValue>>,
     read_write_set: StateReadWriteSet,
     base_revisions: BTreeMap<RevisionKey, u64>,
@@ -802,16 +852,18 @@ impl ParseTransaction {
     }
 
     /// Commits a current parse revision and durable scopes atomically.
+    /// Released document lifetimes are closed even after a same-revision reopen.
     pub fn commit(&self) -> Result<CommitSummary, StateError> {
         let mut parse = self.lock()?;
         parse.ensure_open()?;
         let store_handle = parse.store.clone();
         let mut store = store_handle.lock()?;
-        let latest = store
+        let document = store
             .latest_document_revisions
             .get(&(parse.project_uri.clone(), parse.document_id.clone()))
-            .copied()
-            .unwrap_or(parse.document_revision);
+            .filter(|document| Arc::ptr_eq(&document.lifetime, &parse.document_lifetime))
+            .ok_or(StateError::TransactionClosed)?;
+        let latest = document.latest;
         if latest != parse.document_revision {
             return Err(StateError::StaleDocumentRevision {
                 document_id: parse.document_id.clone(),
@@ -1490,3 +1542,181 @@ pub(super) fn persistence_error(error: impl std::fmt::Display) -> StateError {
 
 #[cfg(test)]
 mod candidate_tests;
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+
+    const PROJECT: &str = "file:///workspace";
+    const DOCUMENT: &str = "file:///workspace/main.sk";
+    const OTHER_DOCUMENT: &str = "file:///workspace/other.sk";
+    const OWNER: &str = "fixture.document-state";
+    const NAMESPACE: &str = "values";
+
+    fn store() -> (tempfile::TempDir, StateStore) {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::new(StateStoreConfig {
+            data_directory: Some(directory.path().to_owned()),
+            ..StateStoreConfig::default()
+        })
+        .unwrap();
+        store
+            .register_component(
+                OWNER,
+                &[NamespaceDeclaration::private(
+                    NAMESPACE,
+                    "fixture.values",
+                    1,
+                )],
+            )
+            .unwrap();
+        (directory, store)
+    }
+
+    fn put(parse: &ParseTransaction, scope: StateScope, text: &str) {
+        let mut invocation = parse.begin_invocation(OWNER).unwrap();
+        invocation
+            .put(
+                scope,
+                NamespaceVisibility::Private,
+                NAMESPACE,
+                "value",
+                StateValue::new("fixture.values", StateEncoding::Raw, text.as_bytes()),
+            )
+            .unwrap();
+        invocation.commit().unwrap();
+    }
+
+    fn read(parse: &ParseTransaction, scope: StateScope) -> Option<Vec<u8>> {
+        let mut invocation = parse.begin_invocation(OWNER).unwrap();
+        let value = invocation
+            .get(scope, NamespaceVisibility::Private, NAMESPACE, "value")
+            .unwrap()
+            .map(|value| value.bytes);
+        invocation.rollback();
+        value
+    }
+
+    #[test]
+    fn release_removes_document_storage_and_preserves_other_scopes_and_documents() {
+        let (_directory, store) = store();
+        let parse = store.begin_parse(PROJECT, DOCUMENT, 7).unwrap();
+        for (scope, text) in [
+            (StateScope::Document, "document"),
+            (StateScope::Project, "project"),
+            (StateScope::PersistentProject, "persistent"),
+        ] {
+            put(&parse, scope, text);
+        }
+        parse.commit().unwrap();
+        let lifetime = Arc::downgrade(&parse.lock().unwrap().document_lifetime);
+        drop(parse);
+        let other = store.begin_parse(PROJECT, OTHER_DOCUMENT, 1).unwrap();
+        put(&other, StateScope::Document, "other");
+        other.commit().unwrap();
+
+        assert!(store.release_document(PROJECT, DOCUMENT, 7).unwrap());
+        assert!(!store.release_document(PROJECT, DOCUMENT, 7).unwrap());
+        assert!(
+            lifetime.upgrade().is_none(),
+            "no lifetime tombstone remains"
+        );
+        {
+            let inner = store.lock().unwrap();
+            let project = canonical_project_uri(PROJECT).unwrap();
+            assert!(!inner.projects[&project].documents.contains_key(DOCUMENT));
+            assert!(
+                inner.projects[&project]
+                    .documents
+                    .contains_key(OTHER_DOCUMENT)
+            );
+            assert!(
+                !inner
+                    .latest_document_revisions
+                    .contains_key(&(project, DOCUMENT.to_owned()))
+            );
+        }
+
+        let reopened = store.begin_parse(PROJECT, DOCUMENT, 7).unwrap();
+        assert_eq!(read(&reopened, StateScope::Document), None);
+        assert_eq!(
+            read(&reopened, StateScope::Project),
+            Some(b"project".to_vec())
+        );
+        assert_eq!(
+            read(&reopened, StateScope::PersistentProject),
+            Some(b"persistent".to_vec())
+        );
+        let other_reader = store.begin_parse(PROJECT, OTHER_DOCUMENT, 2).unwrap();
+        assert_eq!(
+            read(&other_reader, StateScope::Document),
+            Some(b"other".to_vec())
+        );
+        other_reader.cancel().unwrap();
+        reopened.cancel().unwrap();
+    }
+
+    #[test]
+    fn released_transactions_cannot_commit_before_or_after_same_revision_reopen() {
+        let (_directory, store) = store();
+        let old = store.begin_parse(PROJECT, DOCUMENT, 7).unwrap();
+        for scope in [
+            StateScope::Document,
+            StateScope::Project,
+            StateScope::PersistentProject,
+        ] {
+            put(&old, scope, "obsolete");
+        }
+        let lifetime = Arc::downgrade(&old.lock().unwrap().document_lifetime);
+        assert!(store.release_document(PROJECT, DOCUMENT, 7).unwrap());
+        assert!(matches!(old.commit(), Err(StateError::TransactionClosed)));
+
+        let reopened = store.begin_parse(PROJECT, DOCUMENT, 7).unwrap();
+        assert!(matches!(old.commit(), Err(StateError::TransactionClosed)));
+        for scope in [
+            StateScope::Document,
+            StateScope::Project,
+            StateScope::PersistentProject,
+        ] {
+            assert_eq!(read(&reopened, scope), None, "{scope:?}");
+        }
+        put(&reopened, StateScope::Document, "current");
+        reopened.commit().unwrap();
+        assert!(matches!(old.commit(), Err(StateError::TransactionClosed)));
+        drop(old);
+        assert!(lifetime.upgrade().is_none());
+        let reader = store.begin_parse(PROJECT, DOCUMENT, 8).unwrap();
+        assert_eq!(
+            read(&reader, StateScope::Document),
+            Some(b"current".to_vec())
+        );
+        reader.cancel().unwrap();
+    }
+
+    #[test]
+    fn delayed_release_does_not_clear_a_newer_revision_or_reopened_lifetime() {
+        let (_directory, store) = store();
+        let current = store.begin_parse(PROJECT, DOCUMENT, 8).unwrap();
+        put(&current, StateScope::Document, "current");
+        current.commit().unwrap();
+        assert!(!store.release_document(PROJECT, DOCUMENT, 7).unwrap());
+        let reader = store.begin_parse(PROJECT, DOCUMENT, 8).unwrap();
+        assert_eq!(
+            read(&reader, StateScope::Document),
+            Some(b"current".to_vec())
+        );
+        reader.cancel().unwrap();
+        assert!(store.release_document(PROJECT, DOCUMENT, 8).unwrap());
+
+        let reopened = store.begin_parse(PROJECT, DOCUMENT, 9).unwrap();
+        put(&reopened, StateScope::Document, "reopened");
+        reopened.commit().unwrap();
+        assert!(!store.release_document(PROJECT, DOCUMENT, 8).unwrap());
+        let reader = store.begin_parse(PROJECT, DOCUMENT, 9).unwrap();
+        assert_eq!(
+            read(&reader, StateScope::Document),
+            Some(b"reopened".to_vec())
+        );
+        reader.cancel().unwrap();
+    }
+}

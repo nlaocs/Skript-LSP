@@ -17,9 +17,9 @@ transactional StateStore、dynamic syntax登録、Expression・Condition・Effec
 再帰解析が実装されています。トップレベルStructure解析にはEntryValidatorと二段階lifecycleがあり、
 document内のFunction宣言も登録して呼び出し解析に利用できます。
 
-ただし、これはparser APIであり、完成したLanguage Serverではありません。ルートの`skript-lsp`
-binaryは埋め込みCoreLibraryのbyte列を参照してsmoke-test用messageを表示するだけで、parser hostの
-初期化やLSP/HTTP transportの公開は行いません。ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
+ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで全文同期と原文位置付き診断を提供する
+最小のstdio Language Serverです。[LSPの契約](docs/lsp.ja.md)と[Neovim設定](docs/neovim.ja.md)を参照してください。
+ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
 共通document parserを利用する複数行REPLを提供し、version付きJSON treeも出力します。
 複数fileのsymbol serviceとvariableの型flow解析は未実装です。個別構文のhandlerによっては
 unresolvedなmetadataやpartial resultを返す場合があります。
@@ -43,7 +43,7 @@ flowchart LR
     Host --> Tree
     Tree --> Syntax["Structure / Section / Effect / Expression解析"]
     Host --> Syntax
-    Syntax --> Consumers["library利用者・将来のLSP統合"]
+    Syntax --> Consumers["LSP診断・library利用者"]
     Dynamic --> Parser
     Patterns --> Parser
 ```
@@ -62,7 +62,8 @@ flowchart LR
    indentationからlosslessなRawTreeを構築する。
 5. `ParserHost::parse_document`は各stageを一つのtransactional document serviceへ統合する。
    Structure headerと選択済みbody、nested syntax、source付きdiagnostic、partial AST recovery、
-   document内Function登録まで解析できる。LSP lifecycleと複数file indexは今後の統合作業となる。
+   document内Function登録まで解析できる。stdio frontendは文書のlifecycleと診断を接続し、
+   複数file indexは今後の対応となる。
 
 解析時に動作中のMinecraft・Paper・Java・Skriptは不要で、生成済みsnapshotとWASM componentを
 使用します。ただし利用可能な構文はsnapshotのSkript/addon構成に従い、addon固有の意味処理には
@@ -72,7 +73,7 @@ flowchart LR
 
 | Crate | 種類 | 役割 |
 | --- | --- | --- |
-| [`skript-lsp`](./) | library / binary | 最上位の統合crate。CoreLibraryを埋め込み、parser hostを構築します。binaryは現時点ではscaffoldです。 |
+| [`skript-lsp`](./) | library / binary | CoreLibraryを埋め込み、parser hostを構築し、stdio LSPで単一projectの診断を提供します。 |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
 | [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜7 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage data、schema 6のdefault Expression descriptor、schema 7のBlockData registry dataも含みます。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |

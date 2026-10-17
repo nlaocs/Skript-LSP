@@ -384,6 +384,37 @@ impl DynamicSyntaxRegistry {
         Ok(())
     }
 
+    /// Releases a document layer and its revision tracking through a revision.
+    ///
+    /// Returns `false` if the document is absent or a newer revision has begun.
+    /// The initialization baseline and other documents are retained. Already
+    /// returned immutable snapshots remain valid owned values until dropped.
+    ///
+    /// A subsequent [`Self::begin_document`] starts a fresh layer. Callers must
+    /// discard obsolete requests that have not begun and guard delayed releases.
+    /// Outstanding updates and savepoints must be discarded before a same-revision
+    /// reopen, or revisions must increase across document lifetimes so old work
+    /// cannot address the reopened layer.
+    pub fn release_document(
+        &self,
+        document_id: &str,
+        through_revision: u64,
+    ) -> Result<bool, DynamicRegistryError> {
+        validate_identifier("document ID", document_id)?;
+        let mut inner = self.lock()?;
+        if inner
+            .latest_document_revisions
+            .get(document_id)
+            .is_none_or(|latest| *latest > through_revision)
+        {
+            return Ok(false);
+        }
+        inner.documents.remove(document_id);
+        inner.latest_document_revisions.remove(document_id);
+        inner.revision = inner.revision.saturating_add(1);
+        Ok(true)
+    }
+
     /// Starts a transactional update against one document revision.
     pub fn begin_document_update(
         &self,
@@ -1357,5 +1388,181 @@ fn candidate_key_name(key: &CandidateKey) -> String {
     match key {
         CandidateKey::Static(index) => format!("static:{index}"),
         CandidateKey::Dynamic(id) => id.qualified(),
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+    use crate::{AliasRegistry, CatalogParts};
+    use syntax_pattern_parser::syntax::PluralRules;
+
+    const DOCUMENT: &str = "file:///workspace/main.sk";
+    const OTHER_DOCUMENT: &str = "file:///workspace/other.sk";
+    const OWNER: &str = "fixture.document-syntax";
+
+    fn registry() -> DynamicSyntaxRegistry {
+        let plural_rules = PluralRules::from_json(
+            r#"{
+                "algorithm":"singular-aware",
+                "pluralOverrideSupported":false,
+                "rules":[{
+                    "ruleOrder":0,
+                    "singular":"",
+                    "plural":"s",
+                    "completeWord":false,
+                    "origin":"built-in",
+                    "addon":{"name":"Skript","version":"fixture"}
+                }]
+            }"#,
+        )
+        .unwrap();
+        DynamicSyntaxRegistry::new(Arc::new(Catalog::new(CatalogParts {
+            syntaxes: Vec::new(),
+            converters: Vec::new(),
+            comparators: Vec::new(),
+            event_values: Vec::new(),
+            properties: Vec::new(),
+            operators: Vec::new(),
+            operations: BTreeMap::new(),
+            differences: Vec::new(),
+            classes: Vec::new(),
+            aliases: AliasRegistry {
+                aliases: BTreeMap::new(),
+                targets: Vec::new(),
+            },
+            plural_rules,
+            language: BTreeMap::new(),
+        })))
+    }
+
+    fn effect(local_id: &str) -> DynamicSyntaxInput {
+        DynamicSyntaxInput {
+            local_id: local_id.to_owned(),
+            kind: SyntaxKind::Effect,
+            patterns: vec![format!("fixture {local_id}")],
+            priority: 0,
+            before: Vec::new(),
+            after: Vec::new(),
+            return_type: None,
+            return_multiplicity: None,
+            structure_node_type: None,
+            structure_body_mode: None,
+            entry_validator: None,
+            handler: format!("handle-{local_id}"),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn release_drops_frozen_layer_but_keeps_baseline_other_documents_and_owned_snapshot() {
+        let registry = registry();
+        let mut baseline = registry.begin_initial_update(OWNER, 1).unwrap();
+        baseline.register(effect("baseline")).unwrap();
+        baseline.commit().unwrap();
+        registry.begin_document(DOCUMENT, 7).unwrap();
+        let mut local = registry
+            .begin_document_update(OWNER, 1, DOCUMENT, 7)
+            .unwrap();
+        local.register(effect("local")).unwrap();
+        local.commit().unwrap();
+        let snapshot = registry.freeze(DOCUMENT, 7).unwrap();
+        assert_eq!(snapshot.definitions.len(), 2);
+        registry.begin_document(OTHER_DOCUMENT, 1).unwrap();
+        let other = registry.freeze(OTHER_DOCUMENT, 1).unwrap();
+
+        assert!(registry.release_document(DOCUMENT, 7).unwrap());
+        assert!(!registry.release_document(DOCUMENT, 7).unwrap());
+        {
+            let inner = registry.lock().unwrap();
+            assert!(!inner.documents.contains_key(DOCUMENT));
+            assert!(!inner.latest_document_revisions.contains_key(DOCUMENT));
+            assert!(inner.documents.contains_key(OTHER_DOCUMENT));
+        }
+        assert_eq!(registry.freeze(OTHER_DOCUMENT, 1).unwrap(), other);
+        assert!(
+            snapshot
+                .definitions
+                .contains_key(&DynamicSyntaxId::new(OWNER, "local"))
+        );
+        assert!(matches!(
+            registry.freeze(DOCUMENT, 7),
+            Err(DynamicRegistryError::UnknownDocument { .. })
+        ));
+
+        registry.begin_document(DOCUMENT, 8).unwrap();
+        let reopened = registry.freeze(DOCUMENT, 8).unwrap();
+        assert_eq!(reopened.definitions.len(), 1);
+        assert!(
+            reopened
+                .definitions
+                .contains_key(&DynamicSyntaxId::new(OWNER, "baseline"))
+        );
+        assert!(
+            !reopened
+                .definitions
+                .contains_key(&DynamicSyntaxId::new(OWNER, "local"))
+        );
+    }
+
+    #[test]
+    fn release_guards_newer_layers_and_old_work_cannot_modify_a_newer_reopen() {
+        let registry = registry();
+        registry.begin_document(DOCUMENT, 7).unwrap();
+        let savepoint = registry.savepoint(DOCUMENT, 7).unwrap();
+        let mut pending = registry
+            .begin_document_update(OWNER, 1, DOCUMENT, 7)
+            .unwrap();
+        pending.register(effect("obsolete")).unwrap();
+        assert!(!registry.release_document(DOCUMENT, 6).unwrap());
+        assert!(registry.release_document(DOCUMENT, 7).unwrap());
+        assert!(matches!(
+            registry.abort_document_to(&savepoint),
+            Err(DynamicRegistryError::UnknownDocument { .. })
+        ));
+
+        registry.begin_document(DOCUMENT, 8).unwrap();
+        let mut current = registry
+            .begin_document_update(OWNER, 1, DOCUMENT, 8)
+            .unwrap();
+        current.register(effect("current")).unwrap();
+        current.commit().unwrap();
+        assert!(!registry.release_document(DOCUMENT, 7).unwrap());
+        assert!(matches!(
+            pending.commit(),
+            Err(DynamicRegistryError::StaleDocumentRevision {
+                actual: 7,
+                latest: 8,
+                ..
+            })
+        ));
+        assert!(matches!(
+            registry.rollback_to(&savepoint),
+            Err(DynamicRegistryError::StaleDocumentRevision {
+                actual: 7,
+                latest: 8,
+                ..
+            })
+        ));
+        assert!(matches!(
+            registry.abort_document_to(&savepoint),
+            Err(DynamicRegistryError::StaleDocumentRevision {
+                actual: 7,
+                latest: 8,
+                ..
+            })
+        ));
+        let snapshot = registry.freeze(DOCUMENT, 8).unwrap();
+        assert_eq!(snapshot.definitions.len(), 1);
+        assert!(
+            snapshot
+                .definitions
+                .contains_key(&DynamicSyntaxId::new(OWNER, "current"))
+        );
+        assert!(
+            !snapshot
+                .definitions
+                .contains_key(&DynamicSyntaxId::new(OWNER, "obsolete"))
+        );
     }
 }
