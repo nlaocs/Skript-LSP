@@ -335,6 +335,15 @@ fn typed_omissions_share_stable_slot_indices_with_regex_captures() {
     ));
 }
 
+#[derive(Debug)]
+struct ScopeObservation {
+    registration_id: String,
+    scope: PatternHookScope,
+    timing: PatternHookTiming,
+    outcome: PatternHookOutcome,
+    depth_before_dispatch: usize,
+}
+
 #[derive(Default)]
 struct CompletingEnvironment {
     calls: usize,
@@ -352,6 +361,11 @@ struct CompletingEnvironment {
     reject_after: Option<PatternHookScope>,
     error_after: Option<PatternHookScope>,
     report_exploratory_type_failure: bool,
+    // These observations are deliberately outside the state restored by hooks
+    // and finish_pattern_match, so cleanup cannot erase evidence of a leak.
+    scope_observations: Vec<ScopeObservation>,
+    finishes_before_cleanup: Vec<(bool, usize)>,
+    completion_writes: Vec<usize>,
 }
 
 impl PatternMatchEnvironment for CompletingEnvironment {
@@ -362,6 +376,8 @@ impl PatternMatchEnvironment for CompletingEnvironment {
 
     fn finish_pattern_match(&mut self, accepted: bool) -> Result<(), String> {
         let (state, scope_depth) = self.match_states.pop().unwrap();
+        self.finishes_before_cleanup
+            .push((accepted, self.scopes.len() - scope_depth));
         if !accepted {
             self.state = state;
             self.scopes.truncate(scope_depth);
@@ -429,6 +445,7 @@ impl PatternMatchEnvironment for CompletingEnvironment {
         );
         self.calls += 1;
         self.state = self.calls;
+        self.completion_writes.push(self.state);
         let PatternCapture::TypeExpression {
             capture_index,
             expression,
@@ -476,6 +493,13 @@ impl PatternMatchEnvironment for CompletingEnvironment {
                 | PatternHookScope::Registration
                 | PatternHookScope::Pattern
         ) {
+            self.scope_observations.push(ScopeObservation {
+                registration_id: event.registration_id.to_owned(),
+                scope: event.scope,
+                timing: event.timing,
+                outcome: event.outcome.clone(),
+                depth_before_dispatch: self.scopes.len(),
+            });
             match event.timing {
                 PatternHookTiming::Before => self.scopes.push((event.scope, self.state)),
                 PatternHookTiming::After => {
@@ -627,6 +651,31 @@ fn failed_registration_override_closes_definition_before_the_next_candidate() {
         assert!(environment.calls > 0);
         assert!(environment.scopes.is_empty());
         assert_eq!(environment.state, 0);
+        let definitions = environment
+            .scope_observations
+            .iter()
+            .filter(|event| event.scope == PatternHookScope::Definition)
+            .collect::<Vec<_>>();
+        assert_eq!(definitions.len(), 4, "{definitions:?}");
+        assert_eq!(definitions[0].registration_id, "effect:test#0");
+        assert_eq!(definitions[0].timing, PatternHookTiming::Before);
+        assert_eq!(definitions[0].outcome, PatternHookOutcome::Pending);
+        assert_eq!(definitions[1].registration_id, "effect:test#0");
+        assert_eq!(definitions[1].timing, PatternHookTiming::After);
+        assert!(matches!(
+            definitions[1].outcome,
+            PatternHookOutcome::Failed { .. }
+        ));
+        assert_eq!(definitions[2].registration_id, "effect:fallback#0");
+        assert_eq!(definitions[2].timing, PatternHookTiming::Before);
+        assert_eq!(definitions[2].depth_before_dispatch, 0);
+        assert_eq!(definitions[3].registration_id, "effect:fallback#0");
+        assert_eq!(definitions[3].timing, PatternHookTiming::After);
+        assert!(matches!(
+            definitions[3].outcome,
+            PatternHookOutcome::Matched { .. }
+        ));
+        assert_eq!(environment.finishes_before_cleanup, vec![(true, 0)]);
     }
 }
 
@@ -680,6 +729,37 @@ fn rejected_completion_balances_pattern_hooks_even_with_a_before_override() {
         assert!(result.selected.is_none());
         assert!(environment.scopes.is_empty());
         assert_eq!(environment.state, 0);
+        assert!(!environment.completion_writes.is_empty());
+        assert!(environment.completion_writes.iter().all(|state| *state > 0));
+        assert_eq!(
+            environment.finishes_before_cleanup,
+            vec![(false, 0)],
+            "normal rejection must close its scopes before final cleanup"
+        );
+        assert_eq!(
+            environment
+                .scope_observations
+                .iter()
+                .map(|event| (event.scope, event.timing))
+                .collect::<Vec<_>>(),
+            vec![
+                (PatternHookScope::Definition, PatternHookTiming::Before),
+                (PatternHookScope::Registration, PatternHookTiming::Before),
+                (PatternHookScope::Pattern, PatternHookTiming::Before),
+                (PatternHookScope::Pattern, PatternHookTiming::After),
+                (PatternHookScope::Registration, PatternHookTiming::After),
+                (PatternHookScope::Definition, PatternHookTiming::After),
+            ]
+        );
+        assert!(environment.scope_observations.iter().all(|event| {
+            event.registration_id == "effect:test#0"
+                && match event.timing {
+                    PatternHookTiming::Before => event.outcome == PatternHookOutcome::Pending,
+                    PatternHookTiming::After => {
+                        matches!(event.outcome, PatternHookOutcome::Failed { .. })
+                    }
+                }
+        }));
         assert!(matches!(
             result
                 .failures
@@ -706,6 +786,8 @@ fn final_after_hook_rejection_or_error_restores_completion_state_at_every_scope(
             let parsed = parse(source);
             let mapped = MappedSource::identity("do");
             let mut environment = CompletingEnvironment {
+                state: 17,
+                explicit_state: 17,
                 reject_after: (!error).then_some(scope),
                 error_after: error.then_some(scope),
                 ..Default::default()
@@ -724,9 +806,44 @@ fn final_after_hook_rejection_or_error_restores_completion_state_at_every_scope(
                 assert!(result.unwrap().selected.is_none());
             }
             assert_eq!(
-                environment.state, 0,
+                environment.state, 17,
                 "completion state leaked after {scope:?}, error={error}"
             );
+            assert_eq!(environment.completion_writes, vec![1]);
+            let unfinished = if error {
+                // Errors abort immediately: the environment must discard the
+                // enclosing scopes rather than inventing successful After hooks.
+                match scope {
+                    PatternHookScope::Pattern => 2,
+                    PatternHookScope::Registration => 1,
+                    PatternHookScope::Definition => 0,
+                    PatternHookScope::Element => unreachable!(),
+                }
+            } else {
+                0
+            };
+            assert_eq!(
+                environment.finishes_before_cleanup,
+                vec![(false, unfinished)]
+            );
+            assert!(environment.scopes.is_empty());
+            assert!(environment.match_states.is_empty());
+
+            // Reuse the same environment without resetting state or its logs.
+            // The failing controls only apply to the first completion call.
+            let healthy = match_pattern_candidates_with_environment(
+                MatchInput::from_source(&mapped, TextRange::new(0, 2)).unwrap(),
+                &[candidate(source, &parsed, 0)],
+                &mut environment,
+                PatternMatcherConfig::default(),
+            )
+            .expect("a completed rollback must leave the environment reusable");
+            assert!(healthy.selected.is_some());
+            assert_eq!(environment.completion_writes, vec![1, 2]);
+            assert_eq!(environment.state, 2, "selected state must be adopted");
+            assert_eq!(environment.finishes_before_cleanup.last(), Some(&(true, 0)));
+            assert!(environment.scopes.is_empty());
+            assert!(environment.match_states.is_empty());
         }
     }
 }

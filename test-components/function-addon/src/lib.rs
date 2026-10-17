@@ -229,10 +229,64 @@ impl hooks::Guest for FunctionAddon {
                 &StateValue {
                     schema_id: "test.function-state".into(),
                     encoding: StateEncoding::Json,
-                    bytes: b"true".to_vec(),
+                    bytes: if operation == "echo-state" {
+                        b"17".to_vec()
+                    } else {
+                        b"true".to_vec()
+                    },
                 },
             )
             .map_err(|error| error_message(error.message))?;
+            if operation == "bad-state-error" {
+                // The fault message is an observation of real host state, not
+                // a flag inferred from the input after rollback has happened.
+                let staged = state_store::get(
+                    StateScope::Parse,
+                    StateNamespaceVisibility::Private,
+                    "function-state",
+                    "invalid-function",
+                )
+                .map_err(|error| error_message(error.message))?
+                .ok_or_else(|| error_message("probe write was not visible".into()))?;
+                if staged.schema_id != "test.function-state"
+                    || staged.encoding != StateEncoding::Json
+                    || staged.bytes != b"true"
+                {
+                    return Err(error_message("probe write had an unexpected value".into()));
+                }
+                state_store::put(
+                    StateScope::Project,
+                    StateNamespaceVisibility::Private,
+                    "function-state",
+                    "committed",
+                    &StateValue {
+                        schema_id: "test.function-state".into(),
+                        encoding: StateEncoding::Json,
+                        bytes: b"false".to_vec(),
+                    },
+                )
+                .map_err(|error| error_message(error.message))?;
+                let overwritten = state_store::get(
+                    StateScope::Project,
+                    StateNamespaceVisibility::Private,
+                    "function-state",
+                    "committed",
+                )
+                .map_err(|error| error_message(error.message))?
+                .ok_or_else(|| error_message("probe overwrite was not visible".into()))?;
+                if overwritten.schema_id != "test.function-state"
+                    || overwritten.encoding != StateEncoding::Json
+                    || overwritten.bytes != b"false"
+                {
+                    return Err(error_message(
+                        "probe overwrite had an unexpected value".into(),
+                    ));
+                }
+                return Err(error_message(
+                    "observed staged invalid-function=true and committed=false before failure"
+                        .into(),
+                ));
+            }
             payload.candidates.push(ExpressionLeafCandidate {
                 parser_id: "test.function-addon.call".into(),
                 kind,
@@ -270,7 +324,7 @@ impl hooks::Guest for FunctionAddon {
 }
 fn identity(operation: &str) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
     Some(match operation {
-        "echo" => echo(),
+        "echo" | "echo-state" => echo(),
         "log" | "named" => (
             "log",
             "function:skript:69ad6a4e98d998d7604230e05157a36159f47ad4115861909708d27252d616a4",
