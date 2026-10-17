@@ -140,18 +140,3 @@ fn unresolved(
     super::mark_unresolved(payload, code);
     diagnostics.push(super::warning(code, message, span));
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn cancel_and_uncancel_patterns_keep_their_java_modes() {
-        let mode = |pattern_index| match pattern_index {
-            0 => Some("cancel"),
-            1 => Some("uncancel"),
-            _ => None,
-        };
-        assert_eq!(mode(0), Some("cancel"));
-        assert_eq!(mode(1), Some("uncancel"));
-        assert_eq!(mode(2), None);
-    }
-}

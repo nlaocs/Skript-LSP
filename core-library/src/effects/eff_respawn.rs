@@ -78,15 +78,3 @@ fn unresolved(
     super::mark_unresolved(payload, code);
     diagnostics.push(super::warning(code, message, span));
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn death_events_only_force_a_delay_when_not_already_delayed() {
-        let force_delay =
-            |death_event: bool, delayed: Option<bool>| death_event && delayed == Some(false);
-        assert!(force_delay(true, Some(false)));
-        assert!(!force_delay(true, Some(true)));
-        assert!(!force_delay(false, Some(false)));
-    }
-}

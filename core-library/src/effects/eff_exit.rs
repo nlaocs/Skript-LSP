@@ -134,15 +134,3 @@ fn metadata(key: &str, value: &str) -> MetadataEntry {
         owner_component_id: None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn exit_counts_must_be_positive_and_available() {
-        let validate = |requested: u64, available: u64| requested > 0 && requested <= available;
-        assert!(validate(1, 1));
-        assert!(validate(2, 3));
-        assert!(!validate(0, 3));
-        assert!(!validate(4, 3));
-    }
-}

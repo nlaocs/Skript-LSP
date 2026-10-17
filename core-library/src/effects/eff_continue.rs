@@ -90,15 +90,3 @@ fn metadata(key: &str, value: &str) -> MetadataEntry {
         owner_component_id: None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn outer_loop_ordinals_are_bounded_by_the_active_loop_depth() {
-        let validate = |requested: u64, depth: u64| requested > 0 && requested <= depth;
-        assert!(validate(1, 1));
-        assert!(validate(2, 3));
-        assert!(!validate(0, 3));
-        assert!(!validate(4, 3));
-    }
-}
