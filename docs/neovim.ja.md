@@ -91,3 +91,8 @@ on load:
 
 API と起動引数は対象 Neovim の `:help vim.lsp.config()`、`:help vim.lsp.enable()`、
 `:help LspNotify`、`:help --headless`、`:help -u`、`:help -i` で確認できる。
+
+Neovim 0.12 では、同じ環境変数と隔離用引数で `tests/neovim/diagnostics.lua` を実行すると、
+標準handlerが作ったvirtual textのextmarkとchunksも確認できる。
+単独 `else`、複数captureの不正Effect、複数の子エラー、原因なしfallback、それらの混在を実LSPで検証する。
+同位置・同一行の異なる位置・逆順・複数行の表示方式を確認する合成診断は、実LSPケースと分けて記録する。

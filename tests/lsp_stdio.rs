@@ -301,6 +301,71 @@ fn full_text_changes_clear_diagnostics_and_close_allows_version_zero_reopen() {
 }
 
 #[test]
+fn concrete_child_causes_replace_only_their_own_unclaimed_summaries() {
+    let mut client = Client::initialized(&[]);
+    let cases = [
+        (
+            "on load:\n    this effect does not exist\n",
+            vec![(
+                1,
+                4,
+                30,
+                "no WASM Type parser is registered for this SSG Type",
+            )],
+        ),
+        (
+            "on load:\n    else:\n        send 1 to console\n",
+            vec![(
+                1,
+                4,
+                8,
+                "'else' has to be placed just after another 'if' or 'else if' section",
+            )],
+        ),
+        (
+            "on load:\n    teleport a to location(b, 2, 3)\n",
+            vec![
+                (1, 13, 14, "Expected expression type: entity"),
+                (1, 27, 28, "Unexpected trailing input"),
+            ],
+        ),
+        (
+            "on load:\n    teleport a to location(b, 2, 3)\n    teleport c to location(d, 2, 3)\n",
+            vec![
+                (1, 13, 14, "Expected expression type: entity"),
+                (1, 27, 28, "Unexpected trailing input"),
+                (2, 13, 14, "Expected expression type: entity"),
+                (2, 27, 28, "Unexpected trailing input"),
+            ],
+        ),
+    ];
+    for (index, (source, expected)) in cases.into_iter().enumerate() {
+        let version = index as i32 + 1;
+        if index == 0 {
+            client.open(version, source);
+        } else {
+            client.change(version, source);
+        }
+        let report = client.diagnostics(version);
+        assert_eq!(
+            report.diagnostics.len(),
+            expected.len(),
+            "only the concrete child failures should remain: {report:#?}"
+        );
+        for (diagnostic, (line, start, end, message)) in report.diagnostics.iter().zip(expected) {
+            assert_error(diagnostic);
+            assert_eq!(
+                diagnostic.code,
+                Some(NumberOrString::String("parser.syntax-incomplete".into()))
+            );
+            assert_eq!(diagnostic.range, range(line, start, line, end));
+            assert_eq!(diagnostic.message, message);
+        }
+    }
+    client.finish();
+}
+
+#[test]
 fn raw_tree_errors_are_published_and_a_later_full_text_change_recovers() {
     let mut client = Client::initialized(&[]);
     client.open(1, "on load:\r\n \tsend 1 to console\r\n");

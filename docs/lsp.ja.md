@@ -54,6 +54,11 @@ fatal errorを空診断へ変えず、取消・staleの解析結果は公開し�
 `data.executionStatus` の `complete` は拡張障害のない実行であり、全文法が正しいという意味ではない。
 `partial` の領域は未確定で、得られた他の診断とともに残す。
 
+同じ子要素に具体的なerrorのfailure traceがある場合、その子のStructure/Sectionのunclaimed要約は公開しない。
+対応付けにはRawNodeIdを使い、同じ行や重なる位置という理由だけでは別要素の診断を消さない。
+複数のcaptureや子要素の具体診断は残す。原因なし・warningのみの場合、トップレベルStructureのroot/header自体の失敗、
+対応する子要素を特定できない要約は残す。有効な `on load` の子が失敗した場合にheaderへ位置を移すこともない。
+
 位置はvirtual byte offsetを直接表示せず、SourceMapのoriginal originから原文の行・UTF-16列へ変換する。
 primaryはparserが返した最初のorigin、残りのoriginとrelated spanはrelated informationへ残す。
 optionsによる生成文もこの規則でcall-siteへ対応付ける。元位置が不正ならsource-mapping failureを明示し、仮のvirtual位置へ置き換えない。

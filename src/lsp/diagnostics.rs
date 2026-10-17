@@ -5,9 +5,10 @@ use lsp_types::{
 use parser_wasm::{DocumentParseResult, host};
 use serde_json::json;
 use skript_parser::{
-    MappedSpan, RawDiagnosticSeverity, SectionBodyNode, SectionDiagnosticKind, StructureBody,
-    StructureDiagnosticKind, StructureDocumentNode, StructureEntryValue, TextRange,
+    MappedSpan, RawDiagnosticSeverity, RawNodeId, SectionBodyNode, SectionDiagnosticKind,
+    StructureBody, StructureDiagnosticKind, StructureDocumentNode, StructureEntryValue, TextRange,
 };
+use std::collections::BTreeSet;
 
 pub(super) fn fatal(code: &str, message: String) -> Diagnostic {
     Diagnostic {
@@ -62,8 +63,34 @@ struct Collector<'a> {
     uri: &'a Uri,
     lines: LineIndex<'a>,
     diagnostics: Vec<Diagnostic>,
+    unclaimed: Vec<(Option<RawNodeId>, usize)>,
+    explained_body_nodes: BTreeSet<RawNodeId>,
 }
-impl Collector<'_> {
+impl<'a> Collector<'a> {
+    fn new(uri: &'a Uri, source: &'a str) -> Self {
+        Self {
+            uri,
+            lines: LineIndex::new(source),
+            diagnostics: Vec::new(),
+            unclaimed: Vec::new(),
+            explained_body_nodes: BTreeSet::new(),
+        }
+    }
+    fn finish(self) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+        let redundant = self
+            .unclaimed
+            .into_iter()
+            .filter(|(node, _)| node.is_some_and(|node| self.explained_body_nodes.contains(&node)))
+            .map(|(_, index)| index)
+            .collect::<BTreeSet<_>>();
+        for (index, diagnostic) in self.diagnostics.into_iter().enumerate() {
+            if !redundant.contains(&index) && !diagnostics.contains(&diagnostic) {
+                diagnostics.push(diagnostic);
+            }
+        }
+        diagnostics
+    }
     fn hook(&mut self, diagnostic: &host::Diagnostic) -> Result<(), String> {
         let related = diagnostic
             .related
@@ -100,9 +127,26 @@ impl Collector<'_> {
         }
         Ok(())
     }
-    fn trace(&mut self, trace: &skript_parser::FailureTrace) -> Result<(), String> {
+    fn body_trace(
+        &mut self,
+        node: RawNodeId,
+        trace: &skript_parser::FailureTrace,
+    ) -> Result<(), String> {
+        // Causal ownership survives macro mapping and narrower capture ranges.
+        // A root/header failure or an unrelated overlapping diagnostic cannot
+        // explain this child just because it has the same original position.
+        if self.trace(trace)? {
+            self.explained_body_nodes.insert(node);
+        }
+        Ok(())
+    }
+    fn trace(&mut self, trace: &skript_parser::FailureTrace) -> Result<bool, String> {
         let semantic = trace.semantic_diagnostics();
+        let explained;
         if !semantic.is_empty() {
+            explained = semantic.iter().any(|diagnostic| {
+                diagnostic.severity == skript_parser::SemanticDiagnosticSeverity::Error
+            });
             for diagnostic in semantic {
                 let severity = match diagnostic.severity {
                     skript_parser::SemanticDiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
@@ -137,6 +181,7 @@ impl Collector<'_> {
                 .iter()
                 .map(failure_reason)
                 .collect::<Vec<_>>();
+            explained = !reasons.is_empty();
             let message = if reasons.is_empty() {
                 "No registered syntax accepted this input".to_owned()
             } else {
@@ -150,7 +195,7 @@ impl Collector<'_> {
                 Vec::new(),
             )?;
         }
-        Ok(())
+        Ok(explained)
     }
     fn add(
         &mut self,
@@ -160,6 +205,21 @@ impl Collector<'_> {
         origins: Vec<TextRange>,
         related: Vec<(String, Vec<TextRange>)>,
     ) -> Result<(), String> {
+        let diagnostic = self.make_diagnostic(code, message, severity, origins, related)?;
+        // Equal payloads can have different owners. Deduplicate only after
+        // redundant summaries have been removed, so a concrete addon error
+        // cannot disappear together with an identical parser summary.
+        self.diagnostics.push(diagnostic);
+        Ok(())
+    }
+    fn make_diagnostic(
+        &self,
+        code: &str,
+        message: &str,
+        severity: DiagnosticSeverity,
+        origins: Vec<TextRange>,
+        related: Vec<(String, Vec<TextRange>)>,
+    ) -> Result<Diagnostic, String> {
         let primary = *origins
             .first()
             .ok_or("diagnostic has no original source origin")?;
@@ -180,7 +240,7 @@ impl Collector<'_> {
                 });
             }
         }
-        let diagnostic = Diagnostic {
+        Ok(Diagnostic {
             range: self.lines.range(primary)?,
             severity: Some(severity),
             code: Some(NumberOrString::String(code.into())),
@@ -188,13 +248,35 @@ impl Collector<'_> {
             message: message.into(),
             related_information: (!information.is_empty()).then_some(information),
             ..Diagnostic::default()
-        };
-        if !self.diagnostics.contains(&diagnostic) {
-            self.diagnostics.push(diagnostic);
-        }
+        })
+    }
+    fn unclaimed(
+        &mut self,
+        node: Option<RawNodeId>,
+        code: &str,
+        message: &str,
+        span: &MappedSpan,
+    ) -> Result<(), String> {
+        let diagnostic = self.make_diagnostic(
+            code,
+            message,
+            DiagnosticSeverity::ERROR,
+            native_origins(span),
+            Vec::new(),
+        )?;
+        self.unclaimed.push((node, self.diagnostics.len()));
+        self.diagnostics.push(diagnostic);
         Ok(())
     }
     fn structure(&mut self, diagnostic: &skript_parser::StructureDiagnostic) -> Result<(), String> {
+        if diagnostic.kind == StructureDiagnosticKind::Unclaimed {
+            return self.unclaimed(
+                diagnostic.raw_node_id,
+                "parser.structure.unclaimed",
+                &diagnostic.message,
+                &diagnostic.span.mapped,
+            );
+        }
         let kind = match diagnostic.kind {
             StructureDiagnosticKind::ExtensionFault => "extension-fault",
             StructureDiagnosticKind::Unclaimed => "unclaimed",
@@ -232,36 +314,47 @@ impl Collector<'_> {
     }
     fn section_body(&mut self, nodes: &[SectionBodyNode]) -> Result<(), String> {
         for node in nodes {
-            if let SectionBodyNode::Condition { matches, .. } = node {
+            if let SectionBodyNode::Condition {
+                raw_node_id,
+                matches,
+            } = node
+            {
                 if let Some(trace) = matches
                     .unknown
                     .as_ref()
                     .and_then(|unknown| unknown.failure.as_ref())
                 {
-                    self.trace(trace)?;
+                    self.body_trace(*raw_node_id, trace)?;
                 }
             }
             if let SectionBodyNode::Effect(matches) = node {
                 if let Some(unknown) = &matches.unknown {
                     if let Some(primary) = unknown.failures.primary() {
-                        self.trace(&primary.matched.trace)?;
+                        self.body_trace(unknown.raw_node_id, &primary.matched.trace)?;
                         for related in &primary.matched.related {
-                            self.trace(related)?;
+                            self.body_trace(unknown.raw_node_id, related)?;
                         }
                     } else if let Some(fallback) = &unknown.failures.fallback {
-                        self.trace(fallback)?;
+                        self.body_trace(unknown.raw_node_id, fallback)?;
                     }
                 }
             }
             if let SectionBodyNode::Section(matches) = node {
-                if let Some(trace) = matches
-                    .unknown
-                    .as_ref()
-                    .and_then(|unknown| unknown.failure.as_ref())
-                {
-                    self.trace(trace)?;
+                if let Some(unknown) = &matches.unknown {
+                    if let Some(trace) = &unknown.failure {
+                        self.body_trace(unknown.raw_node_id, trace)?;
+                    }
                 }
                 for diagnostic in &matches.diagnostics {
+                    if diagnostic.kind == SectionDiagnosticKind::Unclaimed {
+                        self.unclaimed(
+                            Some(diagnostic.raw_node_id),
+                            "parser.section.unclaimed",
+                            "No registered syntax accepted this statement or section",
+                            &diagnostic.span.mapped,
+                        )?;
+                        continue;
+                    }
                     let (kind, message) = match diagnostic.kind {
                         SectionDiagnosticKind::ExtensionFault => (
                             "extension-fault",
@@ -339,11 +432,7 @@ pub(super) fn from_result(
     uri: &Uri,
     result: &DocumentParseResult,
 ) -> Result<Vec<Diagnostic>, String> {
-    let mut collector = Collector {
-        uri,
-        lines: LineIndex::new(result.source.original()),
-        diagnostics: Vec::new(),
-    };
+    let mut collector = Collector::new(uri, result.source.original());
     for diagnostic in &result.raw_tree.diagnostics {
         collector.add(
             &format!("parser.raw-tree.{}", diagnostic.code.as_str()),
@@ -426,25 +515,196 @@ pub(super) fn from_result(
             Vec::new(),
         )?;
     }
-    for diagnostic in &mut collector.diagnostics {
+    let mut diagnostics = collector.finish();
+    for diagnostic in &mut diagnostics {
         diagnostic.data = Some(
             json!({"executionStatus":if result.execution_status == parser_wasm::DocumentExecutionStatus::Partial {"partial"} else {"complete"}}),
         );
     }
-    Ok(collector.diagnostics)
+    Ok(diagnostics)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn failure(
+        source: &str,
+        range: TextRange,
+        reasons: Vec<skript_parser::PatternFailureReason>,
+    ) -> skript_parser::FailureTrace {
+        skript_parser::FailureTrace::leaf(skript_parser::PatternFailure {
+            span: skript_parser::MatchSpan {
+                local_range: range,
+                mapped: skript_parser::MappedSource::identity(source)
+                    .map_range(range)
+                    .unwrap(),
+            },
+            reasons,
+        })
+    }
+
+    fn summary(collector: &mut Collector<'_>, node: Option<RawNodeId>, range: TextRange) {
+        let span = skript_parser::MappedSource::identity(collector.lines.source)
+            .map_range(range)
+            .unwrap();
+        collector
+            .unclaimed(
+                node,
+                "parser.structure.unclaimed",
+                "Unresolved child",
+                &span,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn a_specific_child_error_replaces_its_summary_at_equal_or_different_positions() {
+        let source = "on load:\n    broken statement\n";
+        let uri = "file:///project/example.sk".parse().unwrap();
+        for cause_range in [TextRange::new(13, 29), TextRange::new(20, 29)] {
+            let mut collector = Collector::new(&uri, source);
+            summary(
+                &mut collector,
+                Some(RawNodeId::new(1)),
+                TextRange::new(13, 29),
+            );
+            collector
+                .body_trace(
+                    RawNodeId::new(1),
+                    &failure(
+                        source,
+                        cause_range,
+                        vec![skript_parser::PatternFailureReason::TrailingInput],
+                    ),
+                )
+                .unwrap();
+            let diagnostics = collector.finish();
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].message, "Unexpected trailing input");
+            assert_eq!(
+                diagnostics[0].range,
+                LineIndex::new(source).range(cause_range).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn child_ownership_preserves_overlapping_other_nodes_and_cause_free_siblings() {
+        let source = "0123456789\nsecond child\n";
+        let uri = "file:///project/example.sk".parse().unwrap();
+        let mut collector = Collector::new(&uri, source);
+        for node in [Some(RawNodeId::new(1)), Some(RawNodeId::new(2)), None] {
+            summary(&mut collector, node, TextRange::new(0, 10));
+        }
+        summary(
+            &mut collector,
+            Some(RawNodeId::new(3)),
+            TextRange::new(11, 23),
+        );
+        collector
+            .body_trace(
+                RawNodeId::new(1),
+                &failure(
+                    source,
+                    TextRange::new(0, 10),
+                    vec![skript_parser::PatternFailureReason::TrailingInput],
+                ),
+            )
+            .unwrap();
+        // A root/header trace is intentionally not a body cause.
+        collector
+            .trace(&failure(
+                source,
+                TextRange::new(11, 23),
+                vec![skript_parser::PatternFailureReason::Expression],
+            ))
+            .unwrap();
+        let diagnostics = collector.finish();
+        assert_eq!(
+            diagnostics.len(),
+            4,
+            "the equal-position summaries deduplicate only after each owner's cause is checked"
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.message == "Unresolved child")
+                .count(),
+            2
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message == "Expected an expression")
+        );
+    }
+
+    #[test]
+    fn generic_or_warning_only_traces_do_not_erase_the_unresolved_error() {
+        let source = "broken";
+        let uri = "file:///project/example.sk".parse().unwrap();
+        for severity in [
+            None,
+            Some(skript_parser::SemanticDiagnosticSeverity::Warning),
+        ] {
+            let mut collector = Collector::new(&uri, source);
+            summary(
+                &mut collector,
+                Some(RawNodeId::new(1)),
+                TextRange::new(0, 6),
+            );
+            let mut trace = failure(source, TextRange::new(0, 6), Vec::new());
+            if let Some(severity) = severity {
+                trace
+                    .semantic_diagnostics
+                    .push(skript_parser::SemanticDiagnostic {
+                        code: "fixture.warning".into(),
+                        message: "Additional context".into(),
+                        severity,
+                        span: trace.failure.span.mapped.clone(),
+                        related: Vec::new(),
+                    });
+            }
+            collector.body_trace(RawNodeId::new(1), &trace).unwrap();
+            let diagnostics = collector.finish();
+            assert_eq!(diagnostics.len(), 2);
+            assert_eq!(diagnostics[0].message, "Unresolved child");
+            assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
+        }
+    }
+
+    #[test]
+    fn a_semantic_error_equal_to_a_summary_survives_summary_removal() {
+        let source = "broken";
+        let uri = "file:///project/example.sk".parse().unwrap();
+        let mut collector = Collector::new(&uri, source);
+        summary(
+            &mut collector,
+            Some(RawNodeId::new(1)),
+            TextRange::new(0, 6),
+        );
+        let mut trace = failure(source, TextRange::new(0, 6), Vec::new());
+        trace
+            .semantic_diagnostics
+            .push(skript_parser::SemanticDiagnostic {
+                code: "parser.structure.unclaimed".into(),
+                message: "Unresolved child".into(),
+                severity: skript_parser::SemanticDiagnosticSeverity::Error,
+                span: trace.failure.span.mapped.clone(),
+                related: Vec::new(),
+            });
+        collector.body_trace(RawNodeId::new(1), &trace).unwrap();
+        let diagnostics = collector.finish();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "Unresolved child");
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
+    }
+
     #[test]
     fn a_macro_rejection_without_diagnostics_keeps_its_reason() {
         let uri = "file:///project/example.sk".parse().unwrap();
-        let mut collector = Collector {
-            uri: &uri,
-            lines: LineIndex::new("日本😀"),
-            diagnostics: Vec::new(),
-        };
+        let mut collector = Collector::new(&uri, "日本😀");
         collector
             .macro_decision(
                 "AST",
@@ -485,11 +745,7 @@ mod tests {
     #[test]
     fn macro_origins_use_original_ranges_and_preserve_other_locations() {
         let uri = "file:///project/example.sk".parse().unwrap();
-        let mut collector = Collector {
-            uri: &uri,
-            lines: LineIndex::new("日本😀\n定義"),
-            diagnostics: Vec::new(),
-        };
+        let mut collector = Collector::new(&uri, "日本😀\n定義");
         collector
             .add(
                 "fixture",
