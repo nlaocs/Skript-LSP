@@ -1,4 +1,116 @@
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
+
+// These expectations are deliberately independent of the generated bindings.
+// They cover names; signatures, enum order, and runtime behavior need other tests.
+const HOOK_PHASES: &[&str] = &[
+    "ast",
+    "candidate",
+    "capture",
+    "condition",
+    "default-expression",
+    "diagnostic",
+    "document",
+    "effect",
+    "expression",
+    "line",
+    "matching",
+    "node",
+    "parser",
+    "preprocess",
+    "scope",
+    "section",
+    "structure",
+    "syntax",
+    "tree",
+];
+const HOOK_MODES: &[&str] = &["observe", "override", "transform"];
+const CATALOG_QUERIES: &[&str] = &[
+    "block-data",
+    "block-data-status",
+    "can-convert",
+    "change-contract-for-type",
+    "class-known",
+    "common-assignable-class",
+    "comparator-for-types",
+    "container-element-type",
+    "declared-method-exists",
+    "difference-options-for-type",
+    "documents",
+    "event-values-for",
+    "event-values-for-input",
+    "experiments",
+    "hierarchy-distance",
+    "is-class-assignable",
+    "language-pattern-matches",
+    "language-value",
+    "property-handlers-for-type",
+    "read-document",
+    "read-record",
+    "records-by-definition-id",
+    "records-by-registration-id",
+    "registered-handler-matches",
+    "registered-type-pattern-match",
+    "resolve-alias",
+    "serialization-contract-for-type",
+    "source",
+    "type-for-class",
+    "type-for-user-input",
+    "type-literal-matches",
+];
+
+fn imported_interface<'a>(
+    resolve: &'a wit_parser::Resolve,
+    package: wit_parser::PackageId,
+    name: &str,
+) -> &'a wit_parser::Interface {
+    let world = &resolve.worlds[resolve.packages[package].worlds["parser-addon"]];
+    world
+        .imports
+        .values()
+        .find_map(|item| match item {
+            wit_parser::WorldItem::Interface { id, .. }
+                if resolve.interfaces[*id].name.as_deref() == Some(name) =>
+            {
+                Some(&resolve.interfaces[*id])
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("parser-addon must import {name}"))
+}
+
+fn surface_names<'a>(
+    resolve: &'a wit_parser::Resolve,
+    package: wit_parser::PackageId,
+    interface: &str,
+    enum_name: Option<&str>,
+) -> BTreeSet<&'a str> {
+    let interface = imported_interface(resolve, package, interface);
+    match enum_name {
+        Some(name) => {
+            let type_id = interface.types[name];
+            let wit_parser::TypeDefKind::Enum(definition) = &resolve.types[type_id].kind else {
+                panic!("{name} must be an enum");
+            };
+            definition
+                .cases
+                .iter()
+                .map(|case| case.name.as_str())
+                .collect()
+        }
+        None => interface.functions.keys().map(String::as_str).collect(),
+    }
+}
+
+fn compare_names(actual: &BTreeSet<&str>, expected: &[&str]) -> Result<(), String> {
+    let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+    let missing = expected.difference(actual).copied().collect::<Vec<_>>();
+    let unexpected = actual.difference(&expected).copied().collect::<Vec<_>>();
+    if missing.is_empty() && unexpected.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("missing: {missing:?}; unexpected: {unexpected:?}"))
+    }
+}
 
 mod host {
     wasmtime::component::bindgen!({
@@ -82,48 +194,88 @@ fn catalog_data_import_exposes_the_complete_source_query_surface() {
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
     let mut resolve = wit_parser::Resolve::default();
     let (package, _) = resolve.push_dir(&wit).expect("WIT package must resolve");
-    let package = &resolve.packages[package];
-    let world = package
-        .worlds
-        .get("parser-addon")
-        .map(|id| &resolve.worlds[*id])
-        .expect("parser-addon world must exist");
-    let catalog_interface_id = world
-        .imports
-        .values()
-        .find_map(|item| match item {
-            wit_parser::WorldItem::Interface { id, .. }
-                if resolve.interfaces[*id].name.as_deref() == Some("catalog-data") =>
-            {
-                Some(*id)
-            }
-            _ => None,
-        })
-        .expect("parser-addon must import catalog-data");
-    let catalog_interface = &resolve.interfaces[catalog_interface_id];
+    let actual = surface_names(&resolve, package, "catalog-data", None);
+    compare_names(&actual, CATALOG_QUERIES).expect("catalog-data query names must match");
+}
 
-    for function in [
-        "source",
-        "documents",
-        "read-document",
-        "records-by-registration-id",
-        "records-by-definition-id",
-        "read-record",
-        "class-known",
-        "declared-method-exists",
-        "is-class-assignable",
-        "common-assignable-class",
-        "can-convert",
-        "registered-type-pattern-match",
-        "type-for-class",
-        "resolve-alias",
-        "block-data-status",
-        "block-data",
+#[test]
+fn contract_name_checks_reject_added_removed_and_renamed_members() {
+    let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
+    for (file, interface, enum_name, member, declaration, addition, expected) in [
+        (
+            "types.wit",
+            "types",
+            Some("hook-phase"),
+            "document",
+            "    enum hook-phase {\n        document,",
+            "\n        unexpected-member,",
+            HOOK_PHASES,
+        ),
+        (
+            "types.wit",
+            "types",
+            Some("hook-mode"),
+            "observe",
+            "    enum hook-mode {\n        observe,",
+            "\n        unexpected-member,",
+            HOOK_MODES,
+        ),
+        (
+            "catalog-data.wit",
+            "catalog-data",
+            None,
+            "source",
+            "    source: func() -> result<option<catalog-source>, catalog-error>;",
+            "\n    unexpected-member: func();",
+            CATALOG_QUERIES,
+        ),
     ] {
-        assert!(
-            catalog_interface.functions.contains_key(function),
-            "catalog-data must expose {function}"
-        );
+        let original = std::fs::read_to_string(wit.join(file))
+            .expect("WIT source must be readable")
+            .replace("\r\n", "\n");
+        assert_eq!(original.matches(declaration).count(), 1);
+        let removed = match enum_name {
+            Some(_) => declaration.replace(&format!("{member},"), ""),
+            None => String::new(),
+        };
+        for (mutation, replacement, missing, unexpected) in [
+            (
+                "added",
+                format!("{declaration}{addition}"),
+                vec![],
+                vec!["unexpected-member"],
+            ),
+            ("removed", removed, vec![member], vec![]),
+            (
+                "renamed",
+                declaration.replacen(member, "unexpected-member", 1),
+                vec![member],
+                vec!["unexpected-member"],
+            ),
+        ] {
+            let directory = tempfile::tempdir().expect("temporary WIT directory must be created");
+            for entry in std::fs::read_dir(&wit).expect("WIT directory must be readable") {
+                let entry = entry.expect("WIT entry must be readable");
+                std::fs::copy(entry.path(), directory.path().join(entry.file_name()))
+                    .expect("WIT source must be copied");
+            }
+            std::fs::write(
+                directory.path().join(file),
+                original.replacen(declaration, &replacement, 1),
+            )
+            .expect("mutated WIT must be written");
+
+            let mut resolve = wit_parser::Resolve::default();
+            let (package, _) = resolve
+                .push_dir(directory.path())
+                .unwrap_or_else(|error| panic!("{interface} {enum_name:?} {mutation}: {error}"));
+            let actual = surface_names(&resolve, package, interface, enum_name);
+            assert_eq!(
+                compare_names(&actual, expected),
+                Err(format!("missing: {missing:?}; unexpected: {unexpected:?}")),
+                "{interface} {enum_name:?} {mutation} must fail the name comparison"
+            );
+        }
     }
 }
 
@@ -394,29 +546,14 @@ fn guest_bindings_expose_typed_tree_edits() {
 }
 #[test]
 fn contract_defines_every_hook_phase_and_execution_mode() {
-    use host::nlaocs::skript_parser_addon::types::{HookMode, HookPhase};
-
-    let phases = [
-        HookPhase::Document,
-        HookPhase::Preprocess,
-        HookPhase::Line,
-        HookPhase::Tree,
-        HookPhase::Node,
-        HookPhase::Matching,
-        HookPhase::Expression,
-        HookPhase::DefaultExpression,
-        HookPhase::Effect,
-        HookPhase::Capture,
-        HookPhase::Syntax,
-        HookPhase::Candidate,
-        HookPhase::Scope,
-        HookPhase::Ast,
-        HookPhase::Diagnostic,
-    ];
-    let modes = [HookMode::Observe, HookMode::Transform, HookMode::Override];
-
-    assert_eq!(phases.len(), 15);
-    assert_eq!(modes.len(), 3);
+    let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
+    let mut resolve = wit_parser::Resolve::default();
+    let (package, _) = resolve.push_dir(&wit).expect("WIT package must resolve");
+    for (name, expected) in [("hook-phase", HOOK_PHASES), ("hook-mode", HOOK_MODES)] {
+        let actual = surface_names(&resolve, package, "types", Some(name));
+        compare_names(&actual, expected)
+            .unwrap_or_else(|error| panic!("{name} cases must match: {error}"));
+    }
 }
 
 #[test]
