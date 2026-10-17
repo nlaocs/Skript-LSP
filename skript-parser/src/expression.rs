@@ -39,6 +39,10 @@ mod capture_view_tests;
 #[path = "expression/cancellation_tests.rs"]
 mod cancellation_tests;
 
+#[cfg(test)]
+#[path = "expression/memo_tests.rs"]
+mod memo_tests;
+
 /// Stable parser context included in recursive-expression memo keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ExpressionParseContext {
@@ -74,6 +78,7 @@ pub struct ExpressionParserConfig {
     pub root_mode: ExpressionRootMode,
     pub max_depth: usize,
     pub max_candidates: usize,
+    /// Maximum retained memo entries, including recursive child results.
     pub max_memo_entries: usize,
 }
 
@@ -2240,6 +2245,14 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             let mut candidates = Vec::new();
             self.extend_unique_candidates(&mut candidates, base.candidates)?;
             let mut failure = base.failure;
+            // Recursive work may have filled the memo since the entry check.
+            // Growth below only replaces this key after its first insertion.
+            if self.memo.len() >= self.config.max_memo_entries {
+                self.check_cancelled()?;
+                return Err(ExpressionParseError::MemoLimit {
+                    limit: self.config.max_memo_entries,
+                });
+            }
             self.memo.insert(
                 key.clone(),
                 PrefixParse {
