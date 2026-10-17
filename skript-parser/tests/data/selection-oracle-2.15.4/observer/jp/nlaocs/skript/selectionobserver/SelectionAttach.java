@@ -1,4 +1,4 @@
-package codex;
+package jp.nlaocs.skript.selectionobserver;
 
 import com.sun.tools.attach.VirtualMachine;
 

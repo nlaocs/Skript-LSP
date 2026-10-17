@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "hashAlgorithm": "SHA-256",
+  "sourceBytes": "UTF-8 with LF line endings",
+  "capturedObserver": {
+    "sourceCommit": "f983f3a465db5c8803dd92daf8d0c8869e82040b",
+    "package": "codex",
+    "jarSha256": "30f32e945531fc8ed9fa1d1a278b28125c50187c38fdeacdb1a26fb10f8c6df8",
+    "sourceFiles": {
+      "observer/codex/SelectionAgent.java": "91ab360b646a2790fa55050e53a247061c5e195d09a54d0ed621a22dc456f2ad",
+      "observer/codex/SelectionAttach.java": "e3bdaebeb30376bd56d87ed8023c31323b97716acf32d1fa6e318e6c7f77b24f",
+      "observer/codex/SelectionBridge.java": "c05728adf0e88261661bb804e8aa08660059eb3df89d179638ce448a436fceab"
+    }
+  },
+  "maintainedObserver": {
+    "package": "jp.nlaocs.skript.selectionobserver",
+    "sourceFiles": {
+      "observer/jp/nlaocs/skript/selectionobserver/SelectionAgent.java": "5324098afe5d9848e34d5a736a31bee7af0a32a735fd90ab15e759f9136dd4e2",
+      "observer/jp/nlaocs/skript/selectionobserver/SelectionAttach.java": "779a43a69c4610e56051052239bd9fad8a7c68422eca57c6ff5f74b9b78c9bcb",
+      "observer/jp/nlaocs/skript/selectionobserver/SelectionBridge.java": "51e998c2fd86fbf9982c965ecb53eea1b678cd6ac5102e68b76c3abc76fb7ec3",
+      "observer/agent.mf": "7f1bd86f988266b5e9a1e7c28f00e44697db0b51a361faf55e04e2c8e7f3cf7e"
+    }
+  },
+  "change": {
+    "scope": [
+      "Java package declarations",
+      "SelectionBridge reflective class name",
+      "source paths",
+      "agent manifest and recapture instructions"
+    ],
+    "parsingLogicChanged": false,
+    "captureRepeated": false
+  }
+}

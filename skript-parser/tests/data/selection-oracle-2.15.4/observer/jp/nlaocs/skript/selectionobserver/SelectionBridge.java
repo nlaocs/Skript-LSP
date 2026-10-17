@@ -1,4 +1,4 @@
-package codex;
+package jp.nlaocs.skript.selectionobserver;
 
 import ch.njol.skript.ScriptLoader;
 import ch.njol.skript.Skript;

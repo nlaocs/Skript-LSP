@@ -38,11 +38,28 @@ Snapshot ID: `61e05eef5d46d8991e4c50bed34c13fefd0acb1eea7f3138d35c0845feb80de1`�
 - `expectations.json`: 観測を一意に対応づけた identity と下位 matcher の候補列。
 - `provenance.json`: 公式 release、Paper remap、観測コード、および保全確認。
 - `fixture-bytecode.txt`: 実測と同じ hash の DummyAddon JAR の javap 出力。対象 init の固定 true と Event 制約を確認。
-- `observer/codex/`: バイトコードを書き換えない attach agent と観測コード。
+- `observer/jp/nlaocs/skript/selectionobserver/`: バイトコードを書き換えない attach agent と観測コード。本家 Skript の Expression 選択結果を観測する。
+- `observer/agent.mf`: 再採取用 agent の manifest。
+- `observer/source-manifest.json`: 採取時と改名後のソースの SHA-256、および変更範囲。
 
 公式 JAR は [Skript 2.15.4 release](https://github.com/SkriptLang/Skript/releases/tag/2.15.4) の SHA-256 `c59854d869562e822a182a5ea66219030718a213d53b67182e5d9bdecb15865d` と一致した。採取サーバーは Paper remap 後の JAR。保存済み Paper index が元 digest と remap JAR を結び、remap 後 hash は `277393a965e164e854f5280aa1c30ce92e69b3fab4df5063711743f9d7847327`。Skript のソース・JAR を独自改変していない。
 
-再採取は同じ版・hash の plugin 群と Java/Paper を専用コピーで起動する。プレイヤーがいないこと、Skript script が空であることを確認し、既存サーバーは操作しない。Java 21 の `javac` に既存の Skript/Paper/Gson/Adventure API の classpath と `--add-modules jdk.attach,jdk.httpserver` を渡して observer をコンパイルする。`Agent-Class: codex.SelectionAgent` を指定した JAR を作り、専用 JVM に `codex.SelectionAttach <PID> <observer.jar>` で接続する。HTTP は loopback のみ、既定 port は 18124。
+再採取は同じ版・hash の plugin 群と Java/Paper を専用コピーで起動する。プレイヤーがいないこと、Skript script が空であることを確認し、既存サーバーは操作しない。Java 21 の `javac` に既存の Skript/Paper/Gson/Adventure API の classpath と `--add-modules jdk.attach,jdk.httpserver` を渡して observer をコンパイルする。fixture のディレクトリを基準として、新しい外部作業ディレクトリの絶対パス `OBSERVER_BUILD`、既存 API の `OBSERVER_CLASSPATH`、専用 JVM の `OBSERVER_PID` を指定する。
+
+```sh
+mkdir -p "$OBSERVER_BUILD/classes"
+javac --release 21 --add-modules jdk.attach,jdk.httpserver \
+  -cp "$OBSERVER_CLASSPATH" -d "$OBSERVER_BUILD/classes" \
+  observer/jp/nlaocs/skript/selectionobserver/*.java
+jar --create --file "$OBSERVER_BUILD/observer.jar" \
+  --manifest observer/agent.mf -C "$OBSERVER_BUILD/classes" .
+java --add-modules jdk.attach -cp "$OBSERVER_BUILD/observer.jar" \
+  jp.nlaocs.skript.selectionobserver.SelectionAttach "$OBSERVER_PID" "$OBSERVER_BUILD/observer.jar"
+```
+
+manifest の `Agent-Class` は `jp.nlaocs.skript.selectionobserver.SelectionAgent`。HTTP は loopback のみ、既定 port は 18124。
+
+保存済みの観測は、改名前の package で採取した履歴である。`provenance.json` の `observerSha256` はそのとき使用した **JAR** の hash であり、改名後のソースや再ビルドした JAR の hash ではない。raw 観測、Snapshot、採取時の hash は変更していない。`observer/source-manifest.json` から、採取に使用した旧ソースを保存した commit をたどれる。改名後の変更は package 宣言と反射で読むクラス名のみで、観測処理は同じだが、新しい JAR での再採取は行っていない。ソースと manifest の改行は `.gitattributes` で LF に固定している。JAR は ZIP entry の時刻等でも bytes が変わるため、再ビルド時に採取済み JAR と同じ hash になるとは限らない。
 
 同じ boot で `/registry`、`/configure`（config 全体）、各 `/parse`（config の case）、`/export` の順に POST する。`/export` は通常の `skgen` を同期 dispatch する。integration 自動終了モードは使わない。export command 成功、generatedAt 更新、schema 7・21 files、全 Expression の order/class/patterns/returnType と plugin の版/hash/order が registry と完全一致することを確認する。export 前後の registry も一致させる。採取後は自分が開始した専用 JVM だけを終了し、コピー元の設定・JAR hash 不変を確認する。
 

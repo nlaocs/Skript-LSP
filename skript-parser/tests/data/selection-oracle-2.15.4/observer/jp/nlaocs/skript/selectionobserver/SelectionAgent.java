@@ -1,4 +1,4 @@
-package codex;
+package jp.nlaocs.skript.selectionobserver;
 
 import java.lang.instrument.Instrumentation;
 import java.net.URLClassLoader;
@@ -15,6 +15,6 @@ public final class SelectionAgent {
         }
         if (skript == null) throw new IllegalStateException("Skript is not loaded");
         var loader = new URLClassLoader(new java.net.URL[]{Path.of(jar).toUri().toURL()}, skript.getClassLoader());
-        Class.forName("codex.SelectionBridge", true, loader).getMethod("start").invoke(null);
+        Class.forName("jp.nlaocs.skript.selectionobserver.SelectionBridge", true, loader).getMethod("start").invoke(null);
     }
 }
