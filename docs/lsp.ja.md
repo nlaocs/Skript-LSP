@@ -145,11 +145,20 @@ semantic投影の失敗は専用logと空tokenにし、既存の診断とホバ�
 起動時のCatalogからPattern ASTを読み、行頭ではStructure/Event、字下げされた文頭ではEffect/Section/Condition、
 式の入力位置ではExpressionと戻り値のある関数を候補にする。固定語の続きを入力中は文頭候補も維持する。
 SSGに記録されたEventの`on` prefixを使い、headerには`:`を付ける。
-文頭固定語の一致、変数履歴、文書関数、Catalog関数、Expressionの順に提示し、各Catalog群内では登録・pattern順を保つ。
-選択肢はpatternごと最大16通り、深さ32、pattern sourceは1024 byteまでとし、
-返す候補は最大100件とする。切り詰めがあれば`isIncomplete`を返す。
+文中では同じPattern ASTを有限グラフとしてたどり、入力済みの引数の次に来る固定語も提示する。
+例えば`teleport player t`には`to`を提示し、`player`や既存の右suffixを挿入し直さない。
+型slotとregexは引用符・括弧・braceが閉じた原文の境界として扱う。引数の型や意味を確定した証拠にはしない。
+継続語は一致した固定文字が多いもの、消費したslotが少ないもの、短い固定語、綴り順、Catalog登録順で並べる。
+`t`に対する`to`を`towards`より先にする短さの順位は編集の便宜であり、parserの採用順位やAddonの優先権を表さない。
+同じ継続語は一つにまとめ、説明には最上位の代表patternの全文法を表示する。
+継続候補が残れば通常の代替候補を最大8件に絞り、その後に全体を最大100件にする。
+それ以外は文頭固定語、変数履歴、文書関数、Catalog関数、Expressionの順で、各Catalog群内では登録・pattern順を保つ。
+pattern sourceは1024 byteまでとし、文頭テンプレートの選択肢をpatternごと最大16通り、深さ32に制限する。同じ登録・先頭固定語の重複をまとめる。
+継続語は選択肢の直積を作らず、graphを最大2048 node、探索をpatternごと4096状態・slotごと128境界、
+要求全体で100万操作（状態・辺・文字走査）、入力prefixを4096 byteまでに制限する。
+切り詰めがあれば`isIncomplete`を返す。各候補のdocumentationには省略しない元patternまたは関数signatureを含める。
 
-これらは入力テンプレートであり、採用済みの構文ではない。不完全な行へのexpected typeやAddon guardの判定、
+これらは入力支援候補であり、採用済みの構文ではない。不完全な行へのexpected typeやAddon guardの判定、
 実行scopeへの適合性は確認しない。先頭がplaceholderだけのpattern、動的Addon layer、regexの具体的なマッチ文字列は補作しない。
 関数は現在文書の既存registryとCatalogから取り、parserと同じ引数のcomponent type・single・optional変換を使う。
 同名・同shapeの文書内関数によるshadowを維持し、戻り値のないshadowからCatalogの式候補を復活させない。
@@ -164,8 +173,11 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 カーソル右側の既存文字を置換する必要があるときは、その文字列が候補末尾と一致する場合だけ前方prefixの編集へ変換する。
 末尾が一致しない途中置換は候補から省略する。右側の文字をmenu確定時に置換しないclientでも二重にしないためである。
 `snippetSupport`があれば型slotや必須関数引数をtab stopにし、なければ最初のslot直前までの固定語だけを入れる。
-追加の型推論や再解析を補完要求ごとに実行せず、workerで作った現在revisionの不変データを使う。
-現在の解析が終わるまで要求を保持するため、編集直後の表示時間には全文parseの待ち時間が含まれる。
+解析済みのrevisionではworkerで作った不変データを使い、追加の型推論やWASM解析を要求ごとに行わない。
+編集中に構文候補を返せる場合は、現在の原文だけからnative RawTreeを作り、全文WASM解析を待たずに`isIncomplete=true`で返す。
+このcontextはrevisionごとに再利用し、256KiBを超える原文では即時経路を使わない。参照scope用の祖先列は即時経路では作らない。
+即時応答は文頭構文と継続語を対象とし、その要求には未解析の関数・変数を後送しない。次の補完要求で現在の解析済み候補を得られる。
+構文候補を返せない場合は解析完了まで要求を保持する。旧revisionの履歴や文書関数を流用しない。
 編集・closeは旧要求へContentModified、個別取消・shutdownはRequestCancelledを返す。
 取消・stale・fatalは空結果、worker failureはerrorで終端し、旧revisionの候補を返さない。
 
@@ -178,7 +190,10 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 取消前に終了していた場合や取消されなかった場合はnullになる。
 これらはRustのbuild/compile時間や、clientが画面へ診断を描くまでの時間を含まない。
 最新版へまとめられて実行されなかった要求の解析時間は計上しない。
-`skript-lsp completion timing`の`queryMs`は候補検索と応答構築の時間で、解析の完了待ちやclientのmenu描画を含まない。
+`skript-lsp completion timing`の`source`は`syntax`または`analysis`を示す。
+`queryMs`は候補検索と応答構築で、即時経路では必要なnative context作成も含む。
+`waitMs`は受信後から解析済み候補検索を始めるまでの待機で、失敗した即時試行も含む。即時応答では0になる。
+通信・client scheduling・menu描画とRust build/compileはこれらに含まれず、それぞれ別に計測する。
 
 ```sh
 cargo run -p xtask --locked -- build-core-library

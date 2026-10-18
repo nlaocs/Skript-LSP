@@ -46,8 +46,12 @@ struct TestAnalyzer {
     proceed: Receiver<()>,
     released: Sender<(String, u64)>,
     actions: Arc<Mutex<Vec<Action>>>,
+    completion_index: Option<Arc<completion::CatalogIndex>>,
 }
 impl Analyzer for TestAnalyzer {
+    fn completion_index(&self) -> Option<Arc<completion::CatalogIndex>> {
+        self.completion_index.clone()
+    }
     fn analyze(&mut self, job: &Job) -> Analysis {
         self.actions
             .lock()
@@ -136,6 +140,12 @@ impl Client {
         Self::start_with_capabilities(json!({}))
     }
     fn start_with_capabilities(capabilities: Value) -> Self {
+        Self::start_with_index(capabilities, None)
+    }
+    fn start_with_index(
+        capabilities: Value,
+        completion_index: Option<Arc<completion::CatalogIndex>>,
+    ) -> Self {
         let (connection, server_connection) = Connection::memory();
         let (started_sender, started) = unbounded();
         let (proceed, proceed_receiver) = unbounded();
@@ -151,6 +161,7 @@ impl Client {
                         proceed: proceed_receiver,
                         released: released_sender,
                         actions: analyzer_actions,
+                        completion_index,
                     }))
                 }),
             )
@@ -312,6 +323,25 @@ fn completion_request(client: &Client, id: i32, column: u32) {
             .into(),
         )
         .unwrap();
+}
+
+#[test]
+fn syntax_completion_does_not_wait_for_the_held_worker_or_respond_twice() {
+    let client = Client::start_with_index(
+        json!({}),
+        Some(completion::CatalogIndex::test_syntax_index()),
+    );
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    completion_request(&client, 40, 4);
+    let result = token_response(&client, 40).response_result.unwrap();
+    assert_eq!(result["items"][0]["label"], "hold pattern");
+    assert_eq!(result["isIncomplete"], true);
+    // The response above must arrive before this deterministic worker barrier.
+    client.proceed.send(()).unwrap();
+    client.diagnostics(1);
+    client.sync(41);
+    client.finish();
 }
 
 #[test]

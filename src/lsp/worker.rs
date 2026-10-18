@@ -67,6 +67,9 @@ pub(super) struct Analysis {
     pub report_ms: f64,
 }
 pub(super) trait Analyzer {
+    fn completion_index(&self) -> Option<Arc<completion::CatalogIndex>> {
+        None
+    }
     fn analyze(&mut self, job: &Job) -> Analysis;
     fn release(&mut self, uri: &str, through_revision: u64) -> Result<(), String>;
 }
@@ -114,6 +117,9 @@ pub(super) fn parser_factory() -> Factory {
     })
 }
 impl Analyzer for ParserAnalyzer {
+    fn completion_index(&self) -> Option<Arc<completion::CatalogIndex>> {
+        Some(Arc::clone(&self.completions))
+    }
     fn analyze(&mut self, job: &Job) -> Analysis {
         let started = Instant::now();
         let result = self.host.parse_document(
@@ -220,7 +226,7 @@ fn document_key(uri: &str) -> String {
     format!("lsp-document:{:x}", Sha256::digest(uri.as_bytes()))
 }
 pub(super) enum Event {
-    Ready(Result<(), String>, f64),
+    Ready(Result<Option<Arc<completion::CatalogIndex>>, String>, f64),
     Finished(Job, Analysis, Value),
     Failed(String),
 }
@@ -269,7 +275,7 @@ impl Worker {
                 let analyzer = factory(config);
                 let startup_ms = started.elapsed().as_secs_f64() * 1000.0;
                 let mut analyzer = match analyzer {
-                    Ok(analyzer) => { let _ = sender.send(Event::Ready(Ok(()), startup_ms)); analyzer }
+                    Ok(analyzer) => { let _ = sender.send(Event::Ready(Ok(analyzer.completion_index()), startup_ms)); analyzer }
                     Err(error) => { let _ = sender.send(Event::Ready(Err(error), startup_ms)); return; }
                 };
                 while wake_receiver.recv().is_ok() {

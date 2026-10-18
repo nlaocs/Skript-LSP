@@ -198,8 +198,9 @@ struct Document {
     source: Arc<str>,
     lines: positions::LineIndex,
     completion: Option<completion::Document>,
+    syntax_completion: Option<completion::Document>,
     completion_ready: bool,
-    completion_requests: Vec<(RequestId, Position)>,
+    completion_requests: Vec<(RequestId, Position, Instant)>,
 }
 impl Document {
     fn completion_response(&self, id: RequestId, position: Position, snippets: bool) -> Response {
@@ -220,8 +221,14 @@ impl Document {
         connection: &Connection,
         snippets: bool,
     ) -> Result<(), String> {
-        for (id, position) in std::mem::take(&mut self.completion_requests) {
-            self.send_completion(connection, id, position, snippets)?;
+        for (id, position, queued) in std::mem::take(&mut self.completion_requests) {
+            self.send_completion(
+                connection,
+                id,
+                position,
+                snippets,
+                queued.elapsed().as_secs_f64() * 1000.0,
+            )?;
         }
         Ok(())
     }
@@ -231,6 +238,7 @@ impl Document {
         id: RequestId,
         position: Position,
         snippets: bool,
+        wait_ms: f64,
     ) -> Result<(), String> {
         let started = Instant::now();
         let response = self.completion_response(id, position, snippets);
@@ -245,9 +253,50 @@ impl Document {
             connection,
             format!(
                 "skript-lsp completion timing {}",
-                json!({"queryMs":query_ms,"items":items,"isIncomplete":incomplete})
+                json!({"queryMs":query_ms,"waitMs":wait_ms,"source":"analysis","items":items,"isIncomplete":incomplete})
             ),
         )
+    }
+    fn try_syntax_completion(
+        &mut self,
+        connection: &Connection,
+        id: &RequestId,
+        position: Position,
+        snippets: bool,
+        index: Arc<completion::CatalogIndex>,
+    ) -> Result<bool, String> {
+        let started = Instant::now();
+        if self.syntax_completion.is_none() {
+            self.syntax_completion =
+                completion::Document::from_source(Arc::clone(&self.source), index).ok();
+        }
+        let Some(document) = &self.syntax_completion else {
+            return Ok(false);
+        };
+        let list = document.syntax_at(position, snippets)?;
+        // Reference history and Function shadowing still require the current parse.
+        let has_syntax = list.items.iter().any(|item| {
+            item.data.as_ref().is_some_and(|data| {
+                matches!(
+                    data["syntaxKind"].as_str(),
+                    Some("Event" | "Structure" | "Effect" | "Section" | "Condition")
+                )
+            })
+        });
+        if !has_syntax {
+            return Ok(false);
+        }
+        let count = list.items.len();
+        let query_ms = started.elapsed().as_secs_f64() * 1000.0;
+        send(connection, Response::new_ok(id.clone(), list))?;
+        log(
+            connection,
+            format!(
+                "skript-lsp completion timing {}",
+                json!({"queryMs":query_ms,"waitMs":0,"source":"syntax","items":count,"isIncomplete":true})
+            ),
+        )?;
+        Ok(true)
     }
     fn finish_token_requests(&mut self, connection: &Connection) -> Result<(), String> {
         for id in self.token_requests.drain(..) {
@@ -259,7 +308,7 @@ impl Document {
         Ok(())
     }
     fn cancel_requests(&mut self, connection: &Connection, code: ErrorCode) -> Result<(), String> {
-        for (id, _) in self.completion_requests.drain(..) {
+        for (id, _, _) in self.completion_requests.drain(..) {
             send(
                 connection,
                 Response::new_err(
@@ -285,12 +334,14 @@ impl Document {
 struct Documents {
     open: HashMap<Uri, Document>,
     next_id: u64,
+    completion_index: Option<Arc<completion::CatalogIndex>>,
 }
 impl Documents {
     fn new() -> Self {
         Self {
             open: HashMap::new(),
             next_id: 0,
+            completion_index: None,
         }
     }
     fn id(&mut self) -> Result<u64, String> {
@@ -342,6 +393,7 @@ impl Documents {
                 lines: positions::LineIndex::new(&source),
                 source,
                 completion: None,
+                syntax_completion: None,
                 completion_ready: false,
                 completion_requests: Vec::new(),
             },
@@ -382,6 +434,7 @@ impl Documents {
         document.hover = None;
         document.tokens = None;
         document.completion = None;
+        document.syntax_completion = None;
         document.completion_ready = false;
         document.source = Arc::from(source);
         document.lines = positions::LineIndex::new(&document.source);
@@ -450,7 +503,8 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
             };
             select! {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
-                    Event::Ready(Ok(()), startup_ms) => {
+                    Event::Ready(Ok(index), startup_ms) => {
+                        documents.completion_index = index;
                         let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]}});
                         if let Some(legend) = &semantic_legend {
                             capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
@@ -531,15 +585,21 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                     Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
                                 }
                             } else if request.method == "textDocument/completion" && initialize_id.is_none() && initialized && !shutdown {
+                                let received = Instant::now();
                                 match serde_json::from_value::<CompletionParams>(request.params) {
                                     Ok(params) => {
                                         let target = params.text_document_position;
+                                         let syntax_index = documents.completion_index.clone();
                                         if let Some(document) = documents.open.get_mut(&target.text_document.uri) {
                                             if document.lines.offset(&document.source, target.position).is_none() {
                                                 send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, "invalid completion UTF-16 position".into()))?;
                                             } else if document.completion_ready {
-                                                document.send_completion(&connection, request.id, target.position, completion_snippets)?;
-                                            } else { document.completion_requests.push((request.id, target.position)); }
+                                                document.send_completion(&connection, request.id, target.position, completion_snippets, 0.0)?;
+                                            } else if let Some(index) = syntax_index {
+                                                if !document.try_syntax_completion(&connection, &request.id, target.position, completion_snippets, index)? {
+                                                    document.completion_requests.push((request.id, target.position, received));
+                                                }
+                                            } else { document.completion_requests.push((request.id, target.position, received)); }
                                         } else { send(&connection, Response::new_ok(request.id, lsp_types::CompletionList { is_incomplete: false, items: Vec::new() }))?; }
                                     }
                                     Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
@@ -570,7 +630,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 "$/cancelRequest" => {
                                     if let Ok(id) = serde_json::from_value::<RequestId>(notification.params["id"].clone()) {
                                         for document in documents.open.values_mut() {
-                                            if let Some(index) = document.completion_requests.iter().position(|(pending, _)| *pending == id) {
+                                            if let Some(index) = document.completion_requests.iter().position(|(pending, _, _)| *pending == id) {
                                                 document.completion_requests.remove(index);
                                                 send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "completion request cancelled".into()))?;
                                                 break;

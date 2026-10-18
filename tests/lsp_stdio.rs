@@ -203,9 +203,9 @@ fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() 
             .as_array()
             .unwrap()
             .iter()
-            .any(|item| item["textEdit"]["newText"]
-                .as_str()
-                .is_some_and(|text| text.starts_with("cancel event"))),
+            .any(|item| item["label"] == "event"
+                && item["textEdit"]["newText"] == "event"
+                && item["textEdit"]["range"] == json!(range(7, 11, 7, 11))),
         "fixed statement words survive trailing whitespace: {cancel}"
     );
     let names = client.completion(35, 8, 11);
@@ -256,6 +256,39 @@ fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() 
             .unwrap()
             .is_empty()
     );
+    for (version, source, column, new_text) in [
+        (4, "on join:\n    teleport player t", 21, "to"),
+        (5, "on join:\n    teleport location(1, 2, 3) t", 32, "to"),
+        (
+            6,
+            "on join:\n    teleport player to location(1, 2, 3)",
+            21,
+            "t",
+        ),
+    ] {
+        client.change(version, source);
+        // Request before awaiting diagnostics covers the edit/response ordering.
+        // The held-worker unit test proves the immediate path without this race.
+        let result = client.completion(40 + version, 1, column);
+        let first = &result["items"][0];
+        assert_eq!(first["label"], "to");
+        assert_eq!(first["textEdit"]["newText"], new_text);
+        assert_eq!(
+            first["textEdit"]["range"],
+            json!(range(1, column - 1, 1, column))
+        );
+        let documentation = first["documentation"].as_str().unwrap();
+        assert!(
+            documentation.starts_with("Syntax:\n")
+                && documentation.contains("%")
+                && documentation.contains("Registration: ")
+        );
+        assert!(
+            result["items"].as_array().unwrap().len() <= 10,
+            "context alternatives are bounded: {result}"
+        );
+        client.diagnostics(version);
+    }
     client.finish();
 }
 

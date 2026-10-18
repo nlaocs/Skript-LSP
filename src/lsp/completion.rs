@@ -1,4 +1,4 @@
-//! Bounded input templates and current-revision reference history.
+//! Bounded pattern continuations, input templates and current-revision history.
 //!
 //! These are editing suggestions, not successful parse candidates. Expected
 //! types, execution scopes and addon guards are deliberately not reconstructed.
@@ -18,9 +18,14 @@ use std::{
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{Catalog, Syntax, SyntaxKind};
 
+mod continuation;
+
 const MAX_ITEMS: usize = 100;
 const MAX_VARIANTS: usize = 16;
 const MAX_TEMPLATE_BYTES: usize = 1024;
+const MAX_CONTEXT_ALTERNATIVES: usize = 8;
+const MAX_SYNTAX_SOURCE_BYTES: usize = 256 * 1024;
+const MAX_CONTINUATION_BYTES: usize = 4096;
 
 #[derive(Clone)]
 enum Part {
@@ -36,6 +41,13 @@ struct Template {
     leading: String,
     folded: String,
     parts: Vec<Part>,
+}
+struct Pattern {
+    kind: SyntaxKind,
+    label: String,
+    detail: String,
+    identity: String,
+    graph: continuation::Graph,
 }
 #[derive(Clone)]
 struct Function {
@@ -76,15 +88,19 @@ impl Function {
 
 pub(super) struct CatalogIndex {
     templates: Vec<Template>,
+    patterns: Vec<Pattern>,
     functions: Vec<Function>,
     limited: bool,
+    raw_options: skript_parser::RawTreeOptions,
 }
 impl CatalogIndex {
     pub fn new(catalog: &Catalog) -> Self {
         let mut index = Self {
             templates: Vec::new(),
+            patterns: Vec::new(),
             functions: Vec::new(),
             limited: false,
+            raw_options: raw_options(catalog),
         };
         let mut function_shapes = HashSet::new();
         // Iterate the actual Catalog, preserving registration and pattern order.
@@ -115,6 +131,27 @@ impl CatalogIndex {
                     index.limited = true;
                     continue;
                 }
+                let detail = format!(
+                    "{:?} / {}; types and addon guards are not checked",
+                    syntax.kind(),
+                    common.addon.name
+                );
+                let identity = format!("{}:{pattern_index}", common.registration_id.as_str());
+                let event_prefix = matches!(syntax, Syntax::Event(event) if event.has_on_prefix);
+                if let Some(graph) = continuation::Graph::with_prefix(
+                    if event_prefix { "on " } else { "" },
+                    &pattern.parsed.elements,
+                ) {
+                    index.patterns.push(Pattern {
+                        kind: syntax.kind(),
+                        label: pattern.source.clone(),
+                        detail: detail.clone(),
+                        identity: identity.clone(),
+                        graph,
+                    });
+                } else {
+                    index.limited = true;
+                }
                 let variants = variants(&pattern.parsed.elements, 0, &mut index.limited);
                 let mut seen = HashSet::new();
                 for mut parts in variants {
@@ -144,12 +181,8 @@ impl CatalogIndex {
                     index.templates.push(Template {
                         kind: syntax.kind(),
                         label: pattern.source.clone(),
-                        detail: format!(
-                            "{:?} template / {}; types and addon guards are not checked",
-                            syntax.kind(),
-                            common.addon.name
-                        ),
-                        identity: format!("{}:{pattern_index}", common.registration_id.as_str()),
+                        detail: detail.clone(),
+                        identity: identity.clone(),
                         folded: leading.to_lowercase(),
                         leading,
                         parts,
@@ -159,6 +192,29 @@ impl CatalogIndex {
         }
         index
     }
+}
+
+fn raw_options(catalog: &Catalog) -> skript_parser::RawTreeOptions {
+    let version = catalog
+        .source()
+        .and_then(|source| source.runtime.as_ref())
+        .and_then(|runtime| {
+            runtime
+                .plugins
+                .iter()
+                .find(|plugin| plugin.name.eq_ignore_ascii_case("Skript"))
+        })
+        .map(|plugin| plugin.version.as_str());
+    let mut numbers = version
+        .unwrap_or("2.9")
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u32>().ok());
+    let (major, minor) = match (numbers.next(), numbers.next()) {
+        (Some(major), Some(minor)) => (major, minor),
+        _ => (2, 9),
+    };
+    skript_parser::RawTreeOptions::for_skript_version(major, minor)
 }
 
 fn variants(
@@ -336,6 +392,29 @@ fn exact_node(node: &AstNode, source: &str) -> Option<TextRange> {
     (source.get(range.start..range.end)? == node.text).then_some(range)
 }
 impl Document {
+    /// Lexical syntax suggestions only. No old AST, scope, or reference data is reused.
+    pub fn from_source(source: Arc<str>, index: Arc<CatalogIndex>) -> Result<Self, String> {
+        if source.len() > MAX_SYNTAX_SOURCE_BYTES {
+            return Err("syntax completion source exceeds native context budget".into());
+        }
+        let mapped = skript_parser::MappedSource::identity(Arc::clone(&source));
+        let tree = skript_parser::parse_raw_tree(&mapped, index.raw_options);
+        let lines = LineIndex::new(&source);
+        let context = raw_context(&tree, &source, &lines, false)?;
+        Ok(Self {
+            source,
+            lines,
+            context,
+            variables: Vec::new(),
+            functions: Vec::new(),
+            index,
+            blocked: Vec::new(),
+        })
+    }
+
+    pub fn syntax_at(&self, position: Position, snippets: bool) -> Result<CompletionList, String> {
+        self.at_with_references(position, snippets, false)
+    }
     pub fn from_result(
         result: &DocumentParseResult,
         source: Arc<str>,
@@ -359,64 +438,7 @@ impl Document {
         for range in &blocked {
             lines.range(&source, *range)?;
         }
-        let mut context = BTreeMap::new();
-        let mut ambiguous = HashSet::new();
-        for node in result.raw_tree.iter() {
-            let Some(range) = exact_native(&node.line.span) else {
-                continue;
-            };
-            let Some(text) = source.get(range.start..range.end) else {
-                continue;
-            };
-            let text = text.trim_end_matches('\n').trim_end_matches('\r');
-            if text != node.line.raw_text || !text.starts_with(&node.line.indentation.text) {
-                continue;
-            }
-            let row = lines.position(&source, range.start)?.line;
-            if context.contains_key(&row) {
-                ambiguous.insert(row);
-            }
-            let mut ancestors = Vec::new();
-            let mut parent = node.parent;
-            while let Some(id) = parent {
-                if ancestors.len() >= result.raw_tree.nodes.len() {
-                    return Err("cyclic completion RawTree".into());
-                }
-                let ancestor = result.raw_tree.get(id).ok_or("missing completion parent")?;
-                if exact_native(&ancestor.line.span).is_none() {
-                    ancestors.clear();
-                    break;
-                }
-                ancestors.push(id);
-                parent = ancestor.parent;
-            }
-            context.insert(
-                row,
-                Line {
-                    range: TextRange::new(range.start, range.start + text.len()),
-                    code_start: range.start + node.line.indentation.text.len(),
-                    parent: node.parent,
-                    ancestors,
-                    root: node.parent.is_none() && node.line.indentation.text.is_empty(),
-                    blocked: matches!(node.kind, RawNodeKind::Comment | RawNodeKind::Invalid),
-                    comments: node
-                        .line
-                        .trailing_trivia
-                        .iter()
-                        .filter(|t| {
-                            matches!(
-                                t.kind,
-                                RawTriviaKind::LineComment | RawTriviaKind::BlockComment
-                            )
-                        })
-                        .flat_map(|t| t.span.origins.iter().map(|o| o.original_range))
-                        .collect(),
-                },
-            );
-        }
-        for row in ambiguous {
-            context.remove(&row);
-        }
+        let context = raw_context(&result.raw_tree, &source, &lines, true)?;
         let nodes = result
             .ast
             .nodes
@@ -494,6 +516,14 @@ impl Document {
     }
 
     pub fn at(&self, position: Position, snippets: bool) -> Result<CompletionList, String> {
+        self.at_with_references(position, snippets, true)
+    }
+    fn at_with_references(
+        &self,
+        position: Position,
+        snippets: bool,
+        references: bool,
+    ) -> Result<CompletionList, String> {
         let offset = self
             .lines
             .offset(&self.source, position)
@@ -560,6 +590,81 @@ impl Document {
         } else {
             None
         };
+        if variable_start.is_some() && !references {
+            return Ok(empty());
+        }
+        let mut frontier_limited = prefix.len() > MAX_CONTINUATION_BYTES;
+        if variable_start.is_none() && word_start > line.code_start && !frontier_limited {
+            let committed = &self.source[line.code_start..word_start];
+            let query = &self.source[word_start..offset];
+            let folded_query = query.to_lowercase();
+            let mut continuations = Vec::new();
+            let mut budget = continuation::Budget::new();
+            for (order, pattern) in self.index.patterns.iter().enumerate() {
+                if budget.exhausted() {
+                    frontier_limited = true;
+                    break;
+                }
+                let allowed = if line.root {
+                    matches!(pattern.kind, SyntaxKind::Event | SyntaxKind::Structure)
+                } else {
+                    matches!(
+                        pattern.kind,
+                        SyntaxKind::Effect | SyntaxKind::Condition | SyntaxKind::Section
+                    )
+                };
+                if !allowed {
+                    continue;
+                }
+                let frontier = pattern
+                    .graph
+                    .next_words(committed, &folded_query, &mut budget);
+                frontier_limited |= frontier.limited;
+                for (keyword, fixed, slots) in frontier.words {
+                    continuations.push((fixed, slots, order, keyword, pattern));
+                }
+            }
+            continuations.sort_by(|a, b| {
+                b.0.cmp(&a.0)
+                    .then(a.1.cmp(&b.1))
+                    // With equal structural evidence, complete the nearest
+                    // fixed word first (e.g. `to` before `towards`). This is
+                    // editing relevance, not parser or addon precedence.
+                    .then(a.3.chars().count().cmp(&b.3.chars().count()))
+                    .then(a.3.cmp(&b.3))
+                    .then(a.2.cmp(&b.2))
+            });
+            let mut seen = HashSet::new();
+            for (fixed, slots, _, keyword, pattern) in continuations {
+                if !seen.insert(keyword.clone()) {
+                    continue;
+                }
+                let detail = format!(
+                    "{}; continuation: {fixed} fixed characters, {slots} structural argument(s)",
+                    pattern.detail
+                );
+                let mut item = self.item(
+                    &keyword,
+                    &keyword,
+                    &detail,
+                    &pattern.identity,
+                    CompletionItemKind::KEYWORD,
+                    TextRange::new(word_start, word_end),
+                    false,
+                )?;
+                item.data = Some(
+                    serde_json::json!({"syntaxKind":format!("{:?}", pattern.kind),"continuation":true}),
+                );
+                item.documentation = Some(Documentation::String(format!(
+                    "Syntax:\n{}\n\n{detail}\nRegistration: {}",
+                    pattern.label, pattern.identity
+                )));
+                items.push(item);
+            }
+        }
+        // Continuations have a separate generation budget: they may all fail
+        // the right-suffix check, so they must not consume the fallback budget.
+        let generated_continuations = items.len();
         let expression = variable_start.is_some()
             || !line.root
                 && (!prefix.is_empty()
@@ -575,7 +680,7 @@ impl Document {
         // the current statement. Keep those matches ahead of generic expressions.
         if expression && !line.root && variable_start.is_none() {
             for template in &self.index.templates {
-                if items.len() > MAX_ITEMS {
+                if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
                     break;
                 }
                 if matches!(
@@ -608,7 +713,7 @@ impl Document {
             let query = &self.source[start..offset];
             let mut seen = HashSet::new();
             for variable in &self.variables {
-                if items.len() > MAX_ITEMS {
+                if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
                     break;
                 }
                 if variable.local
@@ -635,7 +740,7 @@ impl Document {
                     )?);
                 }
             }
-            if variable_start.is_none() {
+            if variable_start.is_none() && references {
                 let query = &self.source[word_start..offset];
                 for (index, function) in self
                     .functions
@@ -643,7 +748,7 @@ impl Document {
                     .chain(&self.index.functions)
                     .enumerate()
                 {
-                    if items.len() > MAX_ITEMS {
+                    if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
                         break;
                     }
                     if !function.returns_value || !starts(&function.name, query) {
@@ -727,7 +832,7 @@ impl Document {
                 line.code_start
             };
             for template in &self.index.templates {
-                if items.len() > MAX_ITEMS {
+                if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
                     break;
                 }
                 let allowed = if line.root {
@@ -746,8 +851,24 @@ impl Document {
                 items.push(self.template_item(template, query, start, word_end, line, snippets)?);
             }
         }
-        let is_incomplete = items.len() > MAX_ITEMS || self.index.limited;
-        items.truncate(MAX_ITEMS);
+        let mut seen = HashSet::new();
+        items.retain(|item| {
+            let identity =
+                item.documentation
+                    .as_ref()
+                    .and_then(|documentation| match documentation {
+                        Documentation::String(text) => {
+                            text.rsplit_once("Registration: ").map(|(_, id)| id)
+                        }
+                        _ => None,
+                    });
+            if item.kind == Some(CompletionItemKind::SNIPPET) {
+                let leading = item.filter_text.as_deref().unwrap_or("").trim_end();
+                seen.insert((identity.unwrap_or("").to_owned(), leading.to_owned()))
+            } else {
+                true
+            }
+        });
         // Some menu clients insert only up to the cursor. Keep edits in that
         // prefix when an existing right suffix already matches the suggestion.
         // Omit ambiguous middle replacements instead of duplicating the suffix.
@@ -774,6 +895,38 @@ impl Document {
             edit.range.end = position;
             true
         });
+        let continuation_count = items
+            .iter()
+            .filter(|item| {
+                item.data
+                    .as_ref()
+                    .is_some_and(|data| data["continuation"] == true)
+            })
+            .count();
+        let alternatives = if continuation_count > 0 {
+            MAX_CONTEXT_ALTERNATIVES
+        } else {
+            MAX_ITEMS
+        };
+        let before = items.len();
+        let mut ordinary = 0;
+        items.retain(|item| {
+            if item
+                .data
+                .as_ref()
+                .is_some_and(|data| data["continuation"] == true)
+            {
+                return true;
+            }
+            ordinary += 1;
+            ordinary <= alternatives
+        });
+        let is_incomplete = before > items.len()
+            || items.len() > MAX_ITEMS
+            || self.index.limited
+            || frontier_limited
+            || !references;
+        items.truncate(MAX_ITEMS);
         for (index, item) in items.iter_mut().enumerate() {
             item.sort_text = Some(format!("{index:06}"));
         }
@@ -822,7 +975,7 @@ impl Document {
         if self.source[end..line.range.end].starts_with(char::is_whitespace) {
             insertion = insertion.trim_end().to_owned();
         }
-        self.item(
+        let mut item = self.item(
             &template.label,
             &insertion,
             &template.detail,
@@ -830,7 +983,9 @@ impl Document {
             CompletionItemKind::SNIPPET,
             TextRange::new(start, end),
             use_snippets,
-        )
+        )?;
+        item.data = Some(serde_json::json!({"syntaxKind":format!("{:?}", template.kind)}));
+        Ok(item)
     }
     fn item(
         &self,
@@ -847,7 +1002,7 @@ impl Document {
             kind: Some(kind),
             detail: Some(detail.into()),
             documentation: Some(Documentation::String(format!(
-                "{detail}\nRegistration: {identity}"
+                "Syntax:\n{label}\n\n{detail}\nRegistration: {identity}"
             ))),
             filter_text: Some(insertion.split("${").next().unwrap_or(insertion).into()),
             insert_text_format: Some(if snippets {
@@ -862,6 +1017,73 @@ impl Document {
             ..CompletionItem::default()
         })
     }
+}
+
+fn raw_context(
+    tree: &skript_parser::RawTree,
+    source: &str,
+    lines: &LineIndex,
+    references: bool,
+) -> Result<BTreeMap<u32, Line>, String> {
+    let mut context = BTreeMap::new();
+    let mut ambiguous = HashSet::new();
+    for node in tree.iter() {
+        let Some(range) = exact_native(&node.line.span) else {
+            continue;
+        };
+        let Some(text) = source.get(range.start..range.end) else {
+            continue;
+        };
+        let text = text.trim_end_matches('\n').trim_end_matches('\r');
+        if text != node.line.raw_text || !text.starts_with(&node.line.indentation.text) {
+            continue;
+        }
+        let row = lines.position(source, range.start)?.line;
+        if context.contains_key(&row) {
+            ambiguous.insert(row);
+        }
+        let mut ancestors = Vec::new();
+        let mut parent = if references { node.parent } else { None };
+        while let Some(id) = parent {
+            if ancestors.len() >= tree.nodes.len() {
+                return Err("cyclic completion RawTree".into());
+            }
+            let ancestor = tree.get(id).ok_or("missing completion parent")?;
+            if exact_native(&ancestor.line.span).is_none() {
+                ancestors.clear();
+                break;
+            }
+            ancestors.push(id);
+            parent = ancestor.parent;
+        }
+        context.insert(
+            row,
+            Line {
+                range: TextRange::new(range.start, range.start + text.len()),
+                code_start: range.start + node.line.indentation.text.len(),
+                parent: node.parent,
+                ancestors,
+                root: node.parent.is_none() && node.line.indentation.text.is_empty(),
+                blocked: matches!(node.kind, RawNodeKind::Comment | RawNodeKind::Invalid),
+                comments: node
+                    .line
+                    .trailing_trivia
+                    .iter()
+                    .filter(|t| {
+                        matches!(
+                            t.kind,
+                            RawTriviaKind::LineComment | RawTriviaKind::BlockComment
+                        )
+                    })
+                    .flat_map(|t| t.span.origins.iter().map(|o| o.original_range))
+                    .collect(),
+            },
+        );
+    }
+    for row in ambiguous {
+        context.remove(&row);
+    }
+    Ok(context)
 }
 fn starts(text: &str, prefix: &str) -> bool {
     text.to_lowercase().starts_with(&prefix.to_lowercase())
@@ -966,9 +1188,18 @@ impl Document {
                 }],
                 functions: Vec::new(),
                 limited: false,
+                patterns: Vec::new(),
+                raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             }),
             blocked: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+impl CatalogIndex {
+    pub fn test_syntax_index() -> Arc<Self> {
+        Document::test_fixture(Arc::from("hold pattern")).index
     }
 }
 
@@ -998,6 +1229,8 @@ mod tests {
             templates: Vec::new(),
             functions: vec![function("sin", "Number", true)],
             limited: false,
+            patterns: Vec::new(),
+            raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
         });
         document
     }
@@ -1152,6 +1385,8 @@ mod tests {
             }],
             functions: Vec::new(),
             limited: false,
+            patterns: Vec::new(),
+            raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
         });
         let result = view.at(Position::new(1, 11), true).unwrap();
         assert_eq!(result.items.len(), 1);
@@ -1295,11 +1530,151 @@ mod tests {
                 .map(|n| function(&format!("f{n:03}"), "Number", true))
                 .collect(),
             limited: false,
+            patterns: Vec::new(),
+            raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
         });
         let list = view.at(Position::new(1, 9), false).unwrap();
         assert!(list.is_incomplete);
         assert_eq!(list.items.len(), 100);
         assert!(list.items[0].label.starts_with("f000("));
         assert!(list.items[99].label.starts_with("f099("));
+    }
+    #[test]
+    fn continuations_preserve_arguments_suffixes_and_the_full_grammar() {
+        let grammar = "teleport %entities% (to|towards) %location%";
+        for (marked, expected) in [
+            ("teleport player t|", "teleport player to"),
+            ("teleport name of player t|", "teleport name of player to"),
+            (
+                "teleport location(1, 2, 3) t|",
+                "teleport location(1, 2, 3) to",
+            ),
+            (
+                "teleport {_日本😀} t|o location(1, 2, 3)",
+                "teleport {_日本😀} to location(1, 2, 3)",
+            ),
+        ] {
+            let source = format!("on join:\n    {}", marked.replace('|', ""));
+            let byte = 4 + marked.find('|').unwrap();
+            let position = Position::new(
+                1,
+                source.lines().nth(1).unwrap()[..byte]
+                    .encode_utf16()
+                    .count() as u32,
+            );
+            let mut view = with_functions(&source);
+            let mut index = Arc::try_unwrap(view.index).ok().unwrap();
+            let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
+                "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+            ))
+            .unwrap();
+            let parsed = syntax_pattern_parser::syntax::parse(grammar, &rules).unwrap();
+            index.patterns.push(Pattern {
+                kind: SyntaxKind::Effect,
+                label: grammar.into(),
+                detail: "Effect / fixture".into(),
+                identity: "effect:fixture:0".into(),
+                graph: continuation::Graph::new(&parsed.elements).unwrap(),
+            });
+            view.index = Arc::new(index);
+            let list = view.at(position, true).unwrap();
+            let item = list
+                .items
+                .iter()
+                .find(|i| i.label == "to")
+                .expect("next grammar word");
+            assert_eq!(list.items[0].label, "to");
+            assert_eq!(item.kind, Some(CompletionItemKind::KEYWORD));
+            let Documentation::String(documentation) = item.documentation.as_ref().unwrap() else {
+                panic!("full grammar documentation");
+            };
+            assert!(documentation.contains(grammar));
+            let edit = edit(item);
+            let start = view.lines.offset(&source, edit.range.start).unwrap();
+            let end = view.lines.offset(&source, edit.range.end).unwrap();
+            assert_eq!(
+                format!("{}{}{}", &source[..start], edit.new_text, &source[end..]),
+                format!("on join:\n    {expected}")
+            );
+            assert_eq!(edit.range.end, position);
+        }
+    }
+
+    #[test]
+    fn right_suffix_filter_precedes_the_context_alternative_limit() {
+        let grammar = "move %objects% (to|towards) %location%";
+        let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
+            "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+        ))
+        .unwrap();
+        let parsed = syntax_pattern_parser::syntax::parse(grammar, &rules).unwrap();
+        for (suffix, expected_keywords, expected_functions) in [("o", 1, 8), ("x", 0, 12)] {
+            let source = format!("on load:\n    move player t{suffix}");
+            let mut view = with_functions(&source);
+            let index = Arc::get_mut(&mut view.index).unwrap();
+            index.patterns.push(Pattern {
+                kind: SyntaxKind::Effect,
+                label: grammar.into(),
+                detail: "fixture".into(),
+                identity: "move:0".into(),
+                graph: continuation::Graph::new(&parsed.elements).unwrap(),
+            });
+            index.functions = (0..12)
+                .map(|n| function(&format!("t{n}{suffix}"), "Number", true))
+                .collect();
+            // Existing calls suppress argument snippets, making the suffix exact.
+            let mut source = source;
+            source.push_str("(1)");
+            view.source = Arc::from(source.as_str());
+            view.lines = LineIndex::new(&source);
+            let line = view.context.get_mut(&1).unwrap();
+            line.range.end = source.len();
+            let list = view.at(Position::new(1, 17), true).unwrap();
+            assert_eq!(
+                list.items
+                    .iter()
+                    .filter(|i| i.kind == Some(CompletionItemKind::KEYWORD))
+                    .count(),
+                expected_keywords
+            );
+            assert_eq!(
+                list.items
+                    .iter()
+                    .filter(|i| i.kind == Some(CompletionItemKind::FUNCTION))
+                    .count(),
+                expected_functions
+            );
+        }
+    }
+
+    #[test]
+    fn discarded_continuations_do_not_consume_the_normal_candidate_budget() {
+        let source = "on load:\n    move player tx(1)";
+        let mut view = with_functions(source);
+        let index = Arc::get_mut(&mut view.index).unwrap();
+        let grammar = format!(
+            "move %objects% ({})",
+            (0..110)
+                .map(|n| format!("to{n}"))
+                .collect::<Vec<_>>()
+                .join("|")
+        );
+        let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
+            "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+        ))
+        .unwrap();
+        let parsed = syntax_pattern_parser::syntax::parse(&grammar, &rules).unwrap();
+        index.patterns.push(Pattern {
+            kind: SyntaxKind::Effect,
+            label: grammar,
+            detail: "fixture".into(),
+            identity: "move:0".into(),
+            graph: continuation::Graph::new(&parsed.elements).unwrap(),
+        });
+        index.functions = vec![function("tx", "Number", true)];
+        let list = view.at(Position::new(1, 17), true).unwrap();
+        assert_eq!(list.items.len(), 1);
+        assert!(list.items[0].label.starts_with("tx("));
+        assert_eq!(edit(&list.items[0]).new_text, "t");
     }
 }
