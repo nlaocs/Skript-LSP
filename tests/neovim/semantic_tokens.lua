@@ -71,7 +71,9 @@ local ok, failure = xpcall(function()
   vim.o.modeline, vim.o.shadafile = false, "NONE"
   local script = vim.fs.abspath(debug.getinfo(1, "S").source:sub(2))
   local checkout = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(script)))
-  local config = dofile(checkout .. "/examples/neovim/skript-lsp.lua")
+  local configuration = vim.env.SKRIPT_LSP_CONFIGURATION or checkout .. "/examples/neovim/skript-lsp.lua"
+  local config = dofile(configuration)
+  report.configuration = configuration
   vim.lsp.enable("skript_lsp", false)
   config.name, config.detached, config.exit_timeout = "skript_lsp_semantic_regression", false, 2000
   config.flags = { allow_incremental_sync = false, debounce_text_changes = 0 }
@@ -108,8 +110,24 @@ local ok, failure = xpcall(function()
   else
     wait_for("custom classifications", function() return token(1, "send", "skriptEffect") and token(1, '"日本😀"', "skriptLiteral") end)
     local mark = wait_for("standard highlight extmark", function() return inspect_mark(1, "send", "skriptEffect") end)
-    assert(mark.highlight.fg == tonumber("61AFEF", 16), vim.inspect(mark))
+    assert(mark.highlight.fg == tonumber("58C4DD", 16), vim.inspect(mark))
     check("effect-highlight-extmark-and-color", mark)
+    local palette = {}
+    -- These expected defaults preserve the REPL's existing source-syntax roles.
+    for role, rgb in pairs({
+      skriptEvent = "C55F73", skriptCondition = "FC6255", skriptEffect = "58C4DD",
+      skriptExpression = "83C167", skriptSection = "5CD0B3", skriptStructure = "9A72AC",
+      variable = "00FFFF", ["function"] = "A0A0A0",
+    }) do
+      local highlight = api.nvim_get_hl(0, { name = "@lsp.type." .. role .. ".skript", link = true })
+      assert(not highlight.link and highlight.fg == tonumber(rgb, 16), vim.inspect(highlight))
+      palette[role] = highlight
+    end
+    local literal_group = api.nvim_get_hl(0, { name = "@lsp.type.skriptLiteral.skript", link = true })
+    assert(literal_group.link == "Normal", vim.inspect(literal_group))
+    check("repl-palette-and-theme-aware-literal", { palette = palette, literal = literal_group })
+    local event_mark = wait_for("event highlight", function() return inspect_mark(0, "load", "skriptEvent") end)
+    assert(event_mark.highlight.fg == tonumber("C55F73", 16), vim.inspect(event_mark))
     local literal = token(1, '"日本😀"', "skriptLiteral")
     assert(literal.start_col == 9 and literal.end_col == 21, vim.inspect(literal))
     check("unicode-token-decoded-to-exact-utf8", vim.deepcopy(literal))
@@ -125,6 +143,18 @@ local ok, failure = xpcall(function()
     wait_for("condition child fixed words", function() return token(1, "is", "skriptCondition") and token(2, "send", "skriptEffect") end)
     assert(#at(1, "if") == 0, "regex parent must not color an unprojected capture")
     check("regex-parent-is-omitted-while-condition-child-is-colored")
+    local condition_mark = wait_for("condition highlight", function() return inspect_mark(1, "is", "skriptCondition") end)
+    assert(condition_mark.highlight.fg == tonumber("FC6255", 16), vim.inspect(condition_mark))
+    assert(condition_mark.highlight.fg ~= event_mark.highlight.fg)
+    check("event-and-condition-have-distinct-repl-colors", { event = event_mark, condition = condition_mark })
+    -- Reload the sample with one pre-existing override, without changing any file.
+    api.nvim_set_hl(0, "@lsp.type.skriptCondition.skript", { fg = "#123456" })
+    dofile(configuration)
+    vim.lsp.enable("skript_lsp", false)
+    assert(api.nvim_get_hl(0, { name = "@lsp.type.skriptCondition.skript", link = false }).fg == tonumber("123456", 16))
+    assert(api.nvim_get_hl(0, { name = "@lsp.type.skriptLiteral.skript", link = true }).link == "Normal")
+    check("sample-reload-preserves-user-highlight-override")
+    api.nvim_set_hl(0, "@lsp.type.skriptCondition.skript", { fg = "#FC6255" })
   end
   change({ "on load:", "    send sin(1) to console", "    this effect does not exist" }, true)
   wait_for("healthy partial sibling", function() return token(1, "sin", "function") end)

@@ -27,10 +27,11 @@ for _, name in ipairs({ "skriptEvent", "skriptCondition", "skriptEffect", "skrip
   "skriptSection", "skriptStructure", "skriptLiteral" }) do
   table.insert(capabilities.textDocument.semanticTokens.tokenTypes, name)
 end
+-- Match the REPL's source-syntax RGB palette; keep literal text theme-aware.
 for role, color in pairs({
-  skriptEvent = "#C678DD", skriptCondition = "#C678DD", skriptEffect = "#61AFEF",
-  skriptExpression = "#98C379", skriptSection = "#C678DD", skriptStructure = "#D19A66",
-  variable = "#56B6C2", ["function"] = "#ABB2BF",
+  skriptEvent = "#C55F73", skriptCondition = "#FC6255", skriptEffect = "#58C4DD",
+  skriptExpression = "#83C167", skriptSection = "#5CD0B3", skriptStructure = "#9A72AC",
+  variable = "#00FFFF", ["function"] = "#A0A0A0",
 }) do
   vim.api.nvim_set_hl(0, "@lsp.type." .. role .. ".skript", { fg = color, default = true })
 end
