@@ -16,6 +16,45 @@ pub const VARIABLE_SCHEMA_VERSION: u32 = 1;
 pub const INTERPOLATION_SCHEMA_ID: &str = "nlaocs.skript.interpolation";
 pub const INTERPOLATION_SCHEMA_VERSION: u32 = 1;
 
+/// Semantic roles for selected native pattern slots. Indices are references,
+/// never source ranges: consumers must bind them to current sealed geometry.
+pub const CAPTURE_ROLES_SCHEMA_ID: &str = "nlaocs.skript.capture-roles";
+pub const CAPTURE_ROLES_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureRolesData {
+    pub captures: Vec<CaptureRole>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureRole {
+    #[serde(rename = "captureIndex")]
+    pub capture_index: u64,
+    pub role: String,
+}
+
+/// Replace this schema only; unrelated public records remain available to addons.
+pub(crate) fn mark_expression_capture(
+    payload: &mut crate::nlaocs::skript_parser_addon::types::RegisteredExpressionPayload,
+    capture_index: u64,
+) {
+    use crate::nlaocs::skript_parser_addon::types::ExpressionPublicData;
+    payload
+        .public_data
+        .retain(|record| record.schema_id != CAPTURE_ROLES_SCHEMA_ID);
+    payload.public_data.push(ExpressionPublicData {
+        schema_id: CAPTURE_ROLES_SCHEMA_ID.into(),
+        schema_version: CAPTURE_ROLES_SCHEMA_VERSION,
+        json: serde_json::to_string(&CaptureRolesData {
+            captures: vec![CaptureRole {
+                capture_index,
+                role: "expression".into(),
+            }],
+        })
+        .expect("capture-role data is serializable"),
+    });
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterpolationData {
     pub expressions: Vec<InterpolationExpression>,
@@ -82,4 +121,27 @@ pub enum VariableNamePart {
         #[serde(rename = "childIndex")]
         child_index: u32,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn capture_role_schema_serializes_slot_references_without_source_ranges() {
+        let value = CaptureRolesData {
+            captures: vec![CaptureRole {
+                capture_index: 7,
+                role: "expression".into(),
+            }],
+        };
+        let json = serde_json::to_value(&value).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"captures":[{"captureIndex":7,"role":"expression"}]})
+        );
+        assert_eq!(
+            serde_json::from_value::<CaptureRolesData>(json).unwrap(),
+            value
+        );
+    }
 }

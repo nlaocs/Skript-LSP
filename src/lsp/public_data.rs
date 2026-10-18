@@ -1,5 +1,35 @@
 use parser_wasm::host::AstNode;
 
+/// Meaning is supplied by the semantic provider; geometry comes only from the
+/// native capture seal. Unknown or ambiguous declarations add no coloring.
+pub(super) fn expression_capture_roles(node: &AstNode) -> Option<Vec<u64>> {
+    let mut records = node
+        .summary
+        .as_ref()?
+        .public_data
+        .iter()
+        .filter(|record| record.schema_id == "nlaocs.skript.capture-roles");
+    let record = records.next()?;
+    if records.next().is_some() || record.schema_version != 1 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&record.json).ok()?;
+    let entries = value.get("captures")?.as_array()?;
+    if entries.len() > node.captures.len() {
+        return None;
+    }
+    let mut indices = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for entry in entries {
+        let index = entry.get("captureIndex")?.as_u64()?;
+        if entry.get("role")?.as_str()? != "expression" || !seen.insert(index) {
+            return None;
+        }
+        indices.push(index);
+    }
+    Some(indices)
+}
+
 pub(super) struct InterpolationPart {
     pub child_index: usize,
     pub opening: usize,

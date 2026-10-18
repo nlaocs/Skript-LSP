@@ -28,6 +28,10 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
     matches(payload, HANDLER_ID).then(|| resolve_entity(payload))
 }
 
+pub(super) fn publish_capture_roles(payload: &mut RegisteredExpressionPayload) {
+    crate::public_data::mark_expression_capture(payload, 0);
+}
+
 fn resolve_entity(payload: &RegisteredExpressionPayload) -> SemanticResolution {
     let Some(summary) = payload
         .parsed_captures

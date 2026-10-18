@@ -158,7 +158,15 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     handlers
 }
 
+#[cfg(test)]
 pub(crate) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticResolution> {
+    resolve_selected(payload, &mut None)
+}
+
+fn resolve_selected(
+    payload: &RegisteredExpressionPayload,
+    publish: &mut Option<fn(&mut RegisteredExpressionPayload)>,
+) -> Option<SemanticResolution> {
     context_validation::resolve(payload)
         .or_else(|| event_value_expression::resolve(payload))
         .or_else(|| expr_all_banned_entries::resolve(payload))
@@ -170,8 +178,16 @@ pub(crate) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         .or_else(|| expr_default_value::resolve(payload))
         .or_else(|| expr_difference::resolve(payload))
         .or_else(|| expr_entities::resolve(payload))
-        .or_else(|| expr_entity::resolve(payload))
-        .or_else(|| expr_event_expression::resolve(payload))
+        .or_else(|| {
+            let resolution = expr_entity::resolve(payload)?;
+            *publish = Some(expr_entity::publish_capture_roles);
+            Some(resolution)
+        })
+        .or_else(|| {
+            let resolution = expr_event_expression::resolve(payload)?;
+            *publish = Some(expr_event_expression::publish_capture_roles);
+            Some(resolution)
+        })
         .or_else(|| expr_except::resolve(payload))
         .or_else(|| expr_from_uuid::resolve(payload))
         .or_else(|| expr_filter::resolve(payload))
@@ -223,6 +239,29 @@ pub(crate) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         .or_else(|| prop_expr_wxyz::resolve(payload))
         .or_else(|| simple_literal::resolve(payload))
         .or_else(|| wrapper_expression::resolve(payload))
+}
+
+/// Handlers that publish a semantic slot role do so after their own validation.
+/// The ordinary read-only resolution entry point remains usable by other handlers.
+pub(crate) fn resolve_with_public_data(
+    payload: &mut RegisteredExpressionPayload,
+) -> Option<SemanticResolution> {
+    let mut publish = None;
+    let resolution = resolve_selected(payload, &mut publish)?;
+    publish_selected_capture_roles(payload, &resolution, publish);
+    Some(resolution)
+}
+
+pub(crate) fn publish_selected_capture_roles(
+    payload: &mut RegisteredExpressionPayload,
+    resolution: &SemanticResolution,
+    publish: Option<fn(&mut RegisteredExpressionPayload)>,
+) {
+    if matches!(resolution, SemanticResolution::Resolved { .. }) {
+        if let Some(publish) = publish {
+            publish(payload);
+        }
+    }
 }
 
 fn register_handler(

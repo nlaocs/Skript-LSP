@@ -14,6 +14,10 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
     matches(payload, HANDLER_ID).then(|| resolve_event_expression(payload))
 }
 
+pub(super) fn publish_capture_roles(payload: &mut RegisteredExpressionPayload) {
+    crate::public_data::mark_expression_capture(payload, 0);
+}
+
 fn resolve_event_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
     let Some(input) = payload.regex_captures.first().map(|value| value.trim()) else {
         return SemanticResolution::Reject(

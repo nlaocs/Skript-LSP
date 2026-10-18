@@ -268,17 +268,23 @@ impl Document {
                     &nodes.get(child).ok_or("missing semantic token child")?.span,
                 )?);
             }
+            let mut child_ranges = captures.clone();
             for capture in &node.captures {
                 match &capture.value {
                     CaptureValue::Span(span) => captures.extend(origins(span)?),
-                    CaptureValue::Node(id) => captures.extend(origins(
-                        &nodes.get(id).ok_or("missing semantic token capture")?.span,
-                    )?),
+                    CaptureValue::Node(id) => {
+                        let ranges =
+                            origins(&nodes.get(id).ok_or("missing semantic token capture")?.span)?;
+                        child_ranges.extend(ranges.iter().copied());
+                        captures.extend(ranges);
+                    }
                     CaptureValue::Nodes(ids) => {
                         for id in ids {
-                            captures.extend(origins(
+                            let ranges = origins(
                                 &nodes.get(id).ok_or("missing semantic token capture")?.span,
-                            )?);
+                            )?;
+                            child_ranges.extend(ranges.iter().copied());
+                            captures.extend(ranges);
                         }
                     }
                     // Its complete native slot was checked above and is also
@@ -288,6 +294,20 @@ impl Document {
             }
             for range in &captures {
                 lines.range(source, *range)?;
+            }
+            // A zero-width default child owns no source. Empty fault regions
+            // remain in `blocked` and deliberately retain anchored exclusion.
+            child_ranges.retain(|range| !range.is_empty());
+            if role == Role::Expression {
+                if let Some(ranges) = semantic_capture_ranges(node) {
+                    for range in ranges {
+                        for fragment in subtract(range, &child_ranges) {
+                            for fragment in subtract(fragment, &blocked) {
+                                push_piece(source, fragment, role, *id, &mut pieces);
+                            }
+                        }
+                    }
+                }
             }
             if matches!(role, Role::Literal | Role::Variable) && ranges.len() == 1 {
                 let parent = ranges[0];
@@ -351,31 +371,7 @@ impl Document {
                 captures.retain(|capture| !capture.is_empty());
                 for fragment in subtract(range, &captures) {
                     for fragment in subtract(fragment, &blocked) {
-                        // Every wire token is nonempty and fits on one line.
-                        let text = &source[fragment.start..fragment.end];
-                        let mut start = 0;
-                        for (offset, character) in text.char_indices() {
-                            if character.is_whitespace() {
-                                if start < offset {
-                                    pieces.push((
-                                        TextRange::new(
-                                            fragment.start + start,
-                                            fragment.start + offset,
-                                        ),
-                                        role,
-                                        *id,
-                                    ));
-                                }
-                                start = offset + character.len_utf8();
-                            }
-                        }
-                        if start < text.len() {
-                            pieces.push((
-                                TextRange::new(fragment.start + start, fragment.end),
-                                role,
-                                *id,
-                            ));
-                        }
+                        push_piece(source, fragment, role, *id, &mut pieces);
                     }
                 }
             }
@@ -452,6 +448,56 @@ impl Document {
             },
         }
     }
+}
+
+fn push_piece(
+    source: &str,
+    range: TextRange,
+    role: Role,
+    id: u64,
+    pieces: &mut Vec<(TextRange, Role, u64)>,
+) {
+    let text = &source[range.start..range.end];
+    let mut start = 0;
+    for (offset, character) in text.char_indices() {
+        if character.is_whitespace() {
+            if start < offset {
+                pieces.push((
+                    TextRange::new(range.start + start, range.start + offset),
+                    role,
+                    id,
+                ));
+            }
+            start = offset + character.len_utf8();
+        }
+    }
+    if start < text.len() {
+        pieces.push((TextRange::new(range.start + start, range.end), role, id));
+    }
+}
+
+fn semantic_capture_ranges(node: &AstNode) -> Option<Vec<TextRange>> {
+    if !complete_capture_geometry(node) {
+        return None;
+    }
+    let indices = super::public_data::expression_capture_roles(node)?;
+    let mut ranges = Vec::new();
+    for index in indices {
+        let name = format!("{}{index}", source_geometry::PATTERN_CAPTURE_PREFIX);
+        let CaptureValue::Span(span) = &node
+            .captures
+            .iter()
+            .find(|capture| capture.name == name)?
+            .value
+        else {
+            return None;
+        };
+        if span.origins.len() != 1 || span.origins[0].kind != OriginKind::Exact {
+            return None;
+        }
+        ranges.extend(origins(span).ok()?);
+    }
+    Some(ranges)
 }
 
 fn classify(node: &AstNode) -> Option<Role> {
@@ -1234,6 +1280,179 @@ mod tests {
         assert_eq!(
             registered_pattern_identity(&value),
             Some(("fixture:registration", "fixture:definition", 0))
+        );
+    }
+
+    fn role_capture_fixture(source: &str) -> AstNode {
+        let mut parent = node(
+            1,
+            SyntaxKind::Expression,
+            "registered-expression",
+            source,
+            0,
+            source.len(),
+        );
+        let start = source.find('-').unwrap() + 1;
+        parent.captures.push(Capture {
+            name: "0:fixture.semantic".into(),
+            value: CaptureValue::Text(source[start..].into()),
+        });
+        let mapped = skript_parser::MappedSource::identity(source);
+        source_geometry::retain_pattern_captures(
+            &mut parent,
+            &[skript_parser::PatternCapture::Regex {
+                capture_index: 0,
+                pattern_span: syntax_pattern_parser::syntax::Span::new(0, 4),
+                value: source[start..].into(),
+                span: skript_parser::MatchSpan {
+                    local_range: TextRange::new(start, source.len()),
+                    mapped: mapped
+                        .map_range(TextRange::new(start, source.len()))
+                        .unwrap(),
+                },
+                groups: vec![],
+            }],
+        );
+        parent
+            .summary
+            .as_mut()
+            .unwrap()
+            .public_data
+            .push(ExpressionPublicData {
+                schema_id: "nlaocs.skript.capture-roles".into(),
+                schema_version: 1,
+                json: r#"{"captures":[{"captureIndex":0,"role":"expression"}]}"#.into(),
+            });
+        parent
+    }
+
+    #[test]
+    fn declared_capture_role_uses_native_geometry_without_a_spelling_exception() {
+        for source in ["event-player", "event-entity", "event-日本😀"] {
+            let parent = role_capture_fixture(source);
+            let got = decoded(&document(source, vec![1], vec![parent], vec![]), &all());
+            assert_eq!(
+                got,
+                vec![
+                    (0, 0, 6, "skriptExpression".into()),
+                    (
+                        0,
+                        6,
+                        source[6..].encode_utf16().count() as u32,
+                        "skriptExpression".into()
+                    )
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_capture_contracts_do_not_color_the_slot_or_hide_healthy_fixed_words() {
+        let source = "event-value";
+        let good = role_capture_fixture(source);
+        for (version, json) in [
+            (
+                2,
+                r#"{"captures":[{"captureIndex":0,"role":"expression"}]}"#,
+            ),
+            (1, r#"{"captures":[{"captureIndex":0,"role":"unknown"}]}"#),
+            (
+                1,
+                r#"{"captures":[{"captureIndex":7,"role":"expression"}]}"#,
+            ),
+            (
+                1,
+                r#"{"captures":[{"captureIndex":0,"role":"expression"},{"captureIndex":0,"role":"expression"}]}"#,
+            ),
+        ] {
+            let mut parent = good.clone();
+            let record = &mut parent.summary.as_mut().unwrap().public_data[0];
+            record.schema_version = version;
+            record.json = json.into();
+            assert_eq!(
+                decoded(&document(source, vec![1], vec![parent], vec![]), &all()),
+                vec![(0, 0, 6, "skriptExpression".into())]
+            );
+        }
+    }
+
+    #[test]
+    fn capture_role_keeps_nested_unknown_children_faults_and_competing_owners_excluded() {
+        let source = "event-value";
+        let mut parent = role_capture_fixture(source);
+        parent.children = vec![2];
+        let default_child = node(2, SyntaxKind::Type, "unsupported", source, 8, 8);
+        assert_eq!(
+            decoded(
+                &document(
+                    source,
+                    vec![1],
+                    vec![parent.clone(), default_child.clone()],
+                    vec![]
+                ),
+                &all()
+            ),
+            vec![
+                (0, 0, 6, "skriptExpression".into()),
+                (0, 6, 5, "skriptExpression".into())
+            ]
+        );
+        assert_eq!(
+            decoded(
+                &document(
+                    source,
+                    vec![1],
+                    vec![parent.clone(), default_child],
+                    vec![TextRange::new(8, 8)]
+                ),
+                &all()
+            ),
+            vec![(0, 0, 6, "skriptExpression".into())]
+        );
+        let child = node(2, SyntaxKind::Type, "unsupported", source, 8, 11);
+        assert_eq!(
+            decoded(
+                &document(
+                    source,
+                    vec![1],
+                    vec![parent.clone(), child],
+                    vec![TextRange::new(7, 8)]
+                ),
+                &all()
+            ),
+            vec![
+                (0, 0, 6, "skriptExpression".into()),
+                (0, 6, 1, "skriptExpression".into())
+            ]
+        );
+        let child = node(2, SyntaxKind::Type, "literal", source, 8, 11);
+        let got = decoded(
+            &document(source, vec![1], vec![parent.clone(), child], vec![]),
+            &all(),
+        );
+        assert_eq!(
+            got,
+            vec![
+                (0, 0, 6, "skriptExpression".into()),
+                (0, 6, 2, "skriptExpression".into()),
+                (0, 8, 3, "skriptLiteral".into())
+            ]
+        );
+        parent.children.clear();
+        let competing = node(3, SyntaxKind::Type, "literal", source, 6, 11);
+        assert_eq!(
+            decoded(
+                &document(source, vec![1, 3], vec![parent.clone(), competing], vec![]),
+                &all()
+            ),
+            vec![(0, 0, 6, "skriptExpression".into())]
+        );
+        parent.text = "changed".into();
+        assert!(
+            document(source, vec![1], vec![parent], vec![])
+                .full(&all())
+                .data
+                .is_empty()
         );
     }
 }

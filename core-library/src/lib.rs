@@ -553,7 +553,7 @@ fn resolve_registered_expression(
     if let Some(multiplicity) = input_multiplicity {
         payload.effective_multiplicity = Some(multiplicity);
     }
-    let Some(resolution) = expressions::resolve(&payload) else {
+    let Some(resolution) = expressions::resolve_with_public_data(&mut payload) else {
         return Ok(HookOutput {
             decision: if input_multiplicity.is_some() {
                 HookDecision::ContinueProcessing
@@ -2477,6 +2477,77 @@ mod tests {
             public_data: Vec::new(),
             metadata: Vec::new(),
         }
+    }
+
+    #[test]
+    fn capture_roles_are_published_only_after_selected_semantic_success() {
+        use nlaocs::skript_parser_addon::types::ExpressionPublicData;
+        let resolved = expressions::SemanticResolution::Resolved {
+            return_type: "org.example.Entity".into(),
+            possible_return_types: vec!["org.example.Entity".into()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+            multiplicity: DynamicMultiplicity::Single,
+            metadata: vec![],
+        };
+        let unresolved = expressions::SemanticResolution::Unresolved {
+            reason: "unknown".into(),
+            metadata: vec![],
+        };
+        let rejected = expressions::SemanticResolution::Reject("rejected".into());
+        let publish: fn(&mut RegisteredExpressionPayload) =
+            |payload| public_data::mark_expression_capture(payload, 0);
+        for (resolution, expected) in [(&resolved, true), (&unresolved, false), (&rejected, false)]
+        {
+            let mut payload = registered_expression("fixture.SemanticExpression");
+            let foreign = ExpressionPublicData {
+                schema_id: "org.example.foreign".into(),
+                schema_version: 2,
+                json: "{}".into(),
+            };
+            payload.public_data.push(foreign.clone());
+            expressions::publish_selected_capture_roles(&mut payload, resolution, Some(publish));
+            assert!(
+                payload
+                    .public_data
+                    .iter()
+                    .any(|record| record.schema_id == foreign.schema_id
+                        && record.json == foreign.json)
+            );
+            assert_eq!(
+                payload
+                    .public_data
+                    .iter()
+                    .filter(|record| record.schema_id == public_data::CAPTURE_ROLES_SCHEMA_ID)
+                    .count(),
+                usize::from(expected)
+            );
+            if expected {
+                expressions::publish_selected_capture_roles(
+                    &mut payload,
+                    resolution,
+                    Some(publish),
+                );
+                let records = payload
+                    .public_data
+                    .iter()
+                    .filter(|record| record.schema_id == public_data::CAPTURE_ROLES_SCHEMA_ID)
+                    .collect::<Vec<_>>();
+                assert_eq!(records.len(), 1);
+                assert_eq!(
+                    serde_json::from_str::<public_data::CaptureRolesData>(&records[0].json)
+                        .unwrap()
+                        .captures[0]
+                        .capture_index,
+                    0
+                );
+            }
+        }
+        let mut payload = registered_expression("fixture.SemanticExpression");
+        expressions::publish_selected_capture_roles(&mut payload, &resolved, None);
+        assert!(
+            payload.public_data.is_empty(),
+            "an unselected provider does not publish roles"
+        );
     }
 
     fn expression_child(

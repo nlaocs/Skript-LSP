@@ -37,7 +37,7 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
     let types = provider["legend"]["tokenTypes"].as_array().unwrap();
     assert_eq!(types.len(), 10);
     client.notify("initialized", json!({}));
-    let source = "on load:\r\n    send \"日本😀\" to console\r\n    send sin(1) to console\r\n    send {_money} to console\r\n    # no semantic color here\r\n    this effect does not exist\r\n    if 1 is 1:\r\n        send \"ok\" to console\r\n    send {_key%sin(1)%} to console\r\n    send {_key% sin(1) %} to console\r\n    send \"100%%\" to console\r\n";
+    let source = "on load:\r\n    send \"日本😀\" to console\r\n    send sin(1) to console\r\n    send {_money} to console\r\n    # no semantic color here\r\n    this effect does not exist\r\n    if 1 is 1:\r\n        send \"ok\" to console\r\n    send {_key%sin(1)%} to console\r\n    send {_key% sin(1) %} to console\r\n    send \"100%%\" to console\r\non join:\r\n    send player to console\r\n    send event-player to console\r\n    send name of player to console\r\n    send \"hello %player%\" to player\r\n";
     client.open(1, source);
     client.send(Request::new(
         10.into(),
@@ -120,6 +120,17 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
             .any(|token| token.0 == 10 && token.3 == "skriptInterpolationDelimiter"),
         "escaped %% is literal source"
     );
+    for (line, text) in source.lines().enumerate().skip(12) {
+        for (start, _) in text.match_indices("player") {
+            assert!(
+                decoded.iter().any(|token| token.0 == line
+                    && token.1 <= start
+                    && start + 6 <= token.1 + token.2
+                    && token.3 == "skriptExpression"),
+                "confirmed semantic capture at {line}:{start} must be colored: {decoded:?}"
+            );
+        }
+    }
     client.change(2, "");
     assert!(client.diagnostics(2).diagnostics.is_empty());
     client.send(Request::new(
