@@ -107,6 +107,8 @@ impl Analyzer for TestAnalyzer {
             hover,
             semantic_tokens,
             semantic_error: None,
+            completion: Some(completion::Document::test_fixture(Arc::clone(&job.source))),
+            completion_error: None,
             parse_ms: 0.0,
             report_ms: 0.0,
         }
@@ -295,6 +297,157 @@ fn token_response(client: &Client, id: i32) -> Response {
         unreachable!()
     };
     response
+}
+
+fn completion_request(client: &Client, id: i32, column: u32) {
+    client
+        .connection
+        .sender
+        .send(
+            lsp_server::Request::new(
+                id.into(),
+                "textDocument/completion".into(),
+                json!({"textDocument":{"uri":URI},"position":{"line":0,"character":column}}),
+            )
+            .into(),
+        )
+        .unwrap();
+}
+
+#[test]
+fn completion_waits_for_the_current_analysis_and_cancels_independently() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    completion_request(&client, 40, 0);
+    completion_request(&client, 41, 0);
+    completion_request(&client, 42, 99);
+    assert_eq!(
+        token_response(&client, 42)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidParams as i32
+    );
+    assert!(client.hover(43).is_null());
+    client.notify("$/cancelRequest", json!({"id":40}));
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    client.proceed.send(()).unwrap();
+    client.diagnostics(1);
+    let result = token_response(&client, 41).response_result.unwrap();
+    assert_eq!(result["items"][0]["label"], "hold");
+    completion_request(&client, 44, 0);
+    assert_eq!(token_response(&client, 44).response_result.unwrap(), result);
+    client.finish();
+}
+
+#[test]
+fn completion_edit_close_and_reopen_terminate_old_requests_without_reusing_a_cache() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    completion_request(&client, 40, 0);
+    client.sync(41);
+    client.change(2, "hold");
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    completion_request(&client, 42, 0);
+    client.sync(43);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    assert_eq!(
+        token_response(&client, 42)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    client.diagnostics(2);
+    completion_request(&client, 44, 0);
+    assert_eq!(
+        token_response(&client, 44).response_result.unwrap()["items"],
+        json!([])
+    );
+    client.open(0, "fresh");
+    completion_request(&client, 45, 0);
+    client.sync(46);
+    client.proceed.send(()).unwrap();
+    client.diagnostics(0);
+    assert_eq!(
+        token_response(&client, 45).response_result.unwrap()["items"][0]["label"],
+        "fresh"
+    );
+    client.finish();
+}
+
+#[test]
+fn completion_fatal_cancel_stale_partial_and_worker_failure_are_terminal() {
+    for suffix in ["fatal", "cancel", "stale", "partial", "panic"] {
+        let client = Client::start();
+        client.open(1, &format!("hold-{suffix}"));
+        assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+        completion_request(&client, 40, 0);
+        client.sync(41);
+        client.proceed.send(()).unwrap();
+        if matches!(suffix, "fatal" | "partial") {
+            client.diagnostics(1);
+        }
+        let response = token_response(&client, 40);
+        if suffix == "panic" {
+            assert_eq!(
+                response.response_result.unwrap_err().code,
+                ErrorCode::InternalError as i32
+            );
+            assert!(client.server.join().unwrap().is_err());
+        } else {
+            assert_eq!(
+                response.response_result.unwrap()["items"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                if suffix == "partial" { 1 } else { 0 }
+            );
+            client.finish();
+        }
+    }
+}
+
+#[test]
+fn completion_pending_request_is_cancelled_before_shutdown_response() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    completion_request(&client, 40, 0);
+    client.sync(41);
+    client
+        .connection
+        .sender
+        .send(lsp_server::Request::new(99.into(), "shutdown".into(), Value::Null).into())
+        .unwrap();
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    assert_eq!(
+        token_response(&client, 99).response_result.unwrap(),
+        Value::Null
+    );
+    client.proceed.send(()).unwrap();
+    client.notify("exit", Value::Null);
+    assert!(client.server.join().unwrap().is_ok());
 }
 
 #[test]

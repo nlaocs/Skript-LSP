@@ -1,5 +1,6 @@
 //! A single-project, full-document LSP frontend for the shared parser service.
 
+mod completion;
 mod diagnostics;
 mod hover;
 mod hover_text;
@@ -11,9 +12,9 @@ mod worker;
 use crossbeam_channel::{bounded, select};
 use lsp_server::{Connection, ErrorCode, Message, Notification, RequestId, Response};
 use lsp_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    HoverParams, InitializeParams, MarkupKind, PublishDiagnosticsParams, SemanticTokens,
-    SemanticTokensParams, Uri,
+    CompletionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, HoverParams, InitializeParams, MarkupKind, Position,
+    PublishDiagnosticsParams, SemanticTokens, SemanticTokensParams, Uri,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -27,6 +28,7 @@ struct ProjectConfig {
     addon_paths: Vec<PathBuf>,
     hover_format: MarkupKind,
     semantic_legend: Option<semantic_tokens::Legend>,
+    completion_snippets: bool,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +42,14 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let completion_snippets = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|d| d.completion.as_ref())
+            .and_then(|c| c.completion_item.as_ref())
+            .and_then(|c| c.snippet_support)
+            .unwrap_or(false);
         let semantic_legend = semantic_tokens::Legend::negotiate(
             params
                 .capabilities
@@ -95,6 +105,7 @@ impl ProjectConfig {
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
             hover_format,
             semantic_legend,
+            completion_snippets,
         })
     }
 }
@@ -184,8 +195,60 @@ struct Document {
     hover: Option<hover::Document>,
     tokens: Option<SemanticTokens>,
     token_requests: Vec<RequestId>,
+    source: Arc<str>,
+    lines: positions::LineIndex,
+    completion: Option<completion::Document>,
+    completion_ready: bool,
+    completion_requests: Vec<(RequestId, Position)>,
 }
 impl Document {
+    fn completion_response(&self, id: RequestId, position: Position, snippets: bool) -> Response {
+        let result = match &self.completion {
+            Some(document) => document.at(position, snippets),
+            None => Ok(lsp_types::CompletionList {
+                is_incomplete: false,
+                items: Vec::new(),
+            }),
+        };
+        match result {
+            Ok(list) => Response::new_ok(id, list),
+            Err(error) => Response::new_err(id, ErrorCode::InvalidParams as i32, error),
+        }
+    }
+    fn finish_completion_requests(
+        &mut self,
+        connection: &Connection,
+        snippets: bool,
+    ) -> Result<(), String> {
+        for (id, position) in std::mem::take(&mut self.completion_requests) {
+            self.send_completion(connection, id, position, snippets)?;
+        }
+        Ok(())
+    }
+    fn send_completion(
+        &self,
+        connection: &Connection,
+        id: RequestId,
+        position: Position,
+        snippets: bool,
+    ) -> Result<(), String> {
+        let started = Instant::now();
+        let response = self.completion_response(id, position, snippets);
+        let result = response.response_result.as_ref().ok();
+        let items = result
+            .and_then(|r| r["items"].as_array())
+            .map_or(0, Vec::len);
+        let incomplete = result.is_some_and(|r| r["isIncomplete"] == true);
+        let query_ms = started.elapsed().as_secs_f64() * 1000.0;
+        send(connection, response)?;
+        log(
+            connection,
+            format!(
+                "skript-lsp completion timing {}",
+                json!({"queryMs":query_ms,"items":items,"isIncomplete":incomplete})
+            ),
+        )
+    }
     fn finish_token_requests(&mut self, connection: &Connection) -> Result<(), String> {
         for id in self.token_requests.drain(..) {
             send(
@@ -195,11 +258,17 @@ impl Document {
         }
         Ok(())
     }
-    fn cancel_token_requests(
-        &mut self,
-        connection: &Connection,
-        code: ErrorCode,
-    ) -> Result<(), String> {
+    fn cancel_requests(&mut self, connection: &Connection, code: ErrorCode) -> Result<(), String> {
+        for (id, _) in self.completion_requests.drain(..) {
+            send(
+                connection,
+                Response::new_err(
+                    id,
+                    code as i32,
+                    "completion analysis is no longer available for this request".into(),
+                ),
+            )?;
+        }
         for id in self.token_requests.drain(..) {
             send(
                 connection,
@@ -250,12 +319,13 @@ impl Documents {
         }
         let revision = self.id()?;
         let control = Control::new();
+        let source: Arc<str> = Arc::from(item.text);
         let job = Job {
             uri: item.uri.clone(),
             generation: revision,
             revision,
             version: item.version,
-            source: Arc::from(item.text),
+            source: Arc::clone(&source),
             control: control.clone(),
             queued_at: Instant::now(),
         };
@@ -269,6 +339,11 @@ impl Documents {
                 hover: None,
                 tokens: None,
                 token_requests: Vec::new(),
+                lines: positions::LineIndex::new(&source),
+                source,
+                completion: None,
+                completion_ready: false,
+                completion_requests: Vec::new(),
             },
         );
         worker.submit(job);
@@ -299,19 +374,23 @@ impl Documents {
         let source = params.content_changes.into_iter().last().unwrap().text;
         let revision = self.id()?;
         let document = self.open.get_mut(&uri).unwrap();
-        document.cancel_token_requests(connection, ErrorCode::ContentModified)?;
+        document.cancel_requests(connection, ErrorCode::ContentModified)?;
         document.control.cancel();
         document.control = Control::new();
         document.revision = revision;
         document.version = params.text_document.version;
         document.hover = None;
         document.tokens = None;
+        document.completion = None;
+        document.completion_ready = false;
+        document.source = Arc::from(source);
+        document.lines = positions::LineIndex::new(&document.source);
         worker.submit(Job {
             uri,
             generation: document.generation,
             revision,
             version: document.version,
-            source: Arc::from(source),
+            source: Arc::clone(&document.source),
             control: document.control.clone(),
             queued_at: Instant::now(),
         });
@@ -325,7 +404,7 @@ impl Documents {
     ) -> Result<(), String> {
         let uri = params.text_document.uri;
         if let Some(mut document) = self.open.remove(&uri) {
-            document.cancel_token_requests(connection, ErrorCode::ContentModified)?;
+            document.cancel_requests(connection, ErrorCode::ContentModified)?;
             document.control.cancel();
             worker.release(uri.as_str(), document.revision);
             publish(connection, uri, document.version, Vec::new())?;
@@ -356,6 +435,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
         }
     };
     let semantic_legend = config.semantic_legend.clone();
+    let completion_snippets = config.completion_snippets;
     let mut worker = Worker::start(config, factory)?;
     let mut documents = Documents::new();
     let mut initialize_id = Some(initialize_id);
@@ -371,7 +451,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
             select! {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(()), startup_ms) => {
-                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true});
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]}});
                         if let Some(legend) = &semantic_legend {
                             capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
                         }
@@ -392,12 +472,15 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             if let Some(error) = analysis.semantic_error {
                                 log(&connection, format!("semantic tokens unavailable: {error}"))?;
                             }
+                            if let Some(error) = analysis.completion_error { log(&connection, format!("completion unavailable: {error}"))?; }
                             let document = documents.open.get_mut(&job.uri).unwrap();
                             document.tokens = Some(SemanticTokens::default());
+                            document.completion_ready = true;
                             if !job.control.token.is_cancelled() {
                                 if let Outcome::Diagnostics(diagnostics, status) = analysis.outcome {
                                     if status != "fatal" {
                                         document.hover = analysis.hover;
+                                        document.completion = analysis.completion;
                                         if let (Some(snapshot), Some(legend)) = (analysis.semantic_tokens, &semantic_legend) {
                                             document.tokens = Some(snapshot.full(legend));
                                         }
@@ -406,11 +489,12 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 }
                             }
                             document.finish_token_requests(&connection)?;
+                            document.finish_completion_requests(&connection, completion_snippets)?;
                         }
                     }
                     Event::Failed(error) => {
                         for document in documents.open.values_mut() {
-                            document.cancel_token_requests(&connection, ErrorCode::InternalError)?;
+                            document.cancel_requests(&connection, ErrorCode::InternalError)?;
                         }
                         if let Some(id) = initialize_id.take() {
                             send(&connection, Response::new_err(id, ErrorCode::InternalError as i32, error.clone()))?;
@@ -426,7 +510,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             if request.method == "shutdown" && initialize_id.is_none() && !shutdown {
                                 shutdown = true;
                                 for document in documents.open.values_mut() {
-                                    document.cancel_token_requests(&connection, ErrorCode::RequestCanceled)?;
+                                    document.cancel_requests(&connection, ErrorCode::RequestCanceled)?;
                                 }
                                 documents.cancel_all();
                                 worker.stop();
@@ -443,6 +527,20 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                         } else {
                                             send(&connection, Response::new_ok(request.id, SemanticTokens::default()))?;
                                         }
+                                    }
+                                    Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
+                                }
+                            } else if request.method == "textDocument/completion" && initialize_id.is_none() && initialized && !shutdown {
+                                match serde_json::from_value::<CompletionParams>(request.params) {
+                                    Ok(params) => {
+                                        let target = params.text_document_position;
+                                        if let Some(document) = documents.open.get_mut(&target.text_document.uri) {
+                                            if document.lines.offset(&document.source, target.position).is_none() {
+                                                send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, "invalid completion UTF-16 position".into()))?;
+                                            } else if document.completion_ready {
+                                                document.send_completion(&connection, request.id, target.position, completion_snippets)?;
+                                            } else { document.completion_requests.push((request.id, target.position)); }
+                                        } else { send(&connection, Response::new_ok(request.id, lsp_types::CompletionList { is_incomplete: false, items: Vec::new() }))?; }
                                     }
                                     Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
                                 }
@@ -472,6 +570,11 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 "$/cancelRequest" => {
                                     if let Ok(id) = serde_json::from_value::<RequestId>(notification.params["id"].clone()) {
                                         for document in documents.open.values_mut() {
+                                            if let Some(index) = document.completion_requests.iter().position(|(pending, _)| *pending == id) {
+                                                document.completion_requests.remove(index);
+                                                send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "completion request cancelled".into()))?;
+                                                break;
+                                            }
                                             if let Some(index) = document.token_requests.iter().position(|pending| *pending == id) {
                                                 document.token_requests.remove(index);
                                                 send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "semantic token request cancelled".into()))?;

@@ -44,6 +44,14 @@ local config = {
   filetypes = { "skript" },
   init_options = { snapshotPath = snapshot, addonPaths = addons },
   capabilities = capabilities,
+  on_attach = function(client, bufnr)
+    if client:supports_method("textDocument/completion", bufnr) then
+      vim.opt_local.completeopt = { "menu", "menuone", "noselect" }
+      vim.lsp.completion.enable(true, client.id, bufnr, { autotrigger = true })
+      vim.keymap.set("i", "<C-Space>", vim.lsp.completion.get,
+        { buffer = bufnr, desc = "Skript completion" })
+    end
+  end,
 }
 
 vim.filetype.add({ extension = { sk = "skript" } })

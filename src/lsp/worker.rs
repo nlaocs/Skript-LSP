@@ -1,4 +1,4 @@
-use super::{ProjectConfig, diagnostics, hover, semantic_tokens};
+use super::{ProjectConfig, completion, diagnostics, hover, semantic_tokens};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use lsp_types::Diagnostic;
 use parser_wasm::{
@@ -61,6 +61,8 @@ pub(super) struct Analysis {
     pub hover: Option<hover::Document>,
     pub semantic_tokens: Option<semantic_tokens::Document>,
     pub semantic_error: Option<String>,
+    pub completion: Option<completion::Document>,
+    pub completion_error: Option<String>,
     pub parse_ms: f64,
     pub report_ms: f64,
 }
@@ -76,6 +78,7 @@ struct ParserAnalyzer {
     catalog: Arc<syntaxes::Catalog>,
     hover_format: lsp_types::MarkupKind,
     semantic_enabled: bool,
+    completions: Arc<completion::CatalogIndex>,
 }
 pub(super) fn parser_factory() -> Factory {
     Box::new(|config| {
@@ -99,12 +102,14 @@ pub(super) fn parser_factory() -> Factory {
             .map_err(|error| error.to_string())?;
         host.release_document(&config.project_uri, "lsp-project-validation", 0)
             .map_err(|error| error.to_string())?;
+        let completions = Arc::new(completion::CatalogIndex::new(&catalog));
         Ok(Box::new(ParserAnalyzer {
             project_uri: config.project_uri,
             host,
             catalog,
             hover_format: config.hover_format,
             semantic_enabled: config.semantic_legend.is_some(),
+            completions,
         }))
     })
 }
@@ -128,6 +133,8 @@ impl Analyzer for ParserAnalyzer {
         let mut hover = None;
         let mut semantic_tokens = None;
         let mut semantic_error = None;
+        let mut completion = None;
+        let mut completion_error = None;
         let outcome = match result {
             Ok(result) => {
                 let status =
@@ -137,6 +144,14 @@ impl Analyzer for ParserAnalyzer {
                         "complete"
                     };
                 // Conversion and recursive destruction stay on the worker's large stack.
+                match completion::Document::from_result(
+                    &result,
+                    Arc::clone(&job.source),
+                    Arc::clone(&self.completions),
+                ) {
+                    Ok(snapshot) => completion = Some(snapshot),
+                    Err(error) => completion_error = Some(error),
+                }
                 if self.semantic_enabled {
                     match semantic_tokens::Document::from_result(
                         &result,
@@ -185,6 +200,8 @@ impl Analyzer for ParserAnalyzer {
             hover,
             semantic_tokens,
             semantic_error,
+            completion,
+            completion_error,
             parse_ms,
             report_ms: report_started.elapsed().as_secs_f64() * 1000.0,
         }

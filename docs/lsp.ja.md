@@ -1,8 +1,8 @@
 # 最小 stdio Language Server
 
-`skript-lsp --stdio` は、設定した一つのprojectとSSG snapshotを使い、開いている文書の診断・ホバー・Semantic Tokensを提供する。
+`skript-lsp --stdio` は、設定した一つのprojectとSSG snapshotを使い、開いている文書の診断・ホバー・Semantic Tokens・入力候補を提供する。
 必須CoreLibraryはexeへ埋め込まれ、通常の解析にJavaやMinecraftサーバーは必要ない。
-全構文・全Addonの互換性を保証する完成版ではなく、補完・定義移動・複数ファイル索引・変数型flow・incremental parseは含まない。
+全構文・全Addonの互換性を保証する完成版ではなく、定義移動・複数ファイル索引・変数型flow・incremental parseは含まない。
 
 ## 初期化と対応メソッド
 
@@ -17,7 +17,7 @@ clientは `rootUri` または一件の `workspaceFolders` と、次の `initiali
 }
 ```
 
-対応する要求は `initialize`、`textDocument/hover`、交渉済みの `textDocument/semanticTokens/full`、`shutdown`、
+対応する要求は `initialize`、`textDocument/hover`、`textDocument/completion`、交渉済みの `textDocument/semanticTokens/full`、`shutdown`、
 通知は `initialized`、`exit`、`textDocument/didOpen`、`didChange`、`didClose`、`$/cancelRequest`。
 同期方式はFullで、変更は文書全体の `text` と増加するclient versionを送る。
 位置encodingはUTF-16。診断はversion付きの `publishDiagnostics` で置換し、
@@ -139,15 +139,46 @@ token用の不変データはworkerで作り、通信threadで再解析しない
 個別要求の取消は共有の解析を止めない。fatal・cancel・staleの完了時には空結果で保留を解放し、worker故障時もerrorで終端する。
 semantic投影の失敗は専用logと空tokenにし、既存の診断とホバーの生成から分離する。
 
+## 入力候補の範囲
+
+`completionProvider` は `{` をtrigger characterとして公開する。任意の位置から手動要求でき、resolve要求は使わない。
+起動時のCatalogからPattern ASTを読み、行頭ではStructure/Event、字下げされた文頭ではEffect/Section/Condition、
+式の入力位置ではExpressionと戻り値のある関数を候補にする。固定語の続きを入力中は文頭候補も維持する。
+SSGに記録されたEventの`on` prefixを使い、headerには`:`を付ける。
+文頭固定語の一致、変数履歴、文書関数、Catalog関数、Expressionの順に提示し、各Catalog群内では登録・pattern順を保つ。
+選択肢はpatternごと最大16通り、深さ32、pattern sourceは1024 byteまでとし、
+返す候補は最大100件とする。切り詰めがあれば`isIncomplete`を返す。
+
+これらは入力テンプレートであり、採用済みの構文ではない。不完全な行へのexpected typeやAddon guardの判定、
+実行scopeへの適合性は確認しない。先頭がplaceholderだけのpattern、動的Addon layer、regexの具体的なマッチ文字列は補作しない。
+関数は現在文書の既存registryとCatalogから取り、parserと同じ引数のcomponent type・single・optional変換を使う。
+同名・同shapeの文書内関数によるshadowを維持し、戻り値のないshadowからCatalogの式候補を復活させない。
+引数型に合うoverloadの選択は行わない。単独Function呼び出し文のparser制約も変わらない。
+
+静的変数名は最終ASTのExpression、公開variable schema、子なし、原文一致のExact originを確認した参照履歴から得る。
+localはカーソルより前に同じRawTree bodyまたはその祖先bodyで観測した参照だけを示し、兄弟bodyへ持ち出さない。
+これは宣言・binding・型・値の解析ではない。動的名、未知schema、位置が曖昧な生成文、fault領域は履歴へ加えない。
+文字列本文・コメントには候補を出さず、補間内では入力支援用の字句状態を使う。字句判定自体はparserの受理を保証しない。
+
+編集は原文のUTF-16範囲で返す。既存の関数引数・変数の閉じbrace・右側の固定語を保持する。
+カーソル右側の既存文字を置換する必要があるときは、その文字列が候補末尾と一致する場合だけ前方prefixの編集へ変換する。
+末尾が一致しない途中置換は候補から省略する。右側の文字をmenu確定時に置換しないclientでも二重にしないためである。
+`snippetSupport`があれば型slotや必須関数引数をtab stopにし、なければ最初のslot直前までの固定語だけを入れる。
+追加の型推論や再解析を補完要求ごとに実行せず、workerで作った現在revisionの不変データを使う。
+現在の解析が終わるまで要求を保持するため、編集直後の表示時間には全文parseの待ち時間が含まれる。
+編集・closeは旧要求へContentModified、個別取消・shutdownはRequestCancelledを返す。
+取消・stale・fatalは空結果、worker failureはerrorで終端し、旧revisionの候補を返さない。
+
 ## 計測と検証
 
 `window/logMessage` にstartupと解析単位のJSONを出力する。
-`startupMs` はsnapshot読み込み・WASM host初期化を含むworker準備時間。
-`queueMs` は要求の待機、`parseMs` は `parse_document`、`reportMs` は診断・ホバー・token変換と結果の後始末、
+`startupMs` はsnapshot読み込み・WASM host初期化・Catalog入力候補索引を含むworker準備時間。
+`queueMs` は要求の待機、`parseMs` は `parse_document`、`reportMs` は診断・ホバー・token・補完view変換と結果の後始末、
 `analysisMs` はworker処理全体、`cancelToFinishMs` は取消要求からworkerが返るまでの時間を表す。
 取消前に終了していた場合や取消されなかった場合はnullになる。
 これらはRustのbuild/compile時間や、clientが画面へ診断を描くまでの時間を含まない。
 最新版へまとめられて実行されなかった要求の解析時間は計上しない。
+`skript-lsp completion timing`の`queryMs`は候補検索と応答構築の時間で、解析の完了待ちやclientのmenu描画を含まない。
 
 ```sh
 cargo run -p xtask --locked -- build-core-library

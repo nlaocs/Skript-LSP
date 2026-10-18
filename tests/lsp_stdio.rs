@@ -139,6 +139,171 @@ fn snapshot() -> PathBuf {
         .join("utilities/skript-repl/tests/data/current-multi-addon-2.15.4")
 }
 
+#[test]
+fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() {
+    let mut client = Client::initialized_with_capabilities(
+        &[],
+        json!({
+            "textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}
+        }),
+    );
+    let source = "function greet(value: string) :: string:\r\n    send \"hello\" to console\r\non load:\r\n    send {_money} to console\r\n    send {_mo} to console\r\n    send si(1) to console\r\n    send gr\r\n    cancel \r\n    send name of player\r\n    send \"日本😀\" to console\r\non join:\r\n    send {_mo} to console\r\n";
+    client.open(1, source);
+    client.diagnostics(1);
+    let variables = client.completion(30, 4, 13);
+    let variable = variables["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "{_money}")
+        .expect("previous local reference in the same body");
+    assert_eq!(variable["textEdit"]["newText"], "{_money");
+    assert_eq!(variable["textEdit"]["range"], json!(range(4, 9, 4, 13)));
+    assert!(
+        !client.completion(31, 11, 13)["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "{_money}"),
+        "local history does not cross raw bodies"
+    );
+    let calls = client.completion(32, 5, 11);
+    let sin = calls["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| {
+            item["label"]
+                .as_str()
+                .is_some_and(|label| label.starts_with("sin("))
+        })
+        .unwrap();
+    assert_eq!(sin["textEdit"]["newText"], "sin");
+    assert_eq!(sin["textEdit"]["range"], json!(range(5, 9, 5, 11)));
+    assert_eq!(
+        sin["insertTextFormat"], 1,
+        "existing arguments are preserved"
+    );
+    let local_calls = client.completion(33, 6, 11);
+    let greet = local_calls["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| {
+            item["label"]
+                .as_str()
+                .is_some_and(|label| label.starts_with("greet("))
+        })
+        .unwrap();
+    assert_eq!(greet["textEdit"]["newText"], "greet(${1:value})");
+    assert_eq!(greet["insertTextFormat"], 2);
+    let cancel = client.completion(34, 7, 11);
+    assert!(
+        cancel["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["textEdit"]["newText"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("cancel event"))),
+        "fixed statement words survive trailing whitespace: {cancel}"
+    );
+    let names = client.completion(35, 8, 11);
+    let name = names["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["textEdit"]["newText"] == "na")
+        .expect("name template must not duplicate the right suffix");
+    assert_eq!(name["textEdit"]["range"], json!(range(8, 9, 8, 11)));
+    assert!(
+        client.completion(36, 9, 11)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "no string text suggestions"
+    );
+    client.send(Request::new(
+        37.into(),
+        "textDocument/completion".into(),
+        json!({
+            "textDocument":{"uri":client.uri},"position":{"line":9,"character":13}
+        }),
+    ));
+    assert_eq!(
+        client.response(37).response_result.unwrap_err().code,
+        -32602,
+        "surrogate interior is invalid"
+    );
+    client.change(2, "on load:\n    send gr\n");
+    client.diagnostics(2);
+    let revised = client.completion(38, 1, 11);
+    assert!(
+        !revised["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"]
+                .as_str()
+                .is_some_and(|label| label.starts_with("greet("))),
+        "edits drop prior document functions"
+    );
+    client.change(3, "");
+    client.diagnostics(3);
+    assert!(
+        !client.completion(39, 0, 0)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    client.finish();
+}
+
+#[test]
+fn completion_without_snippet_support_never_inserts_placeholder_syntax() {
+    let mut client = Client::spawn();
+    client.initialize(&snapshot(), &[]);
+    let capabilities = client.response(1).response_result.unwrap();
+    assert_eq!(
+        capabilities["capabilities"]["completionProvider"]["triggerCharacters"],
+        json!(["{"])
+    );
+    assert_eq!(
+        capabilities["capabilities"]["completionProvider"]["resolveProvider"],
+        false
+    );
+    client.notify("initialized", json!({}));
+    client.open(1, "on load:\n    send si\n    se\n    # si\n");
+    client.diagnostics(1);
+    let result = client.completion(40, 1, 11);
+    let sin = result["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| {
+            item["label"]
+                .as_str()
+                .is_some_and(|label| label.starts_with("sin("))
+        })
+        .unwrap();
+    assert_eq!(sin["textEdit"]["newText"], "sin(");
+    let effects = client.completion(41, 2, 6);
+    assert!(!effects["items"].as_array().unwrap().is_empty());
+    for result in [&result, &effects] {
+        for item in result["items"].as_array().unwrap() {
+            assert_eq!(item["insertTextFormat"], 1);
+            assert!(!item["textEdit"]["newText"].as_str().unwrap().contains("${"));
+        }
+    }
+    assert!(
+        client.completion(42, 3, 8)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    client.finish();
+}
+
 fn text_macro() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("artifacts/text-macro-addon.wasm")
 }
@@ -341,6 +506,17 @@ impl Client {
             }),
         ));
         serde_json::from_value(self.response(id).response_result.unwrap()).unwrap()
+    }
+
+    fn completion(&mut self, id: i32, line: u32, character: u32) -> Value {
+        self.send(Request::new(
+            id.into(),
+            "textDocument/completion".into(),
+            json!({
+                "textDocument":{"uri":self.uri},"position":{"line":line,"character":character}
+            }),
+        ));
+        self.response(id).response_result.unwrap()
     }
 
     fn finish(mut self) {

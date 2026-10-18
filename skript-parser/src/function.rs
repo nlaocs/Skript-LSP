@@ -71,7 +71,9 @@ pub struct FunctionDefinition {
 }
 
 impl FunctionDefinition {
-    pub(crate) fn from_catalog(function: &Function) -> Self {
+    /// Projects one catalog signature using the same component types and
+    /// parameter flags as the call parser. This does not select an overload.
+    pub fn from_catalog(function: &Function) -> Self {
         Self {
             parser_id: "core.function".to_owned(),
             name: function.name.clone(),

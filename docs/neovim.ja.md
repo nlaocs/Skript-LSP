@@ -1,4 +1,4 @@
-# Neovim で文書診断・ホバー・ハイライトを確認する
+# Neovim で文書診断・ホバー・ハイライト・補完を確認する
 
 Neovim 0.12 以降の標準 LSP client を使う。`nvim-lspconfig` や追加 plugin は不要で、
 この手順は既存の Neovim 設定ファイルを書き換えない。
@@ -68,6 +68,21 @@ Neovim標準のcapabilitiesではMarkdown表示を選び、説明のHTMLタグ�
 標準floating windowで確認する。HTMLタグと文字参照、色タグ、複数行の例の字下げ・境界、
 完全修飾Javaクラス、2回目のhoverによるfocus、scroll、close、編集後の表示更新をJSONへ記録する。
 headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktopの画面描画までは保証しない。
+
+## 入力補完を使う
+
+付属設定はNeovim標準の`vim.lsp.completion`をbufferごとに有効にする。
+挿入modeで`Ctrl-Space`を押すと候補menuを開き、`Ctrl-N`/`Ctrl-P`で選択、`Ctrl-Y`で確定する。
+`{`の入力でも自動要求する。通常の文字を一つ打つたびに全文解析を追加要求する設定は行わない。
+snippet対応時は必須引数・型slotをtab stopにする。Neovim標準のsnippet操作を利用でき、追加pluginは不要。
+
+文頭のCatalogテンプレート、式の関数とExpression、同じ文書で観測した静的変数名を表示する。
+候補は型・Addon guard・実行scopeへの適合性を保証しない。local変数は宣言解析ではなく、同じbody/祖先でカーソルより前に現れた参照履歴に限定する。
+未完成行も対象だが、編集後は現在文書の解析完了を待つ。応答の検索時間と全文解析の待ち時間は別に扱う。
+詳しい制約は[LSPの入力候補](lsp.ja.md#入力候補の範囲)を参照する。
+
+`tests/neovim/completion.lua`は標準clientの実応答とmenu・確定後のbufferを確認し、
+JSONに要求往復時間、解析・候補検索logを分けて保存する。headlessの標準clientを対象とする。
 
 ## Semantic Tokens の色
 
