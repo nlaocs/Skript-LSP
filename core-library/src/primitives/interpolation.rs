@@ -145,6 +145,8 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
         if container.kind == "variable-name" {
             leaf.public_data
                 .push(variable::public_name_data(container.body)?);
+            leaf.public_data
+                .push(variable::public_identity_data(container.body)?);
         }
         return Some(Outcome::Candidate(leaf, results.to_vec()));
     }

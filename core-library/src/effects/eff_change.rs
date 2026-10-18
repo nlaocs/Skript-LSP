@@ -88,7 +88,7 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     });
 }
 
-pub(super) fn resolve(payload: EffectPayload) -> Option<HookOutput> {
+pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let candidate = payload.candidate.as_ref()?;
     if !crate::runtime::handler_matches(HANDLER_ID, &candidate.registration_id) {
         return None;
@@ -138,7 +138,75 @@ pub(super) fn resolve(payload: EffectPayload) -> Option<HookOutput> {
     if let Some(output) = validate_expression_change(&payload, operation.mode, changed, changer) {
         return Some(output);
     }
+    // execute first obtains the delta, then invokes beforeChange and the target.
+    let authentic = catalog::standard_effect_source(candidate, "ch.njol.skript.effects.EffChange");
+    let target = changed.and_then(|capture| capture.summary.as_ref());
+    let static_target = target.and_then(static_variable);
+    let delta = changer.and_then(|capture| capture.summary.as_ref());
+    let identity_delta = authentic && delta.is_some_and(catalog::identity_delta_for_summary);
+    let identity_delta_types = if authentic {
+        delta
+            .map(catalog::identity_delta_types_for_summary)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let target_only = authentic
+        && static_target.is_some()
+        && (matches!(operation.mode, ChangeMode::Set | ChangeMode::Delete)
+            || (operation.mode == ChangeMode::Add && static_target == Some(true)))
+        && (operation.mode == ChangeMode::Delete
+            || identity_delta
+            || !identity_delta_types.is_empty());
+    let contract = serde_json::json!({
+        "version": 2,
+        "mode": operation.mode.diagnostic_name(),
+        "targetCapture": operation.changed_capture,
+        "valueCapture": operation.changer_capture,
+        "identityDelta": identity_delta,
+        "identityDeltaTypes": identity_delta_types,
+        "targetOnly": target_only,
+    });
+    super::annotate(
+        &mut payload,
+        "skript.semantic.variable-change",
+        &contract.to_string(),
+    );
+    if authentic {
+        let prefix = operation.changer_capture.into_iter().collect::<Vec<_>>();
+        super::annotate(
+            &mut payload,
+            crate::public_data::OPERAND_EVALUATION_METADATA_KEY,
+            &serde_json::json!({"version":1,"prefix":prefix}).to_string(),
+        );
+    }
     Some(continue_with(payload))
+}
+
+fn static_variable(summary: &ParseSummary) -> Option<bool> {
+    if summary.kind != "variable" {
+        return None;
+    }
+    let records = summary
+        .public_data
+        .iter()
+        .filter(|record| record.schema_id == crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID)
+        .collect::<Vec<_>>();
+    if records.len() != 1
+        || records[0].schema_version != crate::public_data::VARIABLE_IDENTITY_SCHEMA_VERSION
+    {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&records[0].json).ok()?;
+    // Global writes can synchronously serialize older queued values. That path
+    // does not have the caller-local isolation promised by targetOnly.
+    if value["scope"] != "local"
+        || value["resolution"] != "static"
+        || value["name"].as_str().is_none()
+    {
+        return None;
+    }
+    value["list"].as_bool()
 }
 
 fn parsed_capture(
@@ -559,8 +627,43 @@ fn continue_with(payload: EffectPayload) -> HookOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::{ChangeMode, ChangeOperation, can_use_type_change_fallback, change_operation};
+    use super::{
+        ChangeMode, ChangeOperation, can_use_type_change_fallback, change_operation,
+        static_variable,
+    };
     use crate::catalog::{ChangeContract, TypeRelation};
+
+    #[test]
+    fn target_only_proof_excludes_global_and_unresolved_variable_scopes() {
+        use crate::nlaocs::skript_parser_addon::types::{
+            ExpressionPossibleReturnTypesState, ExpressionPublicData, ParseSummary,
+        };
+        for (scope, resolution, list, expected) in [
+            ("local", "static", false, Some(false)),
+            ("local", "static", true, Some(true)),
+            ("global", "static", false, None),
+            ("global", "static", true, None),
+            ("unknown", "static", false, None),
+            ("local", "dynamic", false, None),
+        ] {
+            let summary = ParseSummary {
+                kind:"variable".into(), definition_id:None, registration_id:None,
+                element_class:None, pattern_index:None, return_type:None,
+                possible_return_types:Vec::new(), possible_return_types_state:ExpressionPossibleReturnTypesState::Unresolved,
+                multiplicity:None, default_expression:None, metadata:Vec::new(),
+                public_data:vec![ExpressionPublicData {
+                    schema_id:crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID.into(),
+                    schema_version:crate::public_data::VARIABLE_IDENTITY_SCHEMA_VERSION,
+                    json:serde_json::json!({"scope":scope,"resolution":resolution,"name":"value","list":list}).to_string(),
+                }],
+            };
+            assert_eq!(
+                static_variable(&summary),
+                expected,
+                "{scope}/{resolution}/{list}"
+            );
+        }
+    }
 
     #[test]
     fn maps_every_skript_change_pattern_to_its_mode_and_capture_roles() {

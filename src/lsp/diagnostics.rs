@@ -152,13 +152,36 @@ impl<'a> Collector<'a> {
             } else {
                 reasons.join("; ")
             };
+            let mismatch = deepest
+                .failure
+                .reasons
+                .iter()
+                .find_map(|reason| match reason {
+                    skript_parser::PatternFailureReason::TypeMismatch { expected, actual } => {
+                        Some((expected, actual))
+                    }
+                    _ => None,
+                });
             self.add(
-                "parser.syntax-incomplete",
+                if mismatch.is_some() {
+                    "parser.type-mismatch"
+                } else {
+                    "parser.syntax-incomplete"
+                },
                 &message,
                 DiagnosticSeverity::ERROR,
                 native_origins(&deepest.failure.span.mapped),
                 Vec::new(),
             )?;
+            if let Some((expected, actual)) = mismatch {
+                self.diagnostics
+                    .last_mut()
+                    .expect("just added diagnostic")
+                    .data = Some(json!({
+                    "expectedTypes": expected,
+                    "actualTypes": actual,
+                }));
+            }
         }
         Ok(explained)
     }
@@ -368,6 +391,13 @@ fn failure_reason(reason: &skript_parser::PatternFailureReason) -> String {
         Reason::TypeExpression { expected } => {
             format!("Expected expression type: {}", expected.join(", "))
         }
+        Reason::TypeMismatch { expected, actual } => {
+            format!(
+                "Expected {}, found {}",
+                expected.join(" or "),
+                actual.join(" or ")
+            )
+        }
         Reason::DefaultExpression { reason, .. }
         | Reason::TypeParserUnresolved { reason, .. }
         | Reason::HookRejected { reason } => reason.clone(),
@@ -487,10 +517,17 @@ pub(super) fn from_result(
         )?;
     }
     let mut diagnostics = collector.finish();
+    let status = if result.execution_status == parser_wasm::DocumentExecutionStatus::Partial {
+        "partial"
+    } else {
+        "complete"
+    };
     for diagnostic in &mut diagnostics {
-        diagnostic.data = Some(
-            json!({"executionStatus":if result.execution_status == parser_wasm::DocumentExecutionStatus::Partial {"partial"} else {"complete"}}),
-        );
+        if let Some(serde_json::Value::Object(data)) = &mut diagnostic.data {
+            data.insert("executionStatus".into(), json!(status));
+        } else {
+            diagnostic.data = Some(json!({"executionStatus":status}));
+        }
     }
     Ok(diagnostics)
 }
@@ -528,6 +565,135 @@ mod tests {
                 &span,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn type_mismatch_diagnostic_preserves_the_bad_expression_and_structured_types() {
+        let source = "😀 teleport player to player's name\n";
+        let uri = "file:///project/example.sk".parse().unwrap();
+        let start = source.find("player's").unwrap();
+        let range = TextRange::new(start, start + "player's name".len());
+        let mut collector = Collector::new(&uri, source);
+        collector
+            .trace(&failure(
+                source,
+                range,
+                vec![skript_parser::PatternFailureReason::TypeMismatch {
+                    expected: vec!["org.bukkit.Location".into()],
+                    actual: vec!["java.lang.String".into()],
+                }],
+            ))
+            .unwrap();
+        let diagnostics = collector.finish();
+        assert_eq!(diagnostics.len(), 1);
+        let diagnostic = &diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            Some(NumberOrString::String("parser.type-mismatch".into()))
+        );
+        assert_eq!(
+            diagnostic.message,
+            "Expected org.bukkit.Location, found java.lang.String"
+        );
+        assert_eq!(
+            diagnostic.range,
+            LineIndex::new(source).range(source, range).unwrap()
+        );
+        let wire = serde_json::to_value(diagnostic).unwrap();
+        assert_eq!(
+            wire["data"],
+            json!({"expectedTypes": ["org.bukkit.Location"], "actualTypes": ["java.lang.String"]})
+        );
+        assert_eq!(wire["range"]["start"]["character"], json!(22));
+    }
+
+    #[test]
+    fn from_result_keeps_native_type_evidence_with_execution_status() {
+        // Teleport's bypassed direction capture needs its authentic initializer.
+        // The old schema3 corpus has no DefaultExpression descriptors.
+        let catalog = std::sync::Arc::new(
+            ssg::load(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
+            )
+            .unwrap()
+            .into_catalog(),
+        );
+        let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+            syntax_catalog: Some(catalog),
+            runtime_profile: parser_wasm::RuntimeProfile {
+                skript_version: Some("2.15.4".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .unwrap();
+        let source: std::sync::Arc<str> =
+            std::sync::Arc::from("on join:\n    teleport player to player's name\n");
+        let result = host
+            .parse_document(
+                parser_wasm::DocumentParseRequest::new(
+                    "file:///project",
+                    "native-type-diagnostic",
+                    1,
+                    std::sync::Arc::clone(&source),
+                ),
+                Default::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            result.execution_status,
+            parser_wasm::DocumentExecutionStatus::Complete
+        );
+        assert!(
+            result.component_failures.is_empty(),
+            "{:?}",
+            result.component_failures
+        );
+        assert!(
+            result.fault_regions.is_empty(),
+            "{:?}",
+            result.fault_regions
+        );
+        let uri = "file:///project/native-type.sk".parse().unwrap();
+        let diagnostics = from_result(&uri, &result).unwrap();
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code == Some(NumberOrString::String("parser.type-mismatch".into()))
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "real native typed mismatch missing: {diagnostics:#?}; native syntax: {:#?}",
+                    result.syntax
+                )
+            });
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostic.severity, Some(DiagnosticSeverity::ERROR));
+        let start = source.find("player's name").unwrap();
+        assert_eq!(
+            diagnostic.range,
+            LineIndex::new(&source)
+                .range(
+                    &source,
+                    TextRange::new(start, start + "player's name".len())
+                )
+                .unwrap()
+        );
+        let wire = serde_json::to_value(diagnostic).unwrap();
+        assert_eq!(
+            wire["data"]["expectedTypes"],
+            json!(["org.bukkit.Location"]),
+            "wrong containing typed slot: {diagnostics:#?}; native syntax: {:#?}",
+            result.syntax
+        );
+        // Actual PlayerClassInfo2.15.4 NAME uses Player::name, Component.class;
+        // the synthetic native matcher fixtures intentionally resolve String.
+        assert_eq!(
+            wire["data"]["actualTypes"],
+            json!(["net.kyori.adventure.text.Component"])
+        );
+        assert_eq!(wire["data"]["executionStatus"], json!("complete"));
     }
 
     #[test]

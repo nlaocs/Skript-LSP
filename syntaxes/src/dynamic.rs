@@ -628,6 +628,11 @@ pub struct DynamicSyntaxUpdate {
 }
 
 impl DynamicSyntaxUpdate {
+    /// Whether this invocation staged an actual registration, override, or removal.
+    pub fn has_staged_changes(&self) -> bool {
+        !self.operations.is_empty()
+    }
+
     /// Returns the component that owns this transaction.
     pub fn component_id(&self) -> &str {
         &self.component_id

@@ -12,6 +12,7 @@ pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
 pub(super) fn resolve(mut payload: ConditionPayload) -> Option<HookOutput> {
     matches(&payload, HANDLER_ID).then(|| {
         annotate(&mut payload, "semantic-mode", "existence");
+        super::local_effects::existence(&mut payload);
         accept(payload)
     })
 }

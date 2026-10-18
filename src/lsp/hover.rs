@@ -82,12 +82,7 @@ impl Document {
         }
         let (entry_targets, entry_blocked) = structure::targets(&result, &format)?;
         blocked.extend(entry_blocked);
-        let functions = result
-            .functions
-            .registrations()
-            .iter()
-            .map(|registration| registration.definition.clone())
-            .collect();
+        let functions = result.functions.definitions();
         let mut document = Self::from_ast(source, result.ast, functions, catalog, blocked, format)?;
         for target in &entry_targets {
             for range in &target.origins {

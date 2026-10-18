@@ -1,12 +1,16 @@
 //! Condition parsing over SSG registrations and recursive Expressions.
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
+#[cfg(test)]
+mod capture_bindings_tests;
+
 use crate::pattern_match::{find_parenthesis_end, java_trim_range};
 use crate::{
     CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
     ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureFrame,
     FailureFrameRole, FailureTrace, MappedSource, MatchSpan, MatchSyntaxKind, ParseMarkCapture,
-    ParseTagCapture, PatternCapture, PatternFailure, PatternFailureReason, TextRange,
+    ParseTagCapture, ParsedCaptureRef, PatternCapture, PatternFailure, PatternFailureReason,
+    TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -41,6 +45,14 @@ pub enum ConditionNodeKind {
     },
 }
 
+/// Association retained at the native resolution-ID lookup, never reconstructed
+/// from expression order or coincident source spans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConditionExpressionBinding {
+    pub capture_index: usize,
+    pub expression_index: usize,
+}
+
 /// One parsed Condition with its nested Expression and grouping structure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConditionNode {
@@ -51,9 +63,63 @@ pub struct ConditionNode {
     pub mark: i32,
     pub marks: Vec<ParseMarkCapture>,
     pub expressions: Vec<ExpressionNode>,
+    pub expression_bindings: Vec<ConditionExpressionBinding>,
     pub children: Vec<ConditionNode>,
     pub handler: Option<String>,
     pub metadata: BTreeMap<String, String>,
+}
+
+impl ConditionNode {
+    /// A unique resolved typed-slot association, or no claim for malformed or
+    /// unbound children. Neither missing slots nor regex captures shift indices.
+    pub fn expression_capture_index(&self, expression_index: usize) -> Option<usize> {
+        self.expressions.get(expression_index)?;
+        let mut bindings = self
+            .expression_bindings
+            .iter()
+            .filter(|binding| binding.expression_index == expression_index);
+        let binding = bindings.next()?;
+        if bindings.next().is_some()
+            || self
+                .expression_bindings
+                .iter()
+                .filter(|other| other.capture_index == binding.capture_index)
+                .count()
+                != 1
+        {
+            return None;
+        }
+        let mut captures = self
+            .captures
+            .iter()
+            .filter(|capture| capture.capture_index() == binding.capture_index);
+        if !matches!(
+            captures.next()?,
+            PatternCapture::TypeExpression {
+                resolution_id: Some(_),
+                ..
+            }
+        ) || captures.next().is_some()
+        {
+            return None;
+        }
+        Some(binding.capture_index)
+    }
+
+    /// The same borrowed capture contract used by Effects and Sections.
+    pub fn parsed_capture_refs(&self) -> impl Iterator<Item = ParsedCaptureRef<'_>> {
+        self.expressions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                self.expression_capture_index(index).map(|capture_index| {
+                    ParsedCaptureRef::Expression {
+                        capture_index,
+                        node,
+                    }
+                })
+            })
+    }
 }
 
 /// One valid Condition candidate in deterministic registration order.
@@ -317,6 +383,7 @@ fn grouped_candidate(candidate: ConditionCandidate, span: MatchSpan) -> Conditio
             mark: 0,
             marks: Vec::new(),
             expressions: Vec::new(),
+            expression_bindings: Vec::new(),
             children: vec![candidate.node],
             handler: None,
             metadata: BTreeMap::new(),
@@ -329,22 +396,8 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
     matched: CandidateMatch,
     range: TextRange,
 ) -> Result<ConditionCandidate, ConditionParseError> {
-    let expressions = matched
-        .matched
-        .captures
-        .iter()
-        .filter_map(|capture| match capture {
-            PatternCapture::TypeExpression {
-                resolution_id: Some(id),
-                ..
-            } => session.resolved_node(id).cloned(),
-            PatternCapture::Regex { .. }
-            | PatternCapture::TypeExpression {
-                resolution_id: None,
-                ..
-            } => None,
-        })
-        .collect();
+    let (expressions, expression_bindings) =
+        resolved_condition_expressions(&matched.matched.captures, |id| session.resolved_node(id));
     let dynamic = session.dynamic_snapshot().and_then(|snapshot| {
         snapshot
             .definitions
@@ -367,11 +420,36 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
             mark: matched.matched.mark,
             marks: matched.matched.marks,
             expressions,
+            expression_bindings,
             children: Vec::new(),
             handler: dynamic.map(|definition| definition.handler.clone()),
             metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
         },
     })
+}
+
+fn resolved_condition_expressions<'a>(
+    captures: &[PatternCapture],
+    mut resolve: impl FnMut(&str) -> Option<&'a ExpressionNode>,
+) -> (Vec<ExpressionNode>, Vec<ConditionExpressionBinding>) {
+    let mut expressions = Vec::new();
+    let mut bindings = Vec::new();
+    for capture in captures {
+        if let PatternCapture::TypeExpression {
+            capture_index,
+            resolution_id: Some(id),
+            ..
+        } = capture
+            && let Some(node) = resolve(id)
+        {
+            bindings.push(ConditionExpressionBinding {
+                capture_index: *capture_index,
+                expression_index: expressions.len(),
+            });
+            expressions.push(node.clone());
+        }
+    }
+    (expressions, bindings)
 }
 
 fn unknown_condition<E: ExpressionParseEnvironment>(

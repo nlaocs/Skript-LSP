@@ -142,6 +142,14 @@ enum ResolutionState {
 
 static CHANGE_CONTRACTS: LazyLock<RwLock<HashMap<String, Option<ChangeContract>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static EVENT_VALUE_LOCAL_READS: LazyLock<RwLock<HashMap<String, bool>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static STANDARD_CONDITION_SOURCES: LazyLock<RwLock<HashMap<String, bool>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static IMMUTABLE_RUNTIME_CLASSES: LazyLock<RwLock<HashMap<String, Vec<String>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static STANDARD_RUNTIME_SOURCES: LazyLock<RwLock<HashMap<String, bool>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 static EXPERIMENTS: LazyLock<RwLock<HashMap<String, Vec<CatalogExperiment>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
@@ -574,6 +582,402 @@ fn source_accepts_set_type(
         }
     }
     Ok((!relation_unknown).then_some(false))
+}
+
+/// Only the audited standard getter implementation is certified. This is not
+/// inferred from a Type or getter-shaped pattern: an addon getter/converter can
+/// execute arbitrary code, including a caller-local write.
+pub(crate) fn event_value_preserves_locals(value: &EventValueOption, target_class: &str) -> bool {
+    if value.context_dependent != Some(false)
+        || value.has_custom_input_validator != Some(false)
+        || value.has_custom_event_validator != Some(false)
+        || !matches!(
+            is_class_assignable(
+                value.value_class.trim_end_matches("[]"),
+                target_class.trim_end_matches("[]")
+            ),
+            Ok(TypeRelation::Compatible)
+        )
+    {
+        return false;
+    }
+    let Ok(digest) = catalog_source_digest() else {
+        return false;
+    };
+    let key = format!(
+        "{digest}\0{}\0{}\0{}\0{}",
+        value.registration_id, value.event_class, value.value_class, value.time
+    );
+    if let Some(result) = EVENT_VALUE_LOCAL_READS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .copied()
+    {
+        return result;
+    }
+    let result = registration_records(&value.registration_id)
+        .ok()
+        .is_some_and(|records| {
+            let records = records
+                .iter()
+                .filter(|record| record.document == "EventValues.json")
+                .collect::<Vec<_>>();
+            records.len() == 1 && standard_event_value_local_read(&records[0].bytes, value)
+        });
+    let mut cache = EVENT_VALUE_LOCAL_READS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= MAX_CACHED_CHANGE_CONTRACTS {
+        cache.clear();
+    }
+    cache.insert(key, result);
+    result
+}
+
+fn standard_event_value_local_read(_bytes: &[u8], _value: &EventValueOption) -> bool {
+    // The current export identifies registration ownership and shape, but does
+    // not retain the actual converter/getter implementation. Ownership alone
+    // cannot prove that a replacement callback preserves caller-local bindings.
+    false
+}
+
+/// Authenticate an audited provider family against the exact immutable source.
+/// Handler suffix matching alone cannot certify an addon implementation.
+pub(crate) fn standard_condition_source(
+    candidate: &crate::nlaocs::skript_parser_addon::types::ConditionCandidate,
+    expected_class: &str,
+) -> bool {
+    if !pinned_runtime() || candidate.element_class.as_deref() != Some(expected_class) {
+        return false;
+    }
+    let Ok(digest) = catalog_source_digest() else {
+        return false;
+    };
+    let key = format!(
+        "{digest}\0{}\0{}\0{expected_class}\0{}\0{}",
+        candidate.registration_id,
+        candidate.definition_id,
+        candidate.pattern_index,
+        candidate.pattern
+    );
+    if let Some(result) = STANDARD_CONDITION_SOURCES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .copied()
+    {
+        return result;
+    }
+    let result = registration_records(&candidate.registration_id)
+        .ok()
+        .is_some_and(|records| {
+            let records = records
+                .iter()
+                .filter(|record| record.document == "Conditions.json")
+                .collect::<Vec<_>>();
+            records.len() == 1
+                && standard_condition_source_record(&records[0].bytes, candidate, expected_class)
+        });
+    let mut cache = STANDARD_CONDITION_SOURCES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= MAX_CACHED_CHANGE_CONTRACTS {
+        cache.clear();
+    }
+    cache.insert(key, result);
+    result
+}
+
+fn standard_condition_source_record(
+    bytes: &[u8],
+    candidate: &crate::nlaocs::skript_parser_addon::types::ConditionCandidate,
+    expected_class: &str,
+) -> bool {
+    let Ok(record) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    let Ok(index) = usize::try_from(candidate.pattern_index) else {
+        return false;
+    };
+    record["kind"].as_str() == Some("condition")
+        && record["addon"]["name"].as_str() == Some("Skript")
+        && record["addon"]["version"].as_str() == Some("2.15.4")
+        && record["definitionId"].as_str() == Some(candidate.definition_id.as_str())
+        && record["registrationId"].as_str() == Some(candidate.registration_id.as_str())
+        && record["elementClass"].as_str() == Some(expected_class)
+        && record["patterns"]
+            .as_array()
+            .and_then(|values| values.get(index))
+            .and_then(serde_json::Value::as_str)
+            == Some(candidate.pattern.as_str())
+}
+
+pub(crate) fn standard_effect_source(
+    candidate: &crate::nlaocs::skript_parser_addon::types::EffectCandidate,
+    class: &str,
+) -> bool {
+    pinned_runtime()
+        && candidate.element_class.as_deref() == Some(class)
+        && standard_syntax_source(
+            "Effects.json",
+            "effect",
+            &candidate.definition_id,
+            &candidate.registration_id,
+            class,
+            candidate.pattern_index,
+            Some(&candidate.pattern),
+        )
+}
+pub(crate) fn standard_section_source(
+    candidate: &crate::nlaocs::skript_parser_addon::types::SectionCandidate,
+    class: &str,
+) -> bool {
+    pinned_runtime()
+        && candidate.element_class.as_deref() == Some(class)
+        && standard_syntax_source(
+            "Sections.json",
+            "section",
+            &candidate.definition_id,
+            &candidate.registration_id,
+            class,
+            candidate.pattern_index,
+            None,
+        )
+}
+fn standard_syntax_source(
+    document: &str,
+    kind: &str,
+    definition: &str,
+    registration: &str,
+    class: &str,
+    index: u64,
+    pattern: Option<&str>,
+) -> bool {
+    let Ok(digest) = catalog_source_digest() else {
+        return false;
+    };
+    let key = serde_json::json!([
+        digest,
+        document,
+        definition,
+        registration,
+        class,
+        index,
+        pattern
+    ])
+    .to_string();
+    if let Some(value) = STANDARD_RUNTIME_SOURCES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .copied()
+    {
+        return value;
+    }
+    let result = registration_records(registration)
+        .ok()
+        .is_some_and(|records| {
+            let records = records
+                .iter()
+                .filter(|record| record.document == document)
+                .collect::<Vec<_>>();
+            let Ok(index) = usize::try_from(index) else {
+                return false;
+            };
+            records.len() == 1
+                && serde_json::from_slice::<serde_json::Value>(&records[0].bytes)
+                    .ok()
+                    .is_some_and(|record| {
+                        record["kind"].as_str() == Some(kind)
+                            && record["addon"]["name"].as_str() == Some("Skript")
+                            && record["addon"]["version"].as_str() == Some("2.15.4")
+                            && record["definitionId"].as_str() == Some(definition)
+                            && record["registrationId"].as_str() == Some(registration)
+                            && record["elementClass"].as_str() == Some(class)
+                            && record["patterns"]
+                                .as_array()
+                                .and_then(|patterns| patterns.get(index))
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|selected| {
+                                    pattern.is_none_or(|pattern| selected == pattern)
+                                })
+                    })
+        });
+    let mut cache = STANDARD_RUNTIME_SOURCES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= MAX_CACHED_CHANGE_CONTRACTS {
+        cache.clear();
+    }
+    cache.insert(key, result);
+    result
+}
+
+/// The closed final classes are eligible only when actual versioned ClassInfo
+/// dispatch facts prove identity clone and absent serialization redirection.
+/// Unknown/old type definitions never gain this beforeChange/refresh proof.
+pub(crate) fn identity_delta_classes() -> Vec<String> {
+    if !pinned_runtime() {
+        return Vec::new();
+    }
+    let Ok(digest) = catalog_source_digest() else {
+        return Vec::new();
+    };
+    if let Some(value) = IMMUTABLE_RUNTIME_CLASSES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&digest)
+        .cloned()
+    {
+        return value;
+    }
+    let classes = [
+        "java.lang.String",
+        "java.lang.Boolean",
+        "java.lang.Byte",
+        "java.lang.Short",
+        "java.lang.Integer",
+        "java.lang.Long",
+        "java.lang.Float",
+        "java.lang.Double",
+    ]
+    .into_iter()
+    .filter(|class| standard_immutable_type(class))
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    let mut cache = IMMUTABLE_RUNTIME_CLASSES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= 16 {
+        cache.clear();
+    }
+    cache.insert(digest, classes.clone());
+    classes
+}
+fn pinned_runtime() -> bool {
+    crate::runtime::current()
+        .and_then(|profile| profile.skript_version)
+        .as_deref()
+        == Some("2.15.4")
+}
+fn standard_immutable_type(class: &str) -> bool {
+    let Ok(Some(option)) = type_for_class(class) else {
+        return false;
+    };
+    if option.class_name != class
+        || option.addon_name != "Skript"
+        || option.addon_version != "2.15.4"
+    {
+        return false;
+    }
+    let Ok(digest) = catalog_source_digest() else {
+        return false;
+    };
+    let key = format!("{digest}\0immutable\0{}\0{class}", option.registration_id);
+    if let Some(value) = STANDARD_RUNTIME_SOURCES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .copied()
+    {
+        return value;
+    }
+    let result = registration_records(&option.registration_id)
+        .ok()
+        .is_some_and(|records| {
+            let records = records
+                .iter()
+                .filter(|record| record.document == "Types.json")
+                .collect::<Vec<_>>();
+            records.len() == 1
+                && serde_json::from_slice::<serde_json::Value>(&records[0].bytes)
+                    .ok()
+                    .is_some_and(|record| {
+                        record["addon"]["name"].as_str() == Some("Skript")
+                            && record["addon"]["version"].as_str() == Some("2.15.4")
+                            && record["originalClass"].as_str() == Some(class)
+                            && record["registrationId"].as_str()
+                                == Some(option.registration_id.as_str())
+                            && record["parserClass"].as_str().is_some_and(|value| {
+                                value.starts_with("ch.njol.skript.classes.data.JavaClasses$")
+                            })
+                            && source_clone_identity(&record)
+                    })
+        });
+    let mut cache = STANDARD_RUNTIME_SOURCES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= MAX_CACHED_CHANGE_CONTRACTS {
+        cache.clear();
+    }
+    cache.insert(key, result);
+    result
+}
+/// Schema 7's optional versioned dispatch facts come from the actual ClassInfo.
+/// Missing facts (including every old snapshot) remain unknown. This is used
+/// only after the pinned runtime, exact closed value class and source are bound.
+fn source_clone_identity(record: &serde_json::Value) -> bool {
+    const BASE: &str = "ch.njol.skript.classes.ClassInfo";
+    let runtime = &record["typeRuntime"];
+    runtime["version"].as_u64() == Some(1)
+        && runtime["classInfoClass"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+        && runtime["cloneMethodState"].as_str() == Some("known")
+        && runtime["cloneMethodDeclaringClass"].as_str() == Some(BASE)
+        && runtime["clonerGetterDeclaringClass"].as_str() == Some(BASE)
+        && runtime["clonerState"].as_str() == Some("absent")
+        && runtime["clonerClass"].is_null()
+        && runtime["serializeAsGetterDeclaringClass"].as_str() == Some(BASE)
+        && runtime["serializeAsState"].as_str() == Some("absent")
+        && runtime["serializeAsClass"].is_null()
+        && record["serializeAs"].is_null()
+        && runtime["cloneMethodUnknownReason"].is_null()
+        && runtime["clonerUnknownReason"].is_null()
+        && runtime["serializeAsUnknownReason"].is_null()
+}
+
+pub(crate) fn identity_delta_types_for_summary(
+    summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary,
+) -> Vec<String> {
+    if !default_clone_input(summary) {
+        return Vec::new();
+    }
+    identity_delta_classes()
+}
+fn default_clone_input(summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary) -> bool {
+    let entries = summary
+        .metadata
+        .iter()
+        .filter(|entry| entry.key == crate::public_data::CHANGE_INPUT_METADATA_KEY)
+        .collect::<Vec<_>>();
+    matches!(summary.kind.as_str(), "literal" | "variable")
+        && !summary
+            .public_data
+            .iter()
+            .any(|data| data.schema_id == crate::public_data::INTERPOLATION_SCHEMA_ID)
+        && entries.len() == 1
+        && entries[0].owner_component_id.as_deref() == Some(crate::COMPONENT_ID)
+        && serde_json::from_str::<serde_json::Value>(&entries[0].value)
+            .ok()
+            .is_some_and(|value| value["version"] == 1 && value["kind"] == "default-clone")
+}
+pub(crate) fn identity_delta_for_summary(
+    summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary,
+) -> bool {
+    let classes = identity_delta_types_for_summary(summary);
+    summary.possible_return_types_state
+        == crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete
+        && !summary.possible_return_types.is_empty()
+        && summary
+            .return_type
+            .as_ref()
+            .is_some_and(|class| classes.contains(class))
+        && summary
+            .possible_return_types
+            .iter()
+            .all(|class| classes.contains(class))
 }
 
 pub(crate) fn can_convert(source_class: &str, target_class: &str) -> Result<TypeRelation, String> {
@@ -1165,6 +1569,287 @@ mod tests {
         AcceptedChangeMode, DynamicMultiplicity, RegisteredExpressionChild,
         RegisteredExpressionPropertyOption,
     };
+
+    #[test]
+    fn clone_input_requires_current_core_method_witness_not_just_value_class() {
+        use crate::nlaocs::skript_parser_addon::types::{
+            ExpressionPossibleReturnTypesState, ParseSummary,
+        };
+        let mut marker = crate::public_data::default_clone_change_input();
+        marker.owner_component_id = Some(crate::COMPONENT_ID.into());
+        let value = ParseSummary {
+            kind: "literal".into(),
+            definition_id: None,
+            registration_id: None,
+            element_class: None,
+            pattern_index: None,
+            return_type: Some("java.lang.String".into()),
+            possible_return_types: vec!["java.lang.String".into()],
+            possible_return_types_state: ExpressionPossibleReturnTypesState::Complete,
+            multiplicity: None,
+            default_expression: None,
+            public_data: Vec::new(),
+            metadata: vec![marker],
+        };
+        assert!(default_clone_input(&value));
+        let mut changed = value.clone();
+        changed.metadata[0].owner_component_id = Some("foreign".into());
+        assert!(!default_clone_input(&changed));
+        let mut changed = value.clone();
+        changed.metadata[0].owner_component_id = None;
+        assert!(!default_clone_input(&changed));
+        let mut changed = value.clone();
+        changed.metadata.push(changed.metadata[0].clone());
+        assert!(!default_clone_input(&changed));
+        let mut changed = value.clone();
+        changed.kind = "registered-expression".into();
+        assert!(!default_clone_input(&changed));
+        let mut changed = value.clone();
+        changed.metadata[0].value = r#"{"version":2,"kind":"default-clone"}"#.into();
+        assert!(!default_clone_input(&changed));
+    }
+
+    #[test]
+    fn genuine_type_runtime_snapshot_proves_selected_closed_class_dispatch() {
+        let records: Vec<serde_json::Value> = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime/Types.json"
+        )))
+        .unwrap();
+        for class in [
+            "java.lang.String",
+            "java.lang.Boolean",
+            "java.lang.Byte",
+            "java.lang.Short",
+            "java.lang.Integer",
+            "java.lang.Long",
+            "java.lang.Float",
+            "java.lang.Double",
+        ] {
+            let matching = records
+                .iter()
+                .filter(|record| record["originalClass"] == class)
+                .collect::<Vec<_>>();
+            assert_eq!(matching.len(), 1, "selected exact ClassInfo: {class}");
+            let record = matching[0];
+            assert_eq!(record["addon"]["name"], "Skript");
+            assert_eq!(record["addon"]["version"], "2.15.4");
+            assert!(source_clone_identity(record), "genuine dispatch: {class}");
+        }
+    }
+
+    #[test]
+    fn old_pinned_type_snapshot_keeps_clone_callback_behavior_unknown() {
+        let records: Vec<serde_json::Value> = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../parser-wasm/tests/data/type-parser-versions/skript-2.15.4/Types.json"
+        )))
+        .unwrap();
+        for class in [
+            "java.lang.String",
+            "java.lang.Boolean",
+            "java.lang.Byte",
+            "java.lang.Short",
+            "java.lang.Integer",
+            "java.lang.Long",
+            "java.lang.Float",
+            "java.lang.Double",
+        ] {
+            let record = records
+                .iter()
+                .find(|record| record["originalClass"] == class)
+                .expect(class);
+            assert_eq!(record["addon"]["name"], "Skript");
+            assert_eq!(record["addon"]["version"], "2.15.4");
+            assert!(!source_clone_identity(record), "old fixture: {class}");
+            assert!(
+                record["parserClass"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("ch.njol.skript.classes.data.JavaClasses$")
+            );
+        }
+    }
+
+    #[test]
+    fn condition_local_read_requires_actual_pinned_source_class_and_pattern() {
+        use crate::nlaocs::skript_parser_addon::types::{
+            ConditionCandidate, MappedSpan, TextRange,
+        };
+        let records: Vec<serde_json::Value> = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../parser-wasm/tests/data/type-parser-versions/skript-2.15.4/Conditions.json"
+        )))
+        .unwrap();
+        let class = "ch.njol.skript.conditions.CondChance";
+        let record = records
+            .into_iter()
+            .find(|record| record["elementClass"] == class)
+            .unwrap();
+        let candidate = ConditionCandidate {
+            definition_id: record["definitionId"].as_str().unwrap().into(),
+            registration_id: record["registrationId"].as_str().unwrap().into(),
+            element_class: Some(class.into()),
+            priority: 0,
+            registration_order: 0,
+            pattern_index: 0,
+            pattern: record["patterns"][0].as_str().unwrap().into(),
+            span: MappedSpan {
+                virtual_range: TextRange { start: 0, end: 0 },
+                origins: Vec::new(),
+            },
+            captures: Vec::new(),
+            tags: Vec::new(),
+            mark: 0,
+            marks: Vec::new(),
+            handler: None,
+            metadata: Vec::new(),
+            children: Vec::new(),
+            expression_bindings: Vec::new(),
+        };
+        assert!(standard_condition_source_record(
+            &serde_json::to_vec(&record).unwrap(),
+            &candidate,
+            class
+        ));
+        for (field, replacement) in [
+            (
+                "addon",
+                serde_json::json!({"name":"Addon","version":"2.15.4"}),
+            ),
+            (
+                "addon",
+                serde_json::json!({"name":"Skript","version":"2.16.0"}),
+            ),
+            ("registrationId", serde_json::json!("foreign")),
+            ("definitionId", serde_json::json!("foreign")),
+            ("elementClass", serde_json::json!("addon.CondChance")),
+            ("kind", serde_json::json!("expression")),
+            ("patterns", serde_json::json!(["different pattern"])),
+        ] {
+            let mut changed = record.clone();
+            changed[field] = replacement;
+            assert!(
+                !standard_condition_source_record(
+                    &serde_json::to_vec(&changed).unwrap(),
+                    &candidate,
+                    class
+                ),
+                "{field}"
+            );
+        }
+        let mut changed = candidate.clone();
+        changed.pattern_index = 99;
+        assert!(!standard_condition_source_record(
+            &serde_json::to_vec(&record).unwrap(),
+            &changed,
+            class
+        ));
+        assert!(
+            !standard_condition_source(&candidate, class),
+            "native tests have no authenticated Catalog source"
+        );
+    }
+
+    #[test]
+    fn clone_identity_requires_actual_base_dispatch_and_absent_callbacks() {
+        let record = serde_json::json!({"typeRuntime": {
+            "version":1,"classInfoClass":"ch.njol.skript.classes.ClassInfo",
+            "cloneMethodState":"known",
+            "cloneMethodDeclaringClass":"ch.njol.skript.classes.ClassInfo",
+            "clonerGetterDeclaringClass":"ch.njol.skript.classes.ClassInfo",
+            "clonerState":"absent",
+            "serializeAsGetterDeclaringClass":"ch.njol.skript.classes.ClassInfo",
+            "serializeAsState":"absent"
+        }});
+        assert!(source_clone_identity(&record));
+        assert!(!source_clone_identity(&serde_json::json!({})));
+        for (key, value) in [
+            ("version", serde_json::json!(2)),
+            ("classInfoClass", serde_json::Value::Null),
+            ("cloneMethodState", serde_json::json!("unknown")),
+            (
+                "cloneMethodDeclaringClass",
+                serde_json::json!("addon.Override"),
+            ),
+            (
+                "clonerGetterDeclaringClass",
+                serde_json::json!("addon.Override"),
+            ),
+            ("clonerState", serde_json::json!("present")),
+            ("clonerClass", serde_json::json!("addon.Callback")),
+            (
+                "serializeAsGetterDeclaringClass",
+                serde_json::json!("addon.Override"),
+            ),
+            ("serializeAsState", serde_json::json!("unknown")),
+            ("serializeAsClass", serde_json::json!("java.lang.String")),
+            (
+                "clonerUnknownReason",
+                serde_json::json!("overridden-accessor"),
+            ),
+        ] {
+            let mut changed = record.clone();
+            changed["typeRuntime"][key] = value;
+            assert!(!source_clone_identity(&changed), "{key}");
+        }
+        let mut converted = record;
+        converted["serializeAs"] = serde_json::json!("java.lang.String");
+        assert!(!source_clone_identity(&converted));
+    }
+
+    #[test]
+    fn event_value_local_read_without_getter_provenance_remains_unknown() {
+        let value = EventValueOption {
+            source_record: None,
+            event_class: "org.bukkit.event.player.PlayerEvent".into(),
+            value_class: "org.bukkit.entity.Player".into(),
+            time: 0,
+            registration_id: "event-value:skript:test".into(),
+            patterns: Vec::new(),
+            excludes: Vec::new(),
+            exclude_error_message: None,
+            resolution_order: 0,
+            registration_order: Some(0),
+            accepted_changers: BTreeMap::new(),
+            context_dependent: Some(false),
+            has_custom_input_validator: Some(false),
+            has_custom_event_validator: Some(false),
+        };
+        let record = serde_json::json!({"addon":{"name":"Skript","version":"2.15.4"},
+            "eventClass":value.event_class,"valueClass":value.value_class,"time":0,
+            "registrationId":value.registration_id,"contextDependent":false,
+            "hasCustomInputValidator":false,"hasCustomEventValidator":false});
+        assert!(!standard_event_value_local_read(
+            &serde_json::to_vec(&record).unwrap(),
+            &value
+        ));
+        for (field, replacement) in [
+            ("hasCustomInputValidator", serde_json::json!(true)),
+            ("hasCustomEventValidator", serde_json::json!(null)),
+            ("contextDependent", serde_json::json!(true)),
+            ("registrationId", serde_json::json!("different")),
+            (
+                "addon",
+                serde_json::json!({"name":"Addon","version":"2.15.4"}),
+            ),
+            (
+                "addon",
+                serde_json::json!({"name":"Skript","version":"2.16.0"}),
+            ),
+        ] {
+            let mut changed = record.clone();
+            changed[field] = replacement;
+            assert!(
+                !standard_event_value_local_read(&serde_json::to_vec(&changed).unwrap(), &value),
+                "{field}"
+            );
+        }
+        // Native tests have no authoritative source catalog. Even a matching
+        // class cannot acquire a witness without the exact source record.
+        assert!(!event_value_preserves_locals(&value, &value.value_class));
+        assert!(!event_value_preserves_locals(&value, "java.lang.String"));
+    }
 
     #[test]
     fn indexes_experiments_from_arbitrary_syntax_documents() {

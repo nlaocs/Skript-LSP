@@ -250,13 +250,20 @@ impl AstBuilder<'_> {
     fn condition(&mut self, condition: &ConditionNode) -> u64 {
         let mut captures = Vec::new();
         let mut children = Vec::new();
+        // Project every child once in its native order; only validated native
+        // associations receive the shared canonical typed-capture name.
         for (index, expression) in condition.expressions.iter().enumerate() {
             let child = self.expression(expression);
             children.push(child);
-            captures.push(Capture {
-                name: format!("expression:{index}"),
-                value: CaptureValue::Node(child),
-            });
+            if let Some(capture_index) = condition.expression_capture_index(index) {
+                captures.push(Capture {
+                    name: capture_name(ParsedCaptureRef::Expression {
+                        capture_index,
+                        node: expression,
+                    }),
+                    value: CaptureValue::Node(child),
+                });
+            }
         }
         for (index, nested) in condition.children.iter().enumerate() {
             let child = self.condition(nested);
@@ -806,6 +813,67 @@ mod tests {
     }
 
     #[test]
+    fn condition_projection_preserves_unbound_first_and_later_bound_child_order() {
+        let (source, root, _) = super::super::capture_view_tests::fixture();
+        let condition = ConditionNode {
+            kind: ConditionNodeKind::Grouped,
+            span: root.span.clone(),
+            captures: root.captures.clone(),
+            tags: Vec::new(),
+            mark: 0,
+            marks: Vec::new(),
+            expressions: root.children.clone(),
+            expression_bindings: vec![skript_parser::ConditionExpressionBinding {
+                capture_index: 2,
+                expression_index: 1,
+            }],
+            children: Vec::new(),
+            handler: None,
+            metadata: BTreeMap::new(),
+        };
+        assert_eq!(condition.expression_capture_index(0), None);
+        assert_eq!(condition.expression_capture_index(1), Some(2));
+        let mut builder = AstBuilder {
+            source: &source,
+            nodes: Vec::new(),
+        };
+        let id = builder.condition(&condition);
+        let parent = &builder.nodes[id as usize];
+        assert_eq!(parent.children.len(), 2);
+        assert!(
+            builder.nodes[parent.children[0] as usize]
+                .function
+                .is_some()
+        );
+        assert!(
+            builder.nodes[parent.children[1] as usize]
+                .summary
+                .as_ref()
+                .unwrap()
+                .default_expression
+                .is_some()
+        );
+        let bindings = parent
+            .captures
+            .iter()
+            .filter_map(|capture| match &capture.value {
+                CaptureValue::Node(id) => Some((capture.name.as_str(), *id)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(bindings, [("2:host.expression", parent.children[1])]);
+        assert_eq!(
+            builder
+                .nodes
+                .iter()
+                .filter(|node| node.function.is_some())
+                .count(),
+            1,
+            "the unbound function subtree must not be projected twice"
+        );
+    }
+
+    #[test]
     fn capture_view_ast_matches_owned_projection_for_typed_and_routed_values() {
         let (source, root, routed) = super::super::capture_view_tests::fixture();
         for values in [root.parsed_captures(), routed] {
@@ -841,7 +909,9 @@ mod tests {
                 "7:host.expression",
                 "2:host.expression",
                 "parser.pattern-capture:7",
-                "parser.pattern-capture:2"
+                "parser.pattern-expected-types:7",
+                "parser.pattern-capture:2",
+                "parser.pattern-expected-types:2"
             ]
         );
         assert_eq!(parent.children, [2, 3]);

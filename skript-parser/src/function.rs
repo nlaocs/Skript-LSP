@@ -71,6 +71,22 @@ pub struct FunctionDefinition {
 }
 
 impl FunctionDefinition {
+    /// Stable semantic signature witness independent of reusable registration IDs.
+    pub fn signature_key(&self) -> String {
+        serde_json::json!({
+            "name": self.name,
+            "returnType": self.return_type.as_ref().map(ClassName::as_str),
+            "single": self.return_type_is_single,
+            "parameters": self.parameters.iter().map(|parameter| serde_json::json!({
+                "name":parameter.name,
+                "className":parameter.parameter_type.as_str(),
+                "single":parameter.single,
+                "optional":parameter.optional,
+            })).collect::<Vec<_>>(),
+        })
+        .to_string()
+    }
+
     /// Projects one catalog signature using the same component types and
     /// parameter flags as the call parser. This does not select an overload.
     pub fn from_catalog(function: &Function) -> Self {
@@ -617,6 +633,7 @@ fn build_candidate<E: ExpressionParseEnvironment>(
 
     let mut metadata = definition.metadata.clone();
     metadata.insert("function.name".to_owned(), definition.name.clone());
+    metadata.insert("function.signature".to_owned(), definition.signature_key());
     metadata.insert(
         "function.definition-id".to_owned(),
         definition.definition_id.clone(),

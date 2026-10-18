@@ -45,6 +45,15 @@ pub(super) fn resolve(
             return super::reject_structure(reason);
         }
         let returns = parsed.declaration.returns.clone();
+        payload.candidate.metadata.push(MetadataEntry {
+            key: "skript.semantic.parameters".into(),
+            value: serde_json::to_string(&ParameterBindings {
+                version: 1,
+                parameters: parsed.bindings,
+            })
+            .expect("Function parameter bindings are serializable"),
+            owner_component_id: None,
+        });
         payload
             .candidate
             .declarations
@@ -115,6 +124,24 @@ fn context_update(context: &InvocationContext, key: &str, value: &str) -> Contex
 struct ParsedFunctionDeclaration {
     declaration: FunctionDeclaration,
     defaults: Vec<FunctionDefault>,
+    bindings: Vec<ParameterBinding>,
+}
+
+#[derive(serde::Serialize)]
+struct ParameterBindings {
+    version: u32,
+    parameters: Vec<ParameterBinding>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ParameterBinding {
+    identity: crate::public_data::VariableIdentityData,
+    class_name: String,
+    single: bool,
+    /// Absolute virtual UTF-8 name range; consumers map only exact current header geometry.
+    start: u64,
+    end: u64,
 }
 
 struct FunctionDefault {
@@ -150,13 +177,17 @@ fn parse_declaration(payload: &StructurePayload) -> Result<ParsedFunctionDeclara
     let open = signature
         .find('(')
         .ok_or_else(|| "Function signature has no parameter list".to_owned())?;
-    let name = signature[..open].trim();
+    let raw_name = &signature[..open];
+    let name = raw_name.trim();
+    let name_start =
+        start + header.len() - signature.len() + raw_name.len() - raw_name.trim_start().len();
+    let name_end = name_start + name.len();
     if !is_function_name(name) {
         return Err(format!("invalid Function name: {name}"));
     }
     let close = matching_parenthesis(signature, open)?;
     let parameter_offset = header.len() - signature.len() + open + 1;
-    let (parameters, defaults) = parse_parameters_with_defaults(
+    let (parameters, defaults, bindings) = parse_parameters_with_defaults(
         &signature[open + 1..close],
         &payload.type_options,
         // Skript switched from Functions.parseSignature to FunctionParser in 2.14.
@@ -194,13 +225,26 @@ fn parse_declaration(payload: &StructurePayload) -> Result<ParsedFunctionDeclara
             name: name.to_owned(),
             parameters,
             returns,
-            metadata: vec![MetadataEntry {
-                key: "function.return-syntax".to_owned(),
-                value: return_syntax.to_owned(),
-                owner_component_id: None,
-            }],
+            metadata: vec![
+                MetadataEntry {
+                    key: "function.return-syntax".to_owned(),
+                    value: return_syntax.to_owned(),
+                    owner_component_id: None,
+                },
+                MetadataEntry {
+                    key: "function.name.start".into(),
+                    value: name_start.to_string(),
+                    owner_component_id: None,
+                },
+                MetadataEntry {
+                    key: "function.name.end".into(),
+                    value: name_end.to_string(),
+                    owner_component_id: None,
+                },
+            ],
         },
         defaults,
+        bindings,
     })
 }
 
@@ -211,7 +255,7 @@ fn parse_parameters(
     legacy_syntax: bool,
 ) -> Result<Vec<FunctionParameterDeclaration>, String> {
     parse_parameters_with_defaults(source, type_options, legacy_syntax, 0)
-        .map(|(parameters, _)| parameters)
+        .map(|(parameters, _, _)| parameters)
 }
 
 fn parse_parameters_with_defaults(
@@ -219,12 +263,20 @@ fn parse_parameters_with_defaults(
     type_options: &[crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption],
     legacy_syntax: bool,
     source_offset: u64,
-) -> Result<(Vec<FunctionParameterDeclaration>, Vec<FunctionDefault>), String> {
+) -> Result<
+    (
+        Vec<FunctionParameterDeclaration>,
+        Vec<FunctionDefault>,
+        Vec<ParameterBinding>,
+    ),
+    String,
+> {
     if source.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
     }
     let mut parameters = Vec::new();
     let mut defaults = Vec::new();
+    let mut bindings = Vec::new();
     for (index, parameter) in split_parameter_pieces(source)?.into_iter().enumerate() {
         let (definition, default_source, default_start) = parameter.text.split_once('=').map_or(
             (parameter.text, None, None),
@@ -245,7 +297,9 @@ fn parse_parameters_with_defaults(
         };
         let (name, type_name) = split
             .ok_or_else(|| format!("Function parameter {} must use `name: type`", index + 1))?;
+        let name_leading = name.len() - name.trim_start().len();
         let name = name.trim();
+        let original_name_len = name.len();
         let type_name = type_name.trim();
         if name.is_empty()
             || !crate::primitives::is_valid_variable_name_body(name, true)
@@ -308,9 +362,38 @@ fn parse_parameters_with_defaults(
                 end,
             });
         }
+        let binding_start = source_offset
+            .checked_add(
+                u64::try_from(parameter.start + name_leading)
+                    .map_err(|_| "Function parameter offset does not fit u64")?,
+            )
+            .ok_or("Function parameter offset overflowed")?;
+        let binding_end = binding_start
+            .checked_add(
+                u64::try_from(original_name_len)
+                    .map_err(|_| "Function parameter length does not fit u64")?,
+            )
+            .ok_or("Function parameter range overflowed")?;
+        // ScriptFunction stores plural parameters as named local list elements.
+        let runtime_name = if declaration.single {
+            declaration.name.clone()
+        } else {
+            format!("{}::*", declaration.name)
+        };
+        bindings.push(ParameterBinding {
+            identity: crate::public_data::VariableIdentityData::from_static_name(
+                crate::public_data::VariableScope::Local,
+                runtime_name,
+                !declaration.single,
+            ),
+            class_name: declaration.class_name.clone(),
+            single: declaration.single,
+            start: binding_start,
+            end: binding_end,
+        });
         parameters.push(declaration);
     }
-    Ok((parameters, defaults))
+    Ok((parameters, defaults, bindings))
 }
 
 fn default_parse_requests(
@@ -539,8 +622,21 @@ mod tests {
     #[test]
     fn default_ranges_point_at_the_exact_expression_source() {
         let source = "values: numbers = list(1, 2), scale: number = 1";
-        let (_, defaults) =
+        let (_, defaults, bindings) =
             parse_parameters_with_defaults(source, &[number_type()], false, 100).unwrap();
+        assert_eq!(bindings[0].identity.name.as_deref(), Some("values::*"));
+        assert!(bindings[0].identity.list);
+        assert_eq!(bindings[1].identity.name.as_deref(), Some("scale"));
+        for (binding, expected) in bindings.iter().zip(["values", "scale"]) {
+            assert_eq!(
+                &source[(binding.start - 100) as usize..(binding.end - 100) as usize],
+                expected
+            );
+            assert_eq!(
+                binding.identity.case_policy,
+                crate::public_data::VariableCasePolicy::Unknown
+            );
+        }
         assert_eq!(defaults.len(), 2);
         for default in defaults {
             let start = usize::try_from(default.start - 100).unwrap();

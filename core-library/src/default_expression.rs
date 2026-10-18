@@ -9,6 +9,10 @@ use crate::catalog::CatalogRecordReference;
 use crate::catalog::EventValueOption;
 use crate::expressions::event_value_expression::preferred_event_value_matches;
 use crate::nlaocs::skript_parser_addon::types::*;
+use crate::public_data::{
+    DEFAULT_SOURCE_SCHEMA_ID, DEFAULT_SOURCE_SCHEMA_VERSION, DefaultEventValueSource,
+    DefaultSourceData, DefaultSourceKind,
+};
 
 pub(crate) const PROVIDER_ID: &str = "core.default-expression.skript";
 const SIMPLE_LITERAL_CLASS: &str = "ch.njol.skript.lang.util.SimpleLiteral";
@@ -44,6 +48,11 @@ pub(crate) fn invoke(input: HookInvocation) -> HookOutput {
     let mut effects = crate::empty_effects();
     payload.outcome = match result {
         Ok(resolution) => {
+            if resolution.preserves_locals {
+                payload
+                    .metadata
+                    .push(crate::public_data::preserve_local_effects());
+            }
             effects.diagnostics = resolution
                 .diagnostics
                 .into_iter()
@@ -87,6 +96,7 @@ enum DefaultFailure {
 struct ResolvedDefault {
     expression: DefaultExpressionResolution,
     diagnostics: Vec<String>,
+    preserves_locals: bool,
 }
 
 fn resolve(payload: &DefaultExpressionPayload) -> Result<ResolvedDefault, DefaultFailure> {
@@ -156,10 +166,20 @@ fn resolve_literal(
         )));
     }
     Ok(ResolvedDefault {
+        // SimpleLiteral.get returns its stored array; it does not run a getter.
+        preserves_locals: true,
         diagnostics: Vec::new(),
         expression: DefaultExpressionResolution {
             provider_id: PROVIDER_ID.to_owned(),
             component_id: None,
+            public_data: vec![source_data(DefaultSourceData {
+                source_kind: DefaultSourceKind::Literal,
+                implementation_class: descriptor.implementation_class.clone(),
+                target_class: return_type.clone(),
+                time: 0,
+                // SSG exposes the literal's shape, not its initialized stored value.
+                event_values: Vec::new(),
+            })],
             return_type,
             multiplicity,
             is_literal: true,
@@ -169,7 +189,6 @@ fn resolve_literal(
                 payload.active_type.code_name
             ),
             catalog_references: vec![type_reference(payload)],
-            public_data: Vec::new(),
         },
     })
 }
@@ -320,6 +339,9 @@ fn resolve_event_value(
         }
     }));
     Ok(ResolvedDefault {
+        preserves_locals: selected
+            .iter()
+            .all(|value| crate::catalog::event_value_preserves_locals(value, &target_class)),
         diagnostics: exclusions
             .into_iter()
             .filter_map(|excluded| excluded.diagnostic)
@@ -341,9 +363,31 @@ fn resolve_event_value(
                     .join(", ")
             ),
             catalog_references: references,
-            public_data: Vec::new(),
+            public_data: vec![source_data(DefaultSourceData {
+                source_kind: DefaultSourceKind::EventValue,
+                implementation_class: descriptor.implementation_class.clone(),
+                target_class,
+                time: accepted_time,
+                event_values: selected
+                    .iter()
+                    .map(|value| DefaultEventValueSource {
+                        event_class: value.event_class.clone(),
+                        value_class: value.value_class.clone(),
+                        time: value.time,
+                        registration_id: value.registration_id.clone(),
+                    })
+                    .collect(),
+            })],
         },
     })
+}
+
+fn source_data(value: DefaultSourceData) -> ExpressionPublicData {
+    ExpressionPublicData {
+        schema_id: DEFAULT_SOURCE_SCHEMA_ID.into(),
+        schema_version: DEFAULT_SOURCE_SCHEMA_VERSION,
+        json: serde_json::to_string(&value).expect("default source data is serializable"),
+    }
 }
 
 fn static_shape(
@@ -571,6 +615,18 @@ mod tests {
             Some("EventValues.json")
         );
         assert_eq!(resolved.catalog_references[1].index, Some(7));
+        let source: crate::public_data::DefaultSourceData =
+            serde_json::from_str(&resolved.public_data[0].json).unwrap();
+        assert_eq!(
+            source.source_kind,
+            crate::public_data::DefaultSourceKind::EventValue
+        );
+        assert_eq!(source.target_class, SENDER);
+        assert_eq!(
+            source.event_values[0].registration_id,
+            "event-value:test:sender"
+        );
+        assert_eq!(source.event_values[0].value_class, SENDER);
         assert_eq!(
             payload.span.virtual_range.start,
             payload.span.virtual_range.end
@@ -688,8 +744,20 @@ mod tests {
         let resolved = resolve_with_catalog(&payload, |_| {
             panic!("SimpleLiteral must not query EventValues")
         })
-        .unwrap()
-        .expression;
+        .unwrap();
+        assert!(resolved.preserves_locals);
+        let resolved = resolved.expression;
+        let source: DefaultSourceData =
+            serde_json::from_str(&resolved.public_data[0].json).unwrap();
+        assert_eq!(source.source_kind, DefaultSourceKind::Literal);
+        assert_eq!(source.target_class, "java.lang.Integer");
+        assert!(source.event_values.is_empty());
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&resolved.public_data[0].json)
+                .unwrap()
+                .get("value")
+                .is_none()
+        );
         assert_eq!(resolved.return_type, "java.lang.Integer");
         assert_eq!(resolved.multiplicity, DynamicMultiplicity::Single);
         assert!(resolved.is_literal);

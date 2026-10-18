@@ -318,6 +318,7 @@ impl ParserHost {
                 target,
                 depth: u32::try_from(depth).unwrap_or(u32::MAX),
             };
+            self.ensure_component_ready(candidate.component_index)?;
             let state_invocation = transaction.begin_invocation(component_id.clone())?;
             let (call, state_invocation) =
                 {
@@ -334,6 +335,7 @@ impl ParserHost {
                         .into());
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
+                    entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     if let Err(error) = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -361,6 +363,16 @@ impl ParserHost {
                         );
                     (call, state_invocation)
                 };
+            if call.is_ok()
+                && self
+                    .native_cancellation
+                    .as_ref()
+                    .is_some_and(DocumentCancellationToken::is_cancelled)
+            {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(skript_parser::ParseCancelled.into());
+            }
             let accesses = state_invocation.read_write_set();
             let mut output = match call {
                 Ok(Ok(output)) => output,
@@ -407,6 +419,9 @@ impl ParserHost {
                     state_invocation.rollback();
                     pipeline.active.pop();
                     let error = classify_wasmtime_error(component_id.clone(), "AST macro", error);
+                    if matches!(error, HostError::Cancelled(_)) {
+                        return Err(error);
+                    }
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
                         self.components[candidate.component_index].disabled_reason =

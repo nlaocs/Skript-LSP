@@ -86,6 +86,7 @@ pub enum DefaultExpressionDecision {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefaultExpressionInfo {
     pub capture_index: usize,
+    pub omission: Option<crate::PatternOmission>,
     pub pattern_span: PatternSpan,
     pub expression: PatternTypeExpr,
     /// Exact placeholder spelling from the registered pattern, not source input.

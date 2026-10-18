@@ -1,9 +1,11 @@
-use super::{ProjectConfig, completion, diagnostics, hover, semantic_tokens};
+#[cfg(test)]
+mod equivalence_tests;
+
+use super::{ProjectConfig, completion, diagnostics, hover, inlay, semantic, semantic_tokens};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use lsp_types::Diagnostic;
 use parser_wasm::{
-    DocumentCancellationToken, DocumentParseError, DocumentParseRequest, DocumentParserConfig,
-    HostConfig, ParserHost,
+    DocumentCancellationToken, DocumentParseRequest, DocumentParserConfig, HostConfig, ParserHost,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -44,6 +46,7 @@ impl Control {
 #[derive(Clone)]
 pub(super) struct Job {
     pub uri: lsp_types::Uri,
+    pub project: Option<Arc<super::project::ProjectSnapshot>>,
     pub generation: u64,
     pub revision: u64,
     pub version: i32,
@@ -59,10 +62,15 @@ pub(super) enum Outcome {
 pub(super) struct Analysis {
     pub outcome: Outcome,
     pub hover: Option<hover::Document>,
+    pub semantic: Option<Arc<semantic::Document>>,
+    pub inlay: Option<Arc<inlay::Document>>,
+    pub annotations_error: Option<String>,
+    pub project_semantics: Vec<Arc<semantic::Document>>,
     pub semantic_tokens: Option<semantic_tokens::Document>,
     pub semantic_error: Option<String>,
     pub completion: Option<completion::Document>,
     pub completion_error: Option<String>,
+    pub analysis_metrics: Value,
     pub parse_ms: f64,
     pub report_ms: f64,
 }
@@ -90,6 +98,7 @@ struct ParserAnalyzer {
     semantic_enabled: bool,
     completions: Arc<completion::CatalogIndex>,
     prepare_completion: bool,
+    project: super::project::ProjectIndex,
 }
 pub(super) fn parser_factory() -> Factory {
     Box::new(|config| {
@@ -113,9 +122,10 @@ pub(super) fn parser_factory() -> Factory {
             .map_err(|error| error.to_string())?;
         host.release_document(&config.project_uri, "lsp-project-validation", 0)
             .map_err(|error| error.to_string())?;
-        let completions = Arc::new(completion::CatalogIndex::new(
+        let completions = Arc::new(completion::CatalogIndex::with_documentation_format(
             &catalog,
             host.raw_tree_options(),
+            config.completion_format.clone(),
         ));
         Ok(Box::new(ParserAnalyzer {
             project_uri: config.project_uri,
@@ -125,6 +135,7 @@ pub(super) fn parser_factory() -> Factory {
             semantic_enabled: config.semantic_legend.is_some(),
             completions,
             prepare_completion: config.completion_refresh,
+            project: super::project::ProjectIndex::default(),
         }))
     })
 }
@@ -177,22 +188,42 @@ impl Analyzer for ParserAnalyzer {
                 }
             }
         };
-        let result = self.host.parse_document_with_preparation(
-            DocumentParseRequest::new(
-                &self.project_uri,
-                document_key(job.uri.as_str()),
-                job.revision,
-                Arc::clone(&job.source),
-            ),
-            DocumentParserConfig {
-                cancellation: job.control.token.clone(),
-                ..DocumentParserConfig::default()
-            },
-            &mut observer,
-        );
+        let config = DocumentParserConfig {
+            cancellation: job.control.token.clone(),
+            ..DocumentParserConfig::default()
+        };
+        let mut semantic = None;
+        let mut project_semantics = Vec::new();
+        let mut project_metrics = Value::Null;
+        let result = if let Some(snapshot) = &job.project {
+            self.project.analyze(&mut self.host, Arc::clone(&self.catalog), &self.project_uri, snapshot, &job.uri, config, &mut observer).map(|analysis| {
+                semantic = Some(analysis.current_semantic);
+                project_semantics = analysis.documents;
+                project_metrics = json!({"epoch":analysis.project_epoch,"nativeRevision":analysis.native_revision,"scannedDocuments":analysis.scanned_documents,"parsedDocuments":analysis.parsed_documents,"changedExportNames":analysis.changed_export_names});
+                analysis.result
+            })
+        } else {
+            self.host
+                .parse_document_with_preparation(
+                    DocumentParseRequest::new(
+                        &self.project_uri,
+                        document_key(job.uri.as_str()),
+                        job.revision,
+                        Arc::clone(&job.source),
+                    ),
+                    config,
+                    &mut observer,
+                )
+                .map_err(super::project::ProjectError::from)
+        };
+        let incremental = self.host.incremental_metrics();
+        let analysis_metrics = json!({"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
         let mut hover = None;
+        let mut inlay = None;
+        let mut annotations_error = None;
+        let mut flow_diagnostics = Vec::new();
         let mut semantic_tokens = None;
         let mut semantic_error = None;
         let mut completion = None;
@@ -200,6 +231,36 @@ impl Analyzer for ParserAnalyzer {
         let outcome = match result {
             Ok(mut result) => {
                 result.ast = result.editor_ast();
+                let semantic_result = semantic.take().map(Ok).unwrap_or_else(|| {
+                    semantic::Document::from_result(
+                        &result,
+                        Arc::clone(&job.source),
+                        job.uri.clone(),
+                        Arc::clone(&self.catalog),
+                    )
+                    .map(Arc::new)
+                });
+                match semantic_result {
+                    Ok(document) => {
+                        match document.diagnostics(&result) {
+                            Ok(found) => flow_diagnostics = found,
+                            Err(error) => annotations_error = Some(error),
+                        }
+                        if project_semantics.is_empty() {
+                            project_semantics.push(Arc::clone(&document));
+                        }
+                        semantic = Some(document);
+                    }
+                    Err(error) => annotations_error = Some(error),
+                }
+                match inlay::Document::from_result(
+                    &result,
+                    Arc::clone(&job.source),
+                    Arc::clone(&self.catalog),
+                ) {
+                    Ok(document) => inlay = Some(Arc::new(document)),
+                    Err(error) => annotations_error = Some(error),
+                }
                 let status =
                     if result.execution_status == parser_wasm::DocumentExecutionStatus::Partial {
                         "partial"
@@ -226,22 +287,25 @@ impl Analyzer for ParserAnalyzer {
                     }
                 }
                 match diagnostics::from_result(&job.uri, &result) {
-                    Ok(mut diagnostics) => match hover::Document::from_result(
-                        result,
-                        Arc::clone(&job.source),
-                        Arc::clone(&self.catalog),
-                        self.hover_format.clone(),
-                    ) {
-                        Ok(document) => {
-                            hover = Some(document);
-                            Outcome::Diagnostics(diagnostics, status)
+                    Ok(mut diagnostics) => {
+                        diagnostics.append(&mut flow_diagnostics);
+                        match hover::Document::from_result(
+                            result,
+                            Arc::clone(&job.source),
+                            Arc::clone(&self.catalog),
+                            self.hover_format.clone(),
+                        ) {
+                            Ok(document) => {
+                                hover = Some(document);
+                                Outcome::Diagnostics(diagnostics, status)
+                            }
+                            Err(error) => {
+                                semantic_tokens = None;
+                                diagnostics.push(diagnostics::fatal("lsp.source-mapping", error));
+                                Outcome::Diagnostics(diagnostics, "fatal")
+                            }
                         }
-                        Err(error) => {
-                            semantic_tokens = None;
-                            diagnostics.push(diagnostics::fatal("lsp.source-mapping", error));
-                            Outcome::Diagnostics(diagnostics, "fatal")
-                        }
-                    },
+                    }
                     Err(error) => {
                         semantic_tokens = None;
                         Outcome::Diagnostics(
@@ -251,8 +315,7 @@ impl Analyzer for ParserAnalyzer {
                     }
                 }
             }
-            Err(DocumentParseError::Cancelled { .. }) => Outcome::Cancelled,
-            Err(DocumentParseError::StaleRevision { .. }) => Outcome::Stale,
+            Err(super::project::ProjectError::Cancelled) => Outcome::Cancelled,
             Err(error) => Outcome::Diagnostics(
                 vec![diagnostics::fatal("lsp.analysis-failed", error.to_string())],
                 "fatal",
@@ -261,15 +324,29 @@ impl Analyzer for ParserAnalyzer {
         Analysis {
             outcome,
             hover,
+            semantic,
+            inlay,
+            annotations_error,
+            project_semantics,
             semantic_tokens,
             semantic_error,
             completion,
             completion_error,
+            analysis_metrics,
             parse_ms,
             report_ms: report_started.elapsed().as_secs_f64() * 1000.0,
         }
     }
     fn release(&mut self, uri: &str, revision: u64) -> Result<(), String> {
+        if self.project.contains_uri(uri) {
+            let uri = uri
+                .parse()
+                .map_err(|error| format!("invalid released URI: {error}"))?;
+            return self
+                .project
+                .release_uri(&mut self.host, &self.project_uri, &uri)
+                .map_err(|error| error.to_string());
+        }
         self.host
             .release_document(&self.project_uri, &document_key(uri), revision)
             .map(|_| ())
@@ -302,6 +379,9 @@ struct Pending {
 struct Queue {
     documents: BTreeMap<String, Pending>,
     order: VecDeque<String>,
+    latest: Option<String>,
+    priority_burst: usize,
+    active: Option<Job>,
     stopped: bool,
 }
 impl Queue {
@@ -311,8 +391,77 @@ impl Queue {
         }
         self.documents.entry(uri.to_owned()).or_default()
     }
+    fn submit(&mut self, job: Job) {
+        if self.stopped {
+            job.control.cancel();
+            return;
+        }
+        let uri = job.uri.as_str().to_owned();
+        let identity = (job.generation, job.revision);
+        if let Some(active) = self.active.as_ref().filter(|active| active.uri == job.uri) {
+            if (active.generation, active.revision) > identity {
+                job.control.cancel();
+                return;
+            }
+            if (active.generation, active.revision) < identity {
+                active.control.cancel();
+            }
+        }
+        let pending = self.pending(&uri);
+        if let Some(previous) = pending.job.as_ref() {
+            if (previous.generation, previous.revision) > identity {
+                job.control.cancel();
+                return;
+            }
+            if (previous.generation, previous.revision) != identity {
+                previous.control.cancel();
+            }
+        }
+        pending.job = Some(job);
+        self.latest = Some(uri);
+    }
+
+    fn release(&mut self, uri: &str, revision: u64) {
+        if self.stopped {
+            return;
+        }
+        if let Some(active) = self
+            .active
+            .as_ref()
+            .filter(|active| active.uri.as_str() == uri && active.revision <= revision)
+        {
+            active.control.cancel();
+        }
+        let pending = self.pending(uri);
+        if pending
+            .job
+            .as_ref()
+            .is_some_and(|job| job.revision <= revision)
+        {
+            pending.job.take().unwrap().control.cancel();
+        }
+        pending.release_through = Some(pending.release_through.unwrap_or(0).max(revision));
+    }
+
     fn pop(&mut self) -> Option<(String, Pending)> {
-        let uri = self.order.pop_front()?;
+        // Latest input wins a short burst; the oldest valid work still advances under continuous typing.
+        let index = if self.priority_burst < 3 {
+            self.latest
+                .as_ref()
+                .and_then(|latest| self.order.iter().position(|uri| uri == latest))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let uri = self.order.remove(index)?;
+        if index == 0 {
+            self.priority_burst = 0;
+        } else {
+            self.priority_burst += 1;
+        }
+        if self.latest.as_ref() == Some(&uri) {
+            self.latest = None;
+        }
         let pending = self
             .documents
             .remove(&uri)
@@ -346,7 +495,9 @@ impl Worker {
                         let pending = {
                             let mut queue = thread_queue.lock().unwrap();
                             if queue.stopped { return; }
-                            queue.pop()
+                            let pending = queue.pop();
+                            queue.active = pending.as_ref().and_then(|(_, pending)| pending.job.clone());
+                            pending
                         };
                         let Some((uri, pending)) = pending else { break; };
                         if let Some(revision) = pending.release_through {
@@ -363,8 +514,9 @@ impl Worker {
                             let _ = sender.send(Event::Preparation(job.clone(), preparation, started.elapsed().as_secs_f64()*1000.0));
                         });
                         let analysis_ms = started.elapsed().as_secs_f64() * 1000.0;
+                        thread_queue.lock().unwrap().active = None;
                         let status = match &analysis.outcome { Outcome::Diagnostics(_, status) => *status, Outcome::Cancelled => "cancelled", Outcome::Stale => "stale" };
-                        let metrics = json!({"uri":job.uri.as_str(), "revision":job.revision, "status":status, "queueMs":queue_ms, "parseMs":analysis.parse_ms, "reportMs":analysis.report_ms, "analysisMs":analysis_ms, "cancelToFinishMs":job.control.cancellation_ms()});
+                        let metrics = json!({"uri":job.uri.as_str(), "revision":job.revision, "status":status, "queueMs":queue_ms, "parseMs":analysis.parse_ms, "reportMs":analysis.report_ms, "analysisMs":analysis_ms, "cancelToFinishMs":job.control.cancellation_ms(), "details":analysis.analysis_metrics});
                         if sender.send(Event::Finished(job, analysis, metrics)).is_err() { return; }
                     }
                 }
@@ -379,15 +531,12 @@ impl Worker {
         })
     }
     pub fn submit(&self, job: Job) {
-        let uri = job.uri.as_str().to_owned();
-        self.queue.lock().unwrap().pending(&uri).job = Some(job);
+        self.queue.lock().unwrap().submit(job);
         let _ = self.wake.try_send(());
     }
     pub fn release(&self, uri: &str, revision: u64) {
         let mut queue = self.queue.lock().unwrap();
-        let pending = queue.pending(uri);
-        pending.job = None;
-        pending.release_through = Some(pending.release_through.unwrap_or(0).max(revision));
+        queue.release(uri, revision);
         drop(queue);
         let _ = self.wake.try_send(());
     }
@@ -395,6 +544,14 @@ impl Worker {
         {
             let mut queue = self.queue.lock().unwrap();
             queue.stopped = true;
+            if let Some(active) = &queue.active {
+                active.control.cancel();
+            }
+            for pending in queue.documents.values() {
+                if let Some(job) = &pending.job {
+                    job.control.cancel();
+                }
+            }
             queue.documents.clear();
             queue.order.clear();
         }
@@ -405,5 +562,118 @@ impl Worker {
         self.handle.take().map_or(Ok(()), |handle| {
             handle.join().map_err(|_| "parser worker panicked".into())
         })
+    }
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use super::*;
+
+    fn job(uri: &str, revision: u64) -> Job {
+        Job {
+            uri: uri.parse().unwrap(),
+            generation: 1,
+            revision,
+            version: revision as i32,
+            source: Arc::from(""),
+            control: Control::new(),
+            queued_at: Instant::now(),
+            project: None,
+        }
+    }
+
+    #[test]
+    fn latest_input_precedes_pending_background_without_losing_it() {
+        let mut queue = Queue::default();
+        queue.submit(job("file:///background.sk", 1));
+        queue.submit(job("file:///current.sk", 2));
+        assert_eq!(queue.pop().unwrap().0, "file:///current.sk");
+        assert_eq!(queue.pop().unwrap().0, "file:///background.sk");
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn continuously_updated_input_cannot_starve_the_oldest_document() {
+        let mut queue = Queue::default();
+        queue.submit(job("file:///background.sk", 1));
+        for revision in 2..5 {
+            queue.submit(job("file:///current.sk", revision));
+            assert_eq!(queue.pop().unwrap().0, "file:///current.sk");
+        }
+        queue.submit(job("file:///current.sk", 5));
+        assert_eq!(queue.pop().unwrap().0, "file:///background.sk");
+        assert_eq!(queue.pop().unwrap().1.job.unwrap().revision, 5);
+    }
+
+    #[test]
+    fn replacements_cancel_obsolete_work_and_reject_out_of_order_jobs() {
+        let mut queue = Queue::default();
+        let active = job("file:///current.sk", 1);
+        let active_control = active.control.clone();
+        queue.active = Some(active);
+        let first = job("file:///current.sk", 2);
+        let first_control = first.control.clone();
+        queue.submit(first);
+        assert!(active_control.token.is_cancelled());
+        queue.submit(job("file:///current.sk", 3));
+        assert!(first_control.token.is_cancelled());
+        let stale = job("file:///current.sk", 2);
+        let stale_control = stale.control.clone();
+        queue.submit(stale);
+        assert!(stale_control.token.is_cancelled());
+        assert_eq!(queue.pop().unwrap().1.job.unwrap().revision, 3);
+    }
+
+    #[test]
+    fn release_barrier_survives_priority_and_preserves_a_reopened_revision() {
+        let mut queue = Queue::default();
+        let old = job("file:///current.sk", 1);
+        let old_control = old.control.clone();
+        queue.submit(old);
+        queue.release("file:///current.sk", 1);
+        assert!(old_control.token.is_cancelled());
+        queue.submit(job("file:///current.sk", 2));
+        queue.release("file:///current.sk", 1);
+        let pending = queue.pop().unwrap().1;
+        assert_eq!(pending.release_through, Some(1));
+        assert_eq!(pending.job.as_ref().unwrap().revision, 2);
+        assert!(!pending.job.unwrap().control.token.is_cancelled());
+    }
+
+    #[test]
+    fn shutdown_cancels_running_and_pending_work_and_refuses_new_submissions() {
+        let mut queue = Queue::default();
+        let active = job("file:///active.sk", 1);
+        let active_control = active.control.clone();
+        queue.active = Some(active);
+        let pending = job("file:///pending.sk", 2);
+        let pending_control = pending.control.clone();
+        queue.submit(pending);
+        let queue = Arc::new(Mutex::new(queue));
+        let (wake, _) = bounded(1);
+        let (_, events) = unbounded();
+        let mut worker = Worker {
+            queue: Arc::clone(&queue),
+            wake,
+            events,
+            handle: None,
+        };
+        worker.stop();
+        assert!(active_control.token.is_cancelled());
+        assert!(pending_control.token.is_cancelled());
+        let late = job("file:///late.sk", 3);
+        let late_control = late.control.clone();
+        worker.submit(late);
+        assert!(late_control.token.is_cancelled());
+        assert!(queue.lock().unwrap().pop().is_none());
+    }
+    #[test]
+    fn unrelated_current_work_is_not_cancelled_by_input_in_another_document() {
+        let mut queue = Queue::default();
+        let active = job("file:///background.sk", 1);
+        let control = active.control.clone();
+        queue.active = Some(active);
+        queue.submit(job("file:///current.sk", 2));
+        assert!(!control.token.is_cancelled());
     }
 }

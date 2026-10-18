@@ -37,13 +37,19 @@ Section scope ID、Catalog参照、mapped anchorを保持します。子nodeは�
 `ParsedCaptureSemanticSummary`と`SectionScopeCapture`にも同じimplicit provenanceが
 あります。LSPや将来の複数行REPLは、表示文字列からdefaultを再構成せず共通結果を辿れます。
 
+`DefaultExpressionInfo.omission`には、nativeが記録した省略理由と登録pattern内のbyte範囲を保持します。
+理由は`SkippedOption`・`UnselectedChoice`・`HookBypassed`（WITでは
+`skipped-option`・`unselected-choice`・`hook-bypassed`）です。これは挿入文字列ではなく不変の根拠です。
+capture自体の`pattern_span`と、囲む省略option/branchの範囲は別に保ち、hostは後続hookの改変を拒否します。
+根拠がない場合に構文名から省略を再構成しません。
+
 implicit nodeのsource rangeは空です。macro由来の補完位置でもすべてのoriginと
 expansion IDを保持し、各originを`Anchored`にします。
 存在しない`to player`などを`MappedSource`へ挿入しません。
 
 ## WASM Addon contract
 
-WIT `nlaocs:skript-parser-addon@0.35.0`、ABI `17.0`を使用します。
+WIT `nlaocs:skript-parser-addon@0.41.0`、ABI `23.0`を使用します。旧componentはこの契約で再buildしてください。
 capability `parser.default-expression` version 1を要求し、既存の`HookSubscription`、
 target、selectorでphase `default-expression`へ登録します。dispatch対象は要求された
 **Type**のregistrationです。親syntaxとcaptureのidentityは
@@ -80,6 +86,9 @@ providerを呼びません。
 Typeを所有するaddon名にも依存しないため、addon TypeがSkript標準実装を再利用できます。
 
 `SimpleLiteral` defaultはcontext不要のliteralで、0以外のtime stateを拒否します。
+SSGが公開するのは初期化済みshapeであり、保存済みliteralの実値ではありません。公開dataの
+`nlaocs.skript.default-source` version 1はsource kind、実装/対象class、time、採用EventValue登録を
+示しますが、literal valueは持ちません。既知のdefault型から数値・boolean等の実値を補作しません。
 `EventValueExpression` defaultはdescriptorのreturn classを対象に、共通Catalogの継承、変換、
 除外、曖昧性規則で解決します。AudienceもType classではなく実際の`CommandSender`を対象にします。
 `ExprDamageCause`は、past/present表記を許可しfutureを拒否しつつ、present EventValueを参照する
@@ -88,6 +97,14 @@ Skript固有の挙動を維持します。
 標準providerは、より具体的なaddon/providerの後に実行します。Sectionなどの
 `DefaultValueData` override、独自`DefaultExpression` subclass、未知のvalidator、静的shapeが
 不足したdescriptorは、所有addonが意味論を提供するまでunresolvedのままです。
+LSPのread-only inlay hintは、採用済み`SkippedOption` defaultについてnative owner・provider・
+正確なcapture geometry・Catalog pattern・原文のzero-width anchorが一致する場合だけ表示します。
+実際のoptionから接続語を取り、構文名別の例外は設けません。nested optional/choice/regexから
+語句を選ぶ必要がある場合は省略します。event由来は`to <event player>`等、保存済み実値が不明な
+literalは`<registered default: 型名>`とし、tooltipに実値が利用できない旨を残します。
+hintは`textEdits`を持たず、sourceへ文字を追加しません。`UnselectedChoice`・`HookBypassed`・
+未対応provider・曖昧な原文位置は現在のhint対象外です。parserのdefault解決とeditorの保守的な表示は別の契約です。
+
 `skript-repl`の一行report schema 7は同じ共通結果を描画します。captureの`state`は
 `explicit`、`omitted`、`null`、`default`で、implicit Expressionは`defaultExpression`、空の`source`、
 ゼロ幅anchorを持ちます。失敗時にも認識したEffect/patternと、capture index、要求型、

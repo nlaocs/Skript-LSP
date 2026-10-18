@@ -21,16 +21,42 @@ syntax registration, and recursive Expression, Condition, Effect, Event, and
 Section parsing. Top-level Structure parsing includes EntryValidator handling
 and a two-pass lifecycle with document-local Function registration.
 
-The root `skript-lsp` binary provides a minimal stdio language server: one explicit
-project/snapshot, full-document synchronization, source-mapped diagnostics, and
-hover information for selected syntax, types, variables, and functions, plus
-negotiated semantic tokens for confirmed original source ranges.
+The root `skript-lsp` binary serves one explicit project/snapshot over stdio.
+It provides full-document synchronization, source-mapped diagnostics, hover,
+semantic tokens, contextual completion, signature help, definitions, references,
+and read-only hints for initialized implicit arguments. Accepted parser and
+provider evidence also supports conservative local-variable type flow. Hover
+and completion documentation distinguish registration-pattern grammar from
+Skript examples; the Neovim adapter colors both without changing completion edits.
 See the [LSP contract](docs/lsp.ja.md) and [Neovim setup](docs/neovim.ja.md).
 The root library provides `new_parser_host`. The `skript-repl` utility exposes
 both the existing one-line Effect inspector and a multiline frontend for the
-shared whole-document parser, including a versioned JSON tree. There is no
-cross-file symbol service or variable type-flow analysis yet. Individual syntax
-handlers may still return unresolved metadata or partial results.
+shared whole-document parser, including a versioned JSON tree. Project symbol
+queries include unopened UTF-8 `.sk` files within bounded workspace scans; open
+buffers override disk. Cross-document analysis requires every enabled component
+to declare `parser.project-stable-semantics` v1. Unknown variable values, opaque
+addon effects, ambiguous source projections, and unsupported handlers remain
+unknown or partial; this is not runtime execution or complete interprocedural analysis.
+
+Local flow describes a variable's stored type before any requested-type conversion.
+The generic engine can represent unions, list elements, parameters and reaching
+writes, but actual precision requires current provider evidence. Core currently
+proves primitive scalar constructors and safe inherited `beforeChange` clone/set
+paths; arbitrary Function or ExpressionList results can remain Unknown, and typed
+parameters/returns may be unset. A result class alone proves neither nonempty
+values nor preservation of other locals. Native ordered early-operand contracts
+can expose a safe lookup before opaque work; they do not make an entire Effect
+or Condition pure. Unknown converters, callbacks, aliases and control flow clear
+facts rather than borrowing the enclosing requested type.
+
+The addon contract is WIT `nlaocs:skript-parser-addon@0.41.0`, ABI `23.0`; rebuild
+components against that contract. Incremental work reuses only explicitly opted-in,
+validated semantic hook responses. Native matching and current transactions still
+run; an earlier full AST is never transplanted. Abrupt WASM cancellation requires
+a separate cancellation-safety opt-in. Stored literal default values are unavailable
+in the snapshot, so hints identify their registered type rather than inventing a value.
+
+Older schema-7 snapshots remain readable. Where authoritative cloner/`beforeChange` facts are absent, affected assignment and read facts remain Unknown; a declared type alone does not supply those guarantees.
 
 ## Architecture
 
@@ -75,7 +101,8 @@ The intended data flow is:
    document service. It parses Structure headers and selected bodies, including
    nested syntax, source-mapped diagnostics, partial AST recovery, and
    document-local Function registration. The stdio frontend connects document
-   lifecycle to diagnostics; cross-file indexing remains future work.
+   lifecycle to current-generation editor views and a bounded project index;
+   source/import witnesses invalidate stale definitions and dependent results.
 
 Parsing uses a prepared snapshot and WASM components, not a running Minecraft,
 Paper, Java, or Skript instance. The snapshot still determines the available
@@ -85,7 +112,7 @@ Skript/addon syntax; addon-specific semantics may also require a WASM addon.
 
 | Crate | Kind | Responsibility |
 | --- | --- | --- |
-| [`skript-lsp`](./) | library and binary | Embeds CoreLibrary, constructs the parser host, and serves single-project diagnostics over stdio LSP. |
+| [`skript-lsp`](./) | library and binary | Embeds CoreLibrary, constructs the parser host, and serves single-project diagnostics, completion, semantic queries, and read-only hints over stdio LSP. |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/) | library | Parses Skript syntax registration patterns such as choices, optional groups, type expressions, parse tags, and parse marks. It does not parse `.sk` files. |
 | [`ssg`](./ssg/) | library | Loads, verifies, validates, and converts SSG schema 3 through 7 snapshot directories, including schema 5+ language data, schema 6 default Expression descriptors, and schema 7 BlockData registry data. |
 | [`syntaxes`](./syntaxes/) | library | Owns the normalized syntax domain model, indexed catalog, type relationships, aliases, and dynamic syntax registry. |

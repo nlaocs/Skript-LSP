@@ -10,7 +10,58 @@ use skript_parser::PatternCapture;
 use std::collections::HashSet;
 
 pub const PATTERN_CAPTURE_PREFIX: &str = "parser.pattern-capture:";
+/// JSON array of the exact native typed slot's accepted singular type codes.
+/// Like its Span, this Text is covered by the node's native geometry seal.
+pub const PATTERN_EXPECTED_TYPES_PREFIX: &str = "parser.pattern-expected-types:";
 const SEAL: &str = "parser.pattern-capture-seal.v1";
+
+/// Native structural evidence, not source text emitted by a routed parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternExpectedTypes {
+    pub capture_index: u64,
+    pub type_codes: Vec<String>,
+}
+
+/// Reads one exact current native expected-type record. Unknown names, malformed
+/// schemas, duplicate slots and changed source/identity seals make no claim.
+/// Passing a detached capture with different data cannot borrow a node's seal.
+pub fn pattern_expected_types(node: &AstNode, capture: &Capture) -> Option<PatternExpectedTypes> {
+    let evidence = decode_expected_types(capture)?;
+    if !pattern_capture_geometry_is_current(node) {
+        return None;
+    }
+    let mut retained = node
+        .captures
+        .iter()
+        .filter(|other| other.name == capture.name);
+    let retained = retained.next()?;
+    if !matches!((&retained.value, &capture.value), (CaptureValue::Text(left), CaptureValue::Text(right)) if left == right)
+    {
+        return None;
+    }
+    Some(evidence)
+}
+
+fn canonical_capture_index(index: &str) -> Option<u64> {
+    let value = index.parse::<u64>().ok()?;
+    (value.to_string() == index).then_some(value)
+}
+
+fn decode_expected_types(capture: &Capture) -> Option<PatternExpectedTypes> {
+    let capture_index =
+        canonical_capture_index(capture.name.strip_prefix(PATTERN_EXPECTED_TYPES_PREFIX)?)?;
+    let CaptureValue::Text(json) = &capture.value else {
+        return None;
+    };
+    let type_codes = serde_json::from_str::<Vec<String>>(json).ok()?;
+    if type_codes.is_empty() || type_codes.iter().any(|code| code.trim().is_empty()) {
+        return None;
+    }
+    Some(PatternExpectedTypes {
+        capture_index,
+        type_codes,
+    })
+}
 
 /// Publish the selected native captures during initial AST projection only.
 /// A consumer must never reseal an AST macro's modified output as native proof.
@@ -22,6 +73,21 @@ pub fn retain_pattern_captures(node: &mut AstNode, captures: &[PatternCapture]) 
             name: format!("{PATTERN_CAPTURE_PREFIX}{}", capture.capture_index()),
             value: CaptureValue::Span(super::mapped_span_to_wit(span.mapped.clone())),
         });
+        if let PatternCapture::TypeExpression { expression, .. } = capture {
+            node.captures.push(Capture {
+                name: format!("{PATTERN_EXPECTED_TYPES_PREFIX}{}", capture.capture_index()),
+                value: CaptureValue::Text(
+                    serde_json::to_string(
+                        &expression
+                            .alternatives
+                            .iter()
+                            .map(|alternative| &alternative.name)
+                            .collect::<Vec<_>>(),
+                    )
+                    .expect("type-code strings must serialize"),
+                ),
+            });
+        }
     }
     node.metadata
         .retain(|entry| entry.owner_component_id.is_some() || entry.key != SEAL);
@@ -38,10 +104,10 @@ pub fn has_pattern_capture_geometry(node: &AstNode) -> bool {
     node.metadata
         .iter()
         .any(|entry| entry.owner_component_id.is_none() && entry.key == SEAL)
-        || node
-            .captures
-            .iter()
-            .any(|capture| capture.name.starts_with(PATTERN_CAPTURE_PREFIX))
+        || node.captures.iter().any(|capture| {
+            capture.name.starts_with(PATTERN_CAPTURE_PREFIX)
+                || capture.name.starts_with(PATTERN_EXPECTED_TYPES_PREFIX)
+        })
 }
 
 /// False after removal, narrowing, remapping, or replacement of native evidence.
@@ -77,11 +143,18 @@ fn fingerprint(node: &AstNode) -> Option<String> {
         ),
     );
     let mut slots = HashSet::new();
+    let mut expected_slots = HashSet::new();
     let mut evidence = Vec::new();
     for capture in &node.captures {
         if let Some(index) = capture.name.strip_prefix(PATTERN_CAPTURE_PREFIX) {
-            let index: u64 = index.parse().ok()?;
+            let index = canonical_capture_index(index)?;
             if !slots.insert(index) || !matches!(capture.value, CaptureValue::Span(_)) {
+                return None;
+            }
+        }
+        if capture.name.starts_with(PATTERN_EXPECTED_TYPES_PREFIX) {
+            let expected = decode_expected_types(capture)?;
+            if !expected_slots.insert(expected.capture_index) {
                 return None;
             }
         }
@@ -89,6 +162,9 @@ fn fingerprint(node: &AstNode) -> Option<String> {
         if matches!(capture.value, CaptureValue::Span(_) | CaptureValue::Text(_)) {
             evidence.push(capture);
         }
+    }
+    if !expected_slots.is_subset(&slots) {
+        return None;
     }
     evidence.sort_by(|left, right| left.name.cmp(&right.name));
     digest.update((evidence.len() as u64).to_le_bytes());

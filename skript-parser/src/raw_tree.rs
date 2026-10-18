@@ -748,16 +748,20 @@ impl RawLine {
     }
 }
 
+/// Lossless UTF-8 byte geometry shared with current-source consumers.
+/// Content excludes the ending; full range includes LF, CRLF, or bare CR.
 #[derive(Debug, Clone, Copy)]
-struct PhysicalLine {
-    number: usize,
-    content_range: TextRange,
-    line_ending_range: TextRange,
-    full_range: TextRange,
-    line_ending: LineEnding,
+pub struct PhysicalLine {
+    pub number: usize,
+    pub content_range: TextRange,
+    pub line_ending_range: TextRange,
+    pub full_range: TextRange,
+    pub line_ending: LineEnding,
 }
 
-fn physical_lines(source: &str) -> Vec<PhysicalLine> {
+/// Splits source using the same physical-line boundaries as RawTree parsing.
+/// Empty input has no lines; a final terminator adds no synthetic trailing line.
+pub fn physical_lines(source: &str) -> Vec<PhysicalLine> {
     let bytes = source.as_bytes();
     let mut lines = Vec::new();
     let mut start = 0;

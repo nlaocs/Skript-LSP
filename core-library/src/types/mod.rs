@@ -166,6 +166,35 @@ pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLe
         return;
     };
     // These identify the parser's Type, not a ClassInfo value's target Type.
+    // Only the actual fixed primitive literal constructors are certified here;
+    // interpolated VariableString and arbitrary registered literal parsers stay unknown.
+    if active.addon_name == "Skript"
+        && active.addon_version == "2.15.4"
+        && crate::runtime::current()
+            .and_then(|profile| profile.skript_version)
+            .as_deref()
+            == Some("2.15.4")
+        && candidate.kind == crate::nlaocs::skript_parser_addon::types::ExpressionLeafKind::Literal
+        && candidate.children.is_empty()
+        && matches!(
+            candidate.parser_id.as_str(),
+            "core.literal.number" | "core.literal.boolean" | "core.literal.string"
+        )
+        && !candidate
+            .public_data
+            .iter()
+            .any(|data| data.schema_id == crate::public_data::INTERPOLATION_SCHEMA_ID)
+    {
+        candidate
+            .metadata
+            .push(crate::public_data::preserve_local_effects());
+        candidate
+            .metadata
+            .push(crate::public_data::non_empty_value_result());
+        candidate
+            .metadata
+            .push(crate::public_data::default_clone_change_input());
+    }
     candidate.metadata.extend([
         crate::expression_candidates::metadata("type-parser-definition-id", &active.definition_id),
         crate::expression_candidates::metadata(

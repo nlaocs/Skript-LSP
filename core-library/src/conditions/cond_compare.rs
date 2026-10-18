@@ -268,7 +268,10 @@ fn apply_reparse_result(
     if result.status != ParseResultStatus::Success || summary.return_type.is_none() {
         return true;
     }
-    let Some(expression) = payload.candidate.children.get_mut(child_index) else {
+    let Some(expression_index) = super::child_index(payload, child_index) else {
+        return true;
+    };
+    let Some(expression) = payload.candidate.children.get_mut(expression_index) else {
         return true;
     };
     expression.return_type = summary.return_type.clone();

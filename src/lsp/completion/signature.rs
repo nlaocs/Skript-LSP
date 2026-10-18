@@ -468,6 +468,7 @@ mod tests {
             functions: Vec::new(),
             limited: false,
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
+            documentation_format: lsp_types::MarkupKind::PlainText,
         })
     }
     // Graph tests supply a confirmed executable scope; source-only views defer body classification.

@@ -51,6 +51,7 @@ fn typed(index: usize, resolved: bool) -> PatternCapture {
     PatternCapture::TypeExpression {
         capture_index: index,
         state: TypeCaptureState::Explicit,
+        omission: None,
         pattern_span: Span::new(0, 9),
         expression: expression_type(),
         value: "x".into(),
@@ -221,6 +222,7 @@ fn capture_views_preserve_grouped_summary_defaults_and_function_values() {
     default.kind = ExpressionNodeKind::Default {
         info: Box::new(crate::DefaultExpressionInfo {
             capture_index: 4,
+            omission: None,
             pattern_span: Span::new(0, 9),
             expression: expression_type(),
             expression_source: "%objects%".into(),
@@ -295,6 +297,7 @@ fn condition(expression: ExpressionNode) -> ConditionNode {
         mark: 0,
         marks: Vec::new(),
         expressions: vec![expression],
+        expression_bindings: Vec::new(),
         children: Vec::new(),
         handler: None,
         metadata: BTreeMap::new(),

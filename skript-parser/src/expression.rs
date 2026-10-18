@@ -6,6 +6,7 @@
 #![allow(missing_docs)] // Aggregate contracts are documented on their owning types.
 
 use crate::expression_list::{ExpressionListConjunction, split_expression_list};
+use crate::failure::choose_expression_failure_trace;
 use crate::pattern_match::{
     find_parenthesis_end, find_quote_end, find_variable_end, java_trim_range,
 };
@@ -45,6 +46,10 @@ mod cancellation_tests;
 #[cfg(test)]
 #[path = "expression/memo_tests.rs"]
 mod memo_tests;
+
+#[cfg(test)]
+#[path = "expression/type_mismatch_tests.rs"]
+mod type_mismatch_tests;
 
 /// Stable parser context included in recursive-expression memo keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -2297,7 +2302,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     allow_lists,
                 )?;
                 let added = self.extend_unique_candidates(&mut candidates, recursive.candidates)?;
-                failure = choose_failure_trace(failure, recursive.failure);
+                failure = choose_expression_failure_trace(failure, recursive.failure);
                 self.memo.insert(
                     key.clone(),
                     PrefixParse {
@@ -2425,7 +2430,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .environment
                 .parse_expression_leaf(leaf_request)
                 .map_err(|message| self.environment_error(message))?;
-            failure = choose_failure_trace(failure, leaves.failure);
+            failure = choose_expression_failure_trace(failure, leaves.failure);
             let mut accepted_leaves = Vec::new();
             for leaf in leaves.candidates {
                 if !self.valid_leaf(
@@ -2436,6 +2441,23 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     allow_literals,
                     allow_expressions,
                 ) {
+                    if self.valid_leaf(
+                        &leaf,
+                        range,
+                        candidate_ends,
+                        &[],
+                        allow_literals,
+                        allow_expressions,
+                    ) {
+                        let trace = self.type_mismatch_trace(
+                            self.map_range(leaf.range)?,
+                            leaf.return_type.as_ref(),
+                            &[],
+                            PossibleReturnTypesState::Complete,
+                            expected_types,
+                        );
+                        failure = choose_expression_failure_trace(failure, trace);
+                    }
                     continue;
                 }
                 let defer_candidate = allow_expressions
@@ -2509,7 +2531,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     depth,
                 )?;
                 candidates.extend(functions.candidates);
-                failure = choose_failure_trace(failure, functions.failure);
+                failure = choose_expression_failure_trace(failure, functions.failure);
             }
         }
 
@@ -2537,7 +2559,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_starts.pop();
                 let matched = matched?;
                 let first_candidate = candidates.len();
-                failure = choose_failure_trace(failure, matched.primary_failure().cloned());
+                failure =
+                    choose_expression_failure_trace(failure, matched.primary_failure().cloned());
                 for matched in matched.selected.into_iter().chain(matched.alternatives) {
                     self.check_cancelled()?;
                     self.begin_semantic_candidate()
@@ -2562,7 +2585,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                             break;
                         }
                         RegisteredNodeResolution::Rejected(trace) => {
-                            failure = choose_failure_trace(failure, trace);
+                            failure = choose_expression_failure_trace(failure, trace);
                         }
                     }
                 }
@@ -2586,7 +2609,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     depth,
                 )?;
                 candidates.extend(lists.candidates);
-                failure = choose_failure_trace(failure, lists.failure);
+                failure = choose_expression_failure_trace(failure, lists.failure);
             }
         }
         Ok(PrefixParse {
@@ -3348,7 +3371,28 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .map_err(|message| self.environment_error(message))?;
         }
         if !accepted {
-            return Ok(RegisteredNodeResolution::Rejected(None));
+            let trace = self
+                .type_mismatch_trace(
+                    span.clone(),
+                    return_type.as_ref(),
+                    &possible_return_types,
+                    possible_return_types_state,
+                    expected_types,
+                )
+                .map(|trace| {
+                    trace.with_parent(FailureFrame {
+                        kind: matched.kind,
+                        definition_id: matched.definition_id.clone(),
+                        registration_id: matched.registration_id.clone(),
+                        pattern_index: matched.pattern_index,
+                        pattern: matched.pattern.clone(),
+                        element_path: Vec::new(),
+                        pattern_span: None,
+                        input_span: span.clone(),
+                        role: FailureFrameRole::SemanticCandidate,
+                    })
+                });
+            return Ok(RegisteredNodeResolution::Rejected(trace));
         }
         Ok(RegisteredNodeResolution::Accepted(ExpressionCandidate {
             node: ExpressionNode {
@@ -3383,6 +3427,59 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
 
     fn registration_metadata(&self, registration_id: &str) -> Option<&RegistrationMetadata> {
         self.registrations.get(registration_id)
+    }
+
+    fn type_mismatch_trace(
+        &self,
+        span: MatchSpan,
+        return_type: Option<&ClassName>,
+        possible_return_types: &[ClassName],
+        possible_return_types_state: PossibleReturnTypesState,
+        expected_types: &[ExpressionExpectedType],
+    ) -> Option<FailureTrace> {
+        if expected_types.is_empty()
+            || possible_return_types_state != PossibleReturnTypesState::Complete
+            || self.return_type_matches(return_type, expected_types)
+            || possible_return_types
+                .iter()
+                .any(|actual| self.return_type_matches(Some(actual), expected_types))
+        {
+            return None;
+        }
+        let actual = if possible_return_types.is_empty() {
+            return_type.into_iter().cloned().collect::<Vec<_>>()
+        } else {
+            possible_return_types.to_vec()
+        };
+        // Missing hierarchy/type alternatives and runtime Object conversions are
+        // uncertainty, not evidence that the supplied expression has a wrong type.
+        if actual.is_empty()
+            || actual.iter().any(|actual| {
+                actual.as_str() == "java.lang.Object"
+                    || self.catalog.class(actual.as_str()).is_none()
+            })
+            || expected_types
+                .iter()
+                .any(|expected| self.catalog.class(expected.class_name.as_str()).is_none())
+        {
+            return None;
+        }
+        let mut actual = actual
+            .iter()
+            .map(|actual| actual.as_str().to_owned())
+            .collect::<Vec<_>>();
+        actual.sort();
+        actual.dedup();
+        Some(FailureTrace::leaf(PatternFailure {
+            span,
+            reasons: vec![PatternFailureReason::TypeMismatch {
+                expected: expected_types
+                    .iter()
+                    .map(|expected| expected.class_name.as_str().to_owned())
+                    .collect(),
+                actual,
+            }],
+        }))
     }
 
     fn valid_leaf(
@@ -4287,6 +4384,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 expression,
                 span,
                 state,
+                omission,
                 alternative_index,
                 resolution_id,
                 ..
@@ -4394,6 +4492,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                     kind: ExpressionNodeKind::Default {
                         info: Box::new(crate::DefaultExpressionInfo {
                             capture_index: *capture_index,
+                            omission: *omission,
                             pattern_span: *pattern_span,
                             expression: expression.clone(),
                             expression_source: pattern
@@ -4510,7 +4609,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 depth,
                 true,
             )?;
-            failure = choose_failure_trace(failure, parsed.failure);
+            failure = choose_expression_failure_trace(failure, parsed.failure);
             // Skript keeps the first successful registration. The parent matcher only
             // needs one AST for each amount of input this capture can consume.
             let mut resolved_ends = HashSet::new();
@@ -4528,6 +4627,85 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                     alternative_index: Some(alternative_index),
                     resolution_id: Some(id),
                 });
+            }
+        }
+        // A rejected type alternative cannot diagnose an input range accepted
+        // by another alternative of this same capture.
+        let mut failure = failure.filter(|trace| {
+            let root = trace.root_cause();
+            !root
+                .failure
+                .reasons
+                .iter()
+                .any(|reason| matches!(reason, PatternFailureReason::TypeMismatch { .. }))
+                || !resolutions.iter().any(|resolution| {
+                    TextRange::new(
+                        frame_start + resolution.range.start,
+                        frame_start + resolution.range.end,
+                    )
+                    .contains(root.failure.span.mapped.virtual_range)
+                })
+        });
+        if let Some(trace) = &mut failure {
+            let mut current = &*trace;
+            let mut direct = true;
+            loop {
+                if current
+                    .frame
+                    .as_ref()
+                    .is_some_and(|frame| frame.role != FailureFrameRole::SemanticCandidate)
+                {
+                    direct = false;
+                }
+                let Some(cause) = current.cause.as_deref() else {
+                    break;
+                };
+                current = cause;
+            }
+            let actual = current
+                .failure
+                .reasons
+                .iter()
+                .find_map(|reason| match reason {
+                    PatternFailureReason::TypeMismatch { actual, .. } => Some(actual.clone()),
+                    _ => None,
+                });
+            if direct && let Some(actual) = actual {
+                let expected = request
+                    .expression
+                    .alternatives
+                    .iter()
+                    .map(|alternative| {
+                        let value_type = self.catalog.type_by_code_name(&alternative.name)?;
+                        self.catalog.class(value_type.original_class.as_str())?;
+                        Some(value_type.original_class.as_str().to_owned())
+                    })
+                    .collect::<Option<Vec<_>>>();
+                if let Some(expected) = expected.filter(|expected| {
+                    actual.iter().all(|actual| {
+                        expected
+                            .iter()
+                            .all(|expected| !self.catalog.can_convert(actual, expected))
+                    })
+                }) {
+                    let mut current = trace;
+                    loop {
+                        for reason in &mut current.failure.reasons {
+                            if let PatternFailureReason::TypeMismatch {
+                                expected: target, ..
+                            } = reason
+                            {
+                                target.clone_from(&expected);
+                            }
+                        }
+                        let Some(cause) = current.cause.as_deref_mut() else {
+                            break;
+                        };
+                        current = cause;
+                    }
+                } else {
+                    failure = None;
+                }
             }
         }
         Ok(TypeExpressionOutcome {

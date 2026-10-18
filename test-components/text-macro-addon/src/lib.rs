@@ -27,8 +27,9 @@ use nlaocs::skript_parser_addon::{
     },
 };
 use parser_wasm::{
-    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO,
-    Capability as ParserCapability, CapabilityRequirement as ParserCapabilityRequirement,
+    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
+    CAPABILITY_STATE_STORE, CAPABILITY_TEXT_MACRO, Capability as ParserCapability,
+    CapabilityRequirement as ParserCapabilityRequirement,
     CompatibilityError as ParserCompatibilityError, validate_compatibility,
 };
 
@@ -56,6 +57,7 @@ fn empty_selector() -> HookSelector {
 impl addon::Guest for TextMacroAddon {
     fn manifest() -> ComponentManifest {
         ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: COMPONENT_ID.to_owned(),
             component_version: env!("CARGO_PKG_VERSION").to_owned(),
             abi: AbiVersion {
@@ -63,6 +65,11 @@ impl addon::Guest for TextMacroAddon {
                 minor: ABI_VERSION.minor,
             },
             capabilities: vec![
+                CapabilityRequirement {
+                    id: CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
                 CapabilityRequirement {
                     id: CAPABILITY_TEXT_MACRO.to_owned(),
                     minimum_version: 1,
@@ -92,6 +99,34 @@ impl addon::Guest for TextMacroAddon {
     }
 
     fn initialize(profile: HostProfile) -> Result<(), CompatibilityError> {
+        // Deliberately invalid initializer scenarios exercise the host's v1 guard.
+        match profile.runtime.language.as_deref() {
+            Some("test.restart-init-state-read") => {
+                let _ = state_store::get(
+                    StateScope::Project,
+                    StateNamespaceVisibility::Private,
+                    STATE_NAMESPACE,
+                    "initializer",
+                );
+            }
+            Some("test.restart-init-state-write") => {
+                let _ = state_store::put(
+                    StateScope::Project,
+                    StateNamespaceVisibility::Private,
+                    STATE_NAMESPACE,
+                    "initializer",
+                    &StateValue {
+                        schema_id: STATE_SCHEMA.to_owned(),
+                        encoding: StateEncoding::Json,
+                        bytes: b"invalid".to_vec(),
+                    },
+                );
+            }
+            Some("test.restart-init-dynamic") => {
+                let _ = nlaocs::skript_parser_addon::dynamic_syntax_registry::remove("initializer");
+            }
+            _ => {}
+        }
         let requirements = [
             ParserCapabilityRequirement::required(CAPABILITY_TEXT_MACRO, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
@@ -126,6 +161,12 @@ impl text_macro::Guest for TextMacroAddon {
 }
 
 fn first_macro(input: TextMacroInput) -> Result<TextMacroOutput, AddonError> {
+    if input.text == "epoch-cancel" {
+        // All state lives in the host; an interrupted guest Store is disposable.
+        loop {
+            core::hint::spin_loop();
+        }
+    }
     if input.text.contains("trap") {
         panic!("text macro fixture trap");
     }

@@ -29,7 +29,10 @@ pub(super) fn resolve(mut payload: ConditionPayload) -> Option<HookOutput> {
     super::annotate(&mut payload, "semantic-mode", "event-context");
     let span = payload.candidate.span.clone();
     Some(match super::event_relation(&payload.context, event_class) {
-        Ok(TypeRelation::Compatible) => super::accept(payload),
+        Ok(TypeRelation::Compatible) => {
+            super::local_effects::event_flag(&mut payload);
+            super::accept(payload)
+        }
         Ok(TypeRelation::Incompatible) => super::reject_with(
             format!("this Condition can only be used in {description}"),
             "core.condition.invalid-event-context",

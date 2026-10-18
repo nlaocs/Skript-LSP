@@ -31,7 +31,22 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(22, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(23, 0);
+
+/// Explicit immutable/local semantic hook result contract for incremental analysis.
+pub const CAPABILITY_INCREMENTAL_LOCAL_SYNTAX: &str = "parser.incremental-local-syntax";
+
+/// Component-wide deterministic project semantic promise; see the WIT manifest contract.
+pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-semantics";
+
+/// Permits discarding the entire guest Store after observed cancellation.
+/// Initialization is deterministic and uses immutable Catalog queries only;
+/// StateStore/dynamic call attempts are rejected. Losing guest memory/globals
+/// and reinitializing must preserve all future semantics. Host state is retained.
+/// Without this opt-in cancellation waits for normal guest return; fuel and
+/// ordinary addon deadlines remain enforced.
+pub const CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE: &str =
+    "parser.epoch-cancellation-restart-safe";
 
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
@@ -281,7 +296,11 @@ mod tests {
 
     #[test]
     fn rejects_abi_version_mismatches_explicitly() {
-        for actual in [AbiVersion::new(2, 0), AbiVersion::new(21, 0)] {
+        for actual in [
+            AbiVersion::new(2, 0),
+            AbiVersion::new(21, 0),
+            AbiVersion::new(22, 0),
+        ] {
             let error = validate_compatibility(ABI_VERSION, actual, &[], &[]).unwrap_err();
             assert_eq!(
                 error,
@@ -292,7 +311,7 @@ mod tests {
             );
             assert_eq!(
                 error.to_string(),
-                format!("ABI version mismatch: expected 22.0, found {actual}")
+                format!("ABI version mismatch: expected {ABI_VERSION}, found {actual}")
             );
         }
     }

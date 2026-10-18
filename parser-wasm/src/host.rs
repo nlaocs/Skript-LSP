@@ -7,14 +7,21 @@
 mod ast_macro;
 mod ast_tree;
 #[cfg(test)]
+mod cancellation_tests;
+#[cfg(test)]
 mod capture_view_tests;
 #[cfg(test)]
 mod checkpoint_tests;
 mod default_expression;
+mod incremental;
+#[cfg(test)]
+mod incremental_equivalence_tests;
+pub use incremental::IncrementalMetrics;
 mod document;
 #[cfg(test)]
 mod function_projection_tests;
 mod public_data;
+pub mod semantic_proof;
 pub mod source_geometry;
 mod subscriptions;
 
@@ -30,7 +37,7 @@ use std::{
     mem,
     sync::{
         Arc, LazyLock, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -109,6 +116,7 @@ use crate::bindings::nlaocs::skript_parser_addon::types::{
     AcceptedChangeMode as WitAcceptedChangeMode, AddonAttachment as WitAddonAttachment,
     CatalogRecordRef as WitCatalogRecordRef, ConditionCandidate as WitConditionCandidate,
     ConditionCapture as WitConditionCapture,
+    ConditionExpressionBinding as WitConditionExpressionBinding,
     ConditionExpressionCapture as WitConditionExpressionCapture, ConditionMark as WitConditionMark,
     ConditionPayload as WitConditionPayload, ConditionRegexCapture as WitConditionRegexCapture,
     ConditionTag as WitConditionTag, DynamicMultiplicity as WitDynamicMultiplicity,
@@ -191,11 +199,12 @@ pub use crate::bindings::nlaocs::skript_parser_addon::types::{
     ExpressionReturnTypeState, ExpressionTypeOption, HookDecision, HookEffects, HookMode,
     HookOutput, HookPayload, HookPhase, HookSelector, HookSubscription, HookTarget,
     InvocationContext, MappedSpan, MatchingPathSegment, MatchingPayload, MatchingScope,
-    MatchingStatus, MatchingTiming, ParseRequest, ParseResult, ParseResultNode, PatternRef,
-    RawTree, RawTreeNode, RegisteredExpressionChild, RegisteredExpressionPayload,
-    RegisteredExpressionPropertyOption, RegisteredExpressionTag, RegisteredSyntaxHandlerTarget,
-    Rejection, RelatedSpan, ReturnTypeSelector, SelectorTypeRelation, SyntaxKind, TextMacroInput,
-    TextMacroOutput, TreeMacroInput, TreeMacroOutput, TypeCaptureState, TypeParserUnresolved,
+    MatchingStatus, MatchingTiming, ParseRequest, ParseResult, ParseResultNode, PatternOmission,
+    PatternOmissionKind, PatternRef, RawTree, RawTreeNode, RegisteredExpressionChild,
+    RegisteredExpressionPayload, RegisteredExpressionPropertyOption, RegisteredExpressionTag,
+    RegisteredSyntaxHandlerTarget, Rejection, RelatedSpan, ReturnTypeSelector,
+    SelectorTypeRelation, SyntaxKind, TextMacroInput, TextMacroOutput, TreeMacroInput,
+    TreeMacroOutput, TypeCaptureState, TypeParserUnresolved,
 };
 
 /// Reserved component ID required for the first host component.
@@ -781,6 +790,8 @@ pub struct DispatchRequest {
 pub struct HookCall {
     pub component_id: String,
     pub subscription_id: String,
+    /// Opaque reference; only the result's private native proof registry grants authority.
+    pub semantic_receipt: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -810,6 +821,8 @@ pub struct DispatchResult {
 struct ExecutedParseResult {
     wire: ParseResult,
     expression_roots: BTreeMap<u64, ExpressionNode>,
+    // Actual nested host invocations; admitted only by an accepted continuation.
+    calls: Vec<HookCall>,
 }
 
 #[derive(Debug)]
@@ -1017,6 +1030,18 @@ impl ResourceLimiter for HostResourceLimiter {
 struct StoreData {
     limits: HostResourceLimiter,
     invocation: Option<InvocationTransaction>,
+    #[cfg(test)]
+    guest_hook_calls: u64,
+    incremental_impure_call: bool,
+    epoch_clock: Option<Arc<EpochClock>>,
+    cancellation: Option<DocumentCancellationToken>,
+    interrupt_safe: bool,
+    epoch_cancelled: bool,
+    initializing: bool,
+    initialization_host_call_attempted: bool,
+    call_deadline: u64,
+    #[cfg(test)]
+    cancel_token_after_state_put: Option<(String, DocumentCancellationToken)>,
     #[cfg(test)]
     cancel_after_state_put: Option<(String, ParseTransaction)>,
     dynamic_syntax_update: Option<DynamicSyntaxUpdate>,
@@ -1780,6 +1805,7 @@ impl wit_state_store::Host for StoreData {
         key: String,
         value: WitStateValue,
     ) -> Result<(), WitStateError> {
+        self.note_initialization_host_call();
         let result = self
             .invocation()?
             .put(
@@ -1790,6 +1816,16 @@ impl wit_state_store::Host for StoreData {
                 state_value(value),
             )
             .map_err(wit_state_error);
+        #[cfg(test)]
+        if result.is_ok()
+            && self
+                .cancel_token_after_state_put
+                .as_ref()
+                .is_some_and(|(target, _)| target == &key)
+        {
+            let (_, token) = self.cancel_token_after_state_put.take().unwrap();
+            token.cancel();
+        }
         // One-shot test fault: cancel while the guest is inside this host import.
         #[cfg(test)]
         if result.is_ok()
@@ -1811,6 +1847,7 @@ impl wit_state_store::Host for StoreData {
         namespace: String,
         key: String,
     ) -> Result<bool, WitStateError> {
+        self.note_initialization_host_call();
         self.invocation()?
             .delete(
                 state_scope(scope),
@@ -1830,6 +1867,7 @@ impl wit_state_store::Host for StoreData {
         expected: Option<WitStateValue>,
         replacement: Option<WitStateValue>,
     ) -> Result<bool, WitStateError> {
+        self.note_initialization_host_call();
         let expected = expected.map(state_value);
         let replacement = replacement.map(state_value);
         self.invocation()?
@@ -1850,6 +1888,7 @@ impl wit_dynamic_registry::Host for StoreData {
         &mut self,
         definition: WitDynamicSyntaxDefinition,
     ) -> Result<(), WitDynamicRegistryError> {
+        self.note_initialization_host_call();
         let component_id = self.dynamic_update()?.component_id().to_owned();
         let metadata = dynamic_metadata(definition.metadata)?;
         let before = definition
@@ -1897,6 +1936,7 @@ impl wit_dynamic_registry::Host for StoreData {
         &mut self,
         syntax_override: WitDynamicSyntaxOverride,
     ) -> Result<(), WitDynamicRegistryError> {
+        self.note_initialization_host_call();
         let metadata = dynamic_metadata(syntax_override.metadata)?;
         let target = match syntax_override.target {
             WitDynamicSyntaxOverrideTarget::DefinitionId(value) => {
@@ -1918,6 +1958,7 @@ impl wit_dynamic_registry::Host for StoreData {
     }
 
     fn remove(&mut self, local_id: String) -> Result<bool, WitDynamicRegistryError> {
+        self.note_initialization_host_call();
         self.dynamic_update()?
             .remove(&local_id)
             .map_err(wit_dynamic_registry_error)
@@ -2143,6 +2184,12 @@ fn wit_dynamic_registry_error(error: DynamicRegistryError) -> WitDynamicRegistry
 }
 
 impl StoreData {
+    fn note_initialization_host_call(&mut self) {
+        if self.initializing {
+            self.initialization_host_call_attempted = true;
+        }
+    }
+
     fn catalog(&self) -> Result<&Catalog, wit_catalog_data::CatalogError> {
         self.catalog
             .as_deref()
@@ -2174,12 +2221,15 @@ impl StoreData {
     }
 
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
+        self.note_initialization_host_call();
         self.invocation
             .as_mut()
             .ok_or_else(|| wit_state_error(StateError::NoActiveTransaction))
     }
 
     fn dynamic_update(&mut self) -> Result<&mut DynamicSyntaxUpdate, WitDynamicRegistryError> {
+        self.note_initialization_host_call();
+        self.incremental_impure_call = true;
         if !self.dynamic_syntax_available {
             return Err(WitDynamicRegistryError {
                 kind: WitDynamicRegistryErrorKind::Unavailable,
@@ -2474,6 +2524,7 @@ fn catalog_page_bounds(
 }
 
 struct ComponentEntry {
+    component: Component,
     manifest: ComponentManifest,
     registered_handler_bindings: Vec<WitRegisteredHandlerBinding>,
     store: Store<StoreData>,
@@ -2482,6 +2533,9 @@ struct ComponentEntry {
     disabled: bool,
     disabled_reason: Option<HostError>,
     unloaded: bool,
+    restart_pending: bool,
+    #[cfg(test)]
+    cancel_during_restart_initialize: Option<DocumentCancellationToken>,
 }
 
 #[derive(Clone)]
@@ -6001,11 +6055,13 @@ fn condition_hook_payload(
                 .iter()
                 .map(|capture| match capture {
                     PatternCapture::Regex {
+                        capture_index,
                         pattern_span,
                         value,
                         span,
                         ..
                     } => WitConditionCapture::Regex(WitConditionRegexCapture {
+                        capture_index: *capture_index as u64,
                         pattern_span: WitTextRange {
                             start: pattern_span.start as u64,
                             end: pattern_span.end as u64,
@@ -6014,6 +6070,7 @@ fn condition_hook_payload(
                         span: mapped_span_to_wit(span.mapped.clone()),
                     }),
                     PatternCapture::TypeExpression {
+                        capture_index,
                         pattern_span,
                         expression,
                         value,
@@ -6023,6 +6080,7 @@ fn condition_hook_payload(
                         state,
                         ..
                     } => WitConditionCapture::Expression(WitConditionExpressionCapture {
+                        capture_index: *capture_index as u64,
                         state: default_expression::capture_state(*state),
                         pattern_span: WitTextRange {
                             start: pattern_span.start as u64,
@@ -6072,6 +6130,21 @@ fn condition_hook_payload(
                 .expressions
                 .iter()
                 .map(|child| expression_child_to_wit(child, input, Some(catalog)))
+                .collect(),
+            expression_bindings: candidate
+                .node
+                .expression_bindings
+                .iter()
+                .filter(|binding| {
+                    candidate
+                        .node
+                        .expression_capture_index(binding.expression_index)
+                        == Some(binding.capture_index)
+                })
+                .map(|binding| WitConditionExpressionBinding {
+                    capture_index: binding.capture_index as u64,
+                    expression_index: binding.expression_index as u64,
+                })
                 .collect(),
         },
     })
@@ -6390,6 +6463,11 @@ fn effect_failure_reason(reason: &PatternFailureReason) -> String {
         PatternFailureReason::TypeExpression { expected } => {
             format!("expression:{}", expected.join("/"))
         }
+        PatternFailureReason::TypeMismatch { expected, actual } => format!(
+            "type-mismatch:expected={};actual={}",
+            expected.join("/"),
+            actual.join("/")
+        ),
         PatternFailureReason::EventRestricted { supported, current } => format!(
             "event-restricted:supported={};current={}",
             supported.join("/"),
@@ -6439,6 +6517,14 @@ fn validate_condition_payload_identity(
         || !same_condition_tags(&left.tags, &right.tags)
         || left.mark != right.mark
         || !same_condition_marks(&left.marks, &right.marks)
+        || !left
+            .expression_bindings
+            .iter()
+            .map(|binding| (binding.capture_index, binding.expression_index))
+            .eq(right
+                .expression_bindings
+                .iter()
+                .map(|binding| (binding.capture_index, binding.expression_index)))
         || !same_registered_expression_children(&left.children, &right.children)
     {
         return Err(HostError::InvalidConditionHookOutput {
@@ -6455,13 +6541,15 @@ fn same_condition_captures(left: &[WitConditionCapture], right: &[WitConditionCa
             .zip(right)
             .all(|(left, right)| match (left, right) {
                 (WitConditionCapture::Regex(left), WitConditionCapture::Regex(right)) => {
-                    left.pattern_span.start == right.pattern_span.start
+                    left.capture_index == right.capture_index
+                        && left.pattern_span.start == right.pattern_span.start
                         && left.pattern_span.end == right.pattern_span.end
                         && left.value == right.value
                         && same_mapped_span(&left.span, &right.span)
                 }
                 (WitConditionCapture::Expression(left), WitConditionCapture::Expression(right)) => {
-                    left.state == right.state
+                    left.capture_index == right.capture_index
+                        && left.state == right.state
                         && left.pattern_span.start == right.pattern_span.start
                         && left.pattern_span.end == right.pattern_span.end
                         && left.expression == right.expression
@@ -8594,7 +8682,25 @@ fn catalog_match_syntax_kind(kind: MatchSyntaxKind) -> CatalogSyntaxKind {
         MatchSyntaxKind::Structure => CatalogSyntaxKind::Structure,
     }
 }
+#[derive(Default)]
+struct EpochClock {
+    ticks: AtomicU64,
+    update: Mutex<()>,
+}
+
+impl EpochClock {
+    fn advance(&self, engine: &Engine) {
+        let _guard = self
+            .update
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.ticks.fetch_add(1, Ordering::Release);
+        engine.increment_epoch();
+    }
+}
+
 struct EpochTicker {
+    clock: Arc<EpochClock>,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
@@ -8603,18 +8709,21 @@ impl EpochTicker {
     fn start(engine: Engine, tick: Duration) -> Result<Self, HostError> {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
+        let clock = Arc::new(EpochClock::default());
+        let thread_clock = Arc::clone(&clock);
         let handle = thread::Builder::new()
             .name("parser-wasm-epoch".to_owned())
             .spawn(move || {
                 while !thread_stop.load(Ordering::Acquire) {
                     thread::sleep(tick);
-                    engine.increment_epoch();
+                    thread_clock.advance(&engine);
                 }
             })
             .map_err(|error| HostError::Engine {
                 message: error.to_string(),
             })?;
         Ok(Self {
+            clock,
             stop,
             handle: Some(handle),
         })
@@ -8723,7 +8832,9 @@ pub struct ParserHost {
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
+    semantic_receipts: Option<semantic_proof::ReceiptRegistry>,
     expression_preparation: skript_parser::ExpressionPreparationCache,
+    incremental: incremental::IncrementalCache,
     state_store: StateStore,
     dynamic_syntax_registry: Option<DynamicSyntaxRegistry>,
     capabilities: Vec<Capability>,
@@ -8764,6 +8875,19 @@ impl ParseRequestKey {
 }
 
 impl ParserHost {
+    /// Whether every loaded component promises document-independent project semantics.
+    /// A disabled component leaves runtime history uncertain and fails closed.
+    pub fn project_semantics_are_stable(&self) -> bool {
+        !self.components.is_empty()
+            && self.components.iter().all(|entry| {
+                !entry.disabled
+                    && component_promises(
+                        &entry.manifest.capabilities,
+                        crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
+                    )
+            })
+    }
+
     /// Default lexical options from the effective runtime, after explicit host
     /// settings and enabled snapshot plugins have been reconciled.
     pub fn raw_tree_options(&self) -> skript_parser::RawTreeOptions {
@@ -8812,7 +8936,9 @@ impl ParserHost {
             runtime,
             config,
             native_cancellation: None,
+            semantic_receipts: None,
             expression_preparation: skript_parser::ExpressionPreparationCache::default(),
+            incremental: incremental::IncrementalCache::default(),
             state_store,
             dynamic_syntax_registry,
             capabilities,
@@ -8862,6 +8988,7 @@ impl ParserHost {
         document_id: &str,
         through_revision: u64,
     ) -> Result<bool, HostError> {
+        self.incremental.release(document_id, through_revision);
         let state_released =
             self.state_store
                 .release_document(project_uri, document_id, through_revision)?;
@@ -9290,7 +9417,7 @@ impl ParserHost {
         request: StructureParseRequest<'_>,
         config: StructureParserConfig,
     ) -> Result<WasmStructureParseResult, HostError> {
-        self.parse_structures_in_parse_observed(transaction, context, request, config, None)
+        self.parse_structures_in_parse_observed(transaction, context, request, config, &[], None)
     }
 
     fn parse_structures_in_parse_observed(
@@ -9299,6 +9426,7 @@ impl ParserHost {
         context: InvocationContext,
         request: StructureParseRequest<'_>,
         mut config: StructureParserConfig,
+        imported_functions: &[skript_parser::ImportedFunction],
         mut structure_preparation: Option<
             &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
         >,
@@ -9338,6 +9466,13 @@ impl ParserHost {
             document_revision,
             function_policy_for_runtime(self.config.runtime_profile.skript_version.as_deref()),
         );
+        function_registry
+            .import_functions(imported_functions.to_vec())
+            .map_err(|error| {
+                HostError::StateStore(StateError::InvalidInput {
+                    message: error.to_string(),
+                })
+            })?;
         let matching_hooks_registered = self.registry.has_matching_hooks();
         let hooks = WasmPatternHooks {
             host: self,
@@ -10057,6 +10192,7 @@ impl ParserHost {
                 span: mapped_span_to_wit(mapped),
             };
 
+            self.ensure_component_ready(candidate.component_index)?;
             let state_invocation = transaction.begin_invocation(component_id.clone())?;
             let dynamic_update = self
                 .dynamic_syntax_registry
@@ -10085,6 +10221,7 @@ impl ParserHost {
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
                     entry.store.data_mut().dynamic_syntax_update = dynamic_update;
+                    entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     if let Err(error) = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -10115,6 +10252,16 @@ impl ParserHost {
                 };
 
             let (call, state_invocation, dynamic_update) = call;
+            if call.is_ok()
+                && self
+                    .native_cancellation
+                    .as_ref()
+                    .is_some_and(DocumentCancellationToken::is_cancelled)
+            {
+                state_invocation.rollback();
+                drop(dynamic_update);
+                return Err(skript_parser::ParseCancelled.into());
+            }
             let accesses = state_invocation.read_write_set();
             let mut output = match call {
                 Ok(Ok(output)) => output,
@@ -10160,6 +10307,9 @@ impl ParserHost {
                     state_invocation.rollback();
                     drop(dynamic_update);
                     let error = classify_wasmtime_error(component_id.clone(), "text macro", error);
+                    if matches!(error, HostError::Cancelled(_)) {
+                        return Err(error);
+                    }
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
                         self.components[candidate.component_index].disabled_reason =
@@ -10628,6 +10778,7 @@ impl ParserHost {
                 depth: u32::try_from(depth).unwrap_or(u32::MAX),
             };
 
+            self.ensure_component_ready(candidate.component_index)?;
             let state_invocation = transaction.begin_invocation(component_id.clone())?;
             let call =
                 {
@@ -10644,6 +10795,7 @@ impl ParserHost {
                         .into());
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
+                    entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     if let Err(error) = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -10673,6 +10825,16 @@ impl ParserHost {
                 };
 
             let (call, state_invocation) = call;
+            if call.is_ok()
+                && self
+                    .native_cancellation
+                    .as_ref()
+                    .is_some_and(DocumentCancellationToken::is_cancelled)
+            {
+                state_invocation.rollback();
+                pipeline.active.pop();
+                return Err(skript_parser::ParseCancelled.into());
+            }
             let accesses = state_invocation.read_write_set();
             let mut output = match call {
                 Ok(Ok(output)) => output,
@@ -10719,6 +10881,9 @@ impl ParserHost {
                     state_invocation.rollback();
                     pipeline.active.pop();
                     let error = classify_wasmtime_error(component_id.clone(), "tree macro", error);
+                    if matches!(error, HostError::Cancelled(_)) {
+                        return Err(error);
+                    }
                     if error.disables_component() {
                         self.components[candidate.component_index].disabled = true;
                         self.components[candidate.component_index].disabled_reason =
@@ -11012,6 +11177,7 @@ impl ParserHost {
                         "recursive parser request cycle detected",
                     ),
                     expression_roots: BTreeMap::new(),
+                    calls: Vec::new(),
                 }
             } else {
                 self.active_parse_requests.push(key);
@@ -11099,6 +11265,7 @@ impl ParserHost {
             return Ok(ExecutedParseResult {
                 wire: failed_parse_result(request, "parser.expression-no-match", &message),
                 expression_roots: BTreeMap::new(),
+                calls: parsed.calls,
             });
         };
         let wire = expression_parse_result(
@@ -11114,6 +11281,7 @@ impl ParserHost {
         Ok(ExecutedParseResult {
             wire,
             expression_roots: BTreeMap::from([(root_id, child)]),
+            calls: parsed.calls,
         })
     }
 
@@ -11147,6 +11315,7 @@ impl ParserHost {
                     "input is not a valid Condition",
                 ),
                 expression_roots: BTreeMap::new(),
+                calls: parsed.calls,
             });
         };
         Ok(ExecutedParseResult {
@@ -11156,6 +11325,7 @@ impl ParserHost {
                 self.config.syntax_catalog.as_deref(),
             ),
             expression_roots: BTreeMap::new(),
+            calls: parsed.calls,
         })
     }
 
@@ -11191,6 +11361,7 @@ impl ParserHost {
                     "no registered parser handled the request",
                 ),
                 expression_roots: BTreeMap::new(),
+                calls: result.calls,
             });
         }
         if result.effects.parse_results.len() != 1 {
@@ -11229,6 +11400,7 @@ impl ParserHost {
         Ok(ExecutedParseResult {
             wire: parsed,
             expression_roots: BTreeMap::new(),
+            calls: result.calls,
         })
     }
 
@@ -11255,6 +11427,10 @@ impl ParserHost {
         );
         let dispatch_base = transaction.savepoint()?;
         let original_payload = request.payload.clone();
+        let mut semantic_writers = self
+            .semantic_receipts
+            .as_ref()
+            .map(|registry| registry.begin(&original_payload));
         let fault_phase = format!("{:?}", request.phase);
         let fault_target = format!("{:?}", request.target);
         let document_id = transaction.document_id()?;
@@ -11306,6 +11482,7 @@ impl ParserHost {
             let mut parse_results = Vec::new();
             let mut candidate_parse_results = BTreeMap::new();
             let mut continuation_base = None;
+            let mut candidate_semantic_effects = false;
             let (output, state_invocation, dynamic_update) = loop {
                 if let Err(cancelled) = self.check_native_cancellation() {
                     transaction
@@ -11319,7 +11496,7 @@ impl ParserHost {
                 }
                 let mut context = request.context.clone();
                 context.subscription_id = subscription_id.clone();
-                let invocation =
+                let mut invocation =
                     crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation {
                         context,
                         target: candidate.subscription.target.clone(),
@@ -11330,8 +11507,27 @@ impl ParserHost {
                 calls.push(HookCall {
                     component_id: component_id.clone(),
                     subscription_id: subscription_id.clone(),
+                    semantic_receipt: None,
                 });
-                let state_invocation = transaction.begin_invocation(component_id.clone())?;
+                self.ensure_component_ready(candidate.component_index)?;
+                let mut state_invocation = transaction.begin_invocation(component_id.clone())?;
+                let incremental_key =
+                    self.incremental_key(candidate.component_index, &mut invocation)?;
+                let incremental_checkpoint = incremental_key
+                    .as_ref()
+                    .map(|_| transaction.observation_checkpoint())
+                    .transpose()?;
+                if incremental_key.is_some() {
+                    state_invocation.observe_reads();
+                }
+                let cached_output = incremental_key
+                    .as_ref()
+                    .map(|key| {
+                        self.incremental_lookup(key, &mut state_invocation, &invocation.payload)
+                    })
+                    .transpose()?
+                    .flatten();
+                let cache_hit = cached_output.is_some();
                 let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
                     self.dynamic_syntax_registry
                         .as_ref()
@@ -11347,8 +11543,11 @@ impl ParserHost {
                 } else {
                     None
                 };
-                let call = {
+                let call = if let Some(output) = cached_output {
+                    (Ok(Ok(output)), state_invocation, dynamic_update)
+                } else {
                     let entry = &mut self.components[candidate.component_index];
+                    entry.store.data_mut().incremental_impure_call = false;
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
                     {
@@ -11361,6 +11560,7 @@ impl ParserHost {
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
                     entry.store.data_mut().dynamic_syntax_update = dynamic_update;
+                    entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     let prepared = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -11379,6 +11579,10 @@ impl ParserHost {
                         entry.store.data_mut().dynamic_syntax_update.take();
                         return Err(error);
                     }
+                    #[cfg(test)]
+                    {
+                        entry.store.data_mut().guest_hook_calls += 1;
+                    }
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
@@ -11393,6 +11597,16 @@ impl ParserHost {
                 // The immutable request is borrowed by WASM lowering; recover its ownership.
                 payload = invocation.payload;
                 let (call, state_invocation, dynamic_update) = call;
+                if call.is_ok()
+                    && self
+                        .native_cancellation
+                        .as_ref()
+                        .is_some_and(DocumentCancellationToken::is_cancelled)
+                {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    return Err(skript_parser::ParseCancelled.into());
+                }
                 let mut output = match call {
                     Ok(Ok(output)) => output,
                     Ok(Err(addon_error)) => {
@@ -11421,6 +11635,9 @@ impl ParserHost {
                             transaction.rollback_to(base)?;
                         }
                         let error = classify_wasmtime_error(component_id.clone(), "hook", error);
+                        if matches!(error, HostError::Cancelled(_)) {
+                            return Err(error);
+                        }
                         if error.disables_component() {
                             self.components[candidate.component_index].disabled = true;
                             self.components[candidate.component_index].disabled_reason =
@@ -11435,6 +11652,23 @@ impl ParserHost {
                         break 'candidate;
                     }
                 };
+
+                if !cache_hit
+                    && let (Some(key), Some(checkpoint)) = (incremental_key, incremental_checkpoint)
+                {
+                    let impure = self.components[candidate.component_index]
+                        .store
+                        .data()
+                        .incremental_impure_call;
+                    self.incremental_record(
+                        key,
+                        &checkpoint,
+                        &state_invocation,
+                        &payload,
+                        &output,
+                        impure,
+                    )?;
+                }
 
                 generated_output = generated_output.saturating_add(hook_output_size(&output));
                 if generated_output > self.config.max_generated_output_bytes {
@@ -11454,6 +11688,9 @@ impl ParserHost {
                     continue 'candidate;
                 }
 
+                candidate_semantic_effects |= !output.effects.context_updates.is_empty()
+                    || !output.effects.parse_requests.is_empty()
+                    || !output.effects.parse_results.is_empty();
                 stamp_parse_result_attachments(&mut output.effects, &component_id);
 
                 if let Some(replacement) = output.replacement.as_mut()
@@ -11569,9 +11806,37 @@ impl ParserHost {
                         }
                         break;
                     }
+                    candidate_semantic_effects |=
+                        !state_invocation.read_write_set().writes.is_empty()
+                            || dynamic_update
+                                .as_ref()
+                                .is_some_and(DynamicSyntaxUpdate::has_staged_changes);
                     state_invocation.commit()?;
                     if let Some(update) = dynamic_update {
                         update.commit()?;
+                    }
+                    if let (Some(registry), Some(writers)) =
+                        (self.semantic_receipts.as_mut(), semantic_writers.as_mut())
+                    {
+                        // No admission exists on rejected, failed, or cancelled
+                        // continuations. This private edge is added only after
+                        // current output validation and transaction acceptance.
+                        registry.admit_nested(
+                            writers,
+                            candidate_parse_results
+                                .values()
+                                .flat_map(|result| result.calls.iter()),
+                        );
+                        let receipt = registry.accept(
+                            writers,
+                            &mut next_payload,
+                            &component_id,
+                            candidate.subscription.mode,
+                            candidate_semantic_effects,
+                        );
+                        if let Some(call) = calls.last_mut() {
+                            call.semantic_receipt = receipt;
+                        }
                     }
                     available_parse_results.append(&mut candidate_parse_results);
                     payload = next_payload;
@@ -11613,6 +11878,11 @@ impl ParserHost {
             available_parse_results.clear();
             decision = HookDecision::ContinueProcessing;
         }
+        if fault.is_some() || matches!(decision, HookDecision::Reject(_)) {
+            for call in &mut calls {
+                call.semantic_receipt = None;
+            }
+        }
         Ok(DispatchResult {
             fault,
             decision,
@@ -11622,6 +11892,156 @@ impl ParserHost {
             failures,
             available_parse_results,
         })
+    }
+
+    /// Canonical traps permanently poison a Component Store. Only the explicit
+    /// discard/restart contract permits losing guest memory and globals.
+    fn ensure_component_ready(&mut self, component_index: usize) -> Result<(), HostError> {
+        self.check_native_cancellation()?;
+        if !self.components[component_index]
+            .store
+            .data()
+            .epoch_cancelled
+            && !self.components[component_index].restart_pending
+        {
+            return Ok(());
+        }
+        let result = self.restart_cancelled_component(component_index);
+        if let Err(error) = &result
+            && !matches!(error, HostError::Cancelled(_))
+        {
+            let entry = &mut self.components[component_index];
+            entry.disabled = true;
+            entry.disabled_reason = Some(error.clone());
+        }
+        result
+    }
+
+    fn restart_cancelled_component(&mut self, component_index: usize) -> Result<(), HostError> {
+        let entry = &mut self.components[component_index];
+        let component_id = entry.manifest.component_id.clone();
+        if entry.disabled || entry.unloaded {
+            return Err(unavailable_error(entry));
+        }
+        if !entry.store.data().interrupt_safe
+            || !component_promises(
+                &entry.manifest.capabilities,
+                crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
+            )
+        {
+            return Err(HostError::Runtime {
+                component_id,
+                operation: "restart after cancellation",
+                message: "interrupted component has no discard/restart-safe promise".into(),
+            });
+        }
+        if entry.store.data().invocation.is_some()
+            || entry.store.data().dynamic_syntax_update.is_some()
+        {
+            return Err(HostError::Runtime {
+                component_id,
+                operation: "restart after cancellation",
+                message: "interrupted host transaction has not been rolled back".into(),
+            });
+        }
+        entry.restart_pending = true;
+        // Drop trapped guest allocations before allocating new guest memory.
+        // Host StateStore and dynamic registries live outside this Store.
+        let mut fresh = create_store(
+            &self.runtime.engine,
+            &self.config,
+            self.type_user_input_matchers.clone(),
+        );
+        fresh.data_mut().epoch_clock = Some(Arc::clone(&self.runtime._epoch_ticker.clock));
+        fresh.data_mut().cancellation = self.native_cancellation.clone();
+        fresh.data_mut().interrupt_safe = true;
+        drop(mem::replace(&mut entry.store, fresh));
+        prepare_store(
+            &mut entry.store,
+            self.config.fuel_per_call,
+            self.config.deadline_ticks(&component_id),
+            &component_id,
+            "restart instantiate",
+        )?;
+        let bindings =
+            ParserAddon::instantiate(&mut entry.store, &entry.component, &self.runtime.linker)
+                .map_err(|error| {
+                    classify_component_error(component_id.clone(), "restart instantiate", error)
+                })?;
+        prepare_store(
+            &mut entry.store,
+            self.config.fuel_per_call,
+            self.config.deadline_ticks(&component_id),
+            &component_id,
+            "restart manifest",
+        )?;
+        let mut manifest = bindings
+            .nlaocs_skript_parser_addon_addon()
+            .call_manifest(&mut entry.store)
+            .map_err(|error| {
+                classify_wasmtime_error(component_id.clone(), "restart manifest", error)
+            })?;
+        validate_manifest(&manifest, &self.capabilities)?;
+        if let Some(catalog) = self.config.syntax_catalog.as_deref() {
+            validate_manifest_catalog_bindings(&manifest, catalog)?;
+        }
+        stamp_catalog_annotation_owners(&mut manifest);
+        let handler_bindings =
+            resolve_registered_handler_bindings(&manifest, self.config.syntax_catalog.as_deref());
+        validate_restart_identity(
+            &entry.manifest,
+            &manifest,
+            &entry.registered_handler_bindings,
+            &handler_bindings,
+        )?;
+        entry.store.data_mut().registered_handler_bindings = handler_bindings.clone();
+        let profile = host_profile(
+            &self.capabilities,
+            &self.config.runtime_profile,
+            &handler_bindings,
+        );
+        prepare_store(
+            &mut entry.store,
+            self.config.fuel_per_call,
+            self.config.deadline_ticks(&component_id),
+            &component_id,
+            "restart initialize",
+        )?;
+        #[cfg(test)]
+        if let Some(token) = entry.cancel_during_restart_initialize.take() {
+            token.cancel();
+            self.runtime
+                ._epoch_ticker
+                .clock
+                .advance(&self.runtime.engine);
+        }
+        let initialization = bindings
+            .nlaocs_skript_parser_addon_addon()
+            .call_initialize(&mut entry.store, &profile)
+            .map_err(|error| {
+                classify_wasmtime_error(component_id.clone(), "restart initialize", error)
+            })?;
+        validate_restart_initialization_for(&entry.store, &component_id, true)?;
+        if let Err(error) = initialization {
+            return Err(HostError::InitializationRejected {
+                component_id,
+                message: format!("restart: {}", error.message),
+            });
+        }
+        if entry
+            .store
+            .data()
+            .cancellation
+            .as_ref()
+            .is_some_and(DocumentCancellationToken::is_cancelled)
+        {
+            return Err(skript_parser::ParseCancelled.into());
+        }
+        entry.store.data_mut().initializing = false;
+        entry.store.data_mut().interrupt_safe = true;
+        entry.bindings = bindings;
+        entry.restart_pending = false;
+        Ok(())
     }
 
     fn load_component(
@@ -11643,6 +12063,7 @@ impl ParserHost {
             &self.config,
             self.type_user_input_matchers.clone(),
         );
+        store.data_mut().epoch_clock = Some(Arc::clone(&self.runtime._epoch_ticker.clock));
         prepare_store(
             &mut store,
             self.config.fuel_per_call,
@@ -11670,6 +12091,10 @@ impl ParserHost {
         if let Some(catalog) = self.config.syntax_catalog.as_deref() {
             validate_manifest_catalog_bindings(&manifest, catalog)?;
         }
+        store.data_mut().interrupt_safe = component_promises(
+            &manifest.capabilities,
+            crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
+        );
         stamp_catalog_annotation_owners(&mut manifest);
 
         if mandatory_core && manifest.component_id != CORE_LIBRARY_COMPONENT_ID {
@@ -11718,7 +12143,10 @@ impl ParserHost {
                 classify_wasmtime_error(manifest.component_id.clone(), "initialize", error)
             });
         let dynamic_update = store.data_mut().dynamic_syntax_update.take();
-        match initialization? {
+        let initialization = initialization?;
+        validate_restart_initialization(&store, &manifest.component_id)?;
+        store.data_mut().initializing = false;
+        match initialization {
             Ok(()) => {}
             Err(error) => {
                 drop(dynamic_update);
@@ -11751,6 +12179,7 @@ impl ParserHost {
         self.registry
             .register(component_index, load_order, &manifest.subscriptions);
         self.components.push(ComponentEntry {
+            component,
             manifest,
             registered_handler_bindings,
             store,
@@ -11759,9 +12188,62 @@ impl ParserHost {
             disabled: false,
             disabled_reason: None,
             unloaded: false,
+            restart_pending: false,
+            #[cfg(test)]
+            cancel_during_restart_initialize: None,
         });
         Ok(info)
     }
+}
+
+fn validate_restart_initialization(
+    store: &Store<StoreData>,
+    component_id: &str,
+) -> Result<(), HostError> {
+    validate_restart_initialization_for(store, component_id, store.data().interrupt_safe)
+}
+
+fn validate_restart_initialization_for(
+    store: &Store<StoreData>,
+    component_id: &str,
+    restart_safe: bool,
+) -> Result<(), HostError> {
+    if restart_safe && store.data().initialization_host_call_attempted {
+        return Err(HostError::InitializationRejected {
+            component_id: component_id.into(),
+            message: "discard/restart-safe initialization permits only immutable Catalog queries; a StateStore or dynamic call was attempted".into(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_restart_identity(
+    accepted: &ComponentManifest,
+    restarted: &ComponentManifest,
+    accepted_handlers: &[WitRegisteredHandlerBinding],
+    restarted_handlers: &[WitRegisteredHandlerBinding],
+) -> Result<(), HostError> {
+    // bindgen's derived Debug covers every field of this data-only WIT record.
+    // Comparison is within this binary, including all nested declarations;
+    // the manifest has no resource handles or opaque values.
+    let same_manifest = format!("{accepted:?}") == format!("{restarted:?}");
+    let same_handlers = accepted_handlers.len() == restarted_handlers.len()
+        && accepted_handlers
+            .iter()
+            .zip(restarted_handlers)
+            .all(|(a, b)| {
+                a.handler_id == b.handler_id
+                    && a.definition_ids == b.definition_ids
+                    && a.registration_ids == b.registration_ids
+            });
+    if !same_manifest || !same_handlers {
+        return Err(HostError::Runtime {
+            component_id: accepted.component_id.clone(),
+            operation: "restart after cancellation",
+            message: "restarted manifest or resolved handler bindings differ from the accepted initialized component".into(),
+        });
+    }
+    Ok(())
 }
 
 fn is_dynamic_prepass_phase(phase: HookPhase) -> bool {
@@ -11845,6 +12327,15 @@ fn wit_state_error(error: StateError) -> WitStateError {
     }
 }
 
+fn component_promises(
+    requirements: &[crate::bindings::nlaocs::skript_parser_addon::types::CapabilityRequirement],
+    id: &str,
+) -> bool {
+    requirements
+        .iter()
+        .any(|requirement| requirement.id == id && requirement.minimum_version == 1)
+}
+
 /// Returns the capabilities advertised by a host without a syntax catalog.
 ///
 /// Dynamic syntax is advertised only by configured hosts that receive a Catalog.
@@ -11859,6 +12350,9 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_ADDITIONAL_PARSE,
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_DEFAULT_EXPRESSION,
+        crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
+        crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
+        crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
         CAPABILITY_CONDITION_PARSER,
         CAPABILITY_EFFECT_PARSER,
         CAPABILITY_SECTION_PARSER,
@@ -12918,6 +13412,18 @@ fn create_store(
             },
             invocation: None,
             #[cfg(test)]
+            guest_hook_calls: 0,
+            incremental_impure_call: false,
+            epoch_clock: None,
+            cancellation: None,
+            interrupt_safe: false,
+            epoch_cancelled: false,
+            initializing: true,
+            initialization_host_call_attempted: false,
+            call_deadline: 0,
+            #[cfg(test)]
+            cancel_token_after_state_put: None,
+            #[cfg(test)]
             cancel_after_state_put: None,
             dynamic_syntax_update: None,
             dynamic_syntax_available: config.syntax_catalog.is_some(),
@@ -12943,7 +13449,56 @@ fn prepare_store(
     store
         .set_fuel(fuel)
         .map_err(|error| classify_wasmtime_error(component_id.to_owned(), operation, error))?;
-    store.set_epoch_deadline(deadline_ticks);
+    if store
+        .data()
+        .cancellation
+        .as_ref()
+        .is_some_and(DocumentCancellationToken::is_cancelled)
+    {
+        return Err(skript_parser::ParseCancelled.into());
+    }
+    let clock = store.data().epoch_clock.clone();
+    if store.data().cancellation.is_some() && store.data().interrupt_safe {
+        let clock = clock.ok_or_else(|| HostError::Engine {
+            message: "cancellable guest store has no epoch clock".to_owned(),
+        })?;
+        // Serialize the baseline with the ticker so polling never renews the original deadline.
+        let _guard = clock
+            .update
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        store.data_mut().call_deadline = clock
+            .ticks
+            .load(Ordering::Acquire)
+            .saturating_add(deadline_ticks);
+        store.epoch_deadline_callback(|mut context| {
+            let data = context.data_mut();
+            if data
+                .cancellation
+                .as_ref()
+                .is_some_and(DocumentCancellationToken::is_cancelled)
+            {
+                // Canonical traps poison this Store; it must be discarded.
+                data.epoch_cancelled = true;
+                return Err(skript_parser::ParseCancelled.into());
+            }
+            if data
+                .epoch_clock
+                .as_ref()
+                .expect("cancellable stores have a clock")
+                .ticks
+                .load(Ordering::Acquire)
+                >= data.call_deadline
+            {
+                return Err(Trap::Interrupt.into());
+            }
+            Ok(wasmtime::UpdateDeadline::Continue(1))
+        });
+        store.set_epoch_deadline(1);
+    } else {
+        store.epoch_deadline_trap();
+        store.set_epoch_deadline(deadline_ticks);
+    }
     Ok(())
 }
 
@@ -12952,7 +13507,12 @@ fn classify_component_error(
     operation: &'static str,
     error: wasmtime::Error,
 ) -> HostError {
-    if error.downcast_ref::<Trap>().is_some() {
+    if error.downcast_ref::<Trap>().is_some()
+        || error
+            .downcast_ref::<skript_parser::ParseCancelled>()
+            .is_some()
+        || error.downcast_ref::<GuestResourceLimit>().is_some()
+    {
         classify_wasmtime_error(component_id, operation, error)
     } else if operation == "compile" {
         HostError::ComponentCompile {
@@ -13014,6 +13574,12 @@ fn classify_wasmtime_error(
     operation: &'static str,
     error: wasmtime::Error,
 ) -> HostError {
+    if error
+        .downcast_ref::<skript_parser::ParseCancelled>()
+        .is_some()
+    {
+        return skript_parser::ParseCancelled.into();
+    }
     if error.downcast_ref::<GuestResourceLimit>().is_some() {
         return HostError::ResourceLimit {
             component_id,
@@ -14726,6 +15292,8 @@ fn hook_payload_size(payload: &HookPayload) -> usize {
             .saturating_add(value.candidate.definition_id.len())
             .saturating_add(value.candidate.registration_id.len())
             .saturating_add(value.candidate.pattern.len())
+            .saturating_add(value.candidate.expression_bindings.len().saturating_mul(16))
+            .saturating_add(value.candidate.captures.len().saturating_mul(8))
             .saturating_add(
                 value
                     .candidate
@@ -15499,6 +16067,7 @@ mod tests {
         };
         let typed = |index, state| PatternCapture::TypeExpression {
             capture_index: index,
+            omission: None,
             state,
             pattern_span: syntax_pattern_parser::syntax::Span::new(0, 5),
             expression: syntax_pattern_parser::syntax::PatternTypeExpr {
@@ -16329,6 +16898,7 @@ mod tests {
                 handler: None,
                 metadata: Vec::new(),
                 children,
+                expression_bindings: Vec::new(),
             },
         })
     }
@@ -16420,6 +16990,70 @@ mod tests {
         value.children[0].public_data[0].json = r#"{"name":"after"}"#.to_owned();
 
         assert!(normalize_hook_metadata(&original, &mut replacement, "another.addon").is_err());
+    }
+
+    #[test]
+    fn condition_native_slot_ids_and_expression_bindings_are_immutable() {
+        let HookPayload::Condition(mut original) =
+            condition_with_children(vec![registered_expression_child(Vec::new())])
+        else {
+            panic!()
+        };
+        original.candidate.captures = vec![
+            WitConditionCapture::Regex(WitConditionRegexCapture {
+                capture_index: 3,
+                pattern_span: WitTextRange { start: 0, end: 3 },
+                value: "x".into(),
+                span: empty_mapped_span(),
+            }),
+            WitConditionCapture::Expression(WitConditionExpressionCapture {
+                capture_index: 7,
+                state:
+                    crate::bindings::nlaocs::skript_parser_addon::types::TypeCaptureState::Explicit,
+                pattern_span: WitTextRange { start: 4, end: 12 },
+                expression: "%string%".into(),
+                value: "child".into(),
+                span: empty_mapped_span(),
+                alternative_index: Some(0),
+                resolution_id: Some("resolved".into()),
+            }),
+        ];
+        original.candidate.expression_bindings = vec![WitConditionExpressionBinding {
+            capture_index: 7,
+            expression_index: 0,
+        }];
+        assert!(validate_condition_payload_identity(&original, &original).is_ok());
+        for mutation in 0..5 {
+            let mut output = original.clone();
+            match mutation {
+                0 => {
+                    let WitConditionCapture::Regex(capture) = &mut output.candidate.captures[0]
+                    else {
+                        panic!()
+                    };
+                    capture.capture_index = 0;
+                }
+                1 => {
+                    let WitConditionCapture::Expression(capture) =
+                        &mut output.candidate.captures[1]
+                    else {
+                        panic!()
+                    };
+                    capture.capture_index = 1;
+                }
+                2 => output.candidate.expression_bindings[0].capture_index = 3,
+                3 => output.candidate.expression_bindings[0].expression_index = 1,
+                4 => output.candidate.expression_bindings.clear(),
+                _ => unreachable!(),
+            }
+            assert!(
+                matches!(
+                    validate_condition_payload_identity(&original, &output),
+                    Err(HostError::InvalidConditionHookOutput { .. })
+                ),
+                "mutation {mutation}"
+            );
+        }
     }
 
     #[test]
@@ -16829,6 +17463,9 @@ mod tests {
                 CAPABILITY_ADDITIONAL_PARSE,
                 CAPABILITY_EXPRESSION_PARSER,
                 CAPABILITY_DEFAULT_EXPRESSION,
+                crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
+                crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
+                crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
                 CAPABILITY_CONDITION_PARSER,
                 CAPABILITY_EFFECT_PARSER,
                 CAPABILITY_SECTION_PARSER,
@@ -16912,6 +17549,7 @@ mod tests {
     fn reports_abi_mismatches_as_typed_compatibility_errors() {
         use crate::bindings::nlaocs::skript_parser_addon::types::AbiVersion as WitAbiVersion;
         let manifest = ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "test.incompatible".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion { major: 2, minor: 0 },
@@ -16947,6 +17585,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "test.text-macro-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {
@@ -17004,6 +17643,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "test.tree-macro-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {
@@ -17061,6 +17701,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "test.expression-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {
@@ -17164,6 +17805,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "test.effect-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {
@@ -17220,6 +17862,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "test.section-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {
@@ -17817,6 +18460,7 @@ mod tests {
             }],
         };
         let manifest = |annotations| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "fixture.annotation-addon".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {
@@ -17881,6 +18525,7 @@ mod tests {
             context_requirements: Vec::new(),
         };
         let manifest = |handlers| ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: "fixture.handler-addon".to_owned(),
             component_version: "1.0.0".to_owned(),
             abi: WitAbiVersion {

@@ -13,6 +13,7 @@
 //! used for more than one recursive parse.
 
 use crate::{FunctionDefinition, FunctionParameterDefinition, TextRange};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use syntaxes::ClassName;
@@ -370,6 +371,25 @@ pub struct FunctionRegistration {
     pub definition: FunctionDefinition,
 }
 
+/// An accepted global declaration supplied by a current project document.
+/// The caller owns project generation checks; native lookup preserves this
+/// document/revision witness and never mutates the supplying registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedFunction {
+    pub definition: FunctionDefinition,
+    pub document_id: String,
+    pub document_revision: u64,
+}
+
+/// Dependency observations deliberately survive speculative candidate rollback.
+/// An empty lookup can become successful after another document changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionLookupObservation {
+    pub name: String,
+    pub scope: FunctionScope,
+    pub definitions: Vec<FunctionDefinition>,
+}
+
 /// A savepoint into one Function registry transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FunctionRegistrySavepoint {
@@ -388,6 +408,9 @@ impl FunctionRegistrySavepoint {
 /// Errors raised while registering or freezing Function declarations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum FunctionRegistryError {
+    /// An import is not an accepted global definition with matching provenance.
+    #[error("invalid imported function: {reason}")]
+    InvalidImport { reason: String },
     /// The transaction no longer accepts mutations.
     #[error("function registry transaction is frozen")]
     Frozen,
@@ -443,6 +466,8 @@ pub struct FunctionRegistryTransaction {
     policy: FunctionVersionPolicy,
     transaction_id: u64,
     registrations: Vec<FunctionRegistration>,
+    imported: Vec<ImportedFunction>,
+    lookups: RefCell<Vec<FunctionLookupObservation>>,
     next_registration_order: usize,
     frozen: bool,
 }
@@ -476,6 +501,8 @@ impl FunctionRegistryTransaction {
             policy,
             transaction_id: NEXT_TRANSACTION_ID.fetch_add(1, Ordering::Relaxed),
             registrations: Vec::new(),
+            imported: Vec::new(),
+            lookups: RefCell::new(Vec::new()),
             next_registration_order: 0,
             frozen: false,
         }
@@ -506,6 +533,67 @@ impl FunctionRegistryTransaction {
         self.frozen
     }
 
+    /// Installs a complete, immutable project input before declarations or
+    /// lookups begin. This is not transactional guest state.
+    pub fn import_functions(
+        &mut self,
+        imported: Vec<ImportedFunction>,
+    ) -> Result<(), FunctionRegistryError> {
+        self.ensure_mutable()?;
+        if !self.registrations.is_empty()
+            || !self.lookups.borrow().is_empty()
+            || !self.imported.is_empty()
+        {
+            return Err(FunctionRegistryError::InvalidImport {
+                reason: "imports must be installed once before declarations and lookups".into(),
+            });
+        }
+        let mut identities = HashSet::new();
+        let mut signatures = HashSet::new();
+        let mut names = HashSet::new();
+        for item in &imported {
+            validate_import(item, &self.document_id, self.policy)?;
+            let definition = &item.definition;
+            if !identities.insert((
+                definition.definition_id.clone(),
+                definition.registration_id.clone(),
+            )) {
+                return Err(FunctionRegistryError::InvalidImport {
+                    reason: "duplicate imported definition identity".into(),
+                });
+            }
+            if !signatures.insert((definition.name.clone(), definition_shape(definition))) {
+                return Err(FunctionRegistryError::DuplicateSignature {
+                    name: definition.name.clone(),
+                    scope: FunctionScope::Global,
+                });
+            }
+            if !self.policy.allow_overloads && !names.insert(definition.name.clone()) {
+                return Err(FunctionRegistryError::OverloadsUnsupported {
+                    name: definition.name.clone(),
+                });
+            }
+        }
+        self.imported = imported;
+        Ok(())
+    }
+
+    /// Complete callable input for sound native-unit cache equality. Imported
+    /// owner/revision witnesses remain available separately in `imports()`.
+    pub fn callable_definitions(&self) -> Vec<FunctionDefinition> {
+        self.registrations
+            .iter()
+            .map(|registration| registration.definition.clone())
+            .chain(self.imported.iter().map(|item| item.definition.clone()))
+            .collect()
+    }
+    pub fn imports(&self) -> &[ImportedFunction] {
+        &self.imported
+    }
+    pub fn lookup_observations(&self) -> Vec<FunctionLookupObservation> {
+        self.lookups.borrow().clone()
+    }
+
     /// Registers one declaration and returns its owned projection.
     pub fn register(
         &mut self,
@@ -513,6 +601,12 @@ impl FunctionRegistryTransaction {
     ) -> Result<FunctionRegistration, FunctionRegistryError> {
         self.ensure_mutable()?;
         declaration.validate(self.policy)?;
+
+        // Namespace absence and conflicting imported overloads are reads too.
+        // Keep them even if this provisional header is later rejected.
+        if declaration.scope == FunctionScope::Global {
+            self.lookup_functions(&declaration.name, FunctionScope::Global);
+        }
 
         let shape = signature_shape(&declaration);
         let same_scope = self
@@ -526,13 +620,23 @@ impl FunctionRegistryTransaction {
         let duplicate = same_scope
             .iter()
             .any(|registration| signature_shape(&registration.declaration) == shape);
-        if duplicate {
+        let imported_name = declaration.scope == FunctionScope::Global
+            && self
+                .imported
+                .iter()
+                .any(|item| item.definition.name == declaration.name);
+        let imported_duplicate = declaration.scope == FunctionScope::Global
+            && self.imported.iter().any(|item| {
+                item.definition.name == declaration.name
+                    && definition_shape(&item.definition) == shape
+            });
+        if duplicate || imported_duplicate {
             return Err(FunctionRegistryError::DuplicateSignature {
                 name: declaration.name.clone(),
                 scope: declaration.scope,
             });
         }
-        if !self.policy.allow_overloads && !same_scope.is_empty() {
+        if !self.policy.allow_overloads && (!same_scope.is_empty() || imported_name) {
             return Err(FunctionRegistryError::OverloadsUnsupported {
                 name: declaration.name.clone(),
             });
@@ -584,10 +688,17 @@ impl FunctionRegistryTransaction {
         name: &str,
         scope: FunctionLookupScope,
     ) -> Vec<FunctionDefinition> {
-        lookup_references(&self.registrations, name, scope)
-            .into_iter()
-            .map(|registration| registration.definition.clone())
-            .collect()
+        let definitions = lookup_with_imports(&self.registrations, &self.imported, name, scope);
+        let observation = FunctionLookupObservation {
+            name: name.into(),
+            scope,
+            definitions: definitions.clone(),
+        };
+        let mut observations = self.lookups.borrow_mut();
+        if !observations.contains(&observation) {
+            observations.push(observation);
+        }
+        definitions
     }
 
     /// Creates a rollback point for the current append-only state.
@@ -624,6 +735,8 @@ impl FunctionRegistryTransaction {
             revision: self.revision,
             policy: self.policy,
             registrations: self.registrations.clone(),
+            imported: self.imported.clone(),
+            lookups: self.lookups.borrow().clone(),
         })
     }
 
@@ -643,6 +756,8 @@ pub struct FunctionRegistrySnapshot {
     revision: u64,
     policy: FunctionVersionPolicy,
     registrations: Vec<FunctionRegistration>,
+    imported: Vec<ImportedFunction>,
+    lookups: Vec<FunctionLookupObservation>,
 }
 
 impl FunctionRegistrySnapshot {
@@ -671,7 +786,17 @@ impl FunctionRegistrySnapshot {
         self.registrations
             .iter()
             .map(|registration| registration.definition.clone())
+            .chain(self.imported.iter().map(|item| item.definition.clone()))
             .collect()
+    }
+
+    /// Immutable supplying document identities and revisions.
+    pub fn imports(&self) -> &[ImportedFunction] {
+        &self.imported
+    }
+    /// Complete lookup dependencies, including empty and rejected attempts.
+    pub fn lookups(&self) -> &[FunctionLookupObservation] {
+        &self.lookups
     }
 
     /// Looks up a name using the selected global or local-first scope.
@@ -680,10 +805,7 @@ impl FunctionRegistrySnapshot {
     /// declaration is then returned only when no local declaration has the
     /// same parameter type and plurality signature.
     pub fn lookup(&self, name: &str, scope: FunctionScope) -> Vec<FunctionDefinition> {
-        self.lookup_references(name, scope)
-            .into_iter()
-            .map(|registration| registration.definition.clone())
-            .collect()
+        lookup_with_imports(&self.registrations, &self.imported, name, scope)
     }
 
     /// Name chosen to make direct use as an `ExpressionParseEnvironment`
@@ -759,6 +881,118 @@ fn signature_shape(declaration: &FunctionDeclaration) -> Vec<(ClassName, bool)> 
         .iter()
         .map(|parameter| (parameter.parameter_type.clone(), parameter.single))
         .collect()
+}
+
+fn lookup_with_imports(
+    registrations: &[FunctionRegistration],
+    imported: &[ImportedFunction],
+    name: &str,
+    scope: FunctionScope,
+) -> Vec<FunctionDefinition> {
+    let local_shapes = registrations
+        .iter()
+        .filter(|registration| {
+            registration.declaration.name == name
+                && registration.declaration.scope == FunctionScope::Local
+        })
+        .map(|registration| signature_shape(&registration.declaration))
+        .collect::<HashSet<_>>();
+    lookup_references(registrations, name, scope)
+        .into_iter()
+        .map(|registration| registration.definition.clone())
+        .chain(
+            imported
+                .iter()
+                .filter(|item| {
+                    item.definition.name == name
+                        && (scope == FunctionScope::Global
+                            || !local_shapes.contains(&definition_shape(&item.definition)))
+                })
+                .map(|item| item.definition.clone()),
+        )
+        .collect()
+}
+
+fn definition_shape(definition: &FunctionDefinition) -> Vec<(ClassName, bool)> {
+    definition
+        .parameters
+        .iter()
+        .map(|parameter| (parameter.parameter_type.clone(), parameter.single))
+        .collect()
+}
+
+fn validate_import(
+    item: &ImportedFunction,
+    receiver: &str,
+    policy: FunctionVersionPolicy,
+) -> Result<(), FunctionRegistryError> {
+    let definition = &item.definition;
+    let invalid = |reason: &str| FunctionRegistryError::InvalidImport {
+        reason: reason.into(),
+    };
+    if item.document_id.is_empty() || item.document_id == receiver {
+        return Err(invalid("owner must identify another project document"));
+    }
+    if definition.parser_id != DOCUMENT_FUNCTION_PARSER_ID
+        || definition.definition_id.is_empty()
+        || definition.registration_id.is_empty()
+    {
+        return Err(invalid(
+            "only accepted document function definitions can be imported",
+        ));
+    }
+    let revision = item.document_revision.to_string();
+    for (key, expected) in [
+        ("function.scope", "global"),
+        ("function.document-id", item.document_id.as_str()),
+        ("function.revision", revision.as_str()),
+    ] {
+        if definition.metadata.get(key).map(String::as_str) != Some(expected) {
+            return Err(invalid(
+                "definition scope/owner/revision witness does not match import",
+            ));
+        }
+    }
+    if !is_valid_function_name(&definition.name, policy.allow_leading_underscore) {
+        return Err(FunctionRegistryError::InvalidFunctionName);
+    }
+    let mut names = HashSet::new();
+    for parameter in &definition.parameters {
+        if parameter.name.trim().is_empty() || parameter.parameter_type.as_str().is_empty() {
+            return Err(invalid("parameter name/type is empty"));
+        }
+        let comparison = if policy.case_insensitive_parameters {
+            parameter.name.to_lowercase()
+        } else {
+            parameter.name.clone()
+        };
+        if !names.insert(comparison) {
+            return Err(FunctionRegistryError::DuplicateParameter {
+                function: definition.name.clone(),
+                parameter: parameter.name.clone(),
+            });
+        }
+        if !parameter.single && !policy.allow_plural_parameters {
+            return Err(FunctionRegistryError::PluralParametersUnsupported {
+                function: definition.name.clone(),
+                parameter: parameter.name.clone(),
+            });
+        }
+        if parameter.optional && !policy.allow_default_values {
+            return Err(FunctionRegistryError::DefaultValuesUnsupported {
+                function: definition.name.clone(),
+                parameter: parameter.name.clone(),
+            });
+        }
+    }
+    if definition
+        .return_type
+        .as_ref()
+        .is_some_and(|class| class.as_str().is_empty())
+    {
+        return Err(invalid("return type is empty"));
+    }
+    Ok(())
 }
 
 fn is_valid_function_name(name: &str, allow_leading_underscore: bool) -> bool {

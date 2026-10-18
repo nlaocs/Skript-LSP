@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.40.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.41.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -100,7 +100,8 @@ multiple targets for each registered semantic handler, including dynamic
   runtime snapshot capabilities changed it to 0.37.0; host-indexed exact alias
   and BlockData lookups changed it to 0.38.0; structured Function leaf calls changed
   it to 0.39.0; Function bindings on final AST and additional-parse nodes changed
-  it to 0.40.0. The manifest's current `abi` value is 22.0 and
+  it to 0.40.0. Native omission provenance and the opt-in incremental
+  subscription manifest changed it to 0.41.0. The manifest's current `abi` value is 23.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -119,11 +120,43 @@ source range. Missing Function data, invalid ranges, or data on another leaf kin
 is invalid hook output and rolls back the provider's state. Other leaf kinds set
 `function` to `none`. Native consumers use the same `FunctionCall` representation.
 This WIT/ABI change requires rebuilding CoreLibrary and external components.
-Components built for WIT 0.39.0 fail during instantiation with an unresolved
-`@0.39.0` host import, before their manifest can be read. A component using the
-current WIT with an ABI 21.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 22.0. Rebuild against the current WIT and SDK;
+Components built for WIT 0.40.0 fail during instantiation with an unresolved
+`@0.40.0` host import, before their manifest can be read. A component using the
+current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
+which reports the required ABI 23.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
+
+### WIT 0.41: omission provenance and explicit reuse contracts
+
+`default-expression-info.omission` carries an optional native
+`pattern-omission` with kind `skipped-option`, `unselected-choice`, or
+`hook-bypassed`, plus its registration-pattern byte span. This is immutable
+provenance for the implicit child, distinct from its zero-width source anchor
+and requested capture span; hooks cannot rewrite it. See the
+[DefaultExpression guide](../docs/default-expressions.md) for the conservative
+editor projection and unavailable stored literal values.
+
+The manifest now includes `incremental-local-subscriptions`. An empty list
+disables reuse; listed subscriptions additionally require
+`parser.incremental-local-syntax` v1 and its deterministic, data-only contract.
+The host validates current input/context and observed State dependencies before
+reusing a response. Matching, macros, ownership, function lookup and transactions
+still run against current source; no old AST or State delta is transplanted.
+`parser.project-stable-semantics` v1 separately promises independence from
+mutable cross-document state and hidden guest history.
+`parser.epoch-cancellation-restart-safe` v1 separately permits discarding
+the entire guest Store after an observed epoch cancellation. Losing guest memory,
+globals and caches, followed by deterministic manifest/initialization with the
+same HostProfile, must preserve future semantics. Initialization permits immutable
+Catalog queries only: any StateStore/dynamic call attempt is rejected, including
+ignored errors. No external initialization effects or hidden persistent semantic
+history may be required. Before the next invocation the host drops the trapped
+Store, recreates it under the same quotas, validates every manifest field and
+resolved handler binding, and initializes once. Host StateStore and registries
+remain intact; the cancelled parse is never retried. Genuine recovery failure
+disables the component; cancellation during recovery leaves restart pending.
+Without this opt-in, cancellation waits for normal guest return; fuel and ordinary
+deadlines remain enforced. None of these opt-ins implies another.
 
 Final `ast-node.function` and `parse-result-node.function` retain the same call
 binding. Its child ranges index that node's `children` array, not arena IDs.
@@ -474,6 +507,14 @@ mapped span, and farthest failure. Reject diagnostics remain observable even
 though the rejecting hook's state is rolled back.
 
 ## Condition and Section Parsing
+
+Condition capture records carry their static registration-pattern `capture-index`,
+which may be sparse when a regex branch is skipped.
+`condition-candidate.expression-bindings` maps that exact ID to
+`children[expression-index]`; the host rejects changes to either ID or association.
+Native parsing records each binding at resolution time. Final AST and borrowed
+capture views share this association. Missing, duplicate, or out-of-range bindings
+never fall back to expression order.
 
 `ParserHost::parse_condition_in_parse` applies Skript's registration-order
 Condition matching, including repeated removal of complete outer parentheses.

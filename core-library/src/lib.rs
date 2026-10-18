@@ -75,6 +75,15 @@ struct CoreLibrary;
 impl addon::Guest for CoreLibrary {
     fn manifest() -> ComponentManifest {
         ComponentManifest {
+            // Audited local families: all semantic inputs are payload/context or
+            // immutable runtime/Catalog facts. Context effects, diagnostics, and
+            // AdditionalParse outputs are excluded individually by the host.
+            // RegisteredExpression stays off: some resolvers inspect full input.
+            incremental_local_subscriptions: vec![
+                EFFECT_SUBSCRIPTION_ID.to_owned(),
+                CONDITION_SUBSCRIPTION_ID.to_owned(),
+                default_expression::PROVIDER_ID.to_owned(),
+            ],
             component_id: COMPONENT_ID.to_owned(),
             component_version: COMPONENT_VERSION.to_owned(),
             abi: AbiVersion {
@@ -136,6 +145,16 @@ impl addon::Guest for CoreLibrary {
                     id: parser_wasm::CAPABILITY_DEFAULT_EXPRESSION.to_owned(),
                     minimum_version: 1,
                     required: true,
+                },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_PROJECT_STABLE_SEMANTICS.to_owned(),
+                    minimum_version: 1,
+                    required: false,
                 },
             ],
             subscriptions: vec![
@@ -872,7 +891,44 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 11);
+        assert_eq!(manifest.capabilities.len(), 13);
+        assert!(
+            manifest
+                .capabilities
+                .iter()
+                .any(|requirement| requirement.id
+                    == parser_wasm::CAPABILITY_PROJECT_STABLE_SEMANTICS
+                    && requirement.minimum_version == 1)
+        );
+        assert!(
+            !manifest
+                .capabilities
+                .iter()
+                .any(|requirement| requirement.id
+                    == parser_wasm::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE)
+        );
+        assert_eq!(
+            manifest.incremental_local_subscriptions,
+            vec![
+                EFFECT_SUBSCRIPTION_ID,
+                CONDITION_SUBSCRIPTION_ID,
+                default_expression::PROVIDER_ID,
+            ]
+        );
+        assert!(
+            !manifest
+                .incremental_local_subscriptions
+                .iter()
+                .any(|id| id == REGISTERED_EXPRESSION_SUBSCRIPTION_ID
+                    || id == EXPRESSION_SUBSCRIPTION_ID
+                    || id == TYPE_SUBSCRIPTION_ID)
+        );
+        assert!(manifest.incremental_local_subscriptions.iter().all(|id| {
+            manifest
+                .subscriptions
+                .iter()
+                .any(|subscription| &subscription.id == id)
+        }));
         assert_eq!(manifest.capabilities[0].id, CAPABILITY_HOOKS);
         assert!(manifest.capabilities[0].required);
         assert_eq!(manifest.subscriptions.len(), 10);
@@ -934,7 +990,7 @@ mod tests {
             manifest.subscriptions[9].phase,
             HookPhase::DefaultExpression
         ));
-        assert_eq!(manifest.registered_syntax_handlers.len(), 137);
+        assert_eq!(manifest.registered_syntax_handlers.len(), 138);
         for handler_id in [
             "core.condition.cond-compare",
             "core.condition.prop-cond-contains",
@@ -943,6 +999,7 @@ mod tests {
             "core.effect.eff-sort",
             "core.effect.eff-suppress-type-hints",
             "core.effect.eff-transform",
+            "core.effect.runtime-evaluation",
             "core.expression.expr-event-expression",
             "core.expression.expr-filter",
             "core.expression.expr-input",

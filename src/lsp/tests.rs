@@ -4,6 +4,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use worker::{Analysis, Analyzer};
 
+#[path = "tests/annotations.rs"]
+mod annotations;
 #[path = "tests/preparation.rs"]
 mod preparation;
 
@@ -142,10 +144,15 @@ impl Analyzer for TestAnalyzer {
         Analysis {
             outcome,
             hover,
+            semantic: None,
+            inlay: None,
+            annotations_error: None,
+            project_semantics: Vec::new(),
             semantic_tokens,
             semantic_error: None,
             completion: Some(completion::Document::test_fixture(Arc::clone(&job.source))),
             completion_error: None,
+            analysis_metrics: Value::Null,
             parse_ms: 0.0,
             report_ms: 0.0,
         }
@@ -906,16 +913,17 @@ fn close_and_version_reset_reopen_cannot_publish_the_previous_open_generation() 
     );
     client.proceed.send(()).unwrap();
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 0);
+    // Project open allocates a generation, then its current parse revision.
     assert_eq!(
         client.released.recv_timeout(TIMEOUT).unwrap(),
-        (URI.to_owned(), 1)
+        (URI.to_owned(), 2)
     );
     assert_eq!(
         &client.actions.lock().unwrap()[..4],
         &[
             Action::Started(30),
             Action::Finished(30),
-            Action::Released(URI.to_owned(), 1),
+            Action::Released(URI.to_owned(), 2),
             Action::Started(0)
         ]
     );
@@ -939,7 +947,7 @@ fn close_and_version_reset_reopen_cannot_publish_the_previous_open_generation() 
 }
 
 #[test]
-fn queued_documents_are_fair_even_when_an_earlier_uri_is_edited_again() {
+fn latest_edit_precedes_pending_open_without_dropping_either_document() {
     let client = Client::start();
     client.open(1, "hold");
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
@@ -947,16 +955,16 @@ fn queued_documents_are_fair_even_when_an_earlier_uri_is_edited_again() {
     client.change(2, "");
     client.sync(22);
     client.proceed.send(()).unwrap();
-    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 55);
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 2);
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 55);
     assert!(
-        client.diagnostics(55)["diagnostics"]
+        client.diagnostics(2)["diagnostics"]
             .as_array()
             .unwrap()
             .is_empty()
     );
     assert!(
-        client.diagnostics(2)["diagnostics"]
+        client.diagnostics(55)["diagnostics"]
             .as_array()
             .unwrap()
             .is_empty()

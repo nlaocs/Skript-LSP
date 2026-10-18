@@ -222,6 +222,21 @@ impl FailureTrace {
         ranges.len()
     }
 
+    pub(crate) fn progress(&self) -> usize {
+        let root = self.root_cause();
+        if root
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(reason, crate::PatternFailureReason::TypeMismatch { .. }))
+            || self.is_event_restriction()
+        {
+            root.failure.span.mapped.virtual_range.end
+        } else {
+            root.failure.span.mapped.virtual_range.start
+        }
+    }
+
     fn is_event_restriction(&self) -> bool {
         self.root_cause()
             .failure
@@ -250,23 +265,7 @@ impl FailureTrace {
     }
 }
 
-pub(crate) fn compare_failure_rank(
-    current_range: TextRange,
-    current_specificity: usize,
-    candidate_range: TextRange,
-    candidate_specificity: usize,
-) -> Ordering {
-    compare_failure_rank_at_progress(
-        current_range,
-        current_range.start,
-        current_specificity,
-        candidate_range,
-        candidate_range.start,
-        candidate_specificity,
-    )
-}
-
-fn compare_failure_rank_at_progress(
+pub(crate) fn compare_failure_rank_at_progress(
     current_range: TextRange,
     current_progress: usize,
     current_specificity: usize,
@@ -309,18 +308,10 @@ pub(crate) fn compare_failure_trace_rank(
         .then_with(|| {
             compare_failure_rank_at_progress(
                 current_range,
-                if current.is_event_restriction() {
-                    current_range.end
-                } else {
-                    current_range.start
-                },
+                current.progress(),
                 current.specificity(),
                 candidate_range,
-                if candidate.is_event_restriction() {
-                    candidate_range.end
-                } else {
-                    candidate_range.start
-                },
+                candidate.progress(),
                 candidate.specificity(),
             )
         })
@@ -348,6 +339,72 @@ pub fn choose_failure_trace(
             }
         }
     }
+}
+
+/// Selects failure evidence for one typed Expression request. A complete native
+/// expression rejected against that request is stronger than a speculative
+/// nested parse at the same progress. Candidate selection/adoption is unchanged.
+/// Farther progress and completed omitted-argument failures retain precedence.
+pub(crate) fn choose_expression_failure_trace(
+    current: Option<FailureTrace>,
+    candidate: Option<FailureTrace>,
+) -> Option<FailureTrace> {
+    match (current, candidate) {
+        (None, value) | (value, None) => value,
+        (Some(current), Some(candidate)) => {
+            let current_range = current.root_cause().failure.span.mapped.virtual_range;
+            let candidate_range = candidate.root_cause().failure.span.mapped.virtual_range;
+            let rank = candidate
+                .is_default_expression_failure()
+                .cmp(&current.is_default_expression_failure())
+                .then_with(
+                    || match (!current_range.is_empty(), !candidate_range.is_empty()) {
+                        (false, true) => Ordering::Greater,
+                        (true, false) => Ordering::Less,
+                        (true, true) => candidate.progress().cmp(&current.progress()),
+                        (false, false) => Ordering::Equal,
+                    },
+                )
+                .then_with(|| direct_type_mismatch(&candidate).cmp(&direct_type_mismatch(&current)))
+                .then_with(|| compare_failure_trace_rank(&current, &candidate));
+            if rank == Ordering::Greater {
+                Some(candidate)
+            } else {
+                Some(current)
+            }
+        }
+    }
+}
+
+fn direct_type_mismatch(trace: &FailureTrace) -> bool {
+    if trace
+        .root_cause()
+        .failure
+        .span
+        .mapped
+        .virtual_range
+        .is_empty()
+        || !trace
+            .root_cause()
+            .failure
+            .reasons
+            .iter()
+            .any(|reason| matches!(reason, crate::PatternFailureReason::TypeMismatch { .. }))
+    {
+        return false;
+    }
+    let mut frame = Some(trace);
+    while let Some(trace) = frame {
+        if trace
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.role != FailureFrameRole::SemanticCandidate)
+        {
+            return false;
+        }
+        frame = trace.cause.as_deref();
+    }
+    true
 }
 
 #[cfg(test)]
@@ -388,6 +445,80 @@ mod tests {
         )
     }
 
+    fn mismatch(source: &MappedSource, range: TextRange, nested: bool) -> FailureTrace {
+        let mut result = trace(source, range, &[]);
+        result.failure.reasons = vec![PatternFailureReason::TypeMismatch {
+            expected: vec![if nested { "nested" } else { "slot" }.into()],
+            actual: vec!["actual".into()],
+        }];
+        if nested {
+            let capture = trace(source, range, &[range]).frame.unwrap();
+            let mut semantic = capture.clone();
+            semantic.role = FailureFrameRole::SemanticCandidate;
+            result.with_parent(semantic).with_parent(capture)
+        } else {
+            result
+        }
+    }
+
+    #[test]
+    fn typed_expression_error_lane_keeps_direct_proof_but_not_before_farther_progress() {
+        let source = MappedSource::identity("0123456789");
+        let direct = mismatch(&source, TextRange::new(0, 6), false);
+        let nested = mismatch(&source, TextRange::new(0, 6), true);
+        assert_eq!(nested.specificity(), direct.specificity());
+        assert_eq!(
+            choose_failure_trace(Some(nested.clone()), Some(direct.clone())),
+            Some(nested.clone()),
+            "a nested resolved child won the old generic same-progress comparison"
+        );
+        for (left, right) in [
+            (direct.clone(), nested.clone()),
+            (nested.clone(), direct.clone()),
+        ] {
+            assert_eq!(
+                choose_expression_failure_trace(Some(left), Some(right)),
+                Some(direct.clone())
+            );
+        }
+        let later = trace(&source, TextRange::new(7, 8), &[]);
+        for (left, right) in [(direct.clone(), later.clone()), (later.clone(), direct)] {
+            assert_eq!(
+                choose_expression_failure_trace(Some(left), Some(right)),
+                Some(later.clone())
+            );
+        }
+        assert_eq!(
+            choose_expression_failure_trace(None, Some(nested.clone())),
+            Some(nested)
+        );
+    }
+
+    #[test]
+    fn typed_expression_error_lane_order_stays_transitive_across_ranges_and_frames() {
+        let source = MappedSource::identity("0123456789");
+        let values = [
+            mismatch(&source, TextRange::new(0, 6), false),
+            mismatch(&source, TextRange::new(0, 6), true),
+            mismatch(&source, TextRange::new(2, 6), true),
+            mismatch(&source, TextRange::new(2, 6), false),
+            mismatch(&source, TextRange::new(0, 8), true),
+            trace(&source, TextRange::new(8, 9), &[]),
+        ];
+        let wins = |a: &FailureTrace, b: &FailureTrace| {
+            choose_expression_failure_trace(Some(a.clone()), Some(b.clone())).as_ref() == Some(a)
+        };
+        for a in &values {
+            for b in &values {
+                for c in &values {
+                    if wins(a, b) && wins(b, c) {
+                        assert!(wins(a, c), "nontransitive: {a:?}; {b:?}; {c:?}");
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn completed_default_failure_survives_speculative_nonempty_failures_in_either_order() {
         let source = MappedSource::identity("emit value");
@@ -405,6 +536,14 @@ mod tests {
             kind: crate::DefaultExpressionFailureKind::Unresolved,
             reason: "context unavailable".to_owned(),
         }];
+        assert_eq!(
+            choose_expression_failure_trace(Some(speculative.clone()), Some(default.clone())),
+            Some(default.clone())
+        );
+        assert_eq!(
+            choose_expression_failure_trace(Some(default.clone()), Some(speculative.clone())),
+            Some(default.clone())
+        );
         assert_eq!(
             choose_failure_trace(Some(speculative.clone()), Some(default.clone())),
             Some(default.clone())

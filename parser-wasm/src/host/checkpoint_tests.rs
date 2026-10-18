@@ -4,6 +4,7 @@ fn call(subscription: &str) -> HookCall {
     HookCall {
         component_id: "component".into(),
         subscription_id: subscription.into(),
+        semantic_receipt: None,
     }
 }
 

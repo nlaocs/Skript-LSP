@@ -180,6 +180,29 @@ pub(super) fn resolve(
         }
     }
 
+    // Runtime walk only tests the single header Condition and selects a branch.
+    // Parse-time/multiline condition collections are deliberately not certified.
+    if !semantics.parse_if
+        && !semantics.multiline
+        && crate::catalog::standard_section_source(
+            &payload.candidate,
+            "ch.njol.skript.sections.SecConditional",
+        )
+    {
+        crate::public_data::publish_metadata(
+            &mut payload.candidate.metadata,
+            crate::public_data::preserve_local_effects(),
+        );
+        let prefix: &[u64] = if semantics.expected_conditions == 1 {
+            &[0]
+        } else {
+            &[]
+        };
+        crate::public_data::publish_metadata(
+            &mut payload.candidate.metadata,
+            crate::public_data::operand_evaluation(prefix),
+        );
+    }
     let chain_delay_before = chain_delay_before(&payload, semantics.kind);
     let branch_delay = branch_delay_state(&payload, chain_delay_before, entering);
     let mut updates = vec![ContextUpdate {
@@ -241,6 +264,10 @@ pub(super) fn resolve(
     }
 
     let metadata = [
+        (
+            "skript.semantic.control-flow",
+            r#"{"version":1,"kind":"branch"}"#.to_owned(),
+        ),
         ("semantic-mode", "conditional".to_owned()),
         ("conditional-kind", kind_name(semantics.kind).to_owned()),
         ("conditional-parse-if", semantics.parse_if.to_string()),

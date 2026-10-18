@@ -594,6 +594,12 @@ fn text_captures_are_located(node: &AstNode, source: &str) -> bool {
         if !complete_capture_geometry(node) {
             return false;
         }
+        // This signed structural payload describes the typed slot; it is not
+        // source text from a routed parser. Every other Text retains the exact
+        // native-slot/source equality check below.
+        if source_geometry::pattern_expected_types(node, capture).is_some() {
+            return true;
+        }
         let Some((index, _)) = capture.name.split_once(':') else {
             return false;
         };
@@ -1020,6 +1026,244 @@ mod tests {
             decoded(&result, &all()),
             vec![(0, 2, 4, "skriptLiteral".into())]
         );
+    }
+
+    fn typed_native_capture(
+        source: &str,
+        capture_index: usize,
+        start: usize,
+        end: usize,
+    ) -> skript_parser::PatternCapture {
+        use syntax_pattern_parser::syntax::{PatternTypeAlternative, PatternTypeExpr, Span};
+        let mapped = skript_parser::MappedSource::identity(source);
+        skript_parser::PatternCapture::TypeExpression {
+            capture_index,
+            state: skript_parser::TypeCaptureState::Explicit,
+            omission: None,
+            pattern_span: Span::new(0, 8),
+            expression: PatternTypeExpr {
+                alternatives: vec![PatternTypeAlternative {
+                    name: "number".into(),
+                    plural: false,
+                }],
+                nullable: false,
+                allow_literals: true,
+                allow_expressions: true,
+                time: 0,
+            },
+            value: source[start..end].into(),
+            span: skript_parser::MatchSpan {
+                local_range: TextRange::new(start, end),
+                mapped: mapped.map_range(TextRange::new(start, end)).unwrap(),
+            },
+            alternative_index: Some(0),
+            resolution_id: Some(format!("actual:{capture_index}")),
+        }
+    }
+
+    #[test]
+    fn native_type_evidence_is_structural_and_keeps_effect_condition_and_literal_colors() {
+        let source = "say 1\n1 is 2";
+        let mut effect = node(1, SyntaxKind::Effect, "effect", source, 0, 5);
+        effect.children = vec![2];
+        let literal = node(2, SyntaxKind::Type, "literal", source, 4, 5);
+        source_geometry::retain_pattern_captures(
+            &mut effect,
+            &[typed_native_capture(source, 0, 4, 5)],
+        );
+        let mut condition = node(3, SyntaxKind::Condition, "condition", source, 6, 12);
+        condition.children = vec![4, 5];
+        let left = node(4, SyntaxKind::Type, "literal", source, 6, 7);
+        let right = node(5, SyntaxKind::Type, "literal", source, 11, 12);
+        source_geometry::retain_pattern_captures(
+            &mut condition,
+            &[
+                typed_native_capture(source, 0, 6, 7),
+                typed_native_capture(source, 1, 11, 12),
+            ],
+        );
+        for parent in [&effect, &condition] {
+            assert!(source_geometry::pattern_capture_geometry_is_current(parent));
+            for capture in parent.captures.iter().filter(|capture| {
+                capture
+                    .name
+                    .starts_with(source_geometry::PATTERN_EXPECTED_TYPES_PREFIX)
+            }) {
+                let evidence = source_geometry::pattern_expected_types(parent, capture).unwrap();
+                assert_eq!(evidence.type_codes, ["number"]);
+                let mut detached = capture.clone();
+                detached.value = CaptureValue::Text("[\"string\"]".into());
+                assert!(source_geometry::pattern_expected_types(parent, &detached).is_none());
+            }
+        }
+        assert_eq!(
+            decoded(
+                &document(
+                    source,
+                    vec![1, 3],
+                    vec![effect, literal, condition, left, right],
+                    vec![]
+                ),
+                &all()
+            ),
+            vec![
+                (0, 0, 3, "skriptEffect".into()),
+                (0, 4, 1, "skriptLiteral".into()),
+                (1, 0, 1, "skriptLiteral".into()),
+                (1, 2, 2, "skriptCondition".into()),
+                (1, 5, 1, "skriptLiteral".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_or_changed_native_type_evidence_never_colors_parent_but_keeps_healthy_nodes() {
+        let source = "say 1\nhealthy";
+        let mut parent = node(1, SyntaxKind::Effect, "effect", source, 0, 5);
+        parent.children = vec![2];
+        source_geometry::retain_pattern_captures(
+            &mut parent,
+            &[typed_native_capture(source, 0, 4, 5)],
+        );
+        let child = node(2, SyntaxKind::Type, "literal", source, 4, 5);
+        let sibling = node(3, SyntaxKind::Effect, "effect", source, 6, 13);
+        for mutation in [
+            "unknown-reserved",
+            "json",
+            "empty",
+            "blank-code",
+            "bad-index",
+            "leading-zero",
+            "duplicate",
+            "missing-slot",
+            "wrong-kind",
+            "edited-value",
+            "edited-name",
+            "removed",
+            "duplicate-span",
+        ] {
+            let mut invalid = parent.clone();
+            let expected = invalid
+                .captures
+                .iter()
+                .position(|capture| {
+                    capture
+                        .name
+                        .starts_with(source_geometry::PATTERN_EXPECTED_TYPES_PREFIX)
+                })
+                .unwrap();
+            match mutation {
+                "unknown-reserved" => invalid.captures.push(Capture {
+                    name: "parser.unknown-evidence:0".into(),
+                    value: CaptureValue::Text("opaque".into()),
+                }),
+                "json" => {
+                    invalid.captures[expected].value =
+                        CaptureValue::Text("{\"codes\":[\"number\"]}".into())
+                }
+                "empty" => invalid.captures[expected].value = CaptureValue::Text("[]".into()),
+                "blank-code" => {
+                    invalid.captures[expected].value = CaptureValue::Text("[\" \" ]".into())
+                }
+                "bad-index" => {
+                    invalid.captures[expected].name =
+                        format!("{}x", source_geometry::PATTERN_EXPECTED_TYPES_PREFIX)
+                }
+                "leading-zero" => {
+                    invalid.captures[expected].name =
+                        format!("{}00", source_geometry::PATTERN_EXPECTED_TYPES_PREFIX)
+                }
+                "duplicate" => invalid.captures.push(invalid.captures[expected].clone()),
+                "missing-slot" => invalid.captures.retain(|capture| {
+                    !capture
+                        .name
+                        .starts_with(source_geometry::PATTERN_CAPTURE_PREFIX)
+                }),
+                "wrong-kind" => {
+                    invalid.captures[expected].value = CaptureValue::Span(parent.span.clone())
+                }
+                "edited-value" => {
+                    invalid.captures[expected].value = CaptureValue::Text("[\"string\"]".into())
+                }
+                "edited-name" => {
+                    invalid.captures[expected].name =
+                        format!("{}1", source_geometry::PATTERN_EXPECTED_TYPES_PREFIX)
+                }
+                "removed" => {
+                    invalid.captures.remove(expected);
+                }
+                "duplicate-span" => {
+                    let span = invalid
+                        .captures
+                        .iter()
+                        .find(|capture| {
+                            capture
+                                .name
+                                .starts_with(source_geometry::PATTERN_CAPTURE_PREFIX)
+                        })
+                        .unwrap()
+                        .clone();
+                    invalid.captures.push(span);
+                }
+                _ => unreachable!(),
+            }
+            if !matches!(mutation, "edited-value" | "edited-name" | "removed") {
+                // An adversarial native-input fixture exercises schema checks
+                // even with a newly calculated seal. Production never reseals
+                // an AST macro's edited output.
+                source_geometry::retain_pattern_captures(&mut invalid, &[]);
+            }
+            assert_eq!(
+                decoded(
+                    &document(
+                        source,
+                        vec![1, 3],
+                        vec![invalid, child.clone(), sibling.clone()],
+                        vec![]
+                    ),
+                    &all()
+                ),
+                vec![
+                    (0, 4, 1, "skriptLiteral".into()),
+                    (1, 0, 7, "skriptEffect".into()),
+                ],
+                "{mutation}"
+            );
+        }
+    }
+
+    #[test]
+    fn numeric_routed_text_still_requires_exact_source_with_native_type_evidence() {
+        let source = "say 1";
+        for (value, valid) in [("1", true), ("other", false)] {
+            let mut parent = node(1, SyntaxKind::Effect, "effect", source, 0, 5);
+            parent.children = vec![2];
+            parent.captures.push(Capture {
+                name: "0:fixture.raw".into(),
+                value: CaptureValue::Text(value.into()),
+            });
+            source_geometry::retain_pattern_captures(
+                &mut parent,
+                &[typed_native_capture(source, 0, 4, 5)],
+            );
+            assert!(source_geometry::pattern_capture_geometry_is_current(
+                &parent
+            ));
+            let child = node(2, SyntaxKind::Type, "literal", source, 4, 5);
+            let actual = decoded(
+                &document(source, vec![1], vec![parent, child], vec![]),
+                &all(),
+            );
+            let expected = if valid {
+                vec![
+                    (0, 0, 3, "skriptEffect".into()),
+                    (0, 4, 1, "skriptLiteral".into()),
+                ]
+            } else {
+                vec![(0, 4, 1, "skriptLiteral".into())]
+            };
+            assert_eq!(actual, expected, "{value}");
+        }
     }
 
     #[test]

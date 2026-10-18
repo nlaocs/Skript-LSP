@@ -17,13 +17,34 @@ transactional StateStore、dynamic syntax登録、Expression・Condition・Effec
 再帰解析が実装されています。トップレベルStructure解析にはEntryValidatorと二段階lifecycleがあり、
 document内のFunction宣言も登録して呼び出し解析に利用できます。
 
-ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで全文同期、原文位置付き診断、
-採用された構文・型・変数・関数のホバー情報と、確定した原文範囲のSemantic Tokensを提供する
-最小のstdio Language Serverです。[LSPの契約](docs/lsp.ja.md)と[Neovim設定](docs/neovim.ja.md)を参照してください。
+ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで動くstdio Language Serverです。
+全文同期、原文位置付き診断、ホバー、Semantic Tokens、文脈に沿う補完、引数案内、定義移動、
+参照検索、初期化済みの暗黙引数を示すread-only inlay hintを提供します。採用済みparserとproviderの
+根拠から、local変数の保守的な型flowも得ます。ホバーと補完説明では登録patternの文法とSkriptの例を
+区別し、Neovim adapterは補完編集を変えずに両者を着色します。[LSPの契約](docs/lsp.ja.md)と[Neovim設定](docs/neovim.ja.md)を参照してください。
 ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
 共通document parserを利用する複数行REPLを提供し、version付きJSON treeも出力します。
-複数fileのsymbol serviceとvariableの型flow解析は未実装です。個別構文のhandlerによっては
-unresolvedなmetadataやpartial resultを返す場合があります。
+project内の未openのUTF-8 `.sk`も上限付きで索引化し、open bufferはdiskより優先します。
+複数文書の解析には、有効な全componentによる`parser.project-stable-semantics` v1の明示が必要です。
+未知の値、意味を公開していないAddonの副作用、曖昧な原文射影、未対応のhandlerはUnknownまたは
+partialのまま残します。実行時評価や完全な手続き間解析ではありません。
+
+型flowは、要求型への変換前に変数へ保存された型を扱います。汎用engineはunion・list要素・
+parameter・到達書込を表現できますが、精度には現在のproviderの根拠が必要です。現在のCoreが
+証明するのはprimitive scalarの生成と、安全な継承`beforeChange` clone/set経路です。任意の
+FunctionやExpressionList結果はUnknownになり得て、型付きparameter/returnにも未設定の可能性を残します。
+戻り値classだけでは非空性や他localの不変性を証明しません。nativeの評価順付きearly operand契約は
+opaque処理より前の安全な読取を示すもので、Effect/Condition全体のpure宣言ではありません。
+未知のconverter・callback・alias・control flowでは、外側の要求型を借りず事実を忘れます。
+
+Addon契約はWIT `nlaocs:skript-parser-addon@0.41.0`、ABI `23.0`です。componentはこの契約で
+再buildしてください。incremental処理は明示的にopt-inした意味hookの返却値だけを検証して再利用し、
+native matchingと現在のtransactionは再実行します。以前のAST全体は移植しません。WASMの強制的な
+取消には別の安全性opt-inが必要です。snapshotに保存済みliteral defaultの実値がない場合、
+hintは登録された型を示し、値を補作しません。
+
+古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
+影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
 
 ## アーキテクチャ
 
@@ -63,8 +84,8 @@ flowchart LR
    indentationからlosslessなRawTreeを構築する。
 5. `ParserHost::parse_document`は各stageを一つのtransactional document serviceへ統合する。
    Structure headerと選択済みbody、nested syntax、source付きdiagnostic、partial AST recovery、
-   document内Function登録まで解析できる。stdio frontendは文書のlifecycleと診断を接続し、
-   複数file indexは今後の対応となる。
+   document内Function登録まで解析できる。stdio frontendは文書のlifecycleと現在世代のeditor view、
+   上限付きproject indexを接続し、source/importの根拠で古い定義や依存結果を無効にする。
 
 解析時に動作中のMinecraft・Paper・Java・Skriptは不要で、生成済みsnapshotとWASM componentを
 使用します。ただし利用可能な構文はsnapshotのSkript/addon構成に従い、addon固有の意味処理には
@@ -74,7 +95,7 @@ flowchart LR
 
 | Crate | 種類 | 役割 |
 | --- | --- | --- |
-| [`skript-lsp`](./) | library / binary | CoreLibraryを埋め込み、parser hostを構築し、stdio LSPで単一projectの診断とホバーを提供します。 |
+| [`skript-lsp`](./) | library / binary | CoreLibraryを埋め込み、parser hostを構築し、stdio LSPで単一projectの診断、補完、意味問い合わせ、read-only hintを提供します。 |
 | [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
 | [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜7 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage data、schema 6のdefault Expression descriptor、schema 7のBlockData registry dataも含みます。 |
 | [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |

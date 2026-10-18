@@ -40,13 +40,20 @@ metadata. `ParsedCaptureSemanticSummary` and `SectionScopeCapture` expose the
 same implicit provenance. LSP consumers and a future multiline REPL can traverse
 these shared results without reconstructing a default from rendered text.
 
+`DefaultExpressionInfo.omission` records the native cause and its registration-pattern
+byte span: `SkippedOption`, `UnselectedChoice`, or `HookBypassed` (WIT
+`skipped-option`, `unselected-choice`, `hook-bypassed`). It is immutable provenance,
+not text to insert. The requested capture's `pattern_span` remains distinct from
+the enclosing omitted option/branch span. Host validation protects both from
+later hook mutation; absence of evidence is not reconstructed from a syntax name.
+
 Implicit nodes have empty source ranges. Every mapped origin is `Anchored`,
 including all origins and expansion IDs of a macro-derived insertion point.
 No invented `to player` text is inserted into `MappedSource`.
 
 ## WASM addon contract
 
-WIT `nlaocs:skript-parser-addon@0.35.0` uses ABI `17.0`. Request capability
+WIT `nlaocs:skript-parser-addon@0.41.0` uses ABI `23.0`; rebuild older components against this contract. Request capability
 `parser.default-expression` version 1 and subscribe to phase `default-expression`
 with the existing `HookSubscription`, target and selector machinery. Dispatch
 targets the requested **Type** registration; `default-expression-payload`
@@ -88,6 +95,11 @@ shape data and does not depend on the Type owner's addon name, so an addon Type 
 reuse a standard Skript implementation without changing CoreLibrary.
 
 `SimpleLiteral` defaults are context-free literals and reject nonzero time states.
+SSG supplies their initialized shape, not their stored literal value. The public
+`nlaocs.skript.default-source` version 1 data identifies the source kind,
+implementation/target class, time, and selected EventValue registrations; it does
+not expose a literal value. A consumer must not turn a known default type into an
+invented numeric, boolean, or other runtime value.
 `EventValueExpression` defaults resolve the descriptor's return class through the
 shared Catalog hierarchy, conversion, exclusion and ambiguity rules. For example,
 Audience resolves its actual `CommandSender` target rather than assuming the
@@ -99,6 +111,18 @@ The standard provider runs after more specific addon and parser-local providers.
 Scoped `DefaultValueData` overrides and custom `DefaultExpression` subclasses stay
 unresolved until their owning addon provides semantics. Unknown validators and
 incomplete SSG descriptors are likewise never promoted to verified success.
+
+The LSP can display read-only inlay hints for an adopted `SkippedOption` default
+when the native owner, provider, exact capture geometry, Catalog pattern, and
+zero-width original anchor agree. It renders connective words from that actual
+option, not a syntax-name exception. Nested optional/choice/regex fragments that
+would require selecting invented wording are omitted. An event source may appear
+as `to <event player>`; an unknown stored literal appears as
+`<registered default: type>`, with its unavailable value explained in the tooltip.
+Hints contain no `textEdits` and never add source text. `UnselectedChoice`,
+`HookBypassed`, unsupported providers, and ambiguous source mappings currently
+have no display hint. Parser default resolution and this conservative editor
+projection are separate contracts.
 
 `skript-repl` one-line report schema 7 renders the same shared results. Capture
 `state` is `explicit`, `omitted`, `null`, or `default`; implicit Expression reports include

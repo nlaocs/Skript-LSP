@@ -22,6 +22,7 @@ mod eff_zombify;
 mod event_context;
 mod platform_guards;
 mod potion_property;
+mod runtime_evaluation;
 
 use crate::nlaocs::skript_parser_addon::types::{
     AddonError, AddonErrorKind, ContextUpdate, Diagnostic, DiagnosticSeverity, EffectPayload,
@@ -66,6 +67,7 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     event_context::register(&mut handlers);
     platform_guards::register(&mut handlers);
     potion_property::register(&mut handlers);
+    runtime_evaluation::register(&mut handlers);
     handlers
 }
 
@@ -125,6 +127,7 @@ const RESOLVERS: &[EffectResolver] = &[
     event_context::resolve,
     potion_property::resolve,
     platform_guards::resolve,
+    runtime_evaluation::resolve,
 ];
 
 fn resolve_handlers(mut payload: EffectPayload) -> HookOutput {

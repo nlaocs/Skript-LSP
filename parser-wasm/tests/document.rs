@@ -513,6 +513,121 @@ fn cancellation_before_start_leaves_the_host_reusable() {
 }
 
 #[test]
+fn cancellation_after_prepared_core_header_rolls_back_and_allows_same_revision_reentry() {
+    use parser_wasm::state::{NamespaceVisibility, StateScope};
+    use skript_parser::StructurePreparationEvent;
+
+    const REVISION: u64 = 60;
+    const SOURCE: &str = "command /cancel-lifecycle:\n    trigger:\n        send 1 to console\n";
+    let mut host = host(modern_fixture());
+    let cancellation = DocumentCancellationToken::new();
+    let mut saw_prepared_command = false;
+    let mut observer = |event: StructurePreparationEvent<'_>| {
+        if let StructurePreparationEvent::Headers {
+            source,
+            tree,
+            headers,
+        } = event
+        {
+            assert_eq!(source.original(), SOURCE);
+            assert!(!tree.nodes.is_empty());
+            saw_prepared_command = headers.iter().any(|header| {
+                header
+                    .candidate
+                    .metadata
+                    .get("nlaocs.core-library/semantic-mode")
+                    .is_some_and(|mode| mode == "command-structure")
+            });
+            assert!(
+                saw_prepared_command,
+                "Core must accept and initialize the command header before cancellation"
+            );
+            cancellation.cancel();
+        }
+    };
+    let error = host
+        .parse_document_with_preparation(
+            request(REVISION, SOURCE),
+            DocumentParserConfig {
+                cancellation: cancellation.clone(),
+                ..DocumentParserConfig::default()
+            },
+            &mut observer,
+        )
+        .expect_err("cancellation after provisional headers must prevent adoption and commit");
+    assert!(
+        saw_prepared_command,
+        "the cancellation must occur after real native/Core work"
+    );
+    assert!(matches!(error, DocumentParseError::Cancelled {
+        document_id,
+        document_revision: REVISION,
+        stage: DocumentParseStage::Syntax,
+    } if document_id == "file:///workspace/document.sk"));
+    assert!(
+        host.components()
+            .iter()
+            .all(|component| !component.disabled)
+    );
+
+    // Core has already staged this command name in its private Parse scope.
+    // A new same-revision transaction must see no leaked parse or document value.
+    let inspect = host
+        .begin_parse(
+            "file:///workspace",
+            "file:///workspace/document.sk",
+            REVISION,
+        )
+        .unwrap();
+    let mut invocation = inspect.begin_invocation("nlaocs.core-library").unwrap();
+    for scope in [StateScope::Parse, StateScope::Document] {
+        assert!(
+            invocation
+                .get(
+                    scope,
+                    NamespaceVisibility::Private,
+                    "commands",
+                    "cancel-lifecycle"
+                )
+                .unwrap()
+                .is_none()
+        );
+    }
+    invocation.rollback();
+    inspect.cancel().unwrap();
+
+    for revision in [REVISION, REVISION + 1] {
+        let result = host
+            .parse_document(request(revision, SOURCE), DocumentParserConfig::default())
+            .expect("cancelled work must not poison the same or following revision");
+        assert!(result.component_failures.is_empty());
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{:#?}",
+            result.syntax.diagnostics
+        );
+        assert_eq!(result.ast.roots.len(), 1);
+        assert_eq!(
+            result.state.writes, 0,
+            "Core command state must remain parse-private"
+        );
+        assert!(
+            result.state.read_write_set.writes.iter().any(|record| {
+                record.scope == StateScope::Parse
+                    && record.namespace == "commands"
+                    && record.key == "cancel-lifecycle"
+            }),
+            "the successful retry must actually initialize the same command name again"
+        );
+        assert!(
+            host.components()
+                .iter()
+                .all(|component| !component.disabled)
+        );
+    }
+}
+
+#[test]
 fn stale_document_revision_cannot_commit_or_poison_a_newer_parse() {
     let mut host = host(modern_fixture());
     let newer = host

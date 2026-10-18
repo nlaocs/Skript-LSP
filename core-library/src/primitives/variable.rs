@@ -52,11 +52,60 @@ pub(super) fn parse(
             .push(metadata("expression.capability.nested-structures", "true"));
     }
     candidate.public_data.push(public_name_data(body)?);
+    candidate.public_data.push(public_identity_data(body)?);
+    // Static scalar Variable lookup precedes its player-refresh/conversion path.
+    // Never publish a blanket preservation promise for this runtime getter.
+    if !is_list_variable_body(body)
+        && crate::runtime::current()
+            .and_then(|profile| profile.skript_version)
+            .as_deref()
+            == Some("2.15.4")
+    {
+        let mut requested = payload
+            .expected_types
+            .iter()
+            .map(|value| value.class_name.clone())
+            .collect::<Vec<_>>();
+        if requested.is_empty() {
+            requested.push("java.lang.Object".into());
+        }
+        candidate
+            .metadata
+            .push(crate::public_data::variable_read(&requested));
+        candidate
+            .metadata
+            .push(crate::public_data::default_clone_change_input());
+    }
     Some(candidate)
 }
 
 pub(super) fn public_name_data(body: &str) -> Option<ExpressionPublicData> {
-    let scope = if body.trim().starts_with('_') {
+    Some(ExpressionPublicData {
+        schema_id: VARIABLE_SCHEMA_ID.to_owned(),
+        schema_version: VARIABLE_SCHEMA_VERSION,
+        json: serde_json::to_string(&name_template(body)?).ok()?,
+    })
+}
+
+pub(super) fn public_identity_data(body: &str) -> Option<ExpressionPublicData> {
+    use crate::public_data::{
+        VARIABLE_IDENTITY_SCHEMA_ID, VARIABLE_IDENTITY_SCHEMA_VERSION, VariableIdentityData,
+    };
+    let template = name_template(body)?;
+    Some(ExpressionPublicData {
+        schema_id: VARIABLE_IDENTITY_SCHEMA_ID.to_owned(),
+        schema_version: VARIABLE_IDENTITY_SCHEMA_VERSION,
+        json: serde_json::to_string(&VariableIdentityData::from_template(
+            template.scope,
+            &template.name,
+            is_list_variable_body(body),
+        ))
+        .ok()?,
+    })
+}
+
+fn name_template(body: &str) -> Option<VariableData> {
+    let scope = if java_trim(body).starts_with('_') {
         VariableScope::Local
     } else {
         VariableScope::Global
@@ -81,11 +130,7 @@ pub(super) fn public_name_data(body: &str) -> Option<ExpressionPublicData> {
             text: name[previous..].to_owned(),
         });
     }
-    Some(ExpressionPublicData {
-        schema_id: VARIABLE_SCHEMA_ID.to_owned(),
-        schema_version: VARIABLE_SCHEMA_VERSION,
-        json: serde_json::to_string(&VariableData { scope, name: parts }).ok()?,
-    })
+    Some(VariableData { scope, name: parts })
 }
 
 /// Mirrors Skript's `Variable.isValidVariableName` checks which affect parsing.
@@ -138,9 +183,14 @@ fn is_list_variable_body(body: &str) -> bool {
     normalized_name(body).ends_with("::*")
 }
 
+fn java_trim(text: &str) -> &str {
+    // Java String.trim(), used by Variable.newInstance, removes only <= U+0020.
+    text.trim_matches(|character: char| character <= '\u{20}')
+}
+
 fn normalized_name(body: &str) -> &str {
-    let name = body.trim();
-    name.strip_prefix('_').map_or(name, |name| name.trim())
+    let name = java_trim(body);
+    name.strip_prefix('_').map_or(name, java_trim)
 }
 
 fn contains_outside(name: &str, needle: &str, protected_ranges: &[std::ops::Range<usize>]) -> bool {
@@ -199,6 +249,24 @@ fn percent_expression_ranges(input: &str) -> Option<Vec<std::ops::Range<usize>>>
 #[cfg(test)]
 mod tests {
     use super::is_valid_variable_name_body;
+
+    #[test]
+    fn identity_uses_java_trim_and_runtime_percent_escaping() {
+        use crate::public_data::{VariableIdentityData, VariableScope};
+        let read = |body| {
+            serde_json::from_str::<VariableIdentityData>(
+                &super::public_identity_data(body).unwrap().json,
+            )
+            .unwrap()
+        };
+        let value = read(" _ Money%%Value ");
+        assert_eq!(value.scope, VariableScope::Local);
+        assert_eq!(value.name.as_deref(), Some("Money%Value"));
+        let nonbreaking = read("\u{a0}_Money\u{a0}");
+        assert_eq!(nonbreaking.scope, VariableScope::Global);
+        assert_eq!(nonbreaking.name.as_deref(), Some("\u{a0}_Money\u{a0}"));
+        assert_eq!(nonbreaking.alias_key, None);
+    }
 
     #[test]
     fn publishes_local_global_list_and_interpolated_name_templates() {

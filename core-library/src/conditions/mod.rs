@@ -7,6 +7,7 @@ mod cond_is_set;
 mod cond_matches;
 mod cond_script_loaded;
 mod event_context;
+mod local_effects;
 mod prop_cond_contains;
 
 use crate::nlaocs::skript_parser_addon::types::{
@@ -120,8 +121,64 @@ fn matches(payload: &ConditionPayload, handler_id: &str) -> bool {
     crate::runtime::handler_matches(handler_id, &payload.candidate.registration_id)
 }
 
+fn child_index(payload: &ConditionPayload, index: usize) -> Option<usize> {
+    let capture = payload
+        .candidate
+        .captures
+        .iter()
+        .filter_map(|capture| match capture {
+            ConditionCapture::Expression(capture) => Some(capture),
+            ConditionCapture::Regex(_) => None,
+        })
+        .nth(index)?;
+    capture.resolution_id.as_ref()?;
+    let mut bindings = payload
+        .candidate
+        .expression_bindings
+        .iter()
+        .filter(|binding| binding.capture_index == capture.capture_index);
+    let binding = bindings.next()?;
+    if bindings.next().is_some()
+        || payload
+            .candidate
+            .expression_bindings
+            .iter()
+            .filter(|other| other.expression_index == binding.expression_index)
+            .count()
+            != 1
+        || payload
+            .candidate
+            .captures
+            .iter()
+            .filter(|other| match other {
+                ConditionCapture::Expression(other) => other.capture_index == capture.capture_index,
+                ConditionCapture::Regex(other) => other.capture_index == capture.capture_index,
+            })
+            .count()
+            != 1
+    {
+        return None;
+    }
+    let expression_index = usize::try_from(binding.expression_index).ok()?;
+    payload.candidate.children.get(expression_index)?;
+    Some(expression_index)
+}
+
+fn child_capture_index(payload: &ConditionPayload, index: usize) -> Option<u64> {
+    child_index(payload, index)?;
+    payload
+        .candidate
+        .captures
+        .iter()
+        .filter_map(|capture| match capture {
+            ConditionCapture::Expression(capture) => Some(capture.capture_index),
+            ConditionCapture::Regex(_) => None,
+        })
+        .nth(index)
+}
+
 fn child(payload: &ConditionPayload, index: usize) -> Option<&RegisteredExpressionChild> {
-    payload.candidate.children.get(index)
+    payload.candidate.children.get(child_index(payload, index)?)
 }
 
 fn child_span(payload: &ConditionPayload, index: usize) -> MappedSpan {

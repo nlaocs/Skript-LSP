@@ -1,7 +1,7 @@
 # AST macro test addon
 
 A deterministic WASM fixture for the Issue #58 AST macro component-boundary tests.
-It targets the `nlaocs:skript-parser-addon@0.40.0` package and the ABI 22
+It targets the `nlaocs:skript-parser-addon@0.41.0` package and the ABI 23.0
 contract exposed by the current worktree.
 
 The addon subscribes to the AST transform phase and selects its behavior from

@@ -36,8 +36,10 @@ use super::{
 /// Cooperative cancellation shared by the caller and one document parse.
 ///
 /// Cancellation is observed between pipeline stages, inside native syntax
-/// matching and before commit. A single running regex or WASM invocation still
-/// returns under its own quotas before native probes can observe cancellation.
+/// matching and before commit. Running WASM is interrupted at epoch checks only
+/// when the component explicitly promises cancellation safety; otherwise the
+/// token is observed immediately after its bounded call returns normally.
+/// A running regex retains its existing quota before native probes can run.
 #[derive(Debug, Clone, Default)]
 pub struct DocumentCancellationToken {
     cancelled: Arc<AtomicBool>,
@@ -199,6 +201,8 @@ pub struct DocumentParserConfig {
     pub raw_tree: Option<RawTreeOptions>,
     /// Resource and nested parser configuration for the syntax phase.
     pub structure: StructureParserConfig,
+    /// Accepted global definitions from other current project document revisions.
+    pub imported_functions: Vec<skript_parser::ImportedFunction>,
     /// Cooperative cancellation checked at stage boundaries and native syntax probes.
     pub cancellation: DocumentCancellationToken,
 }
@@ -208,6 +212,7 @@ impl Default for DocumentParserConfig {
         Self {
             raw_tree: None,
             structure: StructureParserConfig::default(),
+            imported_functions: Vec::new(),
             cancellation: DocumentCancellationToken::new(),
         }
     }
@@ -249,9 +254,20 @@ pub struct DocumentParseResult {
     pub syntax_calls: Vec<HookCall>,
     pub component_failures: Vec<ComponentFailure>,
     pub state: CommitSummary,
+    semantic_proofs: super::semantic_proof::SemanticProofRegistry,
 }
 
 impl DocumentParseResult {
+    /// Validates provider/native facts against the immutable pre-AST semantic proof.
+    pub fn semantic_witnesses(&self) -> super::semantic_proof::SemanticWitnesses<'_> {
+        self.semantic_proofs.view(&self.ast)
+    }
+
+    /// Convenience query; build `semantic_witnesses` once when checking many nodes.
+    pub fn semantic_witness_valid(&self, node: &super::AstNode, issuer: &str) -> bool {
+        self.semantic_witnesses().provider_valid(node, issuer)
+    }
+
     /// Projects confirmed native children retained after entry-validation errors for a read-only editor.
     /// Canonical AST macro input and rejected Structure adoption remain unchanged.
     pub fn editor_ast(&self) -> super::AstTree {
@@ -265,6 +281,7 @@ struct UncommittedDocument {
     raw_tree: RawTree,
     syntax: StructureDocument,
     ast: AstTree,
+    semantic_proofs: super::semantic_proof::SemanticProofRegistry,
     functions: FunctionRegistrySnapshot,
     effects: HookEffects,
     text_macro_decision: HookDecision,
@@ -367,6 +384,17 @@ impl ParserHost {
             }
         };
 
+        if let Err(error) =
+            self.begin_incremental_document(&transaction, Arc::from(request.source.original()))
+        {
+            let _ = transaction.cancel();
+            return Err(error.into());
+        }
+
+        let previous_cancellation = self
+            .native_cancellation
+            .replace(config.cancellation.clone());
+        let previous_receipts = self.semantic_receipts.replace(Default::default());
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(
                 &transaction,
@@ -376,9 +404,16 @@ impl ParserHost {
             ),
             None => self.parse_document_uncommitted(&transaction, &request, &config),
         };
+        self.native_cancellation = previous_cancellation;
+        self.semantic_receipts = previous_receipts;
         let parsed = match parsed {
             Ok(parsed) => parsed,
             Err(error) => {
+                self.finish_incremental_document(
+                    &request.context.document_id,
+                    request.context.document_revision,
+                    false,
+                );
                 self.rollback_document(&transaction, dynamic_savepoint.as_ref())?;
                 return Err(error);
             }
@@ -389,6 +424,11 @@ impl ParserHost {
             &config.cancellation,
             DocumentParseStage::Commit,
         ) {
+            self.finish_incremental_document(
+                &request.context.document_id,
+                request.context.document_revision,
+                false,
+            );
             self.rollback_document(&transaction, dynamic_savepoint.as_ref())?;
             return Err(error);
         }
@@ -396,10 +436,21 @@ impl ParserHost {
         let state = match transaction.commit() {
             Ok(state) => state,
             Err(error) => {
+                self.finish_incremental_document(
+                    &request.context.document_id,
+                    request.context.document_revision,
+                    false,
+                );
                 self.rollback_document(&transaction, dynamic_savepoint.as_ref())?;
                 return Err(HostError::from(error).into());
             }
         };
+
+        self.finish_incremental_document(
+            &request.context.document_id,
+            request.context.document_revision,
+            parsed.component_failures.is_empty() && parsed.fault_regions.is_empty(),
+        );
 
         Ok(DocumentParseResult {
             execution_status: if parsed.fault_regions.is_empty() {
@@ -423,6 +474,7 @@ impl ParserHost {
             syntax_calls: parsed.syntax_calls,
             component_failures: parsed.component_failures,
             state,
+            semantic_proofs: parsed.semantic_proofs,
         })
     }
 
@@ -467,13 +519,17 @@ impl ParserHost {
             effects: text_effects,
             calls: text_macro_calls,
             failures: text_failures,
-        } = self.expand_text_in_parse(
-            transaction,
-            TextMacroRequest {
-                context: request.context.clone(),
-                source: request.source.clone(),
-            },
-        )?;
+        } = self
+            .expand_text_in_parse(
+                transaction,
+                TextMacroRequest {
+                    context: request.context.clone(),
+                    source: request.source.clone(),
+                },
+            )
+            .map_err(|error| {
+                document_host_error(error, &request.context, DocumentParseStage::TextMacro)
+            })?;
 
         let global_macro_fault = !text_failures.is_empty();
         if global_macro_fault {
@@ -523,7 +579,10 @@ impl ParserHost {
                     source,
                     tree: raw_tree,
                 },
-            )?
+            )
+            .map_err(|error| {
+                document_host_error(error, &request.context, DocumentParseStage::TreeMacro)
+            })?
         };
 
         check_cancelled(
@@ -548,9 +607,6 @@ impl ParserHost {
                 node.kind = skript_parser::RawNodeKind::Invalid;
             }
         }
-        let previous_cancellation = self
-            .native_cancellation
-            .replace(config.cancellation.clone());
         let parsed = self.parse_structures_in_parse_observed(
             transaction,
             request.context.clone(),
@@ -560,9 +616,9 @@ impl ParserHost {
                 context: ExpressionParseContext::default(),
             },
             config.structure.clone(),
+            &config.imported_functions,
             structure_preparation,
         );
-        self.native_cancellation = previous_cancellation;
         let WasmStructureParseResult {
             document: mut syntax,
             functions,
@@ -613,6 +669,11 @@ impl ParserHost {
             }
         }
         let ast = ast_tree::from_structure_document(&source, &syntax);
+        let semantic_proofs = super::semantic_proof::SemanticProofRegistry::capture(
+            &ast,
+            self.semantic_receipts.as_ref(),
+            &syntax_calls,
+        );
         let AstMacroResult {
             decision: ast_macro_decision,
             source,
@@ -637,7 +698,10 @@ impl ParserHost {
                     source,
                     tree: ast,
                 },
-            )?
+            )
+            .map_err(|error| {
+                document_host_error(error, &request.context, DocumentParseStage::AstMacro)
+            })?
         };
 
         check_cancelled(
@@ -671,6 +735,7 @@ impl ParserHost {
             raw_tree,
             syntax,
             ast,
+            semantic_proofs,
             functions,
             effects,
             text_macro_decision,
@@ -697,6 +762,22 @@ impl ParserHost {
         dynamic_result?;
         state_result?;
         Ok(())
+    }
+}
+
+fn document_host_error(
+    error: HostError,
+    context: &InvocationContext,
+    stage: DocumentParseStage,
+) -> DocumentParseError {
+    if skript_parser::parse_cancellation(&error).is_some() {
+        DocumentParseError::Cancelled {
+            document_id: context.document_id.clone(),
+            document_revision: context.document_revision,
+            stage,
+        }
+    } else {
+        error.into()
     }
 }
 
@@ -895,6 +976,72 @@ mod tests {
     }
 
     #[test]
+    fn native_probe_cancellation_in_tree_macro_restores_scope_and_next_revision() {
+        let mut host = native_test_host();
+        let token = native_token(0);
+        let prepared = std::cell::Cell::new(false);
+        let mut observer = |event: skript_parser::StructurePreparationEvent<'_>| {
+            if matches!(
+                event,
+                skript_parser::StructurePreparationEvent::Headers { .. }
+            ) {
+                prepared.set(true);
+            }
+        };
+        let error = host
+            .parse_document_with_preparation(
+                DocumentParseRequest::new(
+                    "file:///workspace",
+                    "file:///early-native-cancel.sk",
+                    1,
+                    "on join:\n    message \"hello\"\n",
+                ),
+                DocumentParserConfig {
+                    cancellation: token.clone(),
+                    ..Default::default()
+                },
+                &mut observer,
+            )
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                DocumentParseError::Cancelled {
+                    stage: DocumentParseStage::TreeMacro,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(token.is_cancelled());
+        assert!(
+            !prepared.get(),
+            "early traversal cancellation must precede Syntax preparation"
+        );
+        assert!(host.native_cancellation.is_none());
+        assert!(host.active_parse_requests.is_empty());
+        for component in &host.components {
+            assert!(component.store.data().invocation.is_none());
+            assert!(component.store.data().dynamic_syntax_update.is_none());
+            assert!(!component.disabled);
+        }
+        let next = host
+            .parse_document(
+                DocumentParseRequest::new(
+                    "file:///workspace",
+                    "file:///early-native-cancel.sk",
+                    2,
+                    "on load:\n    send 1 to console\n",
+                ),
+                DocumentParserConfig::default(),
+            )
+            .unwrap();
+        assert!(next.component_failures.is_empty());
+        assert!(next.syntax.diagnostics.is_empty());
+        assert!(host.native_cancellation.is_none());
+    }
+
+    #[test]
     fn native_cancellation_unwinds_nested_syntax_and_allows_the_next_revision() {
         let mut host = native_test_host();
         let sources = [
@@ -906,8 +1053,26 @@ mod tests {
         for (index, source) in sources.into_iter().enumerate() {
             revision += 1;
             let token = native_token(usize::MAX);
+            // The cancellation scope includes preprocessing and TreeMacro probes.
+            // Measure only probes after actual accepted headers, while bodies are
+            // still pending, so this test targets nested Syntax cancellation.
+            let header_budget = std::cell::Cell::new(None);
+            let mut baseline_observer = |event: skript_parser::StructurePreparationEvent<'_>| {
+                if let skript_parser::StructurePreparationEvent::Headers { headers, .. } = event {
+                    assert!(
+                        !headers.is_empty(),
+                        "accepted headers must precede body parsing"
+                    );
+                    let remaining = token
+                        .native_probe_budget
+                        .as_ref()
+                        .unwrap()
+                        .load(Ordering::Relaxed);
+                    assert!(header_budget.replace(Some(remaining)).is_none());
+                }
+            };
             let baseline = host
-                .parse_document(
+                .parse_document_with_preparation(
                     DocumentParseRequest::new(
                         "file:///workspace",
                         "file:///native-cancel.sk",
@@ -918,8 +1083,10 @@ mod tests {
                         cancellation: token.clone(),
                         ..Default::default()
                     },
+                    &mut baseline_observer,
                 )
                 .unwrap();
+            assert!(host.native_cancellation.is_none());
             assert!(baseline.component_failures.is_empty());
             assert!(
                 baseline.syntax.diagnostics.is_empty(),
@@ -927,7 +1094,9 @@ mod tests {
                 baseline.syntax.diagnostics
             );
             assert_eq!(baseline.functions.len(), usize::from(index == 1));
-            let probes = usize::MAX
+            let probes = header_budget
+                .get()
+                .expect("actual Headers checkpoint must run")
                 - token
                     .native_probe_budget
                     .as_ref()
@@ -936,10 +1105,26 @@ mod tests {
             assert!(probes > 2);
             for budget in [0, probes / 2, probes - 1] {
                 revision += 1;
-                let token = native_token(budget);
+                let token = native_token(usize::MAX);
+                let armed = std::cell::Cell::new(false);
+                let mut observer = |event: skript_parser::StructurePreparationEvent<'_>| {
+                    if let skript_parser::StructurePreparationEvent::Headers { headers, .. } = event
+                    {
+                        assert!(!headers.is_empty());
+                        assert!(
+                            !armed.replace(true),
+                            "budget must arm once after accepted headers"
+                        );
+                        token
+                            .native_probe_budget
+                            .as_ref()
+                            .unwrap()
+                            .store(budget, Ordering::Relaxed);
+                    }
+                };
                 let started = std::time::Instant::now();
                 let error = host
-                    .parse_document(
+                    .parse_document_with_preparation(
                         DocumentParseRequest::new(
                             "file:///workspace",
                             "file:///native-cancel.sk",
@@ -950,8 +1135,13 @@ mod tests {
                             cancellation: token.clone(),
                             ..Default::default()
                         },
+                        &mut observer,
                     )
                     .unwrap_err();
+                assert!(
+                    armed.get(),
+                    "cancellation must occur after actual header preparation"
+                );
                 println!(
                     "native-cancel,{index},{budget},{probes},{},cancelled",
                     started.elapsed().as_nanos()
@@ -1038,24 +1228,66 @@ mod tests {
             .unwrap();
         invocation.commit().unwrap();
         assert!(!transaction.read_write_set().unwrap().writes.is_empty());
-        let error = host
-            .parse_document_uncommitted(
-                &transaction,
-                &request,
-                &DocumentParserConfig {
-                    cancellation: native_token(32),
-                    ..Default::default()
-                },
-            )
-            .err()
-            .expect("native parsing must cancel");
-        assert!(matches!(
-            error,
-            DocumentParseError::Cancelled {
-                stage: DocumentParseStage::Syntax,
-                ..
+        // This direct uncommitted call intentionally exercises the wrapper's
+        // rollback helper below, so install the same native token scope here.
+        // Whole-pipeline probes must remain active. Arm cancellation only after
+        // actual header acceptance and syntax freeze, before body parsing.
+        let token = native_token(usize::MAX);
+        let armed = std::cell::Cell::new(false);
+        let mut observer = |event: skript_parser::StructurePreparationEvent<'_>| {
+            if let skript_parser::StructurePreparationEvent::Headers { headers, .. } = event {
+                assert!(!headers.is_empty());
+                assert!(!armed.replace(true));
+                assert!(
+                    matches!(
+                        registry.begin_document_update(
+                            "test.cleanup",
+                            0,
+                            &request.context.document_id,
+                            1
+                        ),
+                        Err(DynamicRegistryError::Frozen { .. })
+                    ),
+                    "the actual syntax registry must already be frozen"
+                );
+                token
+                    .native_probe_budget
+                    .as_ref()
+                    .unwrap()
+                    .store(0, Ordering::Relaxed);
             }
-        ));
+        };
+        let previous_cancellation = host.native_cancellation.replace(token.clone());
+        let parsed = host.parse_document_uncommitted_observed(
+            &transaction,
+            &request,
+            &DocumentParserConfig {
+                cancellation: token.clone(),
+                ..Default::default()
+            },
+            Some(&mut observer),
+        );
+        host.native_cancellation = previous_cancellation;
+        assert!(
+            armed.get(),
+            "actual Syntax preparation must precede cancellation"
+        );
+        let error = parsed.err().expect("native parsing must cancel");
+        assert!(
+            token.is_cancelled(),
+            "a native probe must trigger the token"
+        );
+        assert!(host.native_cancellation.is_none());
+        assert!(
+            matches!(
+                error,
+                DocumentParseError::Cancelled {
+                    stage: DocumentParseStage::Syntax,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
         // The public document wrapper uses this same rollback after any native error.
         host.rollback_document(&transaction, Some(&savepoint))
             .unwrap();

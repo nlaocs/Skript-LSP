@@ -77,7 +77,7 @@ impl Function {
         Self {
             name: definition.name.clone(),
             identity: definition.registration_id.clone(),
-            detail: "Function / current document; argument types are not inferred".into(),
+            detail: "Function / script declaration".into(),
             parameters: definition
                 .parameters
                 .iter()
@@ -101,15 +101,21 @@ pub(super) struct CatalogIndex {
     functions: Vec<Function>,
     limited: bool,
     raw_options: skript_parser::RawTreeOptions,
+    documentation_format: lsp_types::MarkupKind,
 }
 impl CatalogIndex {
-    pub fn new(catalog: &Catalog, raw_options: skript_parser::RawTreeOptions) -> Self {
+    pub fn with_documentation_format(
+        catalog: &Catalog,
+        raw_options: skript_parser::RawTreeOptions,
+        documentation_format: lsp_types::MarkupKind,
+    ) -> Self {
         let mut index = Self {
             templates: Vec::new(),
             patterns: Vec::new(),
             functions: Vec::new(),
             limited: false,
             raw_options,
+            documentation_format,
         };
         let mut function_shapes = HashSet::new();
         // Iterate the actual Catalog, preserving registration and pattern order.
@@ -139,7 +145,7 @@ impl CatalogIndex {
                 common.documentation.name.as_deref().unwrap_or("Syntax"),
                 &[("Addon", common.addon.name.clone())],
                 Some(&common.documentation),
-                &lsp_types::MarkupKind::PlainText,
+                &index.documentation_format,
             )
             .into();
             for (pattern_index, pattern) in common.patterns.iter().enumerate() {
@@ -531,14 +537,14 @@ impl Document {
         variables.sort_by_key(|v| v.observed);
         let mut functions = Vec::new();
         let mut names = HashSet::new();
-        for registration in result.functions.registrations() {
-            if names.insert(registration.definition.name.as_str()) {
+        for definition in result.functions.definitions() {
+            if names.insert(definition.name.clone()) {
                 functions.extend(
                     result
                         .functions
-                        .lookup_references(&registration.definition.name, FunctionScope::Local)
-                        .into_iter()
-                        .map(|r| Function::from_definition(&r.definition)),
+                        .lookup_functions(&definition.name, FunctionScope::Local)
+                        .iter()
+                        .map(Function::from_definition),
                 );
             }
         }
@@ -715,16 +721,14 @@ impl Document {
                 item.data = Some(
                     serde_json::json!({"syntaxKind":format!("{:?}", pattern.kind),"continuation":true,"syntaxIdentity":pattern.identity}),
                 );
-                item.documentation = Some(Documentation::String(format!(
-                    "Syntax:\n{}\n\n{detail}\nExpected types and addon guards are not checked.\nRegistration: {}",
-                    pattern.label, pattern.identity
-                )));
-                if let Some(documentation) = &pattern.documentation {
-                    if let Some(Documentation::String(text)) = &mut item.documentation {
-                        text.push_str("\n\n");
-                        text.push_str(documentation);
-                    }
-                }
+                item.documentation = Some(super::hover_text::completion(
+                    &pattern.label,
+                    None,
+                    &detail,
+                    &pattern.identity,
+                    pattern.documentation.as_deref(),
+                    &self.index.documentation_format,
+                ));
                 items.push(item);
             }
         }
@@ -1085,16 +1089,14 @@ impl Document {
         item.data = Some(
             serde_json::json!({"syntaxKind":format!("{:?}", template.kind),"syntaxIdentity":template.identity}),
         );
-        item.documentation = Some(Documentation::String(format!(
-            "Template:\n{label}\n\nSyntax:\n{}\n\n{}\nExpected types and addon guards are not checked.\nRegistration: {}",
-            template.label, template.detail, template.identity
-        )));
-        if let Some(documentation) = &template.documentation {
-            if let Some(Documentation::String(text)) = &mut item.documentation {
-                text.push_str("\n\n");
-                text.push_str(documentation);
-            }
-        }
+        item.documentation = Some(super::hover_text::completion(
+            &template.label,
+            Some(&label),
+            &template.detail,
+            &template.identity,
+            template.documentation.as_deref(),
+            &self.index.documentation_format,
+        ));
         Ok(item)
     }
     fn item(
@@ -1287,6 +1289,7 @@ impl Document {
                 limited: false,
                 patterns: Vec::new(),
                 raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
+                documentation_format: lsp_types::MarkupKind::PlainText,
             }),
             blocked: Vec::new(),
         }
@@ -1381,6 +1384,58 @@ mod tests {
     }
 
     #[test]
+    fn markdown_completion_keeps_identical_edits_and_registration_identity() {
+        for source in ["on load:\n    mo", "on load:\n    move player t"] {
+            let grammar = "move %objects% (to|towards) %locations%";
+            let rules = test_plural_rules();
+            let parsed = syntax_pattern_parser::syntax::parse(grammar, &rules).unwrap();
+            let mut document = with_functions(source);
+            let index = Arc::get_mut(&mut document.index).unwrap();
+            for parts in variants(&parsed.elements, 0, &mut false, &rules) {
+                let parts = normalize_parts(parts);
+                index.templates.push(Template {
+                    documentation: None,
+                    kind: SyntaxKind::Effect,
+                    label: grammar.into(),
+                    detail: "Effect / Move".into(),
+                    identity: "move:0".into(),
+                    leading: "move ".into(),
+                    folded: "move ".into(),
+                    parts,
+                });
+            }
+            index.patterns.push(Pattern {
+                documentation: None,
+                kind: SyntaxKind::Effect,
+                label: grammar.into(),
+                detail: "Effect / Move".into(),
+                identity: "move:0".into(),
+                graph: continuation::Graph::new(&parsed.elements).unwrap(),
+            });
+            let position = Position::new(1, source.lines().nth(1).unwrap().len() as u32);
+            let plain = document.at(position, true).unwrap();
+            Arc::get_mut(&mut document.index)
+                .unwrap()
+                .documentation_format = lsp_types::MarkupKind::Markdown;
+            let markdown = document.at(position, true).unwrap();
+            assert!(!plain.items.is_empty());
+            assert_eq!(plain.items.len(), markdown.items.len());
+            for (plain, markdown) in plain.items.iter().zip(&markdown.items) {
+                assert_eq!(plain.label, markdown.label);
+                assert_eq!(plain.text_edit, markdown.text_edit);
+                assert_eq!(plain.insert_text_format, markdown.insert_text_format);
+                assert_eq!(plain.data, markdown.data);
+                let Some(Documentation::MarkupContent(content)) = &markdown.documentation else {
+                    panic!("negotiated markdown");
+                };
+                assert_eq!(content.kind, lsp_types::MarkupKind::Markdown);
+                assert!(content.value.contains("skript-pattern"));
+                assert!(content.value.contains(grammar));
+            }
+        }
+    }
+
+    #[test]
     fn equal_continuation_words_keep_distinct_syntax_provenance() {
         let grammar = "move %objects% to %locations%";
         let parsed = syntax_pattern_parser::syntax::parse(grammar, &test_plural_rules()).unwrap();
@@ -1467,6 +1522,7 @@ mod tests {
             limited: false,
             patterns: Vec::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
+            documentation_format: lsp_types::MarkupKind::PlainText,
         });
         document
     }
@@ -1665,6 +1721,7 @@ mod tests {
             limited: false,
             patterns: Vec::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
+            documentation_format: lsp_types::MarkupKind::PlainText,
         });
         let result = view.at(Position::new(1, 11), true).unwrap();
         assert_eq!(result.items.len(), 1);
@@ -1813,6 +1870,7 @@ mod tests {
             limited: false,
             patterns: Vec::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
+            documentation_format: lsp_types::MarkupKind::PlainText,
         });
         let list = view.at(Position::new(1, 9), false).unwrap();
         assert!(list.is_incomplete);

@@ -33,7 +33,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.40.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.41.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -84,7 +84,8 @@ implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefa
 追加で0.36.0へ、SSG runtime snapshot capabilityの追加で0.37.0へ、host側の
 完全一致Alias・BlockData検索の追加で0.38.0へ、構造化Function leaf callの追加で0.39.0へ、
 最終ASTと追加解析nodeへのFunction binding投影で0.40.0へ変わりました。
-manifestの現在の`abi`値は22.0で、
+nativeの省略根拠とopt-inのincremental subscription manifest追加で0.41.0へ変わりました。
+manifestの現在の`abi`値は23.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -99,10 +100,30 @@ host-token/root-ID child参照内の連続範囲を所有します。入力名�
 Function情報は不正なhook出力として拒否し、providerのstateをrollbackします。
 他のleaf種別は`function = none`とし、native側も同じ`FunctionCall`を使います。
 このWIT/ABI変更ではCoreLibraryと外部componentの再ビルドが必要です。
-WIT 0.39.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
-`@0.39.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 21.0の
-componentは、必要なABI 22.0を示すhandshake診断で拒否されます。
+WIT 0.40.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
+`@0.40.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 22.0の
+componentは、必要なABI 23.0を示すhandshake診断で拒否されます。
 現行WITとSDKを使って再ビルドしてください。manifestのversion変更だけでは移行できません。
+
+### WIT 0.41: 省略の根拠と明示的な再利用契約
+
+`default-expression-info.omission`は、nativeの省略理由`skipped-option`・`unselected-choice`・
+`hook-bypassed`と登録pattern内のbyte範囲を持つ任意の`pattern-omission`です。
+implicit childの不変の根拠であり、原文のzero-width anchorや要求captureの範囲とは別です。
+hookから改変できません。保守的なeditor表示と保存済みliteral実値が利用できない場合については
+[DefaultExpressionガイド](../docs/default-expressions.ja.md)を参照してください。
+
+manifestに`incremental-local-subscriptions`を追加しました。空listでは再利用せず、列挙したhookにも
+`parser.incremental-local-syntax` v1の明示と、入力・観測Stateだけでdata-onlyな返却値が決まる
+契約が必要です。hostは現在の入力/contextと観測依存を検証します。matching・macro・owner選択・
+関数lookup・transactionは現在のsourceで実行し、古いASTやState差分を移植しません。
+`parser.project-stable-semantics` v1は、文書間の可変Stateや隠れたguest履歴からの独立性を別に約束します。
+`parser.epoch-cancellation-restart-safe` v1は、中断したguest Storeの破棄と再初期化を許す別の約束です。
+guestのmemory・global・cacheを失っても、同じHostProfileによる決定的なmanifest/initializeで将来の意味を保つ必要があります。
+初期化では不変Catalog照会だけを許し、StateStore/dynamic呼出の試行は失敗を無視しても拒否します。外部副作用や隠れた永続履歴にも依存できません。
+次の呼出前に古いStoreを破棄し、同じquotaで作り直してmanifest全項目とhandler bindingを照合します。hostのStateStore/registryは保持します。
+中断した解析は再試行しません。復帰自体の故障はcomponentを無効化し、復帰中の再取消は復帰待ちのままにします。
+未宣言なら正常return後に取消を確認し、fuelと通常deadlineを維持します。これらのopt-inは互いを含意しません。
 
 最終結果の`ast-node.function`と`parse-result-node.function`も同じbindingを保持します。
 引数範囲は、そのnodeの`children`配列内の位置でありarena IDではありません。
@@ -393,6 +414,12 @@ unknown nodeは正確なsource、mapped span、最遠failureを保持します�
 されますが、そのdiagnosticは結果に残ります。
 
 ## ConditionとSection解析
+
+Condition captureは登録pattern内の静的な`capture-index`を保持します。省略されたregex分岐があると、
+この番号は連続しない場合があります。`condition-candidate.expression-bindings`は、この番号を
+`children[expression-index]`へ明示的に結び付けます。hostは番号や対応関係の変更を拒否します。
+native parserが解決時に記録した同じ対応を、最終ASTとborrowed capture viewも使います。
+対応の欠落・重複・範囲外を、Expressionの並び順から推測して補うことはありません。
 
 `ParserHost::parse_condition_in_parse`は、完全な外側の括弧を繰り返し外す挙動を含め、Skriptの
 registration順でConditionを照合します。再帰Expression sessionを共有するため、Condition patternは

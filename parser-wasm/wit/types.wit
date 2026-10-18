@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.40.0;
+package nlaocs:skript-parser-addon@0.41.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -326,12 +326,60 @@ interface types {
         metadata: list<metadata-entry>,
     }
 
+    /// An optional parser.project-stable-semantics v1 requirement promises that
+    /// semantic outputs depend only on immutable initialized inputs and the
+    /// current complete document pipeline. Fresh document-private Parse and
+    /// Invocation state is allowed when deterministically derived by that
+    /// pipeline. Initialized dynamic bindings must remain immutable; caches
+    /// must preserve values. Document/Project/Persistent/Shared State reads and
+    /// writes, post-init dynamic mutations, I/O, time, randomness and hidden
+    /// guest history must never influence later document semantics. Transient
+    /// invocation IDs, native analysis revision counters, unrelated parse order
+    /// and project epochs are opaque bookkeeping; semantic/export outputs must
+    /// be independent of them. Opaque provenance stays bound to its accepted
+    /// native snapshot. Actual source generation, full source/mapping/context,
+    /// document URI and current native import presence, absence and policy
+    /// remain semantic inputs; the initialized universe must stay immutable. Without
+    /// the promise, project-wide semantic reuse is disabled. Future versions
+    /// do not imply this v1 promise.
+    ///
+    /// parser.epoch-cancellation-restart-safe v1 separately permits discarding
+    /// the entire guest Store after observed epoch cancellation. Manifest and
+    /// initialization must be deterministic with the same immutable HostProfile.
+    /// Initialization permits immutable Catalog queries only; ANY StateStore
+    /// or dynamic call attempt is rejected even if the guest ignores its error. No external effects or
+    /// hidden persistent semantic history may be required; losing guest memory,
+    /// globals, locks and caches plus reinitializing preserves future behavior.
+    /// Host StateStore/registries remain; the complete manifest and handler
+    /// bindings are validated before a fresh Store handles the next invocation.
+    /// Restart failure explicitly disables the component; cancelled work is
+    /// never retried. Without this promise cancellation waits for normal guest
+    /// return; fuel and ordinary addon deadlines remain enforced.
     record component-manifest {
         component-id: string,
         component-version: string,
         abi: abi-version,
         capabilities: list<capability-requirement>,
         subscriptions: list<hook-subscription>,
+        /// Explicit parser.incremental-local-syntax v1 promise; empty disables reuse.
+        /// For listed subscriptions, the complete current payload/context, its
+        /// physical source line, immutable Catalog/runtime/handler bindings, and
+        /// all observed State get/scan values completely determine the response.
+        /// The response is independent of invocation-id, document-revision,
+        /// source outside that line, and mutable guest invocation history.
+        /// Protected host semantic-receipt metadata is opaque/nonsemantic: its
+        /// numeric IDs may be canonically rebound while preserving alias topology.
+        /// Skipping an eligible invocation has no observable guest-side effect;
+        /// initialization caches may memoize only immutable, value-preserving facts.
+        /// The host may reuse only data-only successful hook responses, rebind
+        /// immutable input echoes, and run current validation/transaction accounting.
+        /// State writes or mutation attempts, diagnostics, context effects,
+        /// AdditionalParse, opaque attachments, and registration effects are not
+        /// reusable. Failed/cancelled document work never publishes new entries.
+        /// Matching, macros, structure/section ownership, and function lookup still
+        /// execute against the current revision. This is semantic invocation reuse,
+        /// not authority to transplant an earlier AST, effects delta, or source IDs.
+        incremental-local-subscriptions: list<string>,
         registered-syntax-handlers: list<registered-syntax-handler>,
         catalog-annotations: list<catalog-annotation>,
         state-namespaces: list<state-namespace-declaration>,
@@ -702,8 +750,15 @@ interface types {
     /// Immutable provenance of an implicit child. Its source span is a zero-width
     /// anchor, not generated input. Context is referenced without recursively
     /// copying Section captures into each child summary.
+    enum pattern-omission-kind { skipped-option, unselected-choice, hook-bypassed }
+    record pattern-omission {
+        kind: pattern-omission-kind,
+        pattern-span: text-range,
+    }
+
     record default-expression-info {
         capture-index: u64,
+        omission: option<pattern-omission>,
         pattern-span: text-range,
         expression: string,
         requested-type: expression-expected-type,
@@ -1046,12 +1101,14 @@ interface types {
     }
 
     record condition-regex-capture {
+        capture-index: u64,
         pattern-span: text-range,
         value: string,
         span: mapped-span,
     }
 
     record condition-expression-capture {
+        capture-index: u64,
         state: type-capture-state,
         pattern-span: text-range,
         expression: string,
@@ -1080,6 +1137,15 @@ interface types {
         accumulated: s32,
     }
 
+    // capture-index is the stable native pattern slot, not a captures array
+    // position: omitted Regex/choice branches can leave gaps. expression-index
+    // indexes the unchanged children list. Created at resolution-ID lookup.
+    // Invalid/missing associations make no semantic typed-slot claim.
+    record condition-expression-binding {
+        capture-index: u64,
+        expression-index: u64,
+    }
+
     record condition-candidate {
         definition-id: string,
         registration-id: string,
@@ -1096,6 +1162,7 @@ interface types {
         handler: option<string>,
         metadata: list<metadata-entry>,
         children: list<registered-expression-child>,
+        expression-bindings: list<condition-expression-binding>,
     }
 
     record condition-payload {

@@ -17,6 +17,7 @@ pub(super) fn resolve(mut payload: ConditionPayload) -> Option<HookOutput> {
             "regex"
         };
         annotate(&mut payload, "semantic-mode", mode);
+        super::local_effects::string_matches(&mut payload);
         accept(payload)
     })
 }

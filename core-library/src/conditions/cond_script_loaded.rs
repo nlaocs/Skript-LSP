@@ -34,7 +34,10 @@ pub(super) fn resolve(mut payload: ConditionPayload) -> Option<HookOutput> {
         });
     let span = payload.candidate.span.clone();
     Some(match active {
-        Some(true) => super::accept(payload),
+        Some(true) => {
+            super::local_effects::current_script(&mut payload);
+            super::accept(payload)
+        }
         Some(false) => super::reject_with(
             "the 'script loaded' Condition requires a script name outside an active script",
             "core.cond-script-loaded.missing-script",

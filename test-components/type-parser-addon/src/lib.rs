@@ -94,6 +94,7 @@ fn empty_selector() -> HookSelector {
 impl addon::Guest for TypeParserAddon {
     fn manifest() -> ComponentManifest {
         ComponentManifest {
+            incremental_local_subscriptions: Vec::new(),
             component_id: COMPONENT_ID.to_owned(),
             component_version: env!("CARGO_PKG_VERSION").to_owned(),
             abi: AbiVersion {

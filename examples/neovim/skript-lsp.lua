@@ -1,5 +1,9 @@
 -- Neovim 0.12+. Load with -u for an isolated session, or :luafile in an
 -- existing session before opening a .sk file. No config files are rewritten.
+local directory = vim.fs.dirname(debug.getinfo(1, "S").source:sub(2))
+dofile(vim.fs.joinpath(directory, "skript_documentation.lua")).setup()
+vim.api.nvim_set_hl(0, "LspInlayHint", { link = "Comment", default = true })
+
 local function absolute_path(value, label, expected_type)
   assert(type(value) == "string" and value ~= "", label .. " is required")
   local path = vim.fs.normalize(vim.fs.abspath(value))
@@ -45,6 +49,9 @@ local config = {
   init_options = { snapshotPath = snapshot, addonPaths = addons },
   capabilities = capabilities,
   on_attach = function(client, bufnr)
+    if client:supports_method("textDocument/inlayHint", bufnr) then
+      vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })
+    end
     if client:supports_method("textDocument/completion", bufnr) then
       vim.opt_local.completeopt = { "menu", "menuone", "noselect" }
       vim.lsp.completion.enable(true, client.id, bufnr, { autotrigger = true })

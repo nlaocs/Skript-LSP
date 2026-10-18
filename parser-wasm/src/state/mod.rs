@@ -4,7 +4,9 @@
 //! commit only after the current document revision completes, with scoped namespaces and quotas.
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
+mod observation;
 mod persistent;
+pub(crate) use observation::{StateObservationCheckpoint, StateReadCertificate};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -608,6 +610,7 @@ impl StateStore {
                 next_overlay_revision: 1,
                 applied_deltas: BTreeSet::new(),
                 next_delta_id: 0,
+                observations: observation::ReadObservations::default(),
                 closed: false,
             })),
         })
@@ -670,6 +673,8 @@ struct ParseTransactionInner {
     next_overlay_revision: u64,
     applied_deltas: BTreeSet<u64>,
     next_delta_id: u64,
+    // Observed reads and mutation attempts are not rewound by candidate rollback.
+    observations: observation::ReadObservations,
     closed: bool,
 }
 
@@ -730,6 +735,7 @@ impl ParseTransaction {
         Ok(InvocationTransaction {
             parse: Arc::clone(&self.inner),
             component_id,
+            track_reads: false,
             writes: BTreeMap::new(),
             reads: BTreeSet::new(),
             write_set: BTreeSet::new(),
@@ -835,6 +841,7 @@ impl ParseTransaction {
         let invocation = InvocationTransaction {
             parse: Arc::clone(&self.inner),
             component_id: String::new(),
+            track_reads: false,
             writes: delta.writes.clone(),
             reads: delta.reads.clone(),
             write_set: delta.write_set.clone(),
@@ -962,6 +969,7 @@ pub struct CommitSummary {
 pub struct InvocationTransaction {
     parse: Arc<Mutex<ParseTransactionInner>>,
     component_id: String,
+    track_reads: bool,
     writes: BTreeMap<Address, Option<StateValue>>,
     reads: BTreeSet<StateRecordKey>,
     write_set: BTreeSet<StateRecordKey>,
@@ -977,23 +985,29 @@ impl InvocationTransaction {
         namespace: &str,
         key: &str,
     ) -> Result<Option<StateValue>, StateError> {
-        validate_key(key, self.quotas()?.max_key_bytes)?;
-        let (namespace_key, _, values, revision) =
-            self.materialize(scope, visibility, namespace, false)?;
-        let address = Address {
-            scope,
-            namespace: namespace_key.clone(),
-            key: key.to_owned(),
-        };
-        self.reads.insert(address.public());
-        self.observed_revisions.insert(
-            RevisionKey {
+        let result = (|| {
+            validate_key(key, self.quotas()?.max_key_bytes)?;
+            let (namespace_key, _, values, revision) =
+                self.materialize(scope, visibility, namespace, false)?;
+            let address = Address {
                 scope,
-                namespace: namespace_key,
-            },
-            revision,
-        );
-        Ok(values.get(key).cloned())
+                namespace: namespace_key.clone(),
+                key: key.to_owned(),
+            };
+            self.reads.insert(address.public());
+            self.observed_revisions.insert(
+                RevisionKey {
+                    scope,
+                    namespace: namespace_key,
+                },
+                revision,
+            );
+            Ok(values.get(key).cloned())
+        })();
+        if result.is_err() {
+            self.note_read_failure()?;
+        }
+        result
     }
 
     /// Returns ordered entries whose key begins with `prefix`, bounded by both quotas.
@@ -1005,43 +1019,49 @@ impl InvocationTransaction {
         prefix: &str,
         limit: usize,
     ) -> Result<Vec<StateEntry>, StateError> {
-        let quotas = self.quotas()?;
-        validate_key(prefix, quotas.max_key_bytes)?;
-        if limit > quotas.max_scan_entries {
-            return Err(StateError::QuotaExceeded {
-                message: format!(
-                    "scan limit {limit} exceeds maximum {}",
-                    quotas.max_scan_entries
-                ),
-            });
+        let result = (|| {
+            let quotas = self.quotas()?;
+            validate_key(prefix, quotas.max_key_bytes)?;
+            if limit > quotas.max_scan_entries {
+                return Err(StateError::QuotaExceeded {
+                    message: format!(
+                        "scan limit {limit} exceeds maximum {}",
+                        quotas.max_scan_entries
+                    ),
+                });
+            }
+            let (namespace_key, _, values, revision) =
+                self.materialize(scope, visibility, namespace, false)?;
+            self.observed_revisions.insert(
+                RevisionKey {
+                    scope,
+                    namespace: namespace_key.clone(),
+                },
+                revision,
+            );
+            let mut entries = Vec::new();
+            for (key, value) in values
+                .range(prefix.to_owned()..)
+                .take_while(|(key, _)| key.starts_with(prefix))
+                .take(limit)
+            {
+                let address = Address {
+                    scope,
+                    namespace: namespace_key.clone(),
+                    key: key.clone(),
+                };
+                self.reads.insert(address.public());
+                entries.push(StateEntry {
+                    key: key.clone(),
+                    value: value.clone(),
+                });
+            }
+            Ok(entries)
+        })();
+        if result.is_err() {
+            self.note_read_failure()?;
         }
-        let (namespace_key, _, values, revision) =
-            self.materialize(scope, visibility, namespace, false)?;
-        self.observed_revisions.insert(
-            RevisionKey {
-                scope,
-                namespace: namespace_key.clone(),
-            },
-            revision,
-        );
-        let mut entries = Vec::new();
-        for (key, value) in values
-            .range(prefix.to_owned()..)
-            .take_while(|(key, _)| key.starts_with(prefix))
-            .take(limit)
-        {
-            let address = Address {
-                scope,
-                namespace: namespace_key.clone(),
-                key: key.clone(),
-            };
-            self.reads.insert(address.public());
-            entries.push(StateEntry {
-                key: key.clone(),
-                value: value.clone(),
-            });
-        }
-        Ok(entries)
+        result
     }
 
     /// Stages one schema-compatible value in this invocation.
@@ -1053,6 +1073,7 @@ impl InvocationTransaction {
         key: &str,
         value: StateValue,
     ) -> Result<(), StateError> {
+        self.note_mutation_attempt()?;
         self.write(scope, visibility, namespace, key, Some(value))
             .map(|_| ())
     }
@@ -1065,6 +1086,7 @@ impl InvocationTransaction {
         namespace: &str,
         key: &str,
     ) -> Result<bool, StateError> {
+        self.note_mutation_attempt()?;
         self.write(scope, visibility, namespace, key, None)
     }
 
@@ -1078,6 +1100,7 @@ impl InvocationTransaction {
         expected: Option<&StateValue>,
         replacement: Option<StateValue>,
     ) -> Result<bool, StateError> {
+        self.note_mutation_attempt()?;
         let current = self.get(scope, visibility, namespace, key)?;
         if current.as_ref() != expected {
             return Ok(false);
@@ -1314,6 +1337,11 @@ impl InvocationTransaction {
             if address.scope == scope && address.namespace == namespace_key {
                 apply_overlay(&mut values, &address.key, value);
             }
+        }
+        if self.track_reads && !write {
+            parse
+                .observations
+                .read(&self.component_id, revision_key, &values);
         }
         Ok((namespace_key, record, values, revision))
     }

@@ -1273,6 +1273,10 @@ enum FailureReasonReport {
     TypeExpression {
         expected: Vec<String>,
     },
+    TypeMismatch {
+        expected: Vec<String>,
+        actual: Vec<String>,
+    },
     EventRestricted {
         supported: Vec<String>,
         current: Vec<String>,
@@ -1310,6 +1314,11 @@ impl FailureReasonReport {
             Self::TypeExpression { expected } => {
                 format!("expected expression of type {}", expected.join(" or "))
             }
+            Self::TypeMismatch { expected, actual } => format!(
+                "expected {}, found {}",
+                style.java_classes(expected, " or "),
+                style.java_classes(actual, " or ")
+            ),
             Self::EventRestricted { supported, current } if current.is_empty() => {
                 format!(
                     "requires event context: {}",
@@ -2209,6 +2218,14 @@ fn default_expression_report(
     serde_json::json!({
         "implicit": true,
         "captureIndex": info.capture_index,
+        "omission": info.omission.map(|omission| serde_json::json!({
+            "kind": match omission.kind {
+                skript_parser::PatternOmissionKind::SkippedOption => "skipped-option",
+                skript_parser::PatternOmissionKind::UnselectedChoice => "unselected-choice",
+                skript_parser::PatternOmissionKind::HookBypassed => "hook-bypassed",
+            },
+            "patternSpan": { "start": omission.pattern_span.start, "end": omission.pattern_span.end },
+        })),
         "expression": info.expression_source,
         "patternSpan": { "start": info.pattern_span.start, "end": info.pattern_span.end },
         "requestedType": { "className": info.requested_type.class_name.as_str(), "plural": info.requested_type.plural },
@@ -2381,6 +2398,9 @@ fn failure_report(failure: PatternFailure) -> FailureReport {
                 PatternFailureReason::Expression => FailureReasonReport::Expression,
                 PatternFailureReason::TypeExpression { expected } => {
                     FailureReasonReport::TypeExpression { expected }
+                }
+                PatternFailureReason::TypeMismatch { expected, actual } => {
+                    FailureReasonReport::TypeMismatch { expected, actual }
                 }
                 PatternFailureReason::EventRestricted { supported, current } => {
                     FailureReasonReport::EventRestricted { supported, current }
@@ -3535,6 +3555,7 @@ mod tests {
         let typed = |capture_index, resolved: bool| PatternCapture::TypeExpression {
             capture_index,
             state: skript_parser::TypeCaptureState::Explicit,
+            omission: None,
             pattern_span: PatternSpan::new(0, 9),
             expression: expression.clone(),
             value: input.into(),
@@ -3606,6 +3627,7 @@ mod tests {
             mark: 0,
             marks: Vec::new(),
             expressions: vec![literal],
+            expression_bindings: Vec::new(),
             children: Vec::new(),
             handler: None,
             metadata: BTreeMap::new(),

@@ -614,6 +614,11 @@ pub enum PatternFailureReason {
     TypeExpression {
         expected: Vec<String>,
     },
+    /// A parsed expression has complete, known types incompatible with this capture.
+    TypeMismatch {
+        expected: Vec<String>,
+        actual: Vec<String>,
+    },
     DefaultExpression {
         capture_index: usize,
         expression: PatternTypeExpr,
@@ -669,6 +674,21 @@ pub struct RegexGroupCapture {
     pub span: Option<MatchSpan>,
 }
 
+/// Why native matching left a typed slot without source input.
+/// This is immutable matching evidence, not an inferred optional default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PatternOmissionKind {
+    SkippedOption,
+    UnselectedChoice,
+    HookBypassed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PatternOmission {
+    pub kind: PatternOmissionKind,
+    pub pattern_span: PatternSpan,
+}
+
 /// Presence and resolution state of one typed pattern slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeCaptureState {
@@ -695,6 +715,7 @@ pub enum PatternCapture {
     TypeExpression {
         capture_index: usize,
         state: TypeCaptureState,
+        omission: Option<PatternOmission>,
         pattern_span: PatternSpan,
         expression: PatternTypeExpr,
         value: String,
@@ -991,10 +1012,16 @@ impl FailureTracker {
             .as_ref()
             .is_some_and(|frame| frame.role == FailureFrameRole::SemanticCandidate);
         let rank = completed.cmp(&current_completed).then_with(|| {
-            crate::failure::compare_failure_rank(
+            crate::failure::compare_failure_rank_at_progress(
                 current_range,
+                self.cause
+                    .as_deref()
+                    .map_or(current_range.start, FailureTrace::progress),
                 current_specificity,
                 candidate_range,
+                cause
+                    .as_ref()
+                    .map_or(candidate_range.start, FailureTrace::progress),
                 specificity,
             )
         });
@@ -1051,10 +1078,17 @@ impl FailureTracker {
             .as_ref()
             .is_some_and(|frame| frame.role == FailureFrameRole::SemanticCandidate);
         let rank = other_completed.cmp(&completed).then_with(|| {
-            crate::failure::compare_failure_rank(
+            crate::failure::compare_failure_rank_at_progress(
                 current_range,
+                self.cause
+                    .as_deref()
+                    .map_or(current_range.start, FailureTrace::progress),
                 specificity,
                 other_range,
+                other
+                    .cause
+                    .as_deref()
+                    .map_or(other_range.start, FailureTrace::progress),
                 other_specificity,
             )
         });
@@ -1810,6 +1844,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             &pattern.parsed.elements,
             matched.span.local_range.end,
             &mut matched.captures,
+            None,
         )?;
         matched.captures.sort_by_key(PatternCapture::capture_index);
         if !matched.captures.iter().any(|capture| {
@@ -1873,6 +1908,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         elements: &[SpannedPatternElement],
         anchor: usize,
         captures: &mut Vec<PatternCapture>,
+        omission: Option<PatternOmission>,
     ) -> Result<(), PatternMatchError> {
         for element in elements {
             match &element.value {
@@ -1891,6 +1927,10 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         } else {
                             TypeCaptureState::Omitted
                         },
+                        omission: Some(omission.unwrap_or(PatternOmission {
+                            kind: PatternOmissionKind::HookBypassed,
+                            pattern_span: element.span,
+                        })),
                         pattern_span: element.span,
                         expression: expression.clone(),
                         value: String::new(),
@@ -1902,11 +1942,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     });
                 }
                 PatternElement::Group(children) | PatternElement::Option(children) => {
-                    self.retain_omitted_captures(children, anchor, captures)?;
+                    self.retain_omitted_captures(children, anchor, captures, omission)?;
                 }
                 PatternElement::Choice(branches) => {
                     for branch in branches {
-                        self.retain_omitted_captures(branch, anchor, captures)?;
+                        self.retain_omitted_captures(branch, anchor, captures, omission)?;
                     }
                 }
                 PatternElement::Literal(_)
@@ -2237,6 +2277,10 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                                     omitted_branch,
                                     state.cursor,
                                     &mut branch_match.captures,
+                                    Some(PatternOmission {
+                                        kind: PatternOmissionKind::UnselectedChoice,
+                                        pattern_span: element.span,
+                                    }),
                                 )?;
                             }
                         }
@@ -2249,7 +2293,15 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             PatternElement::Option(elements) => {
                 let mut matches = self.match_sequence(elements, 0, state.clone(), path, tail)?;
                 state.pending_implicit_tag = None;
-                self.retain_omitted_captures(elements, state.cursor, &mut state.captures)?;
+                self.retain_omitted_captures(
+                    elements,
+                    state.cursor,
+                    &mut state.captures,
+                    Some(PatternOmission {
+                        kind: PatternOmissionKind::SkippedOption,
+                        pattern_span: element.span,
+                    }),
+                )?;
                 matches.push(state);
                 Ok(matches)
             }
@@ -2600,6 +2652,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                 } else {
                     self.input.map_range(range)?
                 },
+                omission: None,
                 alternative_index: resolution.alternative_index,
                 resolution_id: resolution.resolution_id,
             });
@@ -2630,7 +2683,8 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                         .iter()
                         .any(|reason| match reason {
                             PatternFailureReason::EventRestricted { .. }
-                            | PatternFailureReason::TypeParserUnresolved { .. } => true,
+                            | PatternFailureReason::TypeParserUnresolved { .. }
+                            | PatternFailureReason::TypeMismatch { .. } => true,
                             PatternFailureReason::HookRejected { .. } => has_semantic_diagnostics,
                             _ => false,
                         });
@@ -2686,6 +2740,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
                     next.captures.push(PatternCapture::TypeExpression {
                         capture_index,
                         state: TypeCaptureState::Explicit,
+                        omission: None,
                         pattern_span,
                         expression: expression.clone(),
                         value: range

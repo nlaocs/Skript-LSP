@@ -266,6 +266,22 @@ pub(super) fn continue_with_section_context(
 ) -> HookOutput {
     let entering = matches!(payload.timing, SectionTiming::EnterChildren);
     if entering {
+        if payload.candidate.loop_section {
+            payload.candidate.metadata.retain(|entry| {
+                entry.key != "skript.semantic.control-flow"
+                    || entry
+                        .owner_component_id
+                        .as_deref()
+                        .is_some_and(|owner| owner != crate::COMPONENT_ID)
+            });
+            payload.candidate.metadata.push(
+                crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+                    key: "skript.semantic.control-flow".into(),
+                    value: r#"{"version":1,"kind":"loop"}"#.into(),
+                    owner_component_id: None,
+                },
+            );
+        }
         for (key, value) in metadata {
             if let Some(existing) = payload
                 .candidate

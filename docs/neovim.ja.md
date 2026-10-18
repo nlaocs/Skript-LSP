@@ -1,4 +1,4 @@
-# Neovim で文書診断・ホバー・ハイライト・補完を確認する
+# Neovimで診断・補完・意味情報を確認する
 
 Neovim 0.12 以降の標準 LSP client を使う。`nvim-lspconfig` や追加 plugin は不要で、
 この手順は既存の Neovim 設定ファイルを書き換えない。
@@ -54,7 +54,13 @@ nvim -n -i NONE --noplugin -u .\examples\neovim\skript-lsp.lua .\example.sk
 `:lua vim.lsp.buf.hover()` で標準floating windowを開く。
 空白・コメント・未知の構文・位置対応が曖昧なマクロ展開では表示を返さない。
 編集直後の再解析中もnullになり、完了後に再度要求すると現在の情報を表示する。
-変数の型表示は解析文脈の型で、代入値からの型推論ではない。
+変数にはnativeの要求型と、現在の代入履歴から独立に得た`Inferred type`を分けて表示する。
+後者は要求型への変換前の保存型であり、根拠がないときはUnknownになる。literal scalarや
+安全な代入経路の根拠が必要で、型付きFunction/parameter、listの実値や非空性まで保証しない。
+opaqueなconverter/callbackを通る読取では以前の保存型を保持せず、globalのruntime値や別eventの実行順も推測しない。
+古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
+影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
+
 Neovim標準のcapabilitiesではMarkdown表示を選び、説明のHTMLタグを変換して表示する。
 定義元Javaクラス、採用pattern、型、Addon、Examplesを確認できる。
 
@@ -77,7 +83,9 @@ headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktop
 snippet対応時は必須引数・型slotをtab stopにする。Neovim標準のsnippet操作を利用でき、追加pluginは不要。
 
 文頭のCatalogテンプレート、式の関数とExpression、同じ文書で観測した静的変数名を表示する。
-候補は型・Addon guard・実行scopeへの適合性を保証しない。local変数は宣言解析ではなく、同じbody/祖先でカーソルより前に現れた参照履歴に限定する。
+候補は型・Addon guard・実行scopeへの適合性を保証しない。local変数の候補名は、同じbody/祖先で
+カーソルより前に現れた参照履歴に限定する。解析済みの候補には現在のflow推論の説明を添えられるが、
+参照履歴そのものを宣言やruntime値の証明にはしない。
 未完成行ではPattern ASTに沿う継続語も示す。`teleport player t`から`to`を選ぶと入力済み引数を保持する。
 説明paneには元の全文法を表示する。型・guardは未判定であり、同じ継続語をまとめた場合は代表patternの説明になる。
 編集直後でも構文候補は現在の原文から先に返せる。参照履歴や関数の確定には現在文書の解析が必要で、
@@ -101,6 +109,48 @@ Function kind、既存引数、他の補完項目、通常の自動括弧設定�
 Blinkを使う構成では既存の `opts` に `signature = { enabled = true }` を加えると、空白・`(`・`,`で標準の案内windowを開ける。
 既存の補完キー設定を変更する必要はない。この設定はBlink全体の有効化であり、他の対応LSPにも適用される。
 文法内の位置は入力支援であり、引数型やAddon guardの成功を示さない。曖昧な場合は文法だけを表示する。
+
+## 定義移動・参照検索・暗黙引数
+
+解析後、変数や関数へカーソルを置き、`:lua vim.lsp.buf.definition()`で定義候補へ移動する。
+`:lua vim.lsp.buf.references()`は`includeDeclaration`を含む標準参照要求を使う。
+既存の`gd`等のmappingがあればその設定を利用できる。未openのproject関数にも移動でき、複数の
+書込候補はclientの一覧へ渡す。動的名や曖昧なmacro位置から一意のruntime bindingを推測しない。
+projectの複数文書解析には全componentの`parser.project-stable-semantics` v1宣言が必要である。
+
+bufferのhintを有効にするには、接続後に次を実行できる。
+
+```vim
+:lua vim.lsp.inlay_hint.enable(true, { bufnr = 0 })
+```
+
+表示の色はthemeの`LspInlayHint`を使う。例えば`vim.api.nvim_set_hl(0, "LspInlayHint",
+{ link = "Comment", default = true })`で、既存の設定を保ちながら編集文字と区別できる。
+無効化は同じAPIへ`false`を渡す。hintはinline virtual textであり、bufferのsourceやchangedtickを
+変えず、通常cursorが移動する実文字を増やさない。コピー用の補完候補や自動修正ではない。
+
+Playerを持つevent内の`send 1`等では、実際に初期化した省略引数を`to <event player>`のように示す。
+明示receiverや、Playerを得られない`on load`へ同じ値を補作しない。literal defaultの保存済み実値は
+snapshotにないため、`<registered default: 型名>`を示し、tooltipに値が利用できない旨を残す。
+根拠不足のdefaultや複雑な省略branchは表示を省略する。
+
+未open `.sk`の変更・削除は、Neovimがdynamic file watcher登録に対応すれば依存文書へ反映する。
+clientが対応する標準inlay/token refreshにより、本文versionが同じ依存bufferも再取得する。
+watcherを登録できない環境では、次のopen文書の編集または明示的なfile変更通知まで更新されない。
+
+## Hover・Blink説明内の色
+
+serverは採用Pattern・templateを`skript-pattern`、実行例を`skript`のMarkdown fenceへ分ける。
+`examples/neovim/skript_documentation.lua`の`setup()`は、nofileのMarkdown/Blink文書buffer内にある
+この二種類のfenceだけを着色する。通常のMarkdown fileやSkript sourceへ色を上書きしない。
+起動例は同じdirectoryのmoduleを読み込むため、例を別directoryへ移す場合は両fileを配置する。
+通常設定の`lua/skript_documentation.lua`へ置く構成では、`require("skript_documentation").setup()`でも利用できる。
+
+patternは固定語・型slot・regex・対応する区切り、例は文字列・数値・変数・補間等の字句上の役割を示す。
+特定の構文名やJava classの例外一覧は持たず、着色はparserの受理を保証しない。
+bufferを変更せずUTF-8 byte extmarkを付ける処理であり、completionのlabel・snippet・挿入範囲や
+既存のBlink provider・keymap・括弧処理を置き換えない。説明形式はcompletionとhoverが別々に交渉する。
+PlainTextを選んだclientにはfenceやMarkdown記号を付けない。
 
 ## Semantic Tokens の色
 

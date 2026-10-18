@@ -11,12 +11,15 @@
 Componentです。third-party parser addonと同じABIを使う必要がある、Skript標準の
 解析処理を実装するための安定した配置場所です。
 
+古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
+影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
+
 ## 現在の動作
 
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.40.0`とABI `22.0`
+- WIT package `nlaocs:skript-parser-addon@0.41.0`とABI `23.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -25,6 +28,21 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 
 manifestは`parser.hooks`、`parser.default-expression`、5つのsyntax parser capability、Tree macro、`parser.state-store`を必須とし、
 `parser.dynamic-syntax`とversion 3の`parser.catalog-data`を任意で利用します。TextとAST macroは必須ではありません。
+
+manifestはEffect・Condition・DefaultExpressionのsubscriptionだけを`parser.incremental-local-syntax` v1へ
+opt-inし、別に`parser.project-stable-semantics` v1を宣言します。`parser.epoch-cancellation-restart-safe`は
+宣言しないため、実行中のCoreLibrary callは既存fuel/deadline内で正常returnした後に取消を確認します。
+CoreLibraryと外部componentは現在のWIT/ABIで再buildしてください。
+既存host方針ではCore IDのwall-clock deadlineを`u64::MAX / 2` ticksへ緩める例外が残り、
+既定fuel上限20Mは維持します。Coreに短いwall-clock取消時間を保証するものではありません。
+
+型flowは、要求型への変換前に変数へ保存された型を扱います。汎用engineはunion・list要素・
+parameter・到達書込を表現できますが、精度には現在のproviderの根拠が必要です。現在のCoreが
+証明するのはprimitive scalarの生成と、安全な継承`beforeChange` clone/set経路です。任意の
+FunctionやExpressionList結果はUnknownになり得て、型付きparameter/returnにも未設定の可能性を残します。
+戻り値classだけでは非空性や他localの不変性を証明しません。nativeの評価順付きearly operand契約は
+opaque処理より前の安全な読取を示すもので、Effect/Condition全体のpure宣言ではありません。
+未知のconverter・callback・alias・control flowでは、外側の要求型を借りず事実を忘れます。
 
 runtime依存のType parserは`catalog-data`の索引queryを利用します。特にBlockData検証では、WASM内へ
 JSON全体を読み込まず、hostがcacheしたschema 7 registryから要求されたnamespaced blockだけを取得します。

@@ -1,0 +1,136 @@
+{
+  "kind": "genuine-skript-only",
+  "schemaVersion": 7,
+  "snapshotId": "95c5ee155c20686775e13fdc894b0194144cfdd13ff7f0bf039b6f1516acac9d",
+  "contentDigest": "49afd621bc9b3494367cad14fcdf6e2773fa7f3cc46f15240231d1cba9c0180a",
+  "ssgCommit": "2929e7c260d396c4a4a60fb98b10f25e1aeccaba",
+  "generatorJarSha256": "016637a2b93b5fe2c3250d6e96ad03c8bb9ba27c42db1bd6c83ee6e1b0fb2de9",
+  "skriptVersion": "2.15.4",
+  "minecraftVersion": "1.21.11",
+  "sourcePreserved": true,
+  "onlineMode": true,
+  "bind": "127.0.0.1:25577",
+  "sourceJarPins": {
+    "paper.jar": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
+    "plugins/Skript.jar": "277393a965e164e854f5280aa1c30ce92e69b3fab4df5063711743f9d7847327",
+    "plugins/SkriptSyntaxGenerator.jar": "1d9fe40725f88ca524e49826efdb8e160e3a7b2bfea9a7ed429253be6e748a14",
+    "eula.txt": "ee27072e4a23e088522f740ddaab0c7c4145c186969e90a86254faa3a5ec5ce6",
+    "cache/mojang_1.21.11.jar": "f83b8e093865806f931c7e34aae41b177d4c076335263dd124c75d6d65dd1726",
+    "versions/1.21.11/paper-1.21.11.jar": "3a73f0cc4020a5eb45629a67629b14263331c68de45552f8505df8060fa8ed43"
+  },
+  "generatedJarPins": {
+    "paper.jar": "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
+    "plugins/Skript.jar": "277393a965e164e854f5280aa1c30ce92e69b3fab4df5063711743f9d7847327",
+    "plugins/SkriptSyntaxGenerator.jar": "016637a2b93b5fe2c3250d6e96ad03c8bb9ba27c42db1bd6c83ee6e1b0fb2de9",
+    "eula.txt": "ee27072e4a23e088522f740ddaab0c7c4145c186969e90a86254faa3a5ec5ce6",
+    "cache/mojang_1.21.11.jar": "f83b8e093865806f931c7e34aae41b177d4c076335263dd124c75d6d65dd1726",
+    "versions/1.21.11/paper-1.21.11.jar": "3a73f0cc4020a5eb45629a67629b14263331c68de45552f8505df8060fa8ed43"
+  },
+  "files": [
+    {
+      "path": "Aliases.json",
+      "sha256": "cb5f7f5a4856528e873cbf7df95e4ddba55fb6221b89aa469ee14106f7c1caca",
+      "bytes": 794066
+    },
+    {
+      "path": "BlockData.json",
+      "sha256": "ae0bf3f3741801147ac5d3d51adf35d62cc528eee359a7f8b36a1e7d9ceae78a",
+      "bytes": 270914
+    },
+    {
+      "path": "ClassHierarchy.json",
+      "sha256": "7dcc0909883721813ab809828d78f3037328e9059bb6617f160e494baba7e2ab",
+      "bytes": 2570618
+    },
+    {
+      "path": "Comparators.json",
+      "sha256": "c8ec8f3adb58d10a69c039103d9cf4fc2211cd4c17273dba2c8d577e6f9fb2f9",
+      "bytes": 36237
+    },
+    {
+      "path": "Conditions.json",
+      "sha256": "9b1f609eccdd1ae8e293a0c00daa5cd1efec62a8575e6be2427069ebc223f1aa",
+      "bytes": 244861
+    },
+    {
+      "path": "Converters.json",
+      "sha256": "433b61d80e71428f9f57d9f5a6922a67ce90d8c38086e6b578902c126a0efb84",
+      "bytes": 15043
+    },
+    {
+      "path": "Differences.json",
+      "sha256": "244fe6fe08ea24e59fe7377bb5dfdf7358ac62a3524077613c3d9c6e8aee8224",
+      "bytes": 1150
+    },
+    {
+      "path": "Effects.json",
+      "sha256": "adb51ba76746a1409d3316bff70c4c7dec3607d6e61112dbeec2e96d243d3435",
+      "bytes": 195050
+    },
+    {
+      "path": "EventValues.json",
+      "sha256": "bd93998960d1c2fc2abe7da01dc4e805640ee813c3afc2d21e61b41697927064",
+      "bytes": 158941
+    },
+    {
+      "path": "Events.json",
+      "sha256": "142ea5691287dfb9053aca4f777aae502f8c1ef24dcfb1ccc4ae15800e8b97d6",
+      "bytes": 723635
+    },
+    {
+      "path": "Expressions.json",
+      "sha256": "000bfc224247f4a7d73d73a1ae7db3ed2d42a71d28334242a875f72da9bd2dfe",
+      "bytes": 1032185
+    },
+    {
+      "path": "Functions.json",
+      "sha256": "68381eebdd2001c03f2bb0ad4deb6ea6b832d3a6c8684abe06f1a494a8c01ebc",
+      "bytes": 44721
+    },
+    {
+      "path": "Language.json",
+      "sha256": "4ffe133c2b5547f9ff134d652a999023a6a900a744b1968d1ed7e9e5fd7977ea",
+      "bytes": 144886
+    },
+    {
+      "path": "Manifest.json",
+      "sha256": "7512195b8d01ee548796e1d801f705fac48d97e8b6264d6469c595b42903e368",
+      "bytes": 2154
+    },
+    {
+      "path": "Operations.json",
+      "sha256": "2f81c78e201d030e9fed448336950ffa2ddc5ca773170dc26ea962bb5a62a582",
+      "bytes": 9297
+    },
+    {
+      "path": "Operators.json",
+      "sha256": "c96c25ae9cb28f0ee1aa769e8f509b413766d8ab29de3934558c9aeb32f16dd5",
+      "bytes": 1811
+    },
+    {
+      "path": "PluralRules.json",
+      "sha256": "abe642d10719fba7b907658d4742366a26ea2dd37480011ed93495a9d245cc57",
+      "bytes": 7036
+    },
+    {
+      "path": "Properties.json",
+      "sha256": "82116265889f14c13a9298e34e75be74f419202e0ab0540b12dff0222c23a32b",
+      "bytes": 33994
+    },
+    {
+      "path": "Sections.json",
+      "sha256": "fbc6eea73ac2245dd122c45ed3e4c7e2a03658938526ddc1236ff6c4405326ad",
+      "bytes": 14806
+    },
+    {
+      "path": "Structures.json",
+      "sha256": "a85217b54b9c4b2c7d904391c539e0a6d36b9e6466ed4c298954085c59d93b18",
+      "bytes": 16767
+    },
+    {
+      "path": "Types.json",
+      "sha256": "b21efb77518a89355d9adc40a9c0ac44b5cf25407a1dbdab2a8f7ff4ea1e64f0",
+      "bytes": 1427074
+    }
+  ]
+}

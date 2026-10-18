@@ -67,6 +67,7 @@ pub(super) fn fixture() -> (MappedSource, ExpressionNode, Vec<ParserParsedCaptur
     default.kind = ExpressionNodeKind::Default {
         info: Box::new(skript_parser::DefaultExpressionInfo {
             capture_index: 2,
+            omission: None,
             pattern_span: Span::new(0, 9),
             expression: expression.clone(),
             expression_source: "%objects%".into(),
@@ -114,6 +115,7 @@ pub(super) fn fixture() -> (MappedSource, ExpressionNode, Vec<ParserParsedCaptur
         .map(|capture_index| PatternCapture::TypeExpression {
             capture_index,
             state: TypeCaptureState::Explicit,
+            omission: None,
             pattern_span: Span::new(0, 9),
             expression: expression.clone(),
             value: input.into(),
@@ -150,6 +152,7 @@ pub(super) fn fixture() -> (MappedSource, ExpressionNode, Vec<ParserParsedCaptur
         mark: 0,
         marks: Vec::new(),
         expressions: vec![root.clone()],
+        expression_bindings: Vec::new(),
         children: Vec::new(),
         handler: None,
         metadata: BTreeMap::new(),

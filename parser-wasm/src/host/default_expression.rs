@@ -1,6 +1,9 @@
 //! Default providers use the same dispatch, ownership and deferred effects as syntax hooks.
 
 use super::*;
+use crate::bindings::nlaocs::skript_parser_addon::types::{
+    PatternOmission as WitPatternOmission, PatternOmissionKind as WitPatternOmissionKind,
+};
 use skript_parser::{DefaultExpressionDecision as Decision, DefaultExpressionRequest};
 
 pub(super) fn provide(
@@ -407,6 +410,23 @@ pub(super) fn info_to_request(
 pub(super) fn info_to_wit(info: &skript_parser::DefaultExpressionInfo) -> DefaultExpressionInfo {
     DefaultExpressionInfo {
         capture_index: info.capture_index as u64,
+        omission: info.omission.map(|value| WitPatternOmission {
+            kind: match value.kind {
+                skript_parser::PatternOmissionKind::SkippedOption => {
+                    WitPatternOmissionKind::SkippedOption
+                }
+                skript_parser::PatternOmissionKind::UnselectedChoice => {
+                    WitPatternOmissionKind::UnselectedChoice
+                }
+                skript_parser::PatternOmissionKind::HookBypassed => {
+                    WitPatternOmissionKind::HookBypassed
+                }
+            },
+            pattern_span: WitTextRange {
+                start: value.pattern_span.start as u64,
+                end: value.pattern_span.end as u64,
+            },
+        }),
         pattern_span: WitTextRange {
             start: info.pattern_span.start as u64,
             end: info.pattern_span.end as u64,
@@ -464,6 +484,7 @@ pub(super) fn same_info(
         (None, None) => true,
         (Some(left), Some(right)) => {
             left.capture_index == right.capture_index
+                && same_omission(left.omission.as_ref(), right.omission.as_ref())
                 && left.pattern_span.start == right.pattern_span.start
                 && left.pattern_span.end == right.pattern_span.end
                 && left.expression == right.expression
@@ -485,6 +506,30 @@ pub(super) fn same_info(
     }
 }
 
+fn same_omission(left: Option<&WitPatternOmission>, right: Option<&WitPatternOmission>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.pattern_span.start == right.pattern_span.start
+                && left.pattern_span.end == right.pattern_span.end
+                && matches!(
+                    (&left.kind, &right.kind),
+                    (
+                        WitPatternOmissionKind::SkippedOption,
+                        WitPatternOmissionKind::SkippedOption
+                    ) | (
+                        WitPatternOmissionKind::UnselectedChoice,
+                        WitPatternOmissionKind::UnselectedChoice
+                    ) | (
+                        WitPatternOmissionKind::HookBypassed,
+                        WitPatternOmissionKind::HookBypassed
+                    )
+                )
+        }
+        _ => false,
+    }
+}
+
 fn mapped_span_size(span: &MappedSpan) -> usize {
     16 + span.origins.len() * 40
 }
@@ -499,7 +544,8 @@ pub(super) fn capture_state(state: skript_parser::TypeCaptureState) -> TypeCaptu
 }
 
 pub(super) fn info_size(info: &DefaultExpressionInfo) -> usize {
-    64 + info.expression.len()
+    64 + info.omission.as_ref().map_or(0, |_| 24)
+        + info.expression.len()
         + info.requested_type.class_name.len()
         + info.type_definition_id.len()
         + info.type_registration_id.len()
@@ -771,6 +817,10 @@ mod tests {
         node.kind = ExpressionNodeKind::Default {
             info: Box::new(skript_parser::DefaultExpressionInfo {
                 capture_index: 1,
+                omission: Some(skript_parser::PatternOmission {
+                    kind: skript_parser::PatternOmissionKind::SkippedOption,
+                    pattern_span: syntax_pattern_parser::syntax::Span::new(3, 15),
+                }),
                 pattern_span: pattern.elements[0].span,
                 expression: expression.clone(),
                 expression_source: "%string%".to_owned(),
@@ -844,6 +894,37 @@ mod tests {
             assert_eq!(origin.original_range.end, anchor);
             assert_eq!(origin.expansion, Some(expansion));
         }
+    }
+
+    #[test]
+    fn omission_transport_is_preserved_and_protected_from_hook_mutation() {
+        let node = default_node();
+        let ExpressionNodeKind::Default { info } = &node.kind else {
+            panic!()
+        };
+        let expected = info_to_wit(info);
+        let omission = expected
+            .omission
+            .as_ref()
+            .expect("immutable matcher provenance");
+        assert!(matches!(
+            omission.kind,
+            WitPatternOmissionKind::SkippedOption
+        ));
+        assert_eq!(
+            (omission.pattern_span.start, omission.pattern_span.end),
+            (3, 15)
+        );
+        assert!(same_info(Some(&expected), Some(&info_to_wit(info))));
+        let mut changed = expected.clone();
+        changed.omission.as_mut().unwrap().kind = WitPatternOmissionKind::UnselectedChoice;
+        assert!(!same_info(Some(&expected), Some(&changed)));
+        let mut changed = expected.clone();
+        changed.omission.as_mut().unwrap().pattern_span.end += 1;
+        assert!(!same_info(Some(&expected), Some(&changed)));
+        let mut changed = expected.clone();
+        changed.omission = None;
+        assert!(!same_info(Some(&expected), Some(&changed)));
     }
 
     #[test]

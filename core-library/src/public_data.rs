@@ -11,6 +11,239 @@ pub const VARIABLE_SCHEMA_ID: &str = "nlaocs.skript.variable";
 /// Version of [`VariableData`]. Unknown versions must not be silently interpreted.
 pub const VARIABLE_SCHEMA_VERSION: u32 = 1;
 
+/// Actual static variable-name identity, separate from the source template v1.
+pub const VARIABLE_IDENTITY_SCHEMA_ID: &str = "nlaocs.skript.variable-identity";
+pub const VARIABLE_IDENTITY_SCHEMA_VERSION: u32 = 1;
+
+/// A definite name is not a claim about the server's configurable case policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariableIdentityData {
+    pub scope: VariableScope,
+    pub resolution: VariableIdentityResolution,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Potential alias under the supported insensitive policy, not a canonical key.
+    /// Absent for dynamic or non-ASCII names: Java Unicode mappings depend on runtime.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias_key: Option<String>,
+    pub list: bool,
+    pub case_policy: VariableCasePolicy,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VariableIdentityResolution {
+    Static,
+    Dynamic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VariableCasePolicy {
+    Unknown,
+    Sensitive,
+    EnglishInsensitive,
+}
+
+impl VariableIdentityData {
+    /// The template already has Skript's whitespace/local-prefix normalization.
+    /// Static VariableString names collapse escaped percent pairs at runtime.
+    /// No runtime case setting is present in the current SSG contract.
+    pub fn from_template(scope: VariableScope, parts: &[VariableNamePart], list: bool) -> Self {
+        let static_text = parts
+            .iter()
+            .map(|part| match part {
+                VariableNamePart::Text { text } => Some(text.as_str()),
+                VariableNamePart::Expression { .. } => None,
+            })
+            .collect::<Option<Vec<_>>>();
+        let name = static_text.map(|parts| parts.concat().replace("%%", "%"));
+        Self::from_resolved_name(scope, name, list)
+    }
+
+    /// A Function parameter is an already initialized runtime name, not VariableString source.
+    pub fn from_static_name(scope: VariableScope, name: String, list: bool) -> Self {
+        Self::from_resolved_name(scope, Some(name), list)
+    }
+
+    fn from_resolved_name(scope: VariableScope, name: Option<String>, list: bool) -> Self {
+        let alias_key = name
+            .as_ref()
+            .filter(|name| name.is_ascii())
+            .map(|name| name.to_ascii_lowercase());
+        Self {
+            scope,
+            resolution: if name.is_some() {
+                VariableIdentityResolution::Static
+            } else {
+                VariableIdentityResolution::Dynamic
+            },
+            name,
+            alias_key,
+            list,
+            case_policy: VariableCasePolicy::Unknown,
+            canonical_name: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod variable_identity_tests {
+    use super::*;
+    #[test]
+    fn static_identity_preserves_exact_runtime_name_without_selecting_case_policy() {
+        let value = VariableIdentityData::from_template(
+            VariableScope::Local,
+            &[VariableNamePart::Text {
+                text: "Money%%Value::1".into(),
+            }],
+            false,
+        );
+        assert_eq!(value.name.as_deref(), Some("Money%Value::1"));
+        assert_eq!(value.alias_key.as_deref(), Some("money%value::1"));
+        assert_eq!(value.case_policy, VariableCasePolicy::Unknown);
+        assert_eq!(value.canonical_name, None);
+        let json = serde_json::to_value(&value).unwrap();
+        assert_eq!(json["casePolicy"], "unknown");
+        assert_eq!(json["resolution"], "static");
+        assert!(json.get("canonicalName").is_none());
+    }
+    #[test]
+    fn initialized_parameter_names_are_not_variable_string_source() {
+        let value =
+            VariableIdentityData::from_static_name(VariableScope::Local, "arg%%Name".into(), false);
+        assert_eq!(value.name.as_deref(), Some("arg%%Name"));
+        assert_eq!(value.alias_key.as_deref(), Some("arg%%name"));
+        assert_eq!(value.canonical_name, None);
+    }
+    #[test]
+    fn dynamic_names_and_unknown_unicode_mapping_do_not_gain_guessed_aliases() {
+        let dynamic = VariableIdentityData::from_template(
+            VariableScope::Global,
+            &[
+                VariableNamePart::Text {
+                    text: "value::".into(),
+                },
+                VariableNamePart::Expression { child_index: 0 },
+            ],
+            false,
+        );
+        assert_eq!(dynamic.resolution, VariableIdentityResolution::Dynamic);
+        assert_eq!(dynamic.name, None);
+        assert_eq!(dynamic.alias_key, None);
+        let unicode = VariableIdentityData::from_template(
+            VariableScope::Local,
+            &[VariableNamePart::Text {
+                text: "\u{03a3}::*".into(),
+            }],
+            true,
+        );
+        assert_eq!(unicode.name.as_deref(), Some("\u{03a3}::*"));
+        assert_eq!(unicode.alias_key, None);
+        assert!(unicode.list);
+    }
+}
+
+/// Intrinsic evaluation footprint. Children are evaluated separately by consumers.
+/// This owner-protected witness requires the native semantic contributor proof;
+/// a retained metadata entry alone cannot authenticate a rewritten candidate.
+pub const LOCAL_EFFECTS_METADATA_KEY: &str = "skript.semantic.local-effects";
+pub(crate) fn preserve_local_effects() -> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+        key: LOCAL_EFFECTS_METADATA_KEY.into(),
+        value: r#"{"version":1,"kind":"preserve"}"#.into(),
+        owner_component_id: None,
+    }
+}
+
+pub(crate) fn publish_metadata(
+    metadata: &mut Vec<crate::nlaocs::skript_parser_addon::types::MetadataEntry>,
+    entry: crate::nlaocs::skript_parser_addon::types::MetadataEntry,
+) {
+    metadata.retain(|old| {
+        old.key != entry.key
+            || old
+                .owner_component_id
+                .as_deref()
+                .is_some_and(|owner| owner != crate::COMPONENT_ID)
+    });
+    metadata.push(entry);
+}
+/// Ordered early capture evaluations. Unknown/unlisted operands remain isolated.
+pub const OPERAND_EVALUATION_METADATA_KEY: &str = "skript.semantic.operand-evaluation";
+pub(crate) fn operand_evaluation(
+    prefix: &[u64],
+) -> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+        key: OPERAND_EVALUATION_METADATA_KEY.into(),
+        value: serde_json::json!({"version":1,"prefix":prefix}).to_string(),
+        owner_component_id: None,
+    }
+}
+pub const VALUE_RESULT_METADATA_KEY: &str = "skript.semantic.value-result";
+pub(crate) fn non_empty_value_result() -> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+        key: VALUE_RESULT_METADATA_KEY.into(),
+        value: r#"{"version":1,"kind":"non-empty"}"#.into(),
+        owner_component_id: None,
+    }
+}
+/// Actual inherited Expression.beforeChange clone/slot path, without an override.
+pub const CHANGE_INPUT_METADATA_KEY: &str = "skript.semantic.change-input";
+pub(crate) fn default_clone_change_input()
+-> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+        key: CHANGE_INPUT_METADATA_KEY.into(),
+        value: r#"{"version":1,"kind":"default-clone"}"#.into(),
+        owner_component_id: None,
+    }
+}
+/// This is a lookup observation boundary, not a preservation promise: Variable
+/// can refresh a stored Player binding and execute requested-type converters.
+pub const VARIABLE_READ_METADATA_KEY: &str = "skript.semantic.variable-read";
+pub(crate) fn variable_read(
+    requested_types: &[String],
+) -> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+        key: VARIABLE_READ_METADATA_KEY.into(),
+        value:serde_json::json!({"version":1,"requestedTypes":requested_types,"mayRefreshPlayer":true,"noRefreshTypes":crate::catalog::identity_delta_classes()}).to_string(),
+        owner_component_id:None,
+    }
+}
+
+/// Initialized default source, not a generated source expression or a live value.
+pub const DEFAULT_SOURCE_SCHEMA_ID: &str = "nlaocs.skript.default-source";
+pub const DEFAULT_SOURCE_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultSourceData {
+    pub source_kind: DefaultSourceKind,
+    pub implementation_class: String,
+    pub target_class: String,
+    pub time: i32,
+    pub event_values: Vec<DefaultEventValueSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DefaultSourceKind {
+    Literal,
+    EventValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultEventValueSource {
+    pub event_class: String,
+    pub value_class: String,
+    pub time: i32,
+    pub registration_id: String,
+}
+
 /// Parser-confirmed interpolation delimiters, relative UTF-8 byte offsets into
 /// the enclosing Expression source. They are not inferred from a trimmed child.
 pub const INTERPOLATION_SCHEMA_ID: &str = "nlaocs.skript.interpolation";

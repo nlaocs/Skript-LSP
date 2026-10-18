@@ -101,6 +101,17 @@ fn parses_typed_capture_and_preserves_nested_groups() {
         TextRange::new(2, text.len() - 2)
     );
     assert_eq!(registered.expressions.len(), 1);
+    assert!(outer.expression_bindings.is_empty());
+    assert!(inner.expression_bindings.is_empty());
+    assert_eq!(registered.expression_capture_index(0), Some(0));
+    assert_eq!(
+        registered
+            .parsed_capture_refs()
+            .next()
+            .unwrap()
+            .capture_index(),
+        0
+    );
     assert_eq!(
         registered.expressions[0].span.local_range.slice(text),
         Some("\"hello\"")
@@ -169,6 +180,145 @@ fn event_restricted_condition_uses_the_shared_event_context_check() {
         .expect("Condition failure must retain the EventRestricted reason");
     assert_eq!(reason.0, ["org.bukkit.event.player.PlayerEggThrowEvent"]);
     assert!(reason.1.is_empty());
+}
+
+#[test]
+fn sparse_pattern_slots_survive_regex_choices_and_nullable_omissions() {
+    use syntaxes::{Catalog, CatalogParts, Pattern, Syntax};
+    let snapshot = ssg::load(fixture()).unwrap();
+    let original = snapshot.catalog();
+    for (pattern, input, expected_slots, expected_binding) in [
+        ("(<foo>|plain) %string%", "plain \"hello\"", vec![1], 1),
+        ("<foo> %string%", "foo \"hello\"", vec![0, 1], 1),
+        (
+            "check [%-string%] %string%",
+            "check \"hello\"",
+            vec![0, 1],
+            1,
+        ),
+    ] {
+        let mut condition = original
+            .conditions()
+            .find(|condition| {
+                condition
+                    .common
+                    .patterns
+                    .iter()
+                    .any(|pattern| pattern.source == "dummy fixture condition")
+            })
+            .unwrap()
+            .clone();
+        condition.common.patterns = vec![Pattern {
+            source: pattern.into(),
+            parsed: syntax_pattern_parser::syntax::parse(pattern, original.plural_rules()).unwrap(),
+        }];
+        let mut syntaxes = original
+            .syntaxes()
+            .iter()
+            .filter(|syntax| {
+                matches!(syntax,
+                    Syntax::Type(value) if matches!(value.code_name.as_str(), "string" | "object")
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        syntaxes.push(Syntax::Condition(condition));
+        let catalog = Catalog::new(CatalogParts {
+            syntaxes,
+            converters: Vec::new(),
+            comparators: Vec::new(),
+            event_values: Vec::new(),
+            properties: Vec::new(),
+            operators: Vec::new(),
+            operations: BTreeMap::new(),
+            differences: Vec::new(),
+            classes: Vec::new(),
+            aliases: original.aliases().clone(),
+            plural_rules: original.plural_rules().clone(),
+            language: BTreeMap::new(),
+        });
+        let source = MappedSource::identity(input);
+        let parsed = parse_condition(
+            &catalog,
+            ConditionParseRequest {
+                source: &source,
+                range: TextRange::new(0, input.len()),
+                context: ExpressionParseContext::default(),
+            },
+            &mut RegexLiteralEnvironment,
+            ConditionParserConfig::default(),
+        )
+        .unwrap();
+        let node = parsed
+            .selected
+            .unwrap_or_else(|| panic!("{pattern}: {:?}", parsed.unknown))
+            .node;
+        assert_eq!(
+            node.captures
+                .iter()
+                .map(|capture| capture.capture_index())
+                .collect::<Vec<_>>(),
+            expected_slots,
+            "{pattern}"
+        );
+        assert_eq!(node.expressions.len(), 1, "{pattern}");
+        assert_eq!(
+            node.expression_capture_index(0),
+            Some(expected_binding),
+            "{pattern}"
+        );
+        assert_eq!(
+            node.parsed_capture_refs().next().unwrap().capture_index(),
+            expected_binding
+        );
+        assert_eq!(
+            node.expressions[0].span.local_range.slice(input),
+            Some("\"hello\"")
+        );
+        if pattern.starts_with('(') {
+            assert_ne!(
+                node.captures[0].capture_index(),
+                0,
+                "omitted Regex is a real sparse native slot"
+            );
+        }
+    }
+}
+
+// Regex is an explicit native environment capability, enabled only by the
+// sparse-capture fixture that needs it.
+struct RegexLiteralEnvironment;
+
+impl PatternMatchEnvironment for RegexLiteralEnvironment {
+    fn allows_regex_pattern(
+        &mut self,
+        _: skript_parser::MatchSyntaxKind,
+        _: &str,
+        _: usize,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+    fn resolve_type(
+        &mut self,
+        request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        LiteralEnvironment.resolve_type(request)
+    }
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        LiteralEnvironment.dispatch_hook(event)
+    }
+}
+
+impl ExpressionParseEnvironment for RegexLiteralEnvironment {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        LiteralEnvironment.parse_expression_leaf(request)
+    }
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
 }
 
 struct LiteralEnvironment;

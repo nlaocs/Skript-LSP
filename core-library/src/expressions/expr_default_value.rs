@@ -45,7 +45,10 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
         possible_return_types,
         possible_return_types_state,
         multiplicity,
-        vec![metadata("semantic-mode", "default-value")],
+        vec![
+            metadata("semantic-mode", "default-value"),
+            crate::public_data::preserve_local_effects(),
+        ],
     ))
 }
 

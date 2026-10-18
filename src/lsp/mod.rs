@@ -1,11 +1,16 @@
 //! A single-project, full-document LSP frontend for the shared parser service.
 
+mod annotations;
 mod completion;
 mod diagnostics;
 mod hover;
 mod hover_text;
+mod inlay;
 mod positions;
+mod project;
+mod project_sessions;
 mod public_data;
+mod semantic;
 mod semantic_tokens;
 mod worker;
 
@@ -24,9 +29,14 @@ use worker::{Control, Event, Factory, Job, Outcome, Worker};
 #[derive(Debug)]
 struct ProjectConfig {
     project_uri: String,
+    project_root: PathBuf,
+    watch_files: bool,
+    inlay_refresh: bool,
+    semantic_refresh: bool,
     snapshot_path: PathBuf,
     addon_paths: Vec<PathBuf>,
     hover_format: MarkupKind,
+    completion_format: MarkupKind,
     semantic_legend: Option<semantic_tokens::Legend>,
     completion_snippets: bool,
     completion_refresh: bool,
@@ -44,6 +54,27 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let inlay_refresh = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.inlay_hint.as_ref())
+            .and_then(|capability| capability.refresh_support)
+            .unwrap_or(false);
+        let semantic_refresh = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.semantic_tokens.as_ref())
+            .and_then(|capability| capability.refresh_support)
+            .unwrap_or(false);
+        let watch_files = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+            .and_then(|watch| watch.dynamic_registration)
+            .unwrap_or(false);
         let completion_refresh = params
             .capabilities
             .experimental
@@ -64,6 +95,20 @@ impl ProjectConfig {
                 .as_ref()
                 .and_then(|document| document.semantic_tokens.as_ref()),
         );
+        let completion_format = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|document| document.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|item| item.documentation_format.as_ref())
+            .and_then(|formats| {
+                formats
+                    .iter()
+                    .find(|format| matches!(**format, MarkupKind::Markdown | MarkupKind::PlainText))
+            })
+            .cloned()
+            .unwrap_or(MarkupKind::PlainText);
         let hover_format = params
             .capabilities
             .text_document
@@ -115,9 +160,14 @@ impl ProjectConfig {
         };
         Ok(Self {
             project_uri: root.to_string(),
+            project_root: root_path.clone(),
+            watch_files,
+            inlay_refresh,
+            semantic_refresh,
             snapshot_path: absolute(options.snapshot_path),
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
             hover_format,
+            completion_format,
             semantic_legend,
             completion_snippets,
             completion_refresh,
@@ -209,11 +259,15 @@ struct CompletionTicket {
     owner: Option<completion::OwnerAttempt>,
 }
 struct Document {
+    source_epoch: u64,
     generation: u64,
     revision: u64,
     version: i32,
     control: Control,
     hover: Option<hover::Document>,
+    semantic: Option<Arc<semantic::Document>>,
+    inlay: Option<Arc<inlay::Document>>,
+    annotation_requests: Vec<annotations::Pending>,
     tokens: Option<SemanticTokens>,
     token_requests: Vec<RequestId>,
     source: Arc<str>,
@@ -513,6 +567,7 @@ impl Document {
         Ok(())
     }
     fn cancel_requests(&mut self, connection: &Connection, code: ErrorCode) -> Result<(), String> {
+        self.cancel_annotations(connection, code)?;
         for (id, _, _) in self.signature_requests.drain(..) {
             send(
                 connection,
@@ -547,6 +602,10 @@ impl Document {
     }
 }
 struct Documents {
+    project_root: Option<PathBuf>,
+    project_epoch: u64,
+    semantic_project: Vec<Arc<semantic::Document>>,
+    hover_format: MarkupKind,
     open: HashMap<Uri, Document>,
     next_id: u64,
     completion_index: Option<Arc<completion::CatalogIndex>>,
@@ -555,6 +614,10 @@ struct Documents {
 impl Documents {
     fn new(signature_capabilities: completion::SignatureCapabilities) -> Self {
         Self {
+            project_root: None,
+            project_epoch: 0,
+            semantic_project: Vec::new(),
+            hover_format: MarkupKind::PlainText,
             open: HashMap::new(),
             next_id: 0,
             completion_index: None,
@@ -574,13 +637,21 @@ impl Documents {
         }
     }
     fn current(&self, job: &Job) -> bool {
-        self.open.get(&job.uri).is_some_and(|document| {
-            document.generation == job.generation
-                && document.revision == job.revision
-                && document.version == job.version
-        })
+        job.project
+            .as_ref()
+            .is_none_or(|snapshot| snapshot.epoch == self.project_epoch)
+            && self.open.get(&job.uri).is_some_and(|document| {
+                document.generation == job.generation
+                    && document.revision == job.revision
+                    && document.version == job.version
+            })
     }
-    fn open(&mut self, params: DidOpenTextDocumentParams, worker: &Worker) -> Result<(), String> {
+    fn open(
+        &mut self,
+        params: DidOpenTextDocumentParams,
+        worker: &Worker,
+        connection: &Connection,
+    ) -> Result<(), String> {
         let item = params.text_document;
         if self.open.contains_key(&item.uri) {
             return Err("didOpen received for an already open document".into());
@@ -588,7 +659,9 @@ impl Documents {
         let revision = self.id()?;
         let control = Control::new();
         let source: Arc<str> = Arc::from(item.text);
+        let focused = item.uri.clone();
         let job = Job {
+            project: None,
             uri: item.uri.clone(),
             generation: revision,
             revision,
@@ -600,11 +673,15 @@ impl Documents {
         self.open.insert(
             item.uri,
             Document {
+                source_epoch: revision,
                 generation: revision,
                 revision,
                 version: item.version,
                 control,
                 hover: None,
+                semantic: None,
+                inlay: None,
+                annotation_requests: Vec::new(),
                 tokens: None,
                 token_requests: Vec::new(),
                 lines: positions::LineIndex::new(&source),
@@ -620,7 +697,11 @@ impl Documents {
                 signature_capabilities: self.signature_capabilities,
             },
         );
-        worker.submit(job);
+        if self.project_root.is_some() {
+            self.restart_project(worker, connection, Some(&focused))?;
+        } else {
+            worker.submit(job);
+        }
         Ok(())
     }
     fn change(
@@ -652,8 +733,11 @@ impl Documents {
         document.control.cancel();
         document.control = Control::new();
         document.revision = revision;
+        document.source_epoch = revision;
         document.version = params.text_document.version;
         document.hover = None;
+        document.semantic = None;
+        document.inlay = None;
         document.tokens = None;
         document.completion = None;
         document.syntax_completion = None;
@@ -662,7 +746,11 @@ impl Documents {
         document.completion_ready = false;
         document.source = Arc::from(source);
         document.lines = positions::LineIndex::new(&document.source);
+        if self.project_root.is_some() {
+            return self.restart_project(worker, connection, Some(&uri));
+        }
         worker.submit(Job {
+            project: None,
             uri,
             generation: document.generation,
             revision,
@@ -685,6 +773,7 @@ impl Documents {
             document.control.cancel();
             worker.release(uri.as_str(), document.revision);
             publish(connection, uri, document.version, Vec::new())?;
+            self.restart_project(worker, connection, None)?;
         }
         Ok(())
     }
@@ -715,8 +804,16 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
     let completion_snippets = config.completion_snippets;
     let completion_refresh = config.completion_refresh;
     let signature_capabilities = config.signature_capabilities;
+    let hover_format = config.hover_format.clone();
+    let project_root = config.project_root.clone();
+    let watch_files = config.watch_files;
+    let inlay_refresh = config.inlay_refresh;
+    let semantic_refresh = config.semantic_refresh;
+    let mut last_refresh_epoch = 0;
     let mut worker = Worker::start(config, factory)?;
     let mut documents = Documents::new(signature_capabilities);
+    documents.hover_format = hover_format;
+    documents.project_root = Some(project_root);
     let mut initialize_id = Some(initialize_id);
     let mut initialized = false;
     let mut shutdown = false;
@@ -731,7 +828,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(index), startup_ms) => {
                         documents.completion_index = index;
-                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
                         if completion_refresh { capabilities["experimental"] = json!({"skriptCompletionRefresh":true}); }
                         if let Some(legend) = &semantic_legend {
                             capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
@@ -773,6 +870,8 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 log(&connection, format!("semantic tokens unavailable: {error}"))?;
                             }
                             if let Some(error) = analysis.completion_error { log(&connection, format!("completion unavailable: {error}"))?; }
+                            if let Some(error) = analysis.annotations_error { log(&connection, format!("semantic annotations unavailable: {error}"))?; }
+                            documents.semantic_project = analysis.project_semantics;
                             let document = documents.open.get_mut(&job.uri).unwrap();
                             document.tokens = Some(SemanticTokens::default());
                             document.completion_ready = true;
@@ -781,6 +880,8 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 if let Outcome::Diagnostics(diagnostics, status) = analysis.outcome {
                                     if status != "fatal" {
                                         document.hover = analysis.hover;
+                                        document.semantic = analysis.semantic;
+                                        document.inlay = analysis.inlay;
                                         document.completion = analysis.completion;
                                         if let (Some(snapshot), Some(legend)) = (analysis.semantic_tokens, &semantic_legend) {
                                             document.tokens = Some(snapshot.full(legend));
@@ -789,10 +890,17 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                     publish(&connection, job.uri.clone(), job.version, diagnostics)?;
                                 }
                             }
+                            document.finish_annotations(&connection, &documents.semantic_project)?;
                             document.finish_token_requests(&connection)?;
                             document.finish_completion_requests(&connection, completion_snippets)?;
                             document.finish_signature_requests(&connection)?;
                             document.refresh_completion(&connection, &job.uri, "final")?;
+                            if documents.project_epoch > last_refresh_epoch {
+                                last_refresh_epoch = documents.project_epoch;
+                                for (supported, method, prefix) in [(inlay_refresh, "workspace/inlayHint/refresh", "skript-inlay-refresh"), (semantic_refresh, "workspace/semanticTokens/refresh", "skript-semantic-refresh")] {
+                                    if supported { send(&connection, lsp_server::Request::new(RequestId::from(format!("{prefix}:{}", job.revision)), method.into(), Value::Null))?; }
+                                }
+                            }
                         }
                     }
                     Event::Failed(error) => {
@@ -877,11 +985,13 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                     }
                                     Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
                                 }
+                            } else if matches!(request.method.as_str(), "textDocument/definition" | "textDocument/references" | "textDocument/inlayHint") && initialize_id.is_none() && initialized && !shutdown {
+                                documents.annotation_request(&connection, request.id, &request.method, request.params)?;
                             } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
                                 let response = match serde_json::from_value::<HoverParams>(request.params) {
                                     Ok(params) => {
                                         let target = params.text_document_position_params;
-                                        let result = documents.open.get(&target.text_document.uri).and_then(|document| document.hover.as_ref()).and_then(|document| document.at(target.position));
+                                        let result = documents.open.get(&target.text_document.uri).and_then(|document| document.semantic_hover(target.position, &documents.hover_format));
                                         Response::new_ok(request.id, result)
                                     }
                                     Err(error) => Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()),
@@ -894,15 +1004,23 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                         }
                         Message::Notification(notification) if notification.method == "exit" => return if shutdown { Ok(()) } else { Err("exit received before shutdown".into()) },
                         Message::Notification(notification) => {
-                            if notification.method == "initialized" && initialize_id.is_none() { initialized = true; continue; }
+                            if notification.method == "initialized" && initialize_id.is_none() {
+                                initialized = true;
+                                if watch_files {
+                                    send(&connection, lsp_server::Request::new(RequestId::from("skript-project-watch".to_owned()), "client/registerCapability".into(), json!({"registrations":[{"id":"skript-project-files","method":"workspace/didChangeWatchedFiles","registerOptions":{"watchers":[{"globPattern":"**/*.sk","kind":7}]}}]})))?;
+                                }
+                                continue;
+                            }
                             if !initialized || shutdown { continue; }
                             let result = match notification.method.as_str() {
-                                "textDocument/didOpen" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.open(params, &worker)),
+                                "textDocument/didOpen" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.open(params, &worker, &connection)),
                                 "textDocument/didChange" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.change(params, &worker, &connection)),
                                 "textDocument/didClose" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.close(params, &worker, &connection)),
+                                "workspace/didChangeWatchedFiles" => serde_json::from_value::<lsp_types::DidChangeWatchedFilesParams>(notification.params).map_err(|error| error.to_string()).and_then(|params| if params.changes.is_empty() { Ok(()) } else { documents.restart_project(&worker, &connection, None) }),
                                 "$/cancelRequest" => {
                                     if let Ok(id) = serde_json::from_value::<RequestId>(notification.params["id"].clone()) {
                                         for document in documents.open.values_mut() {
+                                            if document.cancel_annotation(&connection, &id)? { break; }
                                             if let Some(index) = document.signature_requests.iter().position(|(pending, _, _)| *pending == id) {
                                                 document.signature_requests.remove(index);
                                                 send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "signature request cancelled".into()))?;
@@ -926,7 +1044,11 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             };
                             if let Err(error) = result { log(&connection, error)?; }
                         }
-                        Message::Response(_) => {}
+                        Message::Response(response) => {
+                            if response.id == RequestId::from("skript-project-watch".to_owned()) && response.response_result.is_err() {
+                                log(&connection, "project file watcher registration failed; closed-file changes require a subsequent open-document change or explicit workspace/didChangeWatchedFiles notification")?;
+                            }
+                        }
                     }
                 }
             }

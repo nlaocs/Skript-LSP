@@ -149,6 +149,12 @@ pub(super) fn resolve_target(
     ];
     if matches
         .iter()
+        .all(|value| crate::catalog::event_value_preserves_locals(value, return_type))
+    {
+        metadata_entries.push(crate::public_data::preserve_local_effects());
+    }
+    if matches
+        .iter()
         .any(|value| value.context_dependent == Some(true))
     {
         metadata_entries.push(metadata("context-dependent", "true"));
@@ -258,6 +264,13 @@ pub(super) fn resolve_identifier(
         metadata("event-value-identifier", identifier),
         metadata("event-value-registration-ids", &registration_ids),
     ];
+    if !unknown
+        && selected
+            .iter()
+            .all(|value| crate::catalog::event_value_preserves_locals(value, &return_type))
+    {
+        output_metadata.push(crate::public_data::preserve_local_effects());
+    }
     if selected
         .iter()
         .any(|value| value.context_dependent == Some(true))

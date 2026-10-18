@@ -11,12 +11,14 @@ See the [DefaultExpression guide](../docs/default-expressions.md).
 `parser-wasm::ParserHost`. It is the stable home for Skript's built-in parsing
 behavior that must use the same addon ABI as third-party parser addons.
 
+Older schema-7 snapshots remain readable. Where authoritative cloner/`beforeChange` facts are absent, affected assignment and read facts remain Unknown; a declared type alone does not supply those guarantees.
+
 ## Current Behavior
 
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.40.0` and ABI `22.0`
+- WIT package `nlaocs:skript-parser-addon@0.41.0` and ABI `23.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -30,6 +32,27 @@ The manifest requires `parser.hooks`, `parser.default-expression`, the five synt
 Tree macros, and `parser.state-store`. It optionally consumes
 `parser.dynamic-syntax` and `parser.catalog-data` version 3; Text and AST macro
 capabilities are not requirements.
+
+The manifest opts into `parser.incremental-local-syntax` v1 for the Effect,
+Condition, and DefaultExpression subscriptions only, and separately declares
+`parser.project-stable-semantics` v1. It does not declare
+`parser.epoch-cancellation-restart-safe`: a running CoreLibrary call returns normally
+before observing cancellation, within its existing fuel/deadline bounds. Rebuild
+CoreLibrary and external components for the current WIT and ABI.
+The existing host policy gives the Core ID a `u64::MAX / 2`-tick wall-clock
+exemption; the default 20M fuel limit remains, so no short wall-clock cancellation
+bound is claimed for Core.
+
+Local flow describes a variable's stored type before any requested-type conversion.
+The generic engine can represent unions, list elements, parameters and reaching
+writes, but actual precision requires current provider evidence. Core currently
+proves primitive scalar constructors and safe inherited `beforeChange` clone/set
+paths; arbitrary Function or ExpressionList results can remain Unknown, and typed
+parameters/returns may be unset. A result class alone proves neither nonempty
+values nor preservation of other locals. Native ordered early-operand contracts
+can expose a safe lookup before opaque work; they do not make an entire Effect
+or Condition pure. Unknown converters, callbacks, aliases and control flow clear
+facts rather than borrowing the enclosing requested type.
 
 Runtime-backed Type parsers use indexed `catalog-data` queries. In particular,
 BlockData validation reads only the requested namespaced block from the host's

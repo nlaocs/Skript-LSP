@@ -20,6 +20,7 @@ pub(super) fn resolve(mut payload: ConditionPayload) -> Option<HookOutput> {
         };
         annotate(&mut payload, "semantic-mode", "chance");
         annotate(&mut payload, "chance-unit", unit);
+        super::local_effects::chance(&mut payload);
         accept(payload)
     })
 }

@@ -18,7 +18,12 @@ pub(super) fn render(
     };
     for (label, value) in fields {
         let value = bounded(value, 8192);
-        let field = if markdown {
+        let field = if markdown && *label == "Pattern" {
+            format!(
+                "\n**Pattern:**\n\n{}\n\n",
+                code_block(&value, "skript-pattern")
+            )
+        } else if markdown {
             format!("- **{}:** {}\n", escape(label), inline_code(&value))
         } else {
             format!("{label}: {value}\n")
@@ -77,6 +82,52 @@ pub(super) fn render(
         }
     }
     output.trim_end().to_owned()
+}
+
+/// Completion previews are pattern templates; only published examples are code.
+pub(super) fn completion(
+    syntax: &str,
+    template: Option<&str>,
+    detail: &str,
+    identity: &str,
+    documentation: Option<&str>,
+    format: &MarkupKind,
+) -> lsp_types::Documentation {
+    let mut text = if *format == MarkupKind::Markdown {
+        let mut text = String::new();
+        if let Some(template) = template {
+            text.push_str(&format!(
+                "### Template:\n\n{}\n\n",
+                code_block(template, "skript-pattern")
+            ));
+        }
+        text.push_str(&format!(
+            "### Syntax:\n\n{}\n\n{}\n\nExpected types and addon guards are not checked.\n\nRegistration: {}",
+            code_block(syntax, "skript-pattern"), inline_code(detail), inline_code(identity)
+        ));
+        text
+    } else {
+        let mut text = String::new();
+        if let Some(template) = template {
+            text.push_str(&format!("Template:\n{template}\n\n"));
+        }
+        text.push_str(&format!(
+            "Syntax:\n{syntax}\n\n{detail}\nExpected types and addon guards are not checked.\nRegistration: {identity}"
+        ));
+        text
+    };
+    if let Some(documentation) = documentation {
+        text.push_str("\n\n");
+        text.push_str(documentation);
+    }
+    if *format == MarkupKind::Markdown {
+        lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: text,
+        })
+    } else {
+        lsp_types::Documentation::String(text)
+    }
 }
 
 fn append(output: &mut String, block: &str) -> bool {
@@ -208,7 +259,7 @@ impl Text {
     }
 }
 
-fn code_block(text: &str, language: &str) -> String {
+pub(super) fn code_block(text: &str, language: &str) -> String {
     let fence = "`".repeat((longest_run(text, '`') + 1).max(3));
     format!("{fence}{language}\n{text}\n{fence}")
 }
@@ -691,6 +742,73 @@ mod tests {
                 && text.contains("examples omitted")
         );
         assert!(text.contains("```skript\non load:\n\tsend \"😀\"\n```"));
+    }
+
+    #[test]
+    fn patterns_and_examples_have_distinct_safe_code_fences() {
+        let documentation = Documentation {
+            examples: vec!["send \"%{_name}%\" # example".into()],
+            ..Default::default()
+        };
+        let pattern = "[send] %strings% [to %-players%] \x60\x60\x60";
+        let text = render(
+            "Effect",
+            &[("Pattern", pattern.into()), ("Addon", "Skript".into())],
+            Some(&documentation),
+            &MarkupKind::Markdown,
+        );
+        assert!(text.contains("**Pattern:**\n\n\x60\x60\x60\x60skript-pattern\n[send] %strings% [to %-players%] \x60\x60\x60\n\x60\x60\x60\x60"));
+        assert!(text.contains("\x60\x60\x60skript\nsend \"%{_name}%\" # example\n\x60\x60\x60"));
+        assert!(text.contains("- **Addon:** \x60Skript\x60"));
+        let plain = render(
+            "Effect",
+            &[("Pattern", pattern.into())],
+            Some(&documentation),
+            &MarkupKind::PlainText,
+        );
+        assert!(plain.contains(&format!("Pattern: {pattern}")));
+        assert!(!plain.contains("skript-pattern"));
+    }
+
+    #[test]
+    fn completion_markup_preserves_literal_grammar_without_changing_plaintext() {
+        let grammar = "[go] %entities% (to|towards) %locations%";
+        let lsp_types::Documentation::MarkupContent(markdown) = completion(
+            grammar,
+            Some("go %entities% to %locations%"),
+            "Effect / [Addon]",
+            "reg\x60id",
+            None,
+            &MarkupKind::Markdown,
+        ) else {
+            panic!("negotiated markdown");
+        };
+        assert_eq!(markdown.kind, MarkupKind::Markdown);
+        assert!(
+            markdown
+                .value
+                .contains(&code_block(grammar, "skript-pattern"))
+        );
+        assert!(markdown.value.contains("### Template:\n\n\x60\x60\x60skript-pattern\ngo %entities% to %locations%\n\x60\x60\x60"));
+        assert!(markdown.value.contains("`Effect / [Addon]`"));
+        assert!(
+            markdown
+                .value
+                .contains("Registration: \x60\x60reg\x60id\x60\x60")
+        );
+        assert_eq!(
+            completion(
+                grammar,
+                None,
+                "Effect",
+                "reg",
+                Some("Description"),
+                &MarkupKind::PlainText
+            ),
+            lsp_types::Documentation::String(format!(
+                "Syntax:\n{grammar}\n\nEffect\nExpected types and addon guards are not checked.\nRegistration: reg\n\nDescription"
+            ))
+        );
     }
 
     #[test]
