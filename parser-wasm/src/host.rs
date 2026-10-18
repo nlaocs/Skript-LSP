@@ -7150,19 +7150,22 @@ fn expression_type_options(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
-    all_expression_type_options(Some(catalog))
-        .into_iter()
-        .filter(|option| {
-            option.has_parser
+    let mut options = catalog
+        .types()
+        .filter(|value| {
+            value.has_parser
                 && (expected_types
                     .iter()
-                    .any(|expected| option.class_name == expected.class_name.as_str())
+                    .any(|expected| value.original_class.as_str() == expected.class_name.as_str())
                     || expects_class_info
                         && candidate_inputs
                             .iter()
-                            .any(|input| type_option_matches_input(option, input)))
+                            .any(|input| type_option_matches_input(value, input)))
         })
-        .collect()
+        .map(|value| expression_type_option(Some(catalog), value))
+        .collect::<Vec<_>>();
+    options.sort_by_key(|option| option.type_parse_order);
+    options
 }
 
 thread_local! {
@@ -7170,10 +7173,10 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-fn type_option_matches_input(option: &WitExpressionTypeOption, input: &str) -> bool {
-    if input.eq_ignore_ascii_case(&option.code_name)
-        || input.eq_ignore_ascii_case(&option.singular)
-        || input.eq_ignore_ascii_case(&option.plural)
+fn type_option_matches_input(option: &syntaxes::Type, input: &str) -> bool {
+    if input.eq_ignore_ascii_case(option.code_name.as_str())
+        || input.eq_ignore_ascii_case(&option.noun.singular)
+        || input.eq_ignore_ascii_case(&option.noun.plural)
     {
         return true;
     }
@@ -11290,7 +11293,7 @@ impl ParserHost {
                         context,
                         target: candidate.subscription.target.clone(),
                         phase: request.phase,
-                        payload: payload.clone(),
+                        payload,
                         parse_results: parse_results.clone(),
                     };
                 calls.push(HookCall {
@@ -11356,6 +11359,8 @@ impl ParserHost {
                     let dynamic_update = entry.store.data_mut().dynamic_syntax_update.take();
                     (call, state_invocation, dynamic_update)
                 };
+                // The immutable request is borrowed by WASM lowering; recover its ownership.
+                payload = invocation.payload;
                 let (call, state_invocation, dynamic_update) = call;
                 let mut output = match call {
                     Ok(Ok(output)) => output,
@@ -11513,8 +11518,7 @@ impl ParserHost {
                 parse_results.extend(next_parse_results);
             };
 
-            let previous_payload = payload.clone();
-            match apply_hook_output(candidate.subscription.mode, output, payload.clone()) {
+            match apply_hook_output(candidate.subscription.mode, output, &payload) {
                 Ok(applied) => {
                     let AppliedOutput {
                         payload: mut next_payload,
@@ -11522,11 +11526,7 @@ impl ParserHost {
                         effects: next_effects,
                         terminal,
                     } = applied;
-                    normalize_structure_hook_payload(
-                        &previous_payload,
-                        &mut next_payload,
-                        &next_effects,
-                    )?;
+                    normalize_structure_hook_payload(&payload, &mut next_payload, &next_effects)?;
                     if matches!(next_decision, Some(HookDecision::Reject(_))) {
                         state_invocation.rollback();
                         drop(dynamic_update);
@@ -13220,7 +13220,7 @@ fn merge_owned_metadata(
 fn apply_hook_output(
     mode: HookMode,
     output: HookOutput,
-    mut payload: HookPayload,
+    payload: &HookPayload,
 ) -> Result<AppliedOutput, String> {
     let HookOutput {
         decision,
@@ -13228,7 +13228,7 @@ fn apply_hook_output(
         effects,
     } = output;
     if let Some(replacement) = replacement.as_ref()
-        && mem::discriminant(replacement) != mem::discriminant(&payload)
+        && mem::discriminant(replacement) != mem::discriminant(payload)
     {
         return Err("replacement payload kind differs from the input payload".to_owned());
     }
@@ -13242,7 +13242,7 @@ fn apply_hook_output(
                 return Err("observe hooks cannot control parser flow".to_owned());
             }
             Ok(AppliedOutput {
-                payload,
+                payload: payload.clone(),
                 decision: None,
                 effects,
                 terminal: false,
@@ -13255,9 +13255,7 @@ fn apply_hook_output(
             if matches!(decision, HookDecision::Handled) {
                 return Err("transform hooks cannot mark input as handled".to_owned());
             }
-            if let Some(replacement) = replacement {
-                payload = replacement;
-            }
+            let payload = replacement.unwrap_or_else(|| payload.clone());
             let terminal = matches!(decision, HookDecision::Reject(_));
             Ok(AppliedOutput {
                 payload,
@@ -13275,16 +13273,14 @@ fn apply_hook_output(
                     return Err("continuing override hooks cannot replace payloads".to_owned());
                 }
                 Ok(AppliedOutput {
-                    payload,
+                    payload: payload.clone(),
                     decision: None,
                     effects,
                     terminal: false,
                 })
             }
             decision @ (HookDecision::Handled | HookDecision::Reject(_)) => {
-                if let Some(replacement) = replacement {
-                    payload = replacement;
-                }
+                let payload = replacement.unwrap_or_else(|| payload.clone());
                 Ok(AppliedOutput {
                     payload,
                     decision: Some(decision),
@@ -17256,13 +17252,13 @@ mod tests {
         let first = apply_hook_output(
             HookMode::Transform,
             output(HookDecision::ContinueProcessing, Some(document("first"))),
-            document("original"),
+            &document("original"),
         )
         .expect("first transform must apply");
         let second = apply_hook_output(
             HookMode::Transform,
             output(HookDecision::ContinueProcessing, Some(document("second"))),
-            first.payload,
+            &first.payload,
         )
         .expect("second transform must apply");
         let HookPayload::Document(value) = second.payload else {
@@ -17277,7 +17273,7 @@ mod tests {
         let applied = apply_hook_output(
             HookMode::Override,
             output(HookDecision::Handled, Some(document("handled"))),
-            document("original"),
+            &document("original"),
         )
         .expect("handled override must apply");
         assert!(applied.terminal);
@@ -17289,7 +17285,7 @@ mod tests {
         let replacement = apply_hook_output(
             HookMode::Observe,
             output(HookDecision::ContinueProcessing, Some(document("changed"))),
-            document("original"),
+            &document("original"),
         );
         assert_eq!(
             replacement.unwrap_err(),
@@ -17299,7 +17295,7 @@ mod tests {
         let handled = apply_hook_output(
             HookMode::Observe,
             output(HookDecision::Handled, None),
-            document("original"),
+            &document("original"),
         );
         assert_eq!(
             handled.unwrap_err(),

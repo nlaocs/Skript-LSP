@@ -13,7 +13,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 use syntax_pattern_parser::syntax::{
     ParseResult, PatternElement, PluralRules, SpannedPatternElement, parse as parse_pattern,
@@ -317,6 +317,8 @@ struct CatalogIndex {
     converters_by_to: HashMap<String, Vec<usize>>,
     classes_by_name: HashMap<String, usize>,
     class_ancestors: Vec<OnceLock<HashSet<String>>>,
+    // Only immutable, known class-index pairs are retained; unknown names stay uncached.
+    conversions: Arc<Mutex<HashMap<(usize, usize), bool>>>,
     type_literals: HashMap<String, Vec<TypeLiteralIndexEntry>>,
     registered_type_patterns: HashMap<String, Vec<RegisteredTypePatternIndexEntry>>,
 }
@@ -849,6 +851,35 @@ impl Catalog {
     /// chaining flags. SSG collects the generated chained converters after
     /// Skript finishes registration, so no runtime classes need to be loaded.
     pub fn can_convert(&self, from: &str, to: &str) -> bool {
+        let key = self
+            .index
+            .classes_by_name
+            .get(from)
+            .zip(self.index.classes_by_name.get(to))
+            .map(|(from, to)| (*from, *to));
+        let Some(key) = key else {
+            return self.can_convert_uncached(from, to);
+        };
+        if let Some(result) = self
+            .index
+            .conversions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&key)
+            .copied()
+        {
+            return result;
+        }
+        let result = self.can_convert_uncached(from, to);
+        self.index
+            .conversions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(key, result);
+        result
+    }
+
+    fn can_convert_uncached(&self, from: &str, to: &str) -> bool {
         const NO_LEFT_CHAINING: i32 = 1;
         const NO_RIGHT_CHAINING: i32 = 2;
         const ALLOW_UNSAFE_CASTS: i32 = 4;

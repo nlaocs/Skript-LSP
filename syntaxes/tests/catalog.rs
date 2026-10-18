@@ -383,6 +383,49 @@ fn converter_compatibility_includes_assignable_inputs_and_dynamic_objects() {
 }
 
 #[test]
+fn repeated_conversion_queries_preserve_direction_flags_and_catalog_identity() {
+    for flags in 0..8 {
+        for (converter_from, converter_to, requested_from, requested_to, prohibited) in [
+            ("Source", "Target", "SourceChild", "TargetChild", 2),
+            ("SourceChild", "TargetChild", "Source", "Target", 1),
+            ("SourceChild", "Target", "Source", "TargetChild", 3),
+        ] {
+            let mut parts = parts();
+            parts.classes = vec![
+                class("java.lang.Object", None, &[]),
+                class("Source", Some("java.lang.Object"), &[]),
+                class("SourceChild", Some("Source"), &[]),
+                class("Target", Some("java.lang.Object"), &[]),
+                class("TargetChild", Some("Target"), &[]),
+            ];
+            parts.converters = vec![Converter {
+                from: class_name(converter_from),
+                to: class_name(converter_to),
+                flags,
+                registration_order: 0,
+                addon: addon(),
+                registration_id: id("conversion"),
+            }];
+            let catalog = Catalog::new(parts);
+            let expected = flags & 4 != 0 || flags & prohibited == 0;
+            for _ in 0..3 {
+                assert_eq!(
+                    catalog.can_convert(requested_from, requested_to),
+                    expected,
+                    "flags={flags}, from={converter_from}, to={converter_to}"
+                );
+                assert!(!catalog.can_convert(requested_to, requested_from));
+                assert!(catalog.can_convert("unknown", "unknown"));
+                assert!(!catalog.can_convert("unknown", "Target"));
+                assert!(catalog.can_convert("java.lang.Object", "unknown"));
+            }
+            let cloned = catalog.clone();
+            assert_eq!(cloned.can_convert(requested_from, requested_to), expected);
+        }
+    }
+}
+
+#[test]
 fn common_assignable_class_prefers_the_nearest_shared_parent() {
     let mut parts = parts();
     parts.classes = vec![
