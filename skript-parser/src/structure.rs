@@ -47,6 +47,40 @@ pub enum StructureBodyMode {
     Trigger,
 }
 
+/// One current-source header attempt, before body validation and final adoption.
+#[derive(Debug)]
+pub struct StructureHeaderPreparation<'a> {
+    /// Header accepted by the current ordered semantic hooks.
+    pub candidate: &'a StructureCandidate,
+    /// Body parser declared by those hooks, not a completed body result.
+    pub body_mode: StructureBodyMode,
+    /// More than one header interpretation remains; no unique layout is certified.
+    pub ambiguous: bool,
+}
+
+/// Read-only editing proposals from the same active parse, never a committed AST.
+#[derive(Debug)]
+pub enum StructurePreparationEvent<'a> {
+    /// Preprocessing and all root header hooks finished; bodies are still pending.
+    Headers {
+        /// Current transformed source with its original-source identity.
+        source: &'a MappedSource,
+        /// Current indentation tree after preprocessing.
+        tree: &'a RawTree,
+        /// Provisional owners, without types, variable history, or final adoption.
+        headers: Vec<StructureHeaderPreparation<'a>>,
+    },
+    /// A previously prepared attempt was rejected or faulted; discard its proposals.
+    Invalidated {
+        /// Root containing the affected layout.
+        raw_node_id: RawNodeId,
+        /// Exact registration of the rejected attempt.
+        registration_id: &'a str,
+        /// Pattern within that registration.
+        pattern_index: usize,
+    },
+}
+
 /// Lifecycle point at which a Structure hook is invoked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StructureHookTiming {
@@ -412,6 +446,27 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         }
     }
 
+    let prepared_headers = pending
+        .iter()
+        .filter_map(|item| {
+            let StructureDocumentNode::Structure(matches) = &roots[item.root_index] else {
+                return None;
+            };
+            Some(StructureHeaderPreparation {
+                candidate: matches.selected.as_ref()?,
+                body_mode: item.body_mode,
+                ambiguous: !matches.alternatives.is_empty(),
+            })
+        })
+        .collect();
+    session
+        .environment_mut()
+        .structure_preparation(StructurePreparationEvent::Headers {
+            source: request.source,
+            tree: request.tree,
+            headers: prepared_headers,
+        });
+
     if headers_only {
         return Ok(StructureDocument { roots, diagnostics });
     }
@@ -532,6 +587,15 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
             session
                 .finish_semantic_candidate(accepted)
                 .map_err(|message| session.environment_error(message))?;
+            if !accepted {
+                session.environment_mut().structure_preparation(
+                    StructurePreparationEvent::Invalidated {
+                        raw_node_id: provisional_candidate.raw_node_id,
+                        registration_id: &provisional_candidate.matched.registration_id,
+                        pattern_index: provisional_candidate.matched.pattern_index,
+                    },
+                );
+            }
             session.replace_context(document_context.clone());
             let (candidate, body_diagnostics, rejection) = match attempt {
                 Ok(value) => value,
@@ -1031,15 +1095,12 @@ fn default_body_mode<E: ExpressionParseEnvironment>(
         .map_or(StructureBodyMode::Raw, |_| StructureBodyMode::Entries)
 }
 
-fn parse_structure_body<E: ExpressionParseEnvironment>(
-    session: &mut ExpressionSession<'_, E>,
-    tree: &RawTree,
-    node: &RawNode,
+/// Validates the owner-declared layout independently of body evaluation.
+pub fn validate_structure_body_layout(
     mode: StructureBodyMode,
     validator: Option<&EntryValidator>,
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
-    depth: usize,
-) -> Result<ParsedStructureBody, StructureParseError> {
+) -> Result<(), String> {
     for (path, entry_mode) in entry_body_modes {
         let mut current = validator;
         let mut declaration = None;
@@ -1057,11 +1118,23 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
                         && *entry_mode == crate::SectionBodyMode::Trigger)
             })
         {
-            return Err(session
-                .environment_error(format!("invalid semantic Section entry path {path:?}"))
-                .into());
+            return Err(format!("invalid semantic Section entry path {path:?}"));
         }
     }
+    Ok(())
+}
+
+fn parse_structure_body<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    tree: &RawTree,
+    node: &RawNode,
+    mode: StructureBodyMode,
+    validator: Option<&EntryValidator>,
+    entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
+    depth: usize,
+) -> Result<ParsedStructureBody, StructureParseError> {
+    validate_structure_body_layout(mode, validator, entry_body_modes)
+        .map_err(|message| StructureParseError::from(session.environment_error(message)))?;
     match mode {
         StructureBodyMode::None => Ok(ParsedStructureBody {
             body: StructureBody::None,
@@ -1138,12 +1211,8 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
         if matches!(child.kind, RawNodeKind::Blank | RawNodeKind::Comment) {
             continue;
         }
-        let matched = validator
-            .entry_data
-            .iter()
-            .enumerate()
-            .filter(|(index, data)| data.multiple || !seen.contains(index))
-            .find(|(_, data)| structure_entry_matches(data, child));
+        let matched = structure_entry_index(validator, child, &seen)
+            .map(|index| (index, &validator.entry_data[index]));
         let Some((index, data)) = matched else {
             valid = false;
             let duplicate = validator
@@ -1413,6 +1482,21 @@ fn structure_entry(
 }
 
 /// Tests an EntryValidator declaration against a physical source node.
+/// Selects the next physical entry using the native ordered declaration contract.
+pub fn structure_entry_index(
+    validator: &EntryValidator,
+    node: &RawNode,
+    seen: &BTreeSet<usize>,
+) -> Option<usize> {
+    validator
+        .entry_data
+        .iter()
+        .enumerate()
+        .filter(|(index, data)| data.multiple || !seen.contains(index))
+        .find(|(_, data)| structure_entry_matches(data, node))
+        .map(|(index, _)| index)
+}
+
 pub fn structure_entry_matches(data: &EntryData, node: &RawNode) -> bool {
     match data.kind {
         EntryKind::Trigger | EntryKind::Container | EntryKind::Section => {

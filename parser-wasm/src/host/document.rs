@@ -277,6 +277,10 @@ struct UncommittedDocument {
     component_failures: Vec<ComponentFailure>,
 }
 
+#[cfg(test)]
+#[path = "document/tests/preparation.rs"]
+mod preparation_tests;
+
 impl ParserHost {
     /// Runs Text, RawTree, Tree, and two-pass Structure parsing atomically.
     ///
@@ -313,6 +317,28 @@ impl ParserHost {
         request: DocumentParseRequest,
         config: DocumentParserConfig,
     ) -> Result<DocumentParseResult, DocumentParseError> {
+        self.parse_document_observed(request, config, None)
+    }
+
+    /// Runs the same atomic parse while exposing read-only, provisional editing layouts.
+    /// The observer cannot commit state; final adoption and body validation still run normally.
+    pub fn parse_document_with_preparation(
+        &mut self,
+        request: DocumentParseRequest,
+        config: DocumentParserConfig,
+        observer: &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
+    ) -> Result<DocumentParseResult, DocumentParseError> {
+        self.parse_document_observed(request, config, Some(observer))
+    }
+
+    fn parse_document_observed(
+        &mut self,
+        request: DocumentParseRequest,
+        config: DocumentParserConfig,
+        structure_preparation: Option<
+            &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
+        >,
+    ) -> Result<DocumentParseResult, DocumentParseError> {
         check_cancelled(
             &request.context,
             &config.cancellation,
@@ -341,7 +367,15 @@ impl ParserHost {
             }
         };
 
-        let parsed = self.parse_document_uncommitted(&transaction, &request, &config);
+        let parsed = match structure_preparation {
+            Some(observer) => self.parse_document_uncommitted_observed(
+                &transaction,
+                &request,
+                &config,
+                Some(observer),
+            ),
+            None => self.parse_document_uncommitted(&transaction, &request, &config),
+        };
         let parsed = match parsed {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -397,6 +431,18 @@ impl ParserHost {
         transaction: &ParseTransaction,
         request: &DocumentParseRequest,
         config: &DocumentParserConfig,
+    ) -> Result<UncommittedDocument, DocumentParseError> {
+        self.parse_document_uncommitted_observed(transaction, request, config, None)
+    }
+
+    fn parse_document_uncommitted_observed(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: &DocumentParseRequest,
+        config: &DocumentParserConfig,
+        structure_preparation: Option<
+            &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
+        >,
     ) -> Result<UncommittedDocument, DocumentParseError> {
         let document_state = transaction.savepoint().map_err(HostError::from)?;
         let document_dynamic = self
@@ -505,7 +551,7 @@ impl ParserHost {
         let previous_cancellation = self
             .native_cancellation
             .replace(config.cancellation.clone());
-        let parsed = self.parse_structures_in_parse(
+        let parsed = self.parse_structures_in_parse_observed(
             transaction,
             request.context.clone(),
             StructureParseRequest {
@@ -514,6 +560,7 @@ impl ParserHost {
                 context: ExpressionParseContext::default(),
             },
             config.structure.clone(),
+            structure_preparation,
         );
         self.native_cancellation = previous_cancellation;
         let WasmStructureParseResult {

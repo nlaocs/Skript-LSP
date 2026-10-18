@@ -189,6 +189,23 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 編集・closeは旧要求へContentModified、個別取消・shutdownはRequestCancelledを返す。
 取消・stale・fatalは空結果、worker failureはerrorで終端し、旧revisionの候補を返さない。
 
+### 本文解析を待たない構造内の仮候補
+
+clientが `capabilities.experimental.skriptCompletionRefresh = true` を送る場合、serverは同じcapabilityを返し、同じ全文解析のText/Tree macroと全rootのEnterBodyが終わった段階を補完に公開する。
+別のparse、旧revisionのAST、型・変数・文書関数の履歴は使わない。SSGと実際のowner hookのbody mode、凍結したEntryValidatorを使い、native parserと同じ宣言index選択・重複判定を共有する。
+候補は成功した意味解析の証明ではない。各itemのdetailとdocumentationの先頭にprovisionalと明示し、dataの `completionPhase: "prepared"`、`ownerAttempt`（raw node・registration・pattern）と `completionTicket` に出所を付ける。
+未確定の本文・guard・後続hookにより仮候補が取り消されることがある。応答は常に `isIncomplete=true` とする。
+
+このviewは現在の原文との一致とExactなSourceMap射影を要求する。曖昧なheader、未知のnested section、参照だけの補完は最新の全文解析を待つ。
+Rawな値のsectionを実行文として扱わない。256KiBを超える文書もこの経路を使わない。hover・診断・semantic tokens・signatureは従来の最終解析を使い、仮候補から型や署名を返さない。
+特殊な構文名や実装classによる補完側の例外は設けない。
+
+EnterBody後に本文・ExitBodyがownerを拒否またはfaultにした時点で、そのownerの仮候補を失効させる。別ownerへのfallbackを待たず、通常の補完要求は最終解析待ちに戻す。
+失効・最終解析・worker failureではopt-in clientへ `skript/completionRefresh` notificationを送る。paramsは `uri, version, generation, revision, ticket, position, phase`、phaseは `revoked | final | failed` である。
+これはLSP標準のrefresh要求ではない。既に送ったrequestに二度目の応答を送らず、clientが表示中の同じticket・文書版・位置を確認して補完を再要求する。
+clientは失効したitemを先に除去し、閉じたmenuを再び開かない。非opt-in clientは構造内の要求を従来どおり全文解析まで保持する。
+編集中・close/reopenのgeneration/revision/versionと取消tokenを全progress eventでも確認し、古い結果は公開しない。
+
 ## 引数案内
 
 `signatureHelpProvider` は `(`、`,`、空白をtrigger、`)`をretriggerとして公開する。
@@ -218,7 +235,8 @@ named argument、複数値parameter、範囲外の引数、曖昧なslot、固�
 取消前に終了していた場合や取消されなかった場合はnullになる。
 これらはRustのbuild/compile時間や、clientが画面へ診断を描くまでの時間を含まない。
 最新版へまとめられて実行されなかった要求の解析時間は計上しない。
-`skript-lsp completion timing`の`source`は`syntax`または`analysis`を示す。
+`skript-lsp completion timing`の`source`は`syntax`、`prepared`、`analysis`を示す。
+`skript-lsp preparation timing`は現在のjobの`prepareMs`を示す。本文解析完了時間ではない。
 `skript-lsp signature timing`も同じ区分で`queryMs`、`waitMs`、署名数を記録する。
 `queryMs`は候補検索と応答構築で、即時経路では必要なnative context作成も含む。
 `waitMs`は受信後から解析済み候補検索を始めるまでの待機で、失敗した即時試行も含む。即時応答では0になる。

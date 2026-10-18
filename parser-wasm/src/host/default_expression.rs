@@ -644,6 +644,7 @@ mod tests {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            structure_preparation: None,
         };
         let result = environment.provide_default_expression(DefaultExpressionRequest {
             syntax: RegisteredSyntaxIdentity {

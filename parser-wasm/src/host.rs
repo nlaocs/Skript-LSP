@@ -3847,6 +3847,8 @@ struct WasmExpressionEnvironment<'a> {
         PendingExpressionCheckpoint,
     )>,
     function_registry: Option<&'a mut FunctionRegistryTransaction>,
+    structure_preparation:
+        Option<&'a mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>)>,
 }
 
 struct PendingExpressionCheckpoint {
@@ -4868,6 +4870,12 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             context: apply_context_updates(request.context, updates, "Section exit")?,
             metadata: metadata_entries(output.candidate.metadata)?,
         })
+    }
+
+    fn structure_preparation(&mut self, event: skript_parser::StructurePreparationEvent<'_>) {
+        if let Some(observer) = self.structure_preparation.as_mut() {
+            observer(event);
+        }
     }
 
     fn enter_structure(
@@ -9029,6 +9037,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            structure_preparation: None,
         };
         let result = run_expression_parser(
             catalog.as_ref(),
@@ -9133,6 +9142,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            structure_preparation: None,
         };
         let result = run_condition_parser(
             catalog.as_ref(),
@@ -9235,6 +9245,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            structure_preparation: None,
         };
         let parsed = run_section_parser(
             catalog.as_ref(),
@@ -9277,7 +9288,20 @@ impl ParserHost {
         transaction: &ParseTransaction,
         context: InvocationContext,
         request: StructureParseRequest<'_>,
+        config: StructureParserConfig,
+    ) -> Result<WasmStructureParseResult, HostError> {
+        self.parse_structures_in_parse_observed(transaction, context, request, config, None)
+    }
+
+    fn parse_structures_in_parse_observed(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: StructureParseRequest<'_>,
         mut config: StructureParserConfig,
+        mut structure_preparation: Option<
+            &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
+        >,
     ) -> Result<WasmStructureParseResult, HostError> {
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
@@ -9332,6 +9356,11 @@ impl ParserHost {
             calls: Arc::default(),
             failures: Vec::new(),
         };
+        let mut observe = |event: skript_parser::StructurePreparationEvent<'_>| {
+            if let Some(observer) = structure_preparation.as_mut() {
+                observer(event);
+            }
+        };
         let mut environment = WasmExpressionEnvironment {
             hooks,
             pending_leaf: None,
@@ -9339,6 +9368,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: Some(&mut function_registry),
+            structure_preparation: Some(&mut observe),
         };
         let parsed = run_structure_parser(
             catalog.as_ref(),
@@ -9554,6 +9584,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            structure_preparation: None,
         };
         let parsed = run_effect_parser(
             catalog.as_ref(),

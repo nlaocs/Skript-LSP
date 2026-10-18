@@ -20,6 +20,8 @@ use syntaxes::{Catalog, Syntax, SyntaxKind};
 
 mod continuation;
 mod cursor;
+mod prepared;
+pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery};
 mod signature;
 mod structure;
 pub(super) use signature::{SignatureCapabilities, SignatureQuery};
@@ -438,15 +440,17 @@ impl Document {
         if offset < line.code_start || offset > line.range.end {
             return false;
         }
+        let line = &self.structure_query_line(line, offset);
         line.blocked
             || line
                 .comments
                 .iter()
                 .any(|r| r.start <= offset && offset <= r.end)
-            || matches!(
-                lexical_context(&self.source[line.code_start..offset]),
-                Lexical::String | Lexical::Comment
-            )
+            || !matches!(line.scope, Scope::Pending)
+                && matches!(
+                    lexical_context(&self.source[line.code_start..offset]),
+                    Lexical::String | Lexical::Comment
+                )
     }
     pub fn from_result(
         result: &DocumentParseResult,

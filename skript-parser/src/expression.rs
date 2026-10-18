@@ -1374,6 +1374,9 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         })
     }
 
+    /// Observes current-source proposal preparation; it must not alter parser state.
+    fn structure_preparation(&mut self, _event: crate::StructurePreparationEvent<'_>) {}
+
     /// Selects the body parser and context after a top-level Structure header matched.
     fn enter_structure(
         &mut self,

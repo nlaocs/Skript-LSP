@@ -71,6 +71,13 @@ pub(super) trait Analyzer {
         None
     }
     fn analyze(&mut self, job: &Job) -> Analysis;
+    fn analyze_with_preparation(
+        &mut self,
+        job: &Job,
+        _publish: &mut dyn FnMut(Preparation),
+    ) -> Analysis {
+        self.analyze(job)
+    }
     fn release(&mut self, uri: &str, through_revision: u64) -> Result<(), String>;
 }
 pub(super) type Factory =
@@ -82,6 +89,7 @@ struct ParserAnalyzer {
     hover_format: lsp_types::MarkupKind,
     semantic_enabled: bool,
     completions: Arc<completion::CatalogIndex>,
+    prepare_completion: bool,
 }
 pub(super) fn parser_factory() -> Factory {
     Box::new(|config| {
@@ -116,6 +124,7 @@ pub(super) fn parser_factory() -> Factory {
             hover_format: config.hover_format,
             semantic_enabled: config.semantic_legend.is_some(),
             completions,
+            prepare_completion: config.completion_refresh,
         }))
     })
 }
@@ -124,8 +133,51 @@ impl Analyzer for ParserAnalyzer {
         Some(Arc::clone(&self.completions))
     }
     fn analyze(&mut self, job: &Job) -> Analysis {
+        self.analyze_with_preparation(job, &mut |_| {})
+    }
+    fn analyze_with_preparation(
+        &mut self,
+        job: &Job,
+        publish: &mut dyn FnMut(Preparation),
+    ) -> Analysis {
         let started = Instant::now();
-        let result = self.host.parse_document(
+        let prepare = self.prepare_completion;
+        let index = Arc::clone(&self.completions);
+        let mut observer = |event: skript_parser::StructurePreparationEvent<'_>| {
+            if !prepare || job.control.token.is_cancelled() {
+                return;
+            }
+            match event {
+                skript_parser::StructurePreparationEvent::Headers {
+                    source,
+                    tree,
+                    headers,
+                } => {
+                    match completion::PreparedDocument::new(
+                        Arc::clone(&job.source),
+                        Arc::clone(&index),
+                        source,
+                        tree,
+                        &headers,
+                    ) {
+                        Ok(document) => publish(Preparation::Ready(Box::new(document))),
+                        Err(error) => publish(Preparation::Unavailable(error)),
+                    }
+                }
+                skript_parser::StructurePreparationEvent::Invalidated {
+                    raw_node_id,
+                    registration_id,
+                    pattern_index,
+                } => {
+                    publish(Preparation::Invalidated(completion::OwnerAttempt {
+                        root: raw_node_id,
+                        registration: registration_id.into(),
+                        pattern: pattern_index,
+                    }));
+                }
+            }
+        };
+        let result = self.host.parse_document_with_preparation(
             DocumentParseRequest::new(
                 &self.project_uri,
                 document_key(job.uri.as_str()),
@@ -136,6 +188,7 @@ impl Analyzer for ParserAnalyzer {
                 cancellation: job.control.token.clone(),
                 ..DocumentParserConfig::default()
             },
+            &mut observer,
         );
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
@@ -229,7 +282,13 @@ fn document_key(uri: &str) -> String {
     // Unicode filenames. The host accepts opaque IDs; protocol URIs stay intact.
     format!("lsp-document:{:x}", Sha256::digest(uri.as_bytes()))
 }
+pub(super) enum Preparation {
+    Ready(Box<completion::PreparedDocument>),
+    Invalidated(completion::OwnerAttempt),
+    Unavailable(String),
+}
 pub(super) enum Event {
+    Preparation(Job, Preparation, f64),
     Ready(Result<Option<Arc<completion::CatalogIndex>>, String>, f64),
     Finished(Job, Analysis, Value),
     Failed(String),
@@ -300,7 +359,9 @@ impl Worker {
                         if job.control.token.is_cancelled() { continue; }
                         let queue_ms = job.queued_at.elapsed().as_secs_f64() * 1000.0;
                         let started = Instant::now();
-                        let analysis = analyzer.analyze(&job);
+                        let analysis = analyzer.analyze_with_preparation(&job, &mut |preparation| {
+                            let _ = sender.send(Event::Preparation(job.clone(), preparation, started.elapsed().as_secs_f64()*1000.0));
+                        });
                         let analysis_ms = started.elapsed().as_secs_f64() * 1000.0;
                         let status = match &analysis.outcome { Outcome::Diagnostics(_, status) => *status, Outcome::Cancelled => "cancelled", Outcome::Stale => "stale" };
                         let metrics = json!({"uri":job.uri.as_str(), "revision":job.revision, "status":status, "queueMs":queue_ms, "parseMs":analysis.parse_ms, "reportMs":analysis.report_ms, "analysisMs":analysis_ms, "cancelToFinishMs":job.control.cancellation_ms()});

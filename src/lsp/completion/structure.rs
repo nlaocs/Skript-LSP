@@ -13,9 +13,9 @@ pub(super) enum Scope {
     Raw,
 }
 pub(super) struct EntryScope {
-    declarations: Vec<EntryData>,
-    present: Vec<(usize, RawNodeId)>,
-    registration: String,
+    pub(super) declarations: Vec<EntryData>,
+    pub(super) present: Vec<(usize, RawNodeId)>,
+    pub(super) registration: String,
 }
 
 pub(super) fn apply(

@@ -4,6 +4,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 use worker::{Analysis, Analyzer};
 
+#[path = "tests/preparation.rs"]
+mod preparation;
+
 const URI: &str = "file:///project/example.sk";
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -47,10 +50,28 @@ struct TestAnalyzer {
     released: Sender<(String, u64)>,
     actions: Arc<Mutex<Vec<Action>>>,
     completion_index: Option<Arc<completion::CatalogIndex>>,
+    preparation_enabled: bool,
 }
 impl Analyzer for TestAnalyzer {
     fn completion_index(&self) -> Option<Arc<completion::CatalogIndex>> {
         self.completion_index.clone()
+    }
+    fn analyze_with_preparation(
+        &mut self,
+        job: &Job,
+        publish: &mut dyn FnMut(worker::Preparation),
+    ) -> Analysis {
+        if self.preparation_enabled {
+            let view = completion::PreparedDocument::test_fixture(Arc::clone(&job.source));
+            let owner = view.owner_at(Position::new(1, 0)).cloned();
+            publish(worker::Preparation::Ready(Box::new(view)));
+            if job.source.starts_with("hold-revoke") {
+                self.started.send(-job.version).unwrap();
+                self.proceed.recv_timeout(TIMEOUT).unwrap();
+                publish(worker::Preparation::Invalidated(owner.unwrap()));
+            }
+        }
+        self.analyze(job)
     }
     fn analyze(&mut self, job: &Job) -> Analysis {
         self.actions
@@ -61,7 +82,19 @@ impl Analyzer for TestAnalyzer {
         if job.source.as_ref().starts_with("hold") {
             self.proceed.recv_timeout(TIMEOUT).unwrap();
         }
-        let outcome = match job.source.strip_prefix("hold-").unwrap_or(&job.source) {
+        let fixture_source = if self.preparation_enabled {
+            job.source
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim_end_matches(':')
+        } else {
+            &job.source
+        };
+        let outcome = match fixture_source
+            .strip_prefix("hold-")
+            .unwrap_or(fixture_source)
+        {
             "panic" => panic!("controlled worker failure"),
             "cancel" => Outcome::Cancelled,
             "stale" => Outcome::Stale,
@@ -155,13 +188,14 @@ impl Client {
         let server = thread::spawn(move || {
             serve(
                 server_connection,
-                Box::new(move |_| {
+                Box::new(move |config| {
                     Ok(Box::new(TestAnalyzer {
                         started: started_sender,
                         proceed: proceed_receiver,
                         released: released_sender,
                         actions: analyzer_actions,
                         completion_index,
+                        preparation_enabled: config.completion_refresh,
                     }))
                 }),
             )

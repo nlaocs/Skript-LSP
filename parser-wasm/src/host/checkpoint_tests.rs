@@ -179,6 +179,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
         expression_candidates: Vec::new(),
         semantic_candidates: Vec::new(),
         function_registry: None,
+        structure_preparation: None,
     });
 }
 

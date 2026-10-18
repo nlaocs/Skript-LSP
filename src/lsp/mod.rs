@@ -29,6 +29,7 @@ struct ProjectConfig {
     hover_format: MarkupKind,
     semantic_legend: Option<semantic_tokens::Legend>,
     completion_snippets: bool,
+    completion_refresh: bool,
     signature_capabilities: completion::SignatureCapabilities,
 }
 
@@ -43,6 +44,11 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let completion_refresh = params
+            .capabilities
+            .experimental
+            .as_ref()
+            .is_some_and(|value| value["skriptCompletionRefresh"] == true);
         let completion_snippets = params
             .capabilities
             .text_document
@@ -114,6 +120,7 @@ impl ProjectConfig {
             hover_format,
             semantic_legend,
             completion_snippets,
+            completion_refresh,
             signature_capabilities,
         })
     }
@@ -196,6 +203,11 @@ fn publish(
     )
 }
 
+struct CompletionTicket {
+    ticket: String,
+    position: Position,
+    owner: Option<completion::OwnerAttempt>,
+}
 struct Document {
     generation: u64,
     revision: u64,
@@ -208,12 +220,99 @@ struct Document {
     lines: positions::LineIndex,
     completion: Option<completion::Document>,
     syntax_completion: Option<completion::Document>,
+    prepared_completion: Option<Box<completion::PreparedDocument>>,
+    prepared_ticket: Option<CompletionTicket>,
+    next_completion_ticket: u64,
     completion_ready: bool,
     completion_requests: Vec<(RequestId, Position, Instant)>,
     signature_requests: Vec<(RequestId, Position, Instant)>,
     signature_capabilities: completion::SignatureCapabilities,
 }
 impl Document {
+    fn try_prepared_completion(
+        &mut self,
+        connection: &Connection,
+        id: &RequestId,
+        position: Position,
+        snippets: bool,
+        wait_ms: f64,
+    ) -> Result<bool, String> {
+        let Some(document) = &self.prepared_completion else {
+            return Ok(false);
+        };
+        let started = Instant::now();
+        let completion::PreparedQuery::Ready(mut list) = document.at(position, snippets)? else {
+            return Ok(false);
+        };
+        self.next_completion_ticket = self
+            .next_completion_ticket
+            .checked_add(1)
+            .ok_or("completion ticket exhausted")?;
+        let ticket = format!(
+            "{}:{}:{}",
+            self.generation, self.revision, self.next_completion_ticket
+        );
+        let owner = document.owner_at(position).cloned();
+        for item in &mut list.items {
+            if let Some(data) = item.data.as_mut().and_then(Value::as_object_mut) {
+                data.insert("completionTicket".into(), json!(ticket));
+            }
+        }
+        self.prepared_ticket = (!list.items.is_empty()).then_some(CompletionTicket {
+            ticket,
+            position,
+            owner,
+        });
+        let count = list.items.len();
+        send(connection, Response::new_ok(id.clone(), list))?;
+        log(
+            connection,
+            format!(
+                "skript-lsp completion timing {}",
+                json!({"queryMs":started.elapsed().as_secs_f64()*1000.0,"waitMs":wait_ms,"source":"prepared","items":count,"isIncomplete":true})
+            ),
+        )?;
+        Ok(true)
+    }
+    fn prepare_completion_requests(
+        &mut self,
+        connection: &Connection,
+        snippets: bool,
+    ) -> Result<(), String> {
+        for (id, position, queued) in std::mem::take(&mut self.completion_requests) {
+            if !self.try_prepared_completion(
+                connection,
+                &id,
+                position,
+                snippets,
+                queued.elapsed().as_secs_f64() * 1000.0,
+            )? {
+                self.completion_requests.push((id, position, queued));
+            }
+        }
+        Ok(())
+    }
+    fn refresh_completion(
+        &mut self,
+        connection: &Connection,
+        uri: &Uri,
+        phase: &str,
+    ) -> Result<(), String> {
+        if let Some(ticket) = self.prepared_ticket.take() {
+            send(
+                connection,
+                Notification::new(
+                    "skript/completionRefresh".into(),
+                    json!({
+                        "uri":uri,"version":self.version,"generation":self.generation,"revision":self.revision,
+                        "ticket":ticket.ticket,"position":ticket.position,"phase":phase
+                    }),
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     fn queue_signature(
         &mut self,
         connection: &Connection,
@@ -512,6 +611,9 @@ impl Documents {
                 source,
                 completion: None,
                 syntax_completion: None,
+                prepared_completion: None,
+                prepared_ticket: None,
+                next_completion_ticket: 0,
                 completion_ready: false,
                 completion_requests: Vec::new(),
                 signature_requests: Vec::new(),
@@ -555,6 +657,8 @@ impl Documents {
         document.tokens = None;
         document.completion = None;
         document.syntax_completion = None;
+        document.prepared_completion = None;
+        document.prepared_ticket = None;
         document.completion_ready = false;
         document.source = Arc::from(source);
         document.lines = positions::LineIndex::new(&document.source);
@@ -609,6 +713,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
     };
     let semantic_legend = config.semantic_legend.clone();
     let completion_snippets = config.completion_snippets;
+    let completion_refresh = config.completion_refresh;
     let signature_capabilities = config.signature_capabilities;
     let mut worker = Worker::start(config, factory)?;
     let mut documents = Documents::new(signature_capabilities);
@@ -627,6 +732,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                     Event::Ready(Ok(index), startup_ms) => {
                         documents.completion_index = index;
                         let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
+                        if completion_refresh { capabilities["experimental"] = json!({"skriptCompletionRefresh":true}); }
                         if let Some(legend) = &semantic_legend {
                             capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
                         }
@@ -640,6 +746,25 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                         send(&connection, Response::new_err(initialize_id.take().unwrap(), ErrorCode::InternalError as i32, format!("parser initialization failed: {error}")))?;
                         return Err(error);
                     }
+                    Event::Preparation(job, preparation, prepare_ms) => {
+                        if shutdown || !documents.current(&job) || job.control.token.is_cancelled() { continue; }
+                        let document = documents.open.get_mut(&job.uri).unwrap();
+                        match preparation {
+                            worker::Preparation::Ready(prepared) => {
+                                document.prepared_completion = Some(prepared);
+                                document.prepare_completion_requests(&connection, completion_snippets)?;
+                            }
+                            worker::Preparation::Invalidated(owner) => {
+                                if document.prepared_completion.as_mut().is_some_and(|view| view.revoke(&owner)) {
+                                    if document.prepared_ticket.as_ref().is_some_and(|ticket| ticket.owner.as_ref() == Some(&owner)) {
+                                        document.refresh_completion(&connection, &job.uri, "revoked")?;
+                                    }
+                                }
+                            }
+                            worker::Preparation::Unavailable(error) => { log(&connection, format!("prepared completion unavailable: {error}"))?; }
+                        }
+                        log(&connection, format!("skript-lsp preparation timing {}", json!({"uri":job.uri,"version":job.version,"revision":job.revision,"prepareMs":prepare_ms})))?;
+                    }
                     Event::Finished(job, analysis, metrics) => {
                         if shutdown { continue; }
                         log(&connection, format!("skript-lsp timing {metrics}"))?;
@@ -651,6 +776,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             let document = documents.open.get_mut(&job.uri).unwrap();
                             document.tokens = Some(SemanticTokens::default());
                             document.completion_ready = true;
+                            document.prepared_completion = None;
                             if !job.control.token.is_cancelled() {
                                 if let Outcome::Diagnostics(diagnostics, status) = analysis.outcome {
                                     if status != "fatal" {
@@ -660,16 +786,19 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                             document.tokens = Some(snapshot.full(legend));
                                         }
                                     }
-                                    publish(&connection, job.uri, job.version, diagnostics)?;
+                                    publish(&connection, job.uri.clone(), job.version, diagnostics)?;
                                 }
                             }
                             document.finish_token_requests(&connection)?;
                             document.finish_completion_requests(&connection, completion_snippets)?;
                             document.finish_signature_requests(&connection)?;
+                            document.refresh_completion(&connection, &job.uri, "final")?;
                         }
                     }
                     Event::Failed(error) => {
-                        for document in documents.open.values_mut() {
+                        for (uri, document) in &mut documents.open {
+                            document.prepared_completion = None;
+                            document.refresh_completion(&connection, uri, "failed")?;
                             document.cancel_requests(&connection, ErrorCode::InternalError)?;
                         }
                         if let Some(id) = initialize_id.take() {
@@ -717,6 +846,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                                 send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, "invalid completion UTF-16 position".into()))?;
                                             } else if document.completion_ready {
                                                 document.send_completion(&connection, request.id, target.position, completion_snippets, 0.0)?;
+                                            } else if document.try_prepared_completion(&connection, &request.id, target.position, completion_snippets, 0.0)? {
                                             } else if let Some(index) = syntax_index {
                                                 if !document.try_syntax_completion(&connection, &request.id, target.position, completion_snippets, index)? {
                                                     document.completion_requests.push((request.id, target.position, received));
