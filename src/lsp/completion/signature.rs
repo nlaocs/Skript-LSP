@@ -285,7 +285,10 @@ impl Document {
                         order,
                         SignatureInformation {
                             label: pattern.label.clone(),
-                            documentation: Some(Documentation::String(pattern.detail.clone())),
+                            documentation: Some(Documentation::String(format!(
+                                "{}; expected types and addon guards are not checked",
+                                pattern.detail
+                            ))),
                             // A missing/invalid index defaults to parameter zero in LSP.
                             // Omit the parameter list when evidence is ambiguous or the
                             // cursor is in fixed grammar, so clients cannot mislabel it.
@@ -455,6 +458,7 @@ mod tests {
         Arc::new(CatalogIndex {
             templates: Vec::new(),
             patterns: vec![Pattern {
+                documentation: None,
                 kind: SyntaxKind::Effect,
                 label: pattern.into(),
                 detail: "fixture".into(),

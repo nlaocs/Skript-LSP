@@ -57,7 +57,7 @@ pub(super) fn apply(
             StructureBody::Entries(values) => {
                 if let Some(validator) = &candidate.entry_validator {
                     validator_scope(
-                        result,
+                        &result.raw_tree,
                         raw.id,
                         validator,
                         values,
@@ -94,7 +94,7 @@ pub(super) fn apply(
 }
 
 fn validator_scope(
-    result: &DocumentParseResult,
+    tree: &skript_parser::RawTree,
     parent: RawNodeId,
     validator: &EntryValidator,
     values: &[skript_parser::StructureEntry],
@@ -103,21 +103,12 @@ fn validator_scope(
     entries: &mut Vec<EntryScope>,
     context: &mut BTreeMap<u32, Line>,
 ) {
-    let Some(raw) = result.raw_tree.get(parent) else {
+    let Some(_) = tree.get(parent) else {
         return;
     };
-    let present = raw
-        .children
+    let present = values
         .iter()
-        .filter_map(|id| result.raw_tree.get(*id))
-        .flat_map(|node| {
-            validator
-                .entry_data
-                .iter()
-                .enumerate()
-                .filter(move |(_, data)| skript_parser::structure_entry_matches(data, node))
-                .map(move |(index, _)| (index, node.id))
-        })
+        .filter_map(|entry| Some((entry.declaration_index, entry.raw_node_id?)))
         .collect();
     scopes.insert(parent, Scope::Entries(entries.len()));
     entries.push(EntryScope {
@@ -129,14 +120,14 @@ fn validator_scope(
         let Some(id) = value.raw_node_id else {
             continue;
         };
-        let Some(data) = validator.entry_data.iter().find(|d| d.key == value.key) else {
+        let Some(data) = validator.entry_data.get(value.declaration_index) else {
             continue;
         };
         match &value.value {
             StructureEntryValue::Container(children) => {
                 if let Some(nested) = &data.nested_validator {
                     validator_scope(
-                        result,
+                        tree,
                         id,
                         nested,
                         children,
@@ -205,7 +196,29 @@ impl Document {
         let mut query = line.clone();
         if let Scope::Entries(index) = line.scope {
             let text = &self.source[line.code_start..line.range.end];
-            for data in &self.entry_scopes[index].declarations {
+            let scope = &self.entry_scopes[index];
+            let selected = line.node.and_then(|id| {
+                scope
+                    .present
+                    .iter()
+                    .find(|(_, node)| *node == id)
+                    .map(|(index, _)| *index)
+            });
+            let declarations = scope
+                .declarations
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| selected.is_none_or(|selected| selected == *index))
+                .collect::<Vec<_>>();
+            // A partial edit without a parsed owner must not pick between duplicate keys.
+            for (_, data) in declarations.iter().copied().filter(|(_, data)| {
+                selected.is_some()
+                    || declarations
+                        .iter()
+                        .filter(|(_, other)| other.key.eq_ignore_ascii_case(&data.key))
+                        .count()
+                        == 1
+            }) {
                 if matches!(
                     data.kind,
                     EntryKind::Trigger | EntryKind::Container | EntryKind::Section
@@ -338,6 +351,129 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_key_declarations_track_the_selected_index_not_every_matching_node() {
+        let source: Arc<str> = Arc::from("root:\n    name: first\n    ");
+        let mapped = skript_parser::MappedSource::identity(Arc::clone(&source));
+        let tree = skript_parser::parse_raw_tree(
+            &mapped,
+            skript_parser::RawTreeOptions::for_skript_version(2, 15),
+        );
+        let raw = tree
+            .iter()
+            .find(|node| node.kind == RawNodeKind::Simple)
+            .unwrap();
+        let data = EntryData {
+            key: "name".into(),
+            default_value: None,
+            optional: false,
+            multiple: false,
+            entry_data_class: syntaxes::ClassName("test.Entry".into()),
+            kind: EntryKind::KeyValue,
+            separator: Some(": ".into()),
+            value_type: None,
+            string_mode: None,
+            return_types: Vec::new(),
+            flags: None,
+            nested_validator: None,
+        };
+        let validator = EntryValidator {
+            entry_data: vec![data.clone(), data.clone()],
+        };
+        let span = raw.code_span.clone().unwrap();
+        let values = vec![skript_parser::StructureEntry {
+            raw_node_id: Some(raw.id),
+            declaration_index: 0,
+            key_span: None,
+            key: data.key.clone(),
+            entry_data_class: data.entry_data_class.clone(),
+            kind: data.kind,
+            source: raw.text.clone(),
+            span: skript_parser::MatchSpan {
+                local_range: span.virtual_range,
+                mapped: span,
+            },
+            defaulted: false,
+            value: StructureEntryValue::Raw("first".into()),
+        }];
+        let mut document = Document::test_fixture(source);
+        let mut scopes = HashMap::new();
+        validator_scope(
+            &tree,
+            tree.roots[0],
+            &validator,
+            &values,
+            "owner",
+            &mut scopes,
+            &mut document.entry_scopes,
+            &mut document.context,
+        );
+        assert_eq!(document.entry_scopes[0].present, [(0, raw.id)]);
+        document.context.get_mut(&2).unwrap().scope = Scope::Entries(0);
+        let items = document.at(Position::new(2, 4), true).unwrap().items;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "name");
+    }
+
+    #[test]
+    fn entry_value_scope_uses_selected_declaration_and_rejects_ambiguous_recovery() {
+        let source: Arc<str> = Arc::from("root:\n    name: first\n    name: sin(");
+        let mapped = skript_parser::MappedSource::identity(Arc::clone(&source));
+        let tree = skript_parser::parse_raw_tree(
+            &mapped,
+            skript_parser::RawTreeOptions::for_skript_version(2, 15),
+        );
+        let node = tree
+            .iter()
+            .filter(|node| node.kind == RawNodeKind::Simple)
+            .last()
+            .unwrap()
+            .id;
+        let raw = EntryData {
+            key: "name".into(),
+            default_value: None,
+            optional: true,
+            multiple: false,
+            entry_data_class: syntaxes::ClassName("test.Entry".into()),
+            kind: EntryKind::KeyValue,
+            separator: Some(": ".into()),
+            value_type: None,
+            string_mode: None,
+            return_types: Vec::new(),
+            flags: None,
+            nested_validator: None,
+        };
+        let mut expression = raw.clone();
+        expression.kind = EntryKind::Expression;
+        expression.flags = Some(1);
+        let mut document = Document::test_fixture(source);
+        document.entry_scopes.push(EntryScope {
+            declarations: vec![raw, expression],
+            present: vec![(1, node)],
+            registration: "owner".into(),
+        });
+        let line = document.context.get_mut(&2).unwrap();
+        line.scope = Scope::Entries(0);
+        line.node = Some(node);
+        let line = line.clone();
+        let offset = line.range.end;
+        assert!(matches!(
+            document.structure_query_line(&line, offset).scope,
+            Scope::Expressions
+        ));
+        document.entry_scopes[0].present[0].0 = 0;
+        assert!(matches!(
+            document.structure_query_line(&line, offset).scope,
+            Scope::Raw
+        ));
+        document.entry_scopes[0].present.clear();
+        assert!(matches!(
+            document.structure_query_line(&line, offset).scope,
+            Scope::Entries(0)
+        ));
+    }
+
     #[test]
     fn conditions_scope_excludes_effect_and_section_templates() {
         let mut document = Document::test_fixture(Arc::from("root:\n    i"));
@@ -350,6 +486,7 @@ mod tests {
             (SyntaxKind::Condition, "is set"),
         ] {
             index.templates.push(Template {
+                documentation: None,
                 kind,
                 label: text.into(),
                 detail: "fixture".into(),

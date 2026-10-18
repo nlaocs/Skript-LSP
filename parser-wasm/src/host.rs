@@ -16491,6 +16491,8 @@ mod tests {
 
         let entry = StructureEntry {
             raw_node_id: None,
+            declaration_index: 0,
+            key_span: None,
             key: "value".to_owned(),
             entry_data_class: ClassName("example.EntryData".to_owned()),
             kind: EntryKind::Expression,

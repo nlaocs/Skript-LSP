@@ -1289,6 +1289,96 @@ fn hover_prose_angle_placeholders_are_literal_without_added_escape_slashes() {
 }
 
 #[test]
+fn structure_entry_hover_uses_definition_metadata_and_only_the_exact_key() {
+    for format in ["markdown", "plaintext"] {
+        let mut client = Client::initialized_with_capabilities(
+            &[],
+            json!({"textDocument":{"hover":{"contentFormat":[format]}}}),
+        );
+        client.open(1, "command /hover:\r\n    permission: sample # note\r\n    trigger:\r\n        send 1 to console\r\n");
+        assert!(client.diagnostics(1).diagnostics.is_empty());
+        for (id, line, column, end, facts) in [
+            (
+                400,
+                1,
+                6,
+                14,
+                vec![
+                    "Structure entry: permission",
+                    "optional",
+                    "value",
+                    "at most once",
+                ],
+            ),
+            (
+                401,
+                2,
+                6,
+                11,
+                vec![
+                    "Structure entry: trigger",
+                    "required",
+                    "section",
+                    "executable statements",
+                ],
+            ),
+        ] {
+            let hover = client.hover(id, line, column).expect("entry key hover");
+            assert_eq!(hover.range, Some(range(line, 4, line, end)));
+            let HoverContents::Markup(content) = hover.contents else {
+                panic!("markup")
+            };
+            for fact in facts {
+                assert!(
+                    content.value.contains(fact),
+                    "missing {fact}: {}",
+                    content.value
+                );
+            }
+        }
+        for (id, line, column) in [(402, 1, 14), (403, 1, 18), (404, 2, 11)] {
+            if let Some(hover) = client.hover(id, line, column) {
+                let HoverContents::Markup(content) = hover.contents else {
+                    panic!("markup")
+                };
+                assert!(
+                    !content.value.contains("Structure entry:"),
+                    "entry hover escaped its key"
+                );
+            }
+        }
+        assert!(
+            client.hover(405, 1, 26).is_none(),
+            "comments remain blocked"
+        );
+        client.change(2, "command /hover:\n    PERMISSION MESSAGE: keep # note\n");
+        assert!(
+            !client.diagnostics(2).diagnostics.is_empty(),
+            "missing required trigger"
+        );
+        let hover = client
+            .hover(406, 1, 8)
+            .expect("definition hover survives an independent entry error");
+        assert_eq!(hover.range, Some(range(1, 4, 1, 22)));
+        let HoverContents::Markup(content) = hover.contents else {
+            panic!("markup")
+        };
+        assert!(
+            content
+                .value
+                .contains("Structure entry: permission message")
+        );
+        client.change(3, "command /hover:\n    per\n");
+        client.diagnostics(3);
+        assert!(
+            client.hover(407, 1, 5).is_none(),
+            "partial key cannot reuse old definition"
+        );
+        client.finish();
+    }
+}
+
+#[test]
 fn structure_entries_come_from_validator_and_track_partial_edits_and_indentation() {
     let mut client = Client::initialized_with_capabilities(
         &[],

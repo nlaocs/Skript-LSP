@@ -39,6 +39,7 @@ enum Part {
 }
 #[derive(Clone)]
 struct Template {
+    documentation: Option<Arc<str>>,
     kind: SyntaxKind,
     label: String,
     detail: String,
@@ -48,6 +49,7 @@ struct Template {
     parts: Vec<Part>,
 }
 struct Pattern {
+    documentation: Option<Arc<str>>,
     kind: SyntaxKind,
     label: String,
     detail: String,
@@ -131,16 +133,27 @@ impl CatalogIndex {
             let Some(common) = syntax.common() else {
                 continue;
             };
+            let documentation: Arc<str> = super::hover_text::render(
+                common.documentation.name.as_deref().unwrap_or("Syntax"),
+                &[("Addon", common.addon.name.clone())],
+                Some(&common.documentation),
+                &lsp_types::MarkupKind::PlainText,
+            )
+            .into();
             for (pattern_index, pattern) in common.patterns.iter().enumerate() {
                 if pattern.source.len() > MAX_TEMPLATE_BYTES {
                     index.limited = true;
                     continue;
                 }
-                let detail = format!(
-                    "{:?} / {}; types and addon guards are not checked",
-                    syntax.kind(),
-                    common.addon.name
-                );
+                let detail = match common
+                    .documentation
+                    .name
+                    .as_deref()
+                    .filter(|name| !name.is_empty())
+                {
+                    Some(name) => format!("{:?} / {name} / {}", syntax.kind(), common.addon.name),
+                    None => format!("{:?} / {}", syntax.kind(), common.addon.name),
+                };
                 let identity = format!("{}:{pattern_index}", common.registration_id.as_str());
                 let event_prefix = matches!(syntax, Syntax::Event(event) if event.has_on_prefix);
                 if let Some(graph) = continuation::Graph::with_prefix(
@@ -148,6 +161,7 @@ impl CatalogIndex {
                     &pattern.parsed.elements,
                 ) {
                     index.patterns.push(Pattern {
+                        documentation: Some(Arc::clone(&documentation)),
                         kind: syntax.kind(),
                         label: pattern.source.clone(),
                         detail: detail.clone(),
@@ -157,7 +171,12 @@ impl CatalogIndex {
                 } else {
                     index.limited = true;
                 }
-                let variants = variants(&pattern.parsed.elements, 0, &mut index.limited);
+                let variants = variants(
+                    &pattern.parsed.elements,
+                    0,
+                    &mut index.limited,
+                    catalog.plural_rules(),
+                );
                 let mut seen = HashSet::new();
                 for mut parts in variants {
                     if let Syntax::Event(event) = syntax {
@@ -184,6 +203,7 @@ impl CatalogIndex {
                         continue;
                     }
                     index.templates.push(Template {
+                        documentation: Some(Arc::clone(&documentation)),
                         kind: syntax.kind(),
                         label: pattern.source.clone(),
                         detail: detail.clone(),
@@ -203,6 +223,7 @@ fn variants(
     elements: &[SpannedPatternElement],
     depth: usize,
     limited: &mut bool,
+    plural_rules: &syntax_pattern_parser::syntax::PluralRules,
 ) -> Vec<Vec<Part>> {
     if depth > 32 {
         *limited = true;
@@ -213,19 +234,14 @@ fn variants(
         let choices = match &element.value {
             PatternElement::Literal(text) => vec![vec![Part::Text(text.clone())]],
             PatternElement::TypeExpr(types) => vec![vec![Part::Slot(
-                types
-                    .alternatives
-                    .iter()
-                    .map(|t| t.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join("/"),
+                types.display_with(plural_rules).to_string(),
             )]],
             PatternElement::Regex(_) => vec![vec![Part::Slot("value".into())]],
-            PatternElement::Group(group) => variants(group, depth + 1, limited),
+            PatternElement::Group(group) => variants(group, depth + 1, limited, plural_rules),
             PatternElement::Choice(branches) => {
                 let mut choices = Vec::new();
                 for branch in branches {
-                    choices.extend(variants(branch, depth + 1, limited));
+                    choices.extend(variants(branch, depth + 1, limited, plural_rules));
                     if choices.len() > MAX_VARIANTS {
                         choices.truncate(MAX_VARIANTS);
                         *limited = true;
@@ -236,7 +252,7 @@ fn variants(
             }
             PatternElement::Option(option) => {
                 let mut choices = vec![Vec::new()];
-                choices.extend(variants(option, depth + 1, limited));
+                choices.extend(variants(option, depth + 1, limited, plural_rules));
                 choices
             }
             PatternElement::ParseTag(_) | PatternElement::ParseMark(_) | PatternElement::Empty => {
@@ -310,6 +326,15 @@ fn normalize_parts(parts: Vec<Part>) -> Vec<Part> {
         *last = last.trim_end().to_owned();
     }
     output
+}
+fn preview(parts: &[Part]) -> String {
+    parts
+        .iter()
+        .map(|part| match part {
+            Part::Text(text) => text.clone(),
+            Part::Slot(label) => format!("%{label}%"),
+        })
+        .collect::<String>()
 }
 fn render(parts: &[Part], snippets: bool) -> String {
     let mut output = String::new();
@@ -669,11 +694,7 @@ impl Document {
                     .then(a.3.cmp(&b.3))
                     .then(a.2.cmp(&b.2))
             });
-            let mut seen = HashSet::new();
             for (fixed, slots, _, keyword, pattern) in continuations {
-                if !seen.insert(keyword.clone()) {
-                    continue;
-                }
                 let detail = format!(
                     "{}; continuation: {fixed} fixed characters, {slots} structural argument(s)",
                     pattern.detail
@@ -688,12 +709,18 @@ impl Document {
                     false,
                 )?;
                 item.data = Some(
-                    serde_json::json!({"syntaxKind":format!("{:?}", pattern.kind),"continuation":true}),
+                    serde_json::json!({"syntaxKind":format!("{:?}", pattern.kind),"continuation":true,"syntaxIdentity":pattern.identity}),
                 );
                 item.documentation = Some(Documentation::String(format!(
-                    "Syntax:\n{}\n\n{detail}\nRegistration: {}",
+                    "Syntax:\n{}\n\n{detail}\nExpected types and addon guards are not checked.\nRegistration: {}",
                     pattern.label, pattern.identity
                 )));
+                if let Some(documentation) = &pattern.documentation {
+                    if let Some(Documentation::String(text)) = &mut item.documentation {
+                        text.push_str("\n\n");
+                        text.push_str(documentation);
+                    }
+                }
                 items.push(item);
             }
         }
@@ -915,24 +942,6 @@ impl Document {
                 items.push(self.template_item(template, query, start, word_end, line, snippets)?);
             }
         }
-        let mut seen = HashSet::new();
-        items.retain(|item| {
-            let identity =
-                item.documentation
-                    .as_ref()
-                    .and_then(|documentation| match documentation {
-                        Documentation::String(text) => {
-                            text.rsplit_once("Registration: ").map(|(_, id)| id)
-                        }
-                        _ => None,
-                    });
-            if item.kind == Some(CompletionItemKind::SNIPPET) {
-                let leading = item.filter_text.as_deref().unwrap_or("").trim_end();
-                seen.insert((identity.unwrap_or("").to_owned(), leading.to_owned()))
-            } else {
-                true
-            }
-        });
         // Some menu clients insert only up to the cursor. Keep edits in that
         // prefix when an existing right suffix already matches the suggestion.
         // Omit ambiguous middle replacements instead of duplicating the suffix.
@@ -958,6 +967,26 @@ impl Document {
             edit.new_text = prefix.to_owned();
             edit.range.end = position;
             true
+        });
+        // Only merge the same syntax and the same effective insertion. Distinct
+        // registrations, variants and adapter edits remain separate.
+        let mut seen = HashSet::new();
+        items.retain(|item| {
+            let Some(identity) = item
+                .data
+                .as_ref()
+                .and_then(|data| data["syntaxIdentity"].as_str())
+            else {
+                return true;
+            };
+            let edit = serde_json::to_string(&(
+                &item.text_edit,
+                &item.insert_text_format,
+                &item.label,
+                &item.data,
+            ))
+            .expect("completion edit fields are serializable");
+            seen.insert((identity.to_owned(), edit))
         });
         let continuation_count = items
             .iter()
@@ -1039,8 +1068,9 @@ impl Document {
         if self.source[end..line.range.end].starts_with(char::is_whitespace) {
             insertion = insertion.trim_end().to_owned();
         }
+        let label = preview(&template.parts);
         let mut item = self.item(
-            &template.label,
+            &label,
             &insertion,
             &template.detail,
             &template.identity,
@@ -1048,7 +1078,19 @@ impl Document {
             TextRange::new(start, end),
             use_snippets,
         )?;
-        item.data = Some(serde_json::json!({"syntaxKind":format!("{:?}", template.kind)}));
+        item.data = Some(
+            serde_json::json!({"syntaxKind":format!("{:?}", template.kind),"syntaxIdentity":template.identity}),
+        );
+        item.documentation = Some(Documentation::String(format!(
+            "Template:\n{label}\n\nSyntax:\n{}\n\n{}\nExpected types and addon guards are not checked.\nRegistration: {}",
+            template.label, template.detail, template.identity
+        )));
+        if let Some(documentation) = &template.documentation {
+            if let Some(Documentation::String(text)) = &mut item.documentation {
+                text.push_str("\n\n");
+                text.push_str(documentation);
+            }
+        }
         Ok(item)
     }
     fn item(
@@ -1228,6 +1270,7 @@ impl Document {
             functions: Vec::new(),
             index: Arc::new(CatalogIndex {
                 templates: vec![Template {
+                    documentation: None,
                     kind: SyntaxKind::Structure,
                     label: label.clone(),
                     detail: "fixture".into(),
@@ -1260,6 +1303,7 @@ impl CatalogIndex {
         .unwrap();
         let parsed = syntax_pattern_parser::syntax::parse(label, &rules).unwrap();
         Arc::get_mut(&mut index).unwrap().patterns.push(Pattern {
+            documentation: None,
             kind: SyntaxKind::Structure,
             label: label.into(),
             detail: "fixture".into(),
@@ -1273,6 +1317,102 @@ impl CatalogIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn variants_show_argument_differences_and_only_identical_edits_are_merged() {
+        let grammar = "move %objects% (to|towards) %locations% [retaining %-objects%]";
+        let rules = test_plural_rules();
+        let parsed = syntax_pattern_parser::syntax::parse(grammar, &rules).unwrap();
+        let mut document = with_functions("on load:\n    mo");
+        let index = Arc::get_mut(&mut document.index).unwrap();
+        for parts in variants(&parsed.elements, 0, &mut false, &rules) {
+            let parts = normalize_parts(parts);
+            index.templates.push(Template {
+                documentation: Some(Arc::from("Supplied syntax description")),
+                kind: SyntaxKind::Effect,
+                label: grammar.into(),
+                detail: "Effect / Move / Test".into(),
+                identity: "move:0".into(),
+                leading: "move ".into(),
+                folded: "move ".into(),
+                parts,
+            });
+        }
+        assert_eq!(index.templates.len(), 4);
+        index.templates.push(index.templates[0].clone());
+        let mut other = index.templates[0].clone();
+        other.identity = "other-move:0".into();
+        index.templates.push(other);
+        for snippets in [true, false] {
+            let list = document.at(Position::new(1, 6), snippets).unwrap();
+            assert_eq!(list.items.len(), 5);
+            assert_eq!(
+                list.items
+                    .iter()
+                    .map(|item| item.label.as_str())
+                    .collect::<HashSet<_>>()
+                    .len(),
+                4
+            );
+            assert!(
+                list.items
+                    .iter()
+                    .any(|item| item.label.contains("to %locations% retaining %-objects%"))
+            );
+            assert!(
+                list.items
+                    .iter()
+                    .any(|item| item.label.contains("towards %locations%"))
+            );
+            for item in &list.items {
+                assert!(!item.label.contains("${"));
+                let Some(Documentation::String(text)) = &item.documentation else {
+                    panic!("full docs")
+                };
+                assert!(text.contains(grammar));
+                assert!(text.contains("Supplied syntax description"));
+                assert!(text.contains("Expected types and addon guards are not checked."));
+            }
+        }
+    }
+
+    #[test]
+    fn equal_continuation_words_keep_distinct_syntax_provenance() {
+        let grammar = "move %objects% to %locations%";
+        let parsed = syntax_pattern_parser::syntax::parse(grammar, &test_plural_rules()).unwrap();
+        let mut document = with_functions("on load:\n    move player t");
+        let index = Arc::get_mut(&mut document.index).unwrap();
+        for identity in ["first:0", "second:0", "first:0"] {
+            index.patterns.push(Pattern {
+                documentation: Some(Arc::from("Registered syntax description")),
+                kind: SyntaxKind::Effect,
+                label: grammar.into(),
+                detail: identity.into(),
+                identity: identity.into(),
+                graph: continuation::Graph::new(&parsed.elements).unwrap(),
+            });
+        }
+        let list = document.at(Position::new(1, 17), false).unwrap();
+        assert_eq!(list.items.len(), 2);
+        assert!(list.items.iter().all(|item| item.label == "to"));
+        assert_eq!(
+            list.items
+                .iter()
+                .map(|item| item.data.as_ref().unwrap()["syntaxIdentity"]
+                    .as_str()
+                    .unwrap())
+                .collect::<HashSet<_>>()
+                .len(),
+            2
+        );
+    }
+
+    fn test_plural_rules() -> syntax_pattern_parser::syntax::PluralRules {
+        syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
+            "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+        ))
+        .unwrap()
+    }
     use syntax_pattern_parser::syntax::{Span, Spanned};
 
     #[test]
@@ -1342,7 +1482,7 @@ mod tests {
             element(PatternElement::Literal(" $}\\".into())),
         ];
         let mut limited = false;
-        let choices = variants(&elements, 0, &mut limited);
+        let choices = variants(&elements, 0, &mut limited, &test_plural_rules());
         assert_eq!(choices.len(), 2);
         assert!(!limited);
         assert_eq!(render(&choices[0], false), "send a ");
@@ -1355,7 +1495,8 @@ mod tests {
             variants(
                 &[element(PatternElement::Choice(branches))],
                 0,
-                &mut limited
+                &mut limited,
+                &test_plural_rules()
             )
             .len(),
             MAX_VARIANTS
@@ -1367,7 +1508,7 @@ mod tests {
             )])),
             element(PatternElement::Literal(" name".into())),
         ];
-        let choices = variants(&optional_prefix, 0, &mut false);
+        let choices = variants(&optional_prefix, 0, &mut false, &test_plural_rules());
         assert_eq!(render(&normalize_parts(choices[0].clone()), false), "name");
         assert_eq!(
             render(&normalize_parts(choices[1].clone()), false),
@@ -1507,6 +1648,7 @@ mod tests {
         let mut view = with_functions("on load:\n    send name of player");
         view.index = Arc::new(CatalogIndex {
             templates: vec![Template {
+                documentation: None,
                 kind: SyntaxKind::Expression,
                 label: "name of objects".into(),
                 detail: "fixture".into(),
@@ -1537,6 +1679,7 @@ mod tests {
         let mut view = with_functions("on load:\n    cancel ");
         let mut index = Arc::try_unwrap(view.index).ok().unwrap();
         index.templates.push(Template {
+            documentation: None,
             kind: SyntaxKind::Effect,
             label: "cancel event".into(),
             detail: "fixture".into(),
@@ -1557,6 +1700,7 @@ mod tests {
         let mut view = with_functions("on load:\n    send s");
         let mut index = Arc::try_unwrap(view.index).ok().unwrap();
         index.templates.push(Template {
+            documentation: None,
             kind: SyntaxKind::Effect,
             label: "send subtitle".into(),
             detail: "fixture".into(),
@@ -1570,7 +1714,7 @@ mod tests {
         });
         view.index = Arc::new(index);
         let list = view.at(Position::new(1, 10), true).unwrap();
-        assert_eq!(list.items[0].label, "send subtitle");
+        assert_eq!(list.items[0].label, "send subtitle %object%");
         assert!(list.items.iter().any(|item| item.label.starts_with("sin(")));
     }
     #[test]
@@ -1606,6 +1750,7 @@ mod tests {
         ] {
             let view = with_functions(source);
             let template = Template {
+                documentation: None,
                 kind,
                 label: "fixture".into(),
                 detail: "fixture".into(),
@@ -1702,6 +1847,7 @@ mod tests {
             .unwrap();
             let parsed = syntax_pattern_parser::syntax::parse(grammar, &rules).unwrap();
             index.patterns.push(Pattern {
+                documentation: None,
                 kind: SyntaxKind::Effect,
                 label: grammar.into(),
                 detail: "Effect / fixture".into(),
@@ -1745,6 +1891,7 @@ mod tests {
             let mut view = with_functions(&source);
             let index = Arc::get_mut(&mut view.index).unwrap();
             index.patterns.push(Pattern {
+                documentation: None,
                 kind: SyntaxKind::Effect,
                 label: grammar.into(),
                 detail: "fixture".into(),
@@ -1797,6 +1944,7 @@ mod tests {
         .unwrap();
         let parsed = syntax_pattern_parser::syntax::parse(&grammar, &rules).unwrap();
         index.patterns.push(Pattern {
+            documentation: None,
             kind: SyntaxKind::Effect,
             label: grammar,
             detail: "fixture".into(),

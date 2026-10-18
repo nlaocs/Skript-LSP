@@ -19,6 +19,74 @@ use syntaxes::{
     SyntaxKind,
 };
 
+#[test]
+fn entry_declaration_identity_and_key_ranges_survive_duplicates_nesting_and_defaults() {
+    let mut first = key_value("na\u{ef}ve", false, false);
+    first.entry_data_class = ClassName("test.First".into());
+    let mut second = first.clone();
+    second.entry_data_class = ClassName("test.Second".into());
+    let nested = EntryValidator {
+        entry_data: vec![key_value("na\u{ef}ve", false, false)],
+    };
+    let mut default = key_value("implicit", true, false);
+    default.default_value = Some(json!("fallback"));
+    let validator = EntryValidator {
+        entry_data: vec![first, second, container("settings", nested), default],
+    };
+    let catalog = catalog(vec![structure(
+        0,
+        "root",
+        NodeType::Section,
+        Some(validator),
+    )]);
+    let source = "root:\r\n\tNA\u{ef}VE: first # note\r\n\tna\u{ef}ve: second\r\n\tsettings:\r\n\t\tna\u{ef}ve: nested\r\n";
+    let document = parse(&catalog, source);
+    assert!(
+        document.diagnostics.is_empty(),
+        "{:?}",
+        document.diagnostics
+    );
+    let StructureBody::Entries(entries) = &selected(&document).body else {
+        panic!("entries")
+    };
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.declaration_index)
+            .collect::<Vec<_>>(),
+        [0, 1, 2, 3]
+    );
+    for (entry, expected) in entries[..3]
+        .iter()
+        .zip(["NA\u{ef}VE", "na\u{ef}ve", "settings"])
+    {
+        let span = entry.key_span.as_ref().unwrap();
+        assert_eq!(span.mapped.origins.len(), 1);
+        assert_eq!(
+            span.mapped.origins[0].kind,
+            skript_parser::OriginKind::Exact
+        );
+        assert_eq!(
+            span.mapped.origins[0].original_range.slice(source),
+            Some(expected)
+        );
+    }
+    assert_ne!(entries[0].entry_data_class, entries[1].entry_data_class);
+    let StructureEntryValue::Container(children) = &entries[2].value else {
+        panic!("container")
+    };
+    assert_eq!(children[0].declaration_index, 0);
+    assert_eq!(
+        children[0].key_span.as_ref().unwrap().mapped.origins[0]
+            .original_range
+            .slice(source),
+        Some("na\u{ef}ve")
+    );
+    assert!(entries[3].defaulted);
+    assert!(entries[3].raw_node_id.is_none());
+    assert!(entries[3].key_span.is_none());
+}
+
 fn plural_rules() -> PluralRules {
     PluralRules::from_json(
         r#"{

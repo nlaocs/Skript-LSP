@@ -142,6 +142,10 @@ pub enum StructureBody {
 pub struct StructureEntry {
     /// Source RawTree node, or `None` for a defaulted value.
     pub raw_node_id: Option<RawNodeId>,
+    /// Index in the owning (possibly nested) EntryValidator's ordered declarations.
+    pub declaration_index: usize,
+    /// Exact key spelling mapped through SourceMap, absent for implicit defaults.
+    pub key_span: Option<MatchSpan>,
     /// EntryData key declared by the registration.
     pub key: String,
     /// Java EntryData implementation class retained for addon dispatch.
@@ -1173,6 +1177,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             session,
             tree,
             child,
+            index,
             data,
             entry_body_modes,
             &entry_path,
@@ -1192,6 +1197,8 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
                 .map_or_else(|| default.to_string(), str::to_owned);
             entries.push(StructureEntry {
                 raw_node_id: None,
+                declaration_index: index,
+                key_span: None,
                 key: data.key.clone(),
                 entry_data_class: data.entry_data_class.clone(),
                 kind: data.kind.clone(),
@@ -1222,6 +1229,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     session: &mut ExpressionSession<'_, E>,
     tree: &RawTree,
     node: &RawNode,
+    declaration_index: usize,
     data: &EntryData,
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
     path: &[String],
@@ -1233,6 +1241,18 @@ fn parse_entry<E: ExpressionParseEnvironment>(
             .as_ref()
             .map_or(node.span.virtual_range, |span| span.virtual_range),
     )?;
+    let start = node
+        .code_span
+        .as_ref()
+        .map_or(node.span.virtual_range.start, |span| {
+            span.virtual_range.start
+        });
+    let key_range = TextRange::new(start, start + data.key.len());
+    let key_span = key_range
+        .slice(session.source().virtual_source())
+        .filter(|text| text.eq_ignore_ascii_case(&data.key))
+        .map(|_| session.map_range(key_range))
+        .transpose()?;
     let value_range = entry_value_range(node, data)?;
     let raw_value = value_range
         .and_then(|range| range.slice(session.source().virtual_source()))
@@ -1309,6 +1329,8 @@ fn parse_entry<E: ExpressionParseEnvironment>(
                 return Ok((
                     structure_entry(
                         node,
+                        declaration_index,
+                        key_span,
                         data,
                         source,
                         span,
@@ -1361,7 +1383,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
         EntryKind::VariableString | EntryKind::KeyValue => StructureEntryValue::Raw(raw_value),
     };
     Ok((
-        structure_entry(node, data, source, span, value),
+        structure_entry(node, declaration_index, key_span, data, source, span, value),
         diagnostics,
         valid,
     ))
@@ -1369,6 +1391,8 @@ fn parse_entry<E: ExpressionParseEnvironment>(
 
 fn structure_entry(
     node: &RawNode,
+    declaration_index: usize,
+    key_span: Option<MatchSpan>,
     data: &EntryData,
     source: String,
     span: MatchSpan,
@@ -1376,6 +1400,8 @@ fn structure_entry(
 ) -> StructureEntry {
     StructureEntry {
         raw_node_id: Some(node.id),
+        declaration_index,
+        key_span,
         key: data.key.clone(),
         entry_data_class: data.entry_data_class.clone(),
         kind: data.kind.clone(),

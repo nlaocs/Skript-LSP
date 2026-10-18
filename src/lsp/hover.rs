@@ -13,6 +13,8 @@ use std::{
 };
 use syntaxes::{Catalog, ParameterModifier, Syntax};
 
+mod structure;
+
 /// Only immutable data reaches the protocol thread. Native recursive candidates
 /// and their speculative effects are destroyed on the parser worker's stack.
 pub(super) struct Document {
@@ -23,8 +25,13 @@ pub(super) struct Document {
     format: MarkupKind,
 }
 
+#[derive(PartialEq, Eq)]
+enum TargetId {
+    Ast(u64),
+    Entry(skript_parser::RawNodeId),
+}
 struct Target {
-    id: u64,
+    id: TargetId,
     content: Arc<str>,
     depth: usize,
     origins: Vec<TextRange>,
@@ -73,13 +80,22 @@ impl Document {
                 }
             }
         }
+        let (entry_targets, entry_blocked) = structure::targets(&result, &format)?;
+        blocked.extend(entry_blocked);
         let functions = result
             .functions
             .registrations()
             .iter()
             .map(|registration| registration.definition.clone())
             .collect();
-        Self::from_ast(source, result.ast, functions, catalog, blocked, format)
+        let mut document = Self::from_ast(source, result.ast, functions, catalog, blocked, format)?;
+        for target in &entry_targets {
+            for range in &target.origins {
+                document.lines.range(&document.source, *range)?;
+            }
+        }
+        document.targets.extend(entry_targets);
+        Ok(document)
     }
 
     fn from_ast(
@@ -151,7 +167,7 @@ impl Document {
                 shared
             };
             targets.push(Target {
-                id: node.id,
+                id: TargetId::Ast(node.id),
                 content,
                 depth,
                 origins: exact,
