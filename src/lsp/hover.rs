@@ -1,4 +1,5 @@
 use super::positions::LineIndex;
+use super::public_data::variable_details;
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 use parser_wasm::{
     DocumentParseResult,
@@ -496,7 +497,7 @@ fn kind_name(kind: parser_wasm::host::SyntaxKind) -> &'static str {
     }
 }
 
-fn same_kind(catalog: syntaxes::SyntaxKind, ast: parser_wasm::host::SyntaxKind) -> bool {
+pub(super) fn same_kind(catalog: syntaxes::SyntaxKind, ast: parser_wasm::host::SyntaxKind) -> bool {
     use parser_wasm::host::SyntaxKind as Ast;
     use syntaxes::SyntaxKind as Catalog;
     matches!(
@@ -531,37 +532,6 @@ fn origins(span: &MappedSpan) -> Result<Vec<TextRange>, String> {
             ))
         })
         .collect()
-}
-
-/// Interpret only the documented public variable contract, never arbitrary
-/// addon metadata or a guessed meaning from the source spelling.
-fn variable_details(node: &AstNode) -> Option<(String, String)> {
-    let data = node
-        .summary
-        .as_ref()?
-        .public_data
-        .iter()
-        .find(|data| data.schema_id == "nlaocs.skript.variable" && data.schema_version == 1)?;
-    let value: serde_json::Value = serde_json::from_str(&data.json).ok()?;
-    let scope = value.get("scope")?.as_str()?;
-    if !matches!(scope, "local" | "global") {
-        return None;
-    }
-    let mut template = String::new();
-    for part in value.get("name")?.as_array()? {
-        match part.get("kind")?.as_str()? {
-            "text" => template.push_str(part.get("text")?.as_str()?),
-            "expression" => {
-                let index = usize::try_from(part.get("childIndex")?.as_u64()?).ok()?;
-                if index >= node.children.len() {
-                    return None;
-                }
-                template.push_str(&format!("<expression {}>", index + 1));
-            }
-            _ => return None,
-        }
-    }
-    Some((scope.to_owned(), template))
 }
 
 #[cfg(test)]

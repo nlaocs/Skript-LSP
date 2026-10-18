@@ -23,7 +23,8 @@ and a two-pass lifecycle with document-local Function registration.
 
 The root `skript-lsp` binary provides a minimal stdio language server: one explicit
 project/snapshot, full-document synchronization, source-mapped diagnostics, and
-hover information for selected syntax, types, variables, and functions.
+hover information for selected syntax, types, variables, and functions, plus
+negotiated semantic tokens for confirmed original source ranges.
 See the [LSP contract](docs/lsp.ja.md) and [Neovim setup](docs/neovim.ja.md).
 The root library provides `new_parser_host`. The `skript-repl` utility exposes
 both the existing one-line Effect inspector and a multiline frontend for the

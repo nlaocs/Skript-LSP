@@ -20,11 +20,28 @@ if vim.env.SKRIPT_LSP_ADDON_PATHS and vim.env.SKRIPT_LSP_ADDON_PATHS ~= "" then
   end
 end
 
+-- Neovim can render arbitrary token names, but its default capability list
+-- contains only standard names. Explicitly opt in to Skript's syntax roles.
+local capabilities = vim.lsp.protocol.make_client_capabilities()
+for _, name in ipairs({ "skriptEvent", "skriptCondition", "skriptEffect", "skriptExpression",
+  "skriptSection", "skriptStructure", "skriptLiteral" }) do
+  table.insert(capabilities.textDocument.semanticTokens.tokenTypes, name)
+end
+for role, color in pairs({
+  skriptEvent = "#C678DD", skriptCondition = "#C678DD", skriptEffect = "#61AFEF",
+  skriptExpression = "#98C379", skriptSection = "#C678DD", skriptStructure = "#D19A66",
+  variable = "#56B6C2", ["function"] = "#ABB2BF",
+}) do
+  vim.api.nvim_set_hl(0, "@lsp.type." .. role .. ".skript", { fg = color, default = true })
+end
+vim.api.nvim_set_hl(0, "@lsp.type.skriptLiteral.skript", { link = "Normal", default = true })
+
 local config = {
   cmd = { exe, "--stdio" },
   root_dir = root,
   filetypes = { "skript" },
   init_options = { snapshotPath = snapshot, addonPaths = addons },
+  capabilities = capabilities,
 }
 
 vim.filetype.add({ extension = { sk = "skript" } })

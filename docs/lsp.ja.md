@@ -1,6 +1,6 @@
 # 最小 stdio Language Server
 
-`skript-lsp --stdio` は、設定した一つのprojectとSSG snapshotを使い、開いている文書の診断とホバー情報を提供する。
+`skript-lsp --stdio` は、設定した一つのprojectとSSG snapshotを使い、開いている文書の診断・ホバー・Semantic Tokensを提供する。
 必須CoreLibraryはexeへ埋め込まれ、通常の解析にJavaやMinecraftサーバーは必要ない。
 全構文・全Addonの互換性を保証する完成版ではなく、補完・定義移動・複数ファイル索引・変数型flow・incremental parseは含まない。
 
@@ -17,8 +17,8 @@ clientは `rootUri` または一件の `workspaceFolders` と、次の `initiali
 }
 ```
 
-対応する要求は `initialize`、`textDocument/hover`、`shutdown`、通知は `initialized`、`exit`、
-`textDocument/didOpen`、`didChange`、`didClose`。
+対応する要求は `initialize`、`textDocument/hover`、交渉済みの `textDocument/semanticTokens/full`、`shutdown`、
+通知は `initialized`、`exit`、`textDocument/didOpen`、`didChange`、`didClose`、`$/cancelRequest`。
 同期方式はFullで、変更は文書全体の `text` と増加するclient versionを送る。
 位置encodingはUTF-16。診断はversion付きの `publishDiagnostics` で置換し、
 修正後に診断がなくなった場合とclose時には空配列を返す。
@@ -96,11 +96,43 @@ Markdownのコード区切りは内容中のbacktickより長くする。処理�
 受理した編集で直ちに旧キャッシュを捨て、世代・revision・client versionが一致した完了結果だけを保持する。
 closeではキャッシュを解放し、同じURIをversion 0で開き直しても旧情報を引き継がない。
 
+## Semantic Tokens の分類と範囲
+
+clientがrelative形式とfull要求への対応を表明した場合に、対応するtoken typeの共通部分だけをlegendとして返す。
+fullのみを実装し、range・delta・modifierは公開しない。未対応の独自分類を標準の別の意味へ変換せず省略する。
+
+| token type | 対象 |
+| --- | --- |
+| `skriptEvent` / `skriptCondition` / `skriptEffect` | 採用された各構文の確定した固定部分 |
+| `skriptExpression` / `skriptSection` / `skriptStructure` | 同じくExpression・Section・Structureの固定部分 |
+| `skriptLiteral` | 最終結果がliteralと示す値。Type parserが生成した値も含む |
+| 標準 `function` | 型付きFunction callの名前だけ |
+| 標準 `variable` | version 1の公開schemaで確認できる変数参照の名前部分 |
+
+実効型から変数の固定型やparameter bindingを推測せず、引数値を一律にparameter色にしない。
+子の範囲・位置付きcaptureを親から引くため、文字列や変数名の補間内にも子自身の分類を適用する。
+未対応の子も親から引き、親色へのfallbackを避ける。各tokenは単一行・非空・UTF-16の半開区間で、重なりを返さない。
+
+最終ASTと原文が一致するExact originだけを使う。コメント・Invalid行・fault領域・非Exactの原文範囲は除外する。
+別nodeの原文範囲が競合する部分は順番で選ばず省略する。Function名は単一Exact originと原文一致を確認する。
+未完成文書でも独立して確定した兄弟は着色できる。
+
+最終ASTでは一部のcapture位置が失われるため、Text captureを持つ親、CatalogのID・patternと照合できない親、
+regexを含むpatternの親を初版では着色しない。EventではTypeExprを含むpatternの親も省略する。
+`if` / `while`等の固定語や宣言header、動的構文の親もこの制約に該当し得る。確定した子の着色は残る。
+default/group/listのwrapper、型名の宣言位置、引数label等の位置や意味を補作しない。
+
+token用の不変データはworkerで作り、通信threadで再解析しない。
+解析中のfull要求は通信処理を止めずに保持し、同じ世代・revisionの解析完了時に返す。
+編集・closeは旧要求へContentModified、shutdownと個別取消はRequestCancelledを返す。
+個別要求の取消は共有の解析を止めない。fatal・cancel・staleの完了時には空結果で保留を解放し、worker故障時もerrorで終端する。
+semantic投影の失敗は専用logと空tokenにし、既存の診断とホバーの生成から分離する。
+
 ## 計測と検証
 
 `window/logMessage` にstartupと解析単位のJSONを出力する。
 `startupMs` はsnapshot読み込み・WASM host初期化を含むworker準備時間。
-`queueMs` は要求の待機、`parseMs` は `parse_document`、`reportMs` は診断・ホバー変換と結果の後始末、
+`queueMs` は要求の待機、`parseMs` は `parse_document`、`reportMs` は診断・ホバー・token変換と結果の後始末、
 `analysisMs` はworker処理全体、`cancelToFinishMs` は取消要求からworkerが返るまでの時間を表す。
 取消前に終了していた場合や取消されなかった場合はnullになる。
 これらはRustのbuild/compile時間や、clientが画面へ診断を描くまでの時間を含まない。

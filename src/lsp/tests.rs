@@ -54,10 +54,11 @@ impl Analyzer for TestAnalyzer {
             .unwrap()
             .push(Action::Started(job.version));
         self.started.send(job.version).unwrap();
-        if job.source.as_ref() == "hold" {
+        if job.source.as_ref().starts_with("hold") {
             self.proceed.recv_timeout(TIMEOUT).unwrap();
         }
-        let outcome = match job.source.as_ref() {
+        let outcome = match job.source.strip_prefix("hold-").unwrap_or(&job.source) {
+            "panic" => panic!("controlled worker failure"),
             "cancel" => Outcome::Cancelled,
             "stale" => Outcome::Stale,
             "fatal" => Outcome::Diagnostics(
@@ -94,9 +95,18 @@ impl Analyzer for TestAnalyzer {
         } else {
             None
         };
+        // Deliberately supply a stale-looking snapshot with fatal outcomes:
+        // protocol policy must still clear tokens rather than trust this field.
+        let semantic_tokens = matches!(
+            outcome,
+            Outcome::Diagnostics(_, "complete" | "partial" | "fatal")
+        )
+        .then(|| semantic_tokens::Document::test_fixture(&job.source));
         Analysis {
             outcome,
             hover,
+            semantic_tokens,
+            semantic_error: None,
             parse_ms: 0.0,
             report_ms: 0.0,
         }
@@ -121,6 +131,9 @@ struct Client {
 }
 impl Client {
     fn start() -> Self {
+        Self::start_with_capabilities(json!({}))
+    }
+    fn start_with_capabilities(capabilities: Value) -> Self {
         let (connection, server_connection) = Connection::memory();
         let (started_sender, started) = unbounded();
         let (proceed, proceed_receiver) = unbounded();
@@ -148,7 +161,7 @@ impl Client {
             actions,
             server,
         };
-        client.connection.sender.send(lsp_server::Request::new(1.into(), "initialize".into(), json!({"rootUri":"file:///project","capabilities":{},"initializationOptions":{"snapshotPath":"snapshot"}})).into()).unwrap();
+        client.connection.sender.send(lsp_server::Request::new(1.into(), "initialize".into(), json!({"rootUri":"file:///project","capabilities":capabilities,"initializationOptions":{"snapshotPath":"snapshot"}})).into()).unwrap();
         let response = client.until(
             |message| matches!(message, Message::Response(response) if response.id == 1.into()),
         );
@@ -251,6 +264,181 @@ impl Client {
         self.notify("exit", Value::Null);
         assert!(self.server.join().unwrap().is_ok());
     }
+}
+
+fn semantic_capabilities() -> Value {
+    json!({"textDocument":{"semanticTokens":{
+        "requests":{"full":true},"tokenTypes":["skriptLiteral", "function"],
+        "tokenModifiers":[],"formats":["relative"]
+    }}})
+}
+
+fn token_request(client: &Client, id: i32) {
+    client
+        .connection
+        .sender
+        .send(
+            lsp_server::Request::new(
+                id.into(),
+                "textDocument/semanticTokens/full".into(),
+                json!({"textDocument":{"uri":URI}}),
+            )
+            .into(),
+        )
+        .unwrap();
+}
+
+fn token_response(client: &Client, id: i32) -> Response {
+    let Message::Response(response) = client.until(
+        |message| matches!(message, Message::Response(response) if response.id == id.into()),
+    ) else {
+        unreachable!()
+    };
+    response
+}
+
+#[test]
+fn semantic_requests_wait_without_blocking_hover_and_cancel_independently() {
+    let client = Client::start_with_capabilities(semantic_capabilities());
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    token_request(&client, 40);
+    token_request(&client, 41);
+    client.sync(42);
+    assert!(client.hover(43).is_null());
+    client.notify("$/cancelRequest", json!({"id":40}));
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    client.proceed.send(()).unwrap();
+    client.diagnostics(1);
+    assert_eq!(
+        token_response(&client, 41).response_result.unwrap()["data"],
+        json!([0, 0, 4, 0, 0])
+    );
+    token_request(&client, 44);
+    assert_eq!(
+        token_response(&client, 44).response_result.unwrap()["data"],
+        json!([0, 0, 4, 0, 0])
+    );
+    assert!(!client.hover(45).is_null());
+    client.finish();
+}
+
+#[test]
+fn semantic_requests_are_invalidated_by_edit_close_and_reopen() {
+    let client = Client::start_with_capabilities(semantic_capabilities());
+    client.open(10, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 10);
+    token_request(&client, 40);
+    client.sync(41);
+    client.change(11, "hold");
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    client.proceed.send(()).unwrap();
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 11);
+    token_request(&client, 42);
+    client.sync(43);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    assert_eq!(
+        token_response(&client, 42)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    client.diagnostics(11);
+    client.open(1, "new");
+    token_request(&client, 44);
+    client.proceed.send(()).unwrap();
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    client.diagnostics(1);
+    assert_eq!(
+        token_response(&client, 44).response_result.unwrap()["data"],
+        json!([0, 0, 3, 0, 0])
+    );
+    client.finish();
+}
+
+#[test]
+fn semantic_empty_fatal_cancelled_and_stale_analyses_finish_requests() {
+    for source in ["", "fatal", "cancel", "stale"] {
+        let client = Client::start_with_capabilities(semantic_capabilities());
+        client.open(1, source);
+        if matches!(source, "" | "fatal") {
+            client.diagnostics(1);
+        }
+        token_request(&client, 40);
+        assert_eq!(
+            token_response(&client, 40).response_result.unwrap()["data"],
+            json!([])
+        );
+        client.finish();
+    }
+}
+
+#[test]
+fn semantic_pending_requests_finish_on_fatal_cancel_stale_and_worker_failure() {
+    for outcome in ["fatal", "cancel", "stale", "panic"] {
+        let client = Client::start_with_capabilities(semantic_capabilities());
+        client.open(1, &format!("hold-{outcome}"));
+        assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+        token_request(&client, 40);
+        client.sync(41);
+        client.proceed.send(()).unwrap();
+        if outcome == "fatal" {
+            client.diagnostics(1);
+        }
+        let response = token_response(&client, 40);
+        if outcome == "panic" {
+            assert_eq!(
+                response.response_result.unwrap_err().code,
+                ErrorCode::InternalError as i32
+            );
+            client.diagnostics(1);
+            assert!(client.server.join().unwrap().is_err());
+        } else {
+            assert_eq!(response.response_result.unwrap()["data"], json!([]));
+            client.finish();
+        }
+    }
+}
+
+#[test]
+fn semantic_pending_request_is_cancelled_before_shutdown_response() {
+    let client = Client::start_with_capabilities(semantic_capabilities());
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    token_request(&client, 40);
+    client.sync(41);
+    client
+        .connection
+        .sender
+        .send(lsp_server::Request::new(99.into(), "shutdown".into(), Value::Null).into())
+        .unwrap();
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    assert_eq!(
+        token_response(&client, 99).response_result.unwrap(),
+        Value::Null
+    );
+    client.proceed.send(()).unwrap();
+    client.notify("exit", Value::Null);
+    assert!(client.server.join().unwrap().is_ok());
 }
 
 #[test]

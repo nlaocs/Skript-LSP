@@ -1,4 +1,4 @@
-# Neovim で文書診断とホバーを確認する
+# Neovim で文書診断・ホバー・ハイライトを確認する
 
 Neovim 0.12 以降の標準 LSP client を使う。`nvim-lspconfig` や追加 plugin は不要で、
 この手順は既存の Neovim 設定ファイルを書き換えない。
@@ -68,6 +68,28 @@ Neovim標準のcapabilitiesではMarkdown表示を選び、説明のHTMLタグ�
 標準floating windowで確認する。HTMLタグと文字参照、色タグ、複数行の例の字下げ・境界、
 完全修飾Javaクラス、2回目のhoverによるfocus、scroll、close、編集後の表示更新をJSONへ記録する。
 headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktopの画面描画までは保証しない。
+
+## Semantic Tokens の色
+
+付属設定はNeovimの標準capabilitiesへ `skriptEvent`、`skriptCondition`、`skriptEffect`、`skriptExpression`、
+`skriptSection`、`skriptStructure`、`skriptLiteral` を追加し、`@lsp.type.<分類>.skript` の色を定義する。
+Effectは青、Expressionは薄緑、literalはNormal、variableはcyan、Functionはgrayを初期値にする。
+`default = true` のため、既に定義したhighlight groupを上書きしない。好みのthemeでは同じgroupを設定できる。
+
+Neovimの既定tokenTypesは標準分類だけであり、そのままのclientにはFunction名・変数参照だけを返す。
+独自分類は意味の違う `property` / `method` 等へ置き換えない。
+標準分類だけならclient設定が少なく済み、独自分類ならSkriptの構文上の役割ごとに色を選べる。
+他clientでも同じ独自名への対応表明と色設定が必要になる。
+
+確定した固定語と子の式を別範囲にし、親AST全体を同色で塗らない。
+regex captureの位置が最終ASTに残らない構文等は、親を着色せず子だけを残す。
+`if` / `while`や宣言header、動的構文の一部も対象外になり得る。詳細は[LSPの制約](lsp.ja.md)を参照する。
+
+同じ隔離環境で `tests/neovim/semantic_tokens.lua` を実行すると、標準decoderのtoken範囲、
+標準highlighterの実extmarkと色、UTF-16、日本語・絵文字、文字列/変数名の補間、未完成文書、編集、同URI再openを検査する。
+出力は既存の `SKRIPT_LSP_SMOKE_OUTPUT`、または専用directoryを示す `SKRIPT_LSP_OUTPUT` から指定する。
+`SKRIPT_LSP_STANDARD_TOKENS=1` では標準capabilitiesだけの対照試験を行う。
+これはheadlessの標準clientの検証であり、desktopのfont描画や第三者pluginの検証とは区別する。
 
 ## 独立した headless smoke
 

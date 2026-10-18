@@ -1,4 +1,4 @@
-use super::{ProjectConfig, diagnostics, hover};
+use super::{ProjectConfig, diagnostics, hover, semantic_tokens};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use lsp_types::Diagnostic;
 use parser_wasm::{
@@ -59,6 +59,8 @@ pub(super) enum Outcome {
 pub(super) struct Analysis {
     pub outcome: Outcome,
     pub hover: Option<hover::Document>,
+    pub semantic_tokens: Option<semantic_tokens::Document>,
+    pub semantic_error: Option<String>,
     pub parse_ms: f64,
     pub report_ms: f64,
 }
@@ -73,6 +75,7 @@ struct ParserAnalyzer {
     host: ParserHost,
     catalog: Arc<syntaxes::Catalog>,
     hover_format: lsp_types::MarkupKind,
+    semantic_enabled: bool,
 }
 pub(super) fn parser_factory() -> Factory {
     Box::new(|config| {
@@ -101,6 +104,7 @@ pub(super) fn parser_factory() -> Factory {
             host,
             catalog,
             hover_format: config.hover_format,
+            semantic_enabled: config.semantic_legend.is_some(),
         }))
     })
 }
@@ -122,6 +126,8 @@ impl Analyzer for ParserAnalyzer {
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
         let mut hover = None;
+        let mut semantic_tokens = None;
+        let mut semantic_error = None;
         let outcome = match result {
             Ok(result) => {
                 let status =
@@ -131,6 +137,16 @@ impl Analyzer for ParserAnalyzer {
                         "complete"
                     };
                 // Conversion and recursive destruction stay on the worker's large stack.
+                if self.semantic_enabled {
+                    match semantic_tokens::Document::from_result(
+                        &result,
+                        &job.source,
+                        &self.catalog,
+                    ) {
+                        Ok(snapshot) => semantic_tokens = Some(snapshot),
+                        Err(error) => semantic_error = Some(error),
+                    }
+                }
                 match diagnostics::from_result(&job.uri, &result) {
                     Ok(mut diagnostics) => match hover::Document::from_result(
                         result,
@@ -143,14 +159,18 @@ impl Analyzer for ParserAnalyzer {
                             Outcome::Diagnostics(diagnostics, status)
                         }
                         Err(error) => {
+                            semantic_tokens = None;
                             diagnostics.push(diagnostics::fatal("lsp.source-mapping", error));
                             Outcome::Diagnostics(diagnostics, "fatal")
                         }
                     },
-                    Err(error) => Outcome::Diagnostics(
-                        vec![diagnostics::fatal("lsp.source-mapping", error)],
-                        "fatal",
-                    ),
+                    Err(error) => {
+                        semantic_tokens = None;
+                        Outcome::Diagnostics(
+                            vec![diagnostics::fatal("lsp.source-mapping", error)],
+                            "fatal",
+                        )
+                    }
                 }
             }
             Err(DocumentParseError::Cancelled { .. }) => Outcome::Cancelled,
@@ -163,6 +183,8 @@ impl Analyzer for ParserAnalyzer {
         Analysis {
             outcome,
             hover,
+            semantic_tokens,
+            semantic_error,
             parse_ms,
             report_ms: report_started.elapsed().as_secs_f64() * 1000.0,
         }

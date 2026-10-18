@@ -18,6 +18,102 @@ use tempfile::{NamedTempFile, TempDir};
 const TIMEOUT: Duration = Duration::from_secs(120);
 const HEALTHY: &str = "on load:\n    send 1 to console\n";
 
+#[test]
+fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
+    let mut client = Client::spawn();
+    client.initialize_with_capabilities(
+        &snapshot(),
+        &[],
+        json!({"textDocument":{"semanticTokens":{
+            "requests":{"full":true}, "formats":["relative"], "tokenModifiers":[],
+            "tokenTypes":["skriptEvent","skriptCondition","skriptEffect","skriptExpression",
+                "skriptSection","skriptStructure","skriptLiteral","function","variable"]
+        }}}),
+    );
+    let initialization = client.response(1).response_result.unwrap();
+    let provider = &initialization["capabilities"]["semanticTokensProvider"];
+    assert_eq!(provider["full"], true);
+    assert!(provider.get("range").is_none());
+    let types = provider["legend"]["tokenTypes"].as_array().unwrap();
+    assert_eq!(types.len(), 9);
+    client.notify("initialized", json!({}));
+    let source = "on load:\r\n    send \"日本😀\" to console\r\n    send sin(1) to console\r\n    send {_money} to console\r\n    # no semantic color here\r\n    this effect does not exist\r\n";
+    client.open(1, source);
+    client.send(Request::new(
+        10.into(),
+        "textDocument/semanticTokens/full".into(),
+        json!({"textDocument":{"uri":client.uri}}),
+    ));
+    let diagnostics = client.diagnostics(1);
+    assert!(
+        diagnostics
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.range.start.line == 5)
+    );
+    let result = client.response(10).response_result.unwrap();
+    let data = result["data"].as_array().unwrap();
+    assert_eq!(data.len() % 5, 0);
+    let mut decoded = Vec::new();
+    let mut line = 0;
+    let mut start = 0;
+    let mut previous_end = (0, 0);
+    for token in data.chunks_exact(5) {
+        let delta = token[0].as_u64().unwrap() as usize;
+        line += delta;
+        start = if delta == 0 {
+            start + token[1].as_u64().unwrap() as usize
+        } else {
+            token[1].as_u64().unwrap() as usize
+        };
+        let length = token[2].as_u64().unwrap() as usize;
+        assert!(length > 0 && (line, start) >= previous_end);
+        assert_eq!(token[4], 0);
+        let text = source
+            .lines()
+            .nth(line)
+            .unwrap()
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let text = String::from_utf16(&text[start..start + length]).unwrap();
+        let kind = types[token[3].as_u64().unwrap() as usize].as_str().unwrap();
+        assert!(
+            line < 4,
+            "comments and unclaimed statements have no semantic tokens"
+        );
+        decoded.push((line, start, length, kind, text));
+        previous_end = (line, start + length);
+    }
+    for expected in [
+        (1, 4, 4, "skriptEffect", "send"),
+        (1, 9, 6, "skriptLiteral", "\"日本😀\""),
+        (2, 9, 3, "function", "sin"),
+        (2, 13, 1, "skriptLiteral", "1"),
+        (3, 9, 8, "variable", "{_money}"),
+    ] {
+        assert!(
+            decoded.iter().any(|actual| actual.0 == expected.0
+                && actual.1 == expected.1
+                && actual.2 == expected.2
+                && actual.3 == expected.3
+                && actual.4 == expected.4),
+            "missing {expected:?}: {decoded:#?}"
+        );
+    }
+    client.change(2, "");
+    assert!(client.diagnostics(2).diagnostics.is_empty());
+    client.send(Request::new(
+        11.into(),
+        "textDocument/semanticTokens/full".into(),
+        json!({"textDocument":{"uri":client.uri}}),
+    ));
+    assert_eq!(
+        client.response(11).response_result.unwrap()["data"],
+        json!([])
+    );
+    client.finish();
+}
+
 fn snapshot() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("utilities/skript-repl/tests/data/current-multi-addon-2.15.4")

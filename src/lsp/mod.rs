@@ -4,13 +4,16 @@ mod diagnostics;
 mod hover;
 mod hover_text;
 mod positions;
+mod public_data;
+mod semantic_tokens;
 mod worker;
 
 use crossbeam_channel::{bounded, select};
-use lsp_server::{Connection, ErrorCode, Message, Notification, Response};
+use lsp_server::{Connection, ErrorCode, Message, Notification, RequestId, Response};
 use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    HoverParams, InitializeParams, MarkupKind, PublishDiagnosticsParams, Uri,
+    HoverParams, InitializeParams, MarkupKind, PublishDiagnosticsParams, SemanticTokens,
+    SemanticTokensParams, Uri,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -23,6 +26,7 @@ struct ProjectConfig {
     snapshot_path: PathBuf,
     addon_paths: Vec<PathBuf>,
     hover_format: MarkupKind,
+    semantic_legend: Option<semantic_tokens::Legend>,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +40,13 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let semantic_legend = semantic_tokens::Legend::negotiate(
+            params
+                .capabilities
+                .text_document
+                .as_ref()
+                .and_then(|document| document.semantic_tokens.as_ref()),
+        );
         let hover_format = params
             .capabilities
             .text_document
@@ -83,6 +94,7 @@ impl ProjectConfig {
             snapshot_path: absolute(options.snapshot_path),
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
             hover_format,
+            semantic_legend,
         })
     }
 }
@@ -170,6 +182,36 @@ struct Document {
     version: i32,
     control: Control,
     hover: Option<hover::Document>,
+    tokens: Option<SemanticTokens>,
+    token_requests: Vec<RequestId>,
+}
+impl Document {
+    fn finish_token_requests(&mut self, connection: &Connection) -> Result<(), String> {
+        for id in self.token_requests.drain(..) {
+            send(
+                connection,
+                Response::new_ok(id, self.tokens.clone().unwrap_or_default()),
+            )?;
+        }
+        Ok(())
+    }
+    fn cancel_token_requests(
+        &mut self,
+        connection: &Connection,
+        code: ErrorCode,
+    ) -> Result<(), String> {
+        for id in self.token_requests.drain(..) {
+            send(
+                connection,
+                Response::new_err(
+                    id,
+                    code as i32,
+                    "document analysis is no longer available for this request".into(),
+                ),
+            )?;
+        }
+        Ok(())
+    }
 }
 struct Documents {
     open: HashMap<Uri, Document>,
@@ -225,6 +267,8 @@ impl Documents {
                 version: item.version,
                 control,
                 hover: None,
+                tokens: None,
+                token_requests: Vec::new(),
             },
         );
         worker.submit(job);
@@ -234,6 +278,7 @@ impl Documents {
         &mut self,
         params: DidChangeTextDocumentParams,
         worker: &Worker,
+        connection: &Connection,
     ) -> Result<(), String> {
         let uri = params.text_document.uri;
         let document = self
@@ -254,11 +299,13 @@ impl Documents {
         let source = params.content_changes.into_iter().last().unwrap().text;
         let revision = self.id()?;
         let document = self.open.get_mut(&uri).unwrap();
+        document.cancel_token_requests(connection, ErrorCode::ContentModified)?;
         document.control.cancel();
         document.control = Control::new();
         document.revision = revision;
         document.version = params.text_document.version;
         document.hover = None;
+        document.tokens = None;
         worker.submit(Job {
             uri,
             generation: document.generation,
@@ -277,7 +324,8 @@ impl Documents {
         connection: &Connection,
     ) -> Result<(), String> {
         let uri = params.text_document.uri;
-        if let Some(document) = self.open.remove(&uri) {
+        if let Some(mut document) = self.open.remove(&uri) {
+            document.cancel_token_requests(connection, ErrorCode::ContentModified)?;
             document.control.cancel();
             worker.release(uri.as_str(), document.revision);
             publish(connection, uri, document.version, Vec::new())?;
@@ -307,6 +355,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
             return Err(error);
         }
     };
+    let semantic_legend = config.semantic_legend.clone();
     let mut worker = Worker::start(config, factory)?;
     let mut documents = Documents::new();
     let mut initialize_id = Some(initialize_id);
@@ -322,8 +371,12 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
             select! {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(()), startup_ms) => {
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true});
+                        if let Some(legend) = &semantic_legend {
+                            capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
+                        }
                         send(&connection, Response::new_ok(initialize_id.take().unwrap(), json!({
-                            "capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true},
+                            "capabilities":capabilities,
                             "serverInfo":{"name":"skript-lsp","version":env!("CARGO_PKG_VERSION")}
                         })))?;
                         log(&connection, format!("skript-lsp startup {{\"startupMs\":{startup_ms}}}"))?;
@@ -335,14 +388,30 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                     Event::Finished(job, analysis, metrics) => {
                         if shutdown { continue; }
                         log(&connection, format!("skript-lsp timing {metrics}"))?;
-                        if documents.current(&job) && !job.control.token.is_cancelled() {
-                            if let Outcome::Diagnostics(diagnostics, _) = analysis.outcome {
-                                documents.open.get_mut(&job.uri).unwrap().hover = analysis.hover;
-                                publish(&connection, job.uri, job.version, diagnostics)?;
+                        if documents.current(&job) {
+                            if let Some(error) = analysis.semantic_error {
+                                log(&connection, format!("semantic tokens unavailable: {error}"))?;
                             }
+                            let document = documents.open.get_mut(&job.uri).unwrap();
+                            document.tokens = Some(SemanticTokens::default());
+                            if !job.control.token.is_cancelled() {
+                                if let Outcome::Diagnostics(diagnostics, status) = analysis.outcome {
+                                    if status != "fatal" {
+                                        document.hover = analysis.hover;
+                                        if let (Some(snapshot), Some(legend)) = (analysis.semantic_tokens, &semantic_legend) {
+                                            document.tokens = Some(snapshot.full(legend));
+                                        }
+                                    }
+                                    publish(&connection, job.uri, job.version, diagnostics)?;
+                                }
+                            }
+                            document.finish_token_requests(&connection)?;
                         }
                     }
                     Event::Failed(error) => {
+                        for document in documents.open.values_mut() {
+                            document.cancel_token_requests(&connection, ErrorCode::InternalError)?;
+                        }
                         if let Some(id) = initialize_id.take() {
                             send(&connection, Response::new_err(id, ErrorCode::InternalError as i32, error.clone()))?;
                         } else if !shutdown {
@@ -356,9 +425,27 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                         Message::Request(request) => {
                             if request.method == "shutdown" && initialize_id.is_none() && !shutdown {
                                 shutdown = true;
+                                for document in documents.open.values_mut() {
+                                    document.cancel_token_requests(&connection, ErrorCode::RequestCanceled)?;
+                                }
                                 documents.cancel_all();
                                 worker.stop();
                                 send(&connection, Response::new_ok(request.id, Value::Null))?;
+                            } else if request.method == "textDocument/semanticTokens/full" && semantic_legend.is_some() && initialize_id.is_none() && initialized && !shutdown {
+                                match serde_json::from_value::<SemanticTokensParams>(request.params) {
+                                    Ok(params) => {
+                                        if let Some(document) = documents.open.get_mut(&params.text_document.uri) {
+                                            if let Some(tokens) = &document.tokens {
+                                                send(&connection, Response::new_ok(request.id, tokens))?;
+                                            } else {
+                                                document.token_requests.push(request.id);
+                                            }
+                                        } else {
+                                            send(&connection, Response::new_ok(request.id, SemanticTokens::default()))?;
+                                        }
+                                    }
+                                    Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
+                                }
                             } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
                                 let response = match serde_json::from_value::<HoverParams>(request.params) {
                                     Ok(params) => {
@@ -380,8 +467,20 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             if !initialized || shutdown { continue; }
                             let result = match notification.method.as_str() {
                                 "textDocument/didOpen" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.open(params, &worker)),
-                                "textDocument/didChange" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.change(params, &worker)),
+                                "textDocument/didChange" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.change(params, &worker, &connection)),
                                 "textDocument/didClose" => serde_json::from_value(notification.params).map_err(|error| error.to_string()).and_then(|params| documents.close(params, &worker, &connection)),
+                                "$/cancelRequest" => {
+                                    if let Ok(id) = serde_json::from_value::<RequestId>(notification.params["id"].clone()) {
+                                        for document in documents.open.values_mut() {
+                                            if let Some(index) = document.token_requests.iter().position(|pending| *pending == id) {
+                                                document.token_requests.remove(index);
+                                                send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "semantic token request cancelled".into()))?;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    Ok(())
+                                }
                                 _ => Ok(()),
                             };
                             if let Err(error) = result { log(&connection, error)?; }

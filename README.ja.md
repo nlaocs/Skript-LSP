@@ -18,7 +18,7 @@ transactional StateStore、dynamic syntax登録、Expression・Condition・Effec
 document内のFunction宣言も登録して呼び出し解析に利用できます。
 
 ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで全文同期、原文位置付き診断、
-採用された構文・型・変数・関数のホバー情報を提供する
+採用された構文・型・変数・関数のホバー情報と、確定した原文範囲のSemantic Tokensを提供する
 最小のstdio Language Serverです。[LSPの契約](docs/lsp.ja.md)と[Neovim設定](docs/neovim.ja.md)を参照してください。
 ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
 共通document parserを利用する複数行REPLを提供し、version付きJSON treeも出力します。
