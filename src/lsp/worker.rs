@@ -105,7 +105,10 @@ pub(super) fn parser_factory() -> Factory {
             .map_err(|error| error.to_string())?;
         host.release_document(&config.project_uri, "lsp-project-validation", 0)
             .map_err(|error| error.to_string())?;
-        let completions = Arc::new(completion::CatalogIndex::new(&catalog));
+        let completions = Arc::new(completion::CatalogIndex::new(
+            &catalog,
+            host.raw_tree_options(),
+        ));
         Ok(Box::new(ParserAnalyzer {
             project_uri: config.project_uri,
             host,

@@ -172,10 +172,17 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 編集は原文のUTF-16範囲で返す。既存の関数引数・変数の閉じbrace・右側の固定語を保持する。
 カーソル右側の既存文字を置換する必要があるときは、その文字列が候補末尾と一致する場合だけ前方prefixの編集へ変換する。
 末尾が一致しない途中置換は候補から省略する。右側の文字をmenu確定時に置換しないclientでも二重にしないためである。
+既存Function callには`data["nlaocs.lsp.completion-edit"]` version 1で`edit: TextEdit`も付ける。
+これは名前・空白・既存の開き括弧までを保持して置換する任意のclient adapter用編集であり、通常のprefix編集を置き換えない。
+対応adapterはUTF-16の編集範囲をclient標準処理へ渡す。未対応clientはdataを無視でき、Function kindと既存引数を維持する。
 `snippetSupport`があれば型slotや必須関数引数をtab stopにし、なければ最初のslot直前までの固定語だけを入れる。
 解析済みのrevisionではworkerで作った不変データを使い、追加の型推論やWASM解析を要求ごとに行わない。
 編集中に構文候補を返せる場合は、現在の原文だけからnative RawTreeを作り、全文WASM解析を待たずに`isIncomplete=true`で返す。
 このcontextはrevisionごとに再利用し、256KiBを超える原文では即時経路を使わない。参照scope用の祖先列は即時経路では作らない。
+字句optionsはHostがexplicit runtime設定とenabled plugin情報を統合した結果を共有し、補完側で版を再推定しない。
+不明・不正な版は不明のまま保持し、共通の`RawTreeOptions::UNKNOWN_RUNTIME`で`###`間を保守的にコメント扱いする。
+これは潜在的なコメント本文をコードとして補完・解析しないための方針であり、Skript 2.9等の版や全featureの対応を仮定するものではない。
+既知の版には実際の版境界を使い、document呼出側が明示した`raw_tree` optionsは引き続き優先する。
 即時応答は文頭構文と継続語を対象とし、その要求には未解析の関数・変数を後送しない。次の補完要求で現在の解析済み候補を得られる。
 文字列本文とコメントで候補が無いと確定できる場合も、解析完了を待たずに空の完了応答を返す。
 それ以外で構文候補を返せない場合は解析完了まで要求を保持する。旧revisionの履歴や文書関数を流用しない。

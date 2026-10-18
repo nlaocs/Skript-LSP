@@ -87,6 +87,14 @@ snippet対応時は必須引数・型slotをtab stopにする。Neovim標準のs
 `tests/neovim/completion.lua`は標準clientの実応答とmenu・確定後のbufferを確認し、
 JSONに要求往復時間、解析・候補検索logを分けて保存する。headlessの標準clientを対象とする。
 
+Blinkでは付属の`examples/neovim/lsp_completion_edit.lua`を設定の`lua/lsp_completion_edit.lua`へ置き、
+既存optsの` sources.providers.lsp.transform_items = require("lsp_completion_edit") `を設定できる。
+この公開hookはversion 1の`nlaocs.lsp.completion-edit`を持つ項目だけに完全な編集を適用する。
+挿入文字列に既存の開き括弧を含めると、Blink自身の括弧重複検査が使われる。
+Function kind、既存引数、他の補完項目、通常の自動括弧設定を維持し、filetypeによる無効化は不要になる。
+このmetadataはLSP標準fieldの意味を変えるものではなく、任意adapter向けの公開data契約である。
+既存のLSP用transformがある場合は、その処理と合成する。
+
 ## 引数案内を使う
 
 標準clientでは `:lua vim.lsp.buf.signature_help()` で現在の文法と引数位置を表示できる。

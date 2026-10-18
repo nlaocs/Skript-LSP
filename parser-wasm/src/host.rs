@@ -348,17 +348,10 @@ pub struct RuntimePlugin {
 }
 
 fn function_policy_for_runtime(version: Option<&str>) -> FunctionVersionPolicy {
-    let Some(version) = version else {
+    let Some(version) = version.and_then(skript_parser::SkriptVersion::parse) else {
         return FunctionVersionPolicy::default();
     };
-    let mut numbers = version
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|component| !component.is_empty())
-        .filter_map(|component| component.parse::<u32>().ok());
-    let (Some(major), Some(minor)) = (numbers.next(), numbers.next()) else {
-        return FunctionVersionPolicy::default();
-    };
-    FunctionVersionPolicy::for_skript_version(major, minor, numbers.next().unwrap_or(0))
+    FunctionVersionPolicy::for_skript_version(version.major, version.minor, version.patch)
 }
 
 impl Default for HostConfig {
@@ -8709,6 +8702,14 @@ impl ParseRequestKey {
 }
 
 impl ParserHost {
+    /// Default lexical options from the effective runtime, after explicit host
+    /// settings and enabled snapshot plugins have been reconciled.
+    pub fn raw_tree_options(&self) -> skript_parser::RawTreeOptions {
+        skript_parser::RawTreeOptions::for_runtime_version(
+            self.config.runtime_profile.skript_version.as_deref(),
+        )
+    }
+
     fn check_native_cancellation(&self) -> Result<(), HostError> {
         if self
             .native_cancellation
@@ -15605,6 +15606,70 @@ mod tests {
                 .iter()
                 .any(|capability| capability.id == CAPABILITY_CATALOG_DATA)
         );
+    }
+
+    #[test]
+    fn lexical_runtime_uses_enabled_plugins_and_respects_explicit_host_settings() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/type-parser-versions/skript-2.16.0");
+        let catalog = ssg::load(fixture).unwrap().into_catalog();
+        let mut source = catalog.source().unwrap().clone();
+        let runtime = source.runtime.as_mut().unwrap();
+        let mut disabled = runtime
+            .plugins
+            .iter()
+            .find(|plugin| plugin.name == "Skript")
+            .unwrap()
+            .clone();
+        disabled.enabled = false;
+        disabled.version = "2.15.4".into();
+        let mut enabled = disabled.clone();
+        enabled.enabled = true;
+        enabled.name = "sKrIpT".into();
+        enabled.version = "2.8.8".into();
+        runtime.plugins = vec![disabled, enabled];
+        let mut config = HostConfig {
+            syntax_catalog: Some(Arc::new(catalog.with_unchecked_source(source))),
+            ..HostConfig::default()
+        };
+        config.inherit_catalog_runtime();
+        assert_eq!(
+            config.runtime_profile.skript_version.as_deref(),
+            Some("2.8.8")
+        );
+        assert_eq!(
+            skript_parser::RawTreeOptions::for_runtime_version(
+                config.runtime_profile.skript_version.as_deref()
+            ),
+            skript_parser::RawTreeOptions::for_skript_version(2, 8)
+        );
+        config.runtime_profile.skript_version = Some("2.9.0".into());
+        config.inherit_catalog_runtime();
+        assert_eq!(
+            config.runtime_profile.skript_version.as_deref(),
+            Some("2.9.0")
+        );
+        for version in [None, Some("invalid"), Some("build7-2.8")] {
+            let profile = RuntimeProfile {
+                skript_version: version.map(str::to_owned),
+                ..RuntimeProfile::default()
+            };
+            assert_eq!(
+                skript_parser::RawTreeOptions::for_runtime_version(
+                    profile.skript_version.as_deref()
+                ),
+                skript_parser::RawTreeOptions::UNKNOWN_RUNTIME
+            );
+            assert_eq!(
+                profile.skript_version.as_deref(),
+                version,
+                "unknown metadata must not become a fabricated release"
+            );
+            assert_eq!(
+                function_policy_for_runtime(version),
+                FunctionVersionPolicy::default()
+            );
+        }
     }
 
     #[test]

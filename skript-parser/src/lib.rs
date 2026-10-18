@@ -20,6 +20,7 @@ mod source_map;
 mod structure;
 mod text;
 mod tree_edit;
+mod version;
 
 /// Adapters from static and dynamic syntax catalogs to matcher candidates.
 pub use catalog_match::*;
@@ -57,3 +58,5 @@ pub use structure::*;
 pub use text::*;
 /// Validated transformations over lossless raw trees.
 pub use tree_edit::*;
+/// Runtime release numbers shared by version-dependent parser policies.
+pub use version::*;

@@ -223,8 +223,23 @@ pub struct RawTreeOptions {
 }
 
 impl RawTreeOptions {
+    /// Conservative lexical policy when runtime metadata cannot identify a release.
+    /// Delimited `###` text stays a comment rather than being parsed as code.
+    /// This policy does not assert that the runtime is Skript 2.9 or any other release.
+    pub const UNKNOWN_RUNTIME: Self = Self::new(MultilineCommentSupport::TripleHash);
+
     pub const fn new(multiline_comments: MultilineCommentSupport) -> Self {
         Self { multiline_comments }
+    }
+
+    /// Selects lexical options from runtime metadata, retaining the explicit
+    /// conservative comment policy for a missing or invalid release.
+    pub fn for_runtime_version(version: Option<&str>) -> Self {
+        version
+            .and_then(crate::SkriptVersion::parse)
+            .map_or(Self::UNKNOWN_RUNTIME, |version| {
+                Self::for_skript_version(version.major, version.minor)
+            })
     }
 
     /// Selects language features for a Skript release.
@@ -1113,6 +1128,34 @@ mod tests {
             RawTreeOptions::for_skript_version(3, 0).multiline_comments,
             MultilineCommentSupport::TripleHash
         );
+    }
+
+    #[test]
+    fn runtime_lexical_policy_distinguishes_known_legacy_from_unknown_metadata() {
+        assert_eq!(
+            RawTreeOptions::for_runtime_version(Some("2.8.8")),
+            RawTreeOptions::for_skript_version(2, 8)
+        );
+        assert_eq!(
+            RawTreeOptions::for_runtime_version(Some("2.9-pre1")),
+            RawTreeOptions::for_skript_version(2, 9)
+        );
+        for version in [
+            None,
+            Some("invalid"),
+            Some("build7-2.8"),
+            Some("2.4294967296.8"),
+        ] {
+            assert_eq!(
+                RawTreeOptions::for_runtime_version(version),
+                RawTreeOptions::UNKNOWN_RUNTIME
+            );
+            let source = MappedSource::identity("before\n###\nnot confirmed code\n###\nafter\n");
+            let tree = parse_raw_tree(&source, RawTreeOptions::for_runtime_version(version));
+            assert_eq!(tree.nodes[2].kind, RawNodeKind::Comment);
+            assert_eq!(tree.nodes[4].text, "after");
+            assert!(tree.diagnostics.is_empty());
+        }
     }
 
     #[test]

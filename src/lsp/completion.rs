@@ -97,13 +97,13 @@ pub(super) struct CatalogIndex {
     raw_options: skript_parser::RawTreeOptions,
 }
 impl CatalogIndex {
-    pub fn new(catalog: &Catalog) -> Self {
+    pub fn new(catalog: &Catalog, raw_options: skript_parser::RawTreeOptions) -> Self {
         let mut index = Self {
             templates: Vec::new(),
             patterns: Vec::new(),
             functions: Vec::new(),
             limited: false,
-            raw_options: raw_options(catalog),
+            raw_options,
         };
         let mut function_shapes = HashSet::new();
         // Iterate the actual Catalog, preserving registration and pattern order.
@@ -195,29 +195,6 @@ impl CatalogIndex {
         }
         index
     }
-}
-
-fn raw_options(catalog: &Catalog) -> skript_parser::RawTreeOptions {
-    let version = catalog
-        .source()
-        .and_then(|source| source.runtime.as_ref())
-        .and_then(|runtime| {
-            runtime
-                .plugins
-                .iter()
-                .find(|plugin| plugin.name.eq_ignore_ascii_case("Skript"))
-        })
-        .map(|plugin| plugin.version.as_str());
-    let mut numbers = version
-        .unwrap_or("2.9")
-        .split(|c: char| !c.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<u32>().ok());
-    let (major, minor) = match (numbers.next(), numbers.next()) {
-        (Some(major), Some(minor)) => (major, minor),
-        _ => (2, 9),
-    };
-    skript_parser::RawTreeOptions::for_skript_version(major, minor)
 }
 
 fn variants(
@@ -835,7 +812,7 @@ impl Document {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                    items.push(self.item(
+                    let mut item = self.item(
                         &label,
                         &insertion,
                         &function.detail,
@@ -843,7 +820,25 @@ impl Document {
                         CompletionItemKind::FUNCTION,
                         TextRange::new(word_start, word_end),
                         use_snippets,
-                    )?);
+                    )?;
+                    if existing_call {
+                        let tail = &self.source[word_end..line.range.end];
+                        let opening = tail.len() - tail.trim_start().len();
+                        let end = word_end + opening + 1;
+                        // Menu clients that only insert the prefix retain the
+                        // ordinary edit below. Clients with an exact-edit adapter
+                        // can own the existing opening delimiter in this item.
+                        item.data = Some(serde_json::json!({
+                            "nlaocs.lsp.completion-edit": {
+                                "version": 1,
+                                "edit": TextEdit {
+                                    range: self.lines.range(&self.source, TextRange::new(word_start, end))?,
+                                    new_text: format!("{}{}", function.name, &self.source[word_end..end]),
+                                },
+                            },
+                        }));
+                    }
+                    items.push(item);
                 }
             }
         }
@@ -1347,6 +1342,46 @@ mod tests {
                 .is_empty(),
             "a different right suffix is omitted instead of duplicated"
         );
+    }
+    #[test]
+    fn existing_call_items_offer_exact_delimiter_ownership_without_changing_prefix_edits() {
+        for (line, column, fallback, complete, end, expected) in [
+            ("    send si(1)", 11, "sin", "sin(", 12, "    send sin(1)"),
+            ("    send sin(1)", 11, "si", "sin(", 13, "    send sin(1)"),
+            (
+                "    send si  (1)",
+                11,
+                "sin",
+                "sin  (",
+                14,
+                "    send sin  (1)",
+            ),
+        ] {
+            let source = format!("on load:\n{line}");
+            let view = with_functions(&source);
+            let list = view.at(Position::new(1, column), true).unwrap();
+            let item = &list.items[0];
+            assert_eq!(item.kind, Some(CompletionItemKind::FUNCTION));
+            assert_eq!(item.insert_text_format, Some(InsertTextFormat::PLAIN_TEXT));
+            assert_eq!(edit(item).new_text, fallback);
+            assert_eq!(edit(item).range.end, Position::new(1, column));
+            let policy = &item.data.as_ref().unwrap()["nlaocs.lsp.completion-edit"];
+            assert_eq!(policy["version"], 1);
+            let exact: TextEdit = serde_json::from_value(policy["edit"].clone()).unwrap();
+            assert_eq!(exact.new_text, complete);
+            assert_eq!(exact.range.start, Position::new(1, 9));
+            assert_eq!(exact.range.end, Position::new(1, end));
+            assert_eq!(
+                format!("{}{}{}", &line[..9], exact.new_text, &line[end as usize..]),
+                expected
+            );
+        }
+        let view = with_functions("on load:\n    send si");
+        let list = view.at(Position::new(1, 11), true).unwrap();
+        let item = &list.items[0];
+        assert!(item.data.is_none());
+        assert_eq!(item.insert_text_format, Some(InsertTextFormat::SNIPPET));
+        assert_eq!(edit(item).new_text, "sin(${1:argument})");
     }
     #[test]
     fn void_document_shadow_does_not_resurrect_a_catalog_function_and_overloads_survive() {

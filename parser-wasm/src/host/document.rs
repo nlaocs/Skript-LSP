@@ -437,9 +437,7 @@ impl ParserHost {
             &config.cancellation,
             DocumentParseStage::RawTree,
         )?;
-        let raw_options = config.raw_tree.unwrap_or_else(|| {
-            raw_tree_options_for_runtime(self.config.runtime_profile.skript_version.as_deref())
-        });
+        let raw_options = config.raw_tree.unwrap_or_else(|| self.raw_tree_options());
         let raw_tree = parse_raw_tree(&source, raw_options);
 
         check_cancelled(
@@ -660,20 +658,6 @@ fn check_cancelled(
         });
     }
     Ok(())
-}
-
-fn raw_tree_options_for_runtime(version: Option<&str>) -> RawTreeOptions {
-    let Some(version) = version else {
-        return RawTreeOptions::for_skript_version(2, 9);
-    };
-    let mut numbers = version
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|component| !component.is_empty())
-        .filter_map(|component| component.parse::<u32>().ok());
-    let (Some(major), Some(minor)) = (numbers.next(), numbers.next()) else {
-        return RawTreeOptions::for_skript_version(2, 9);
-    };
-    RawTreeOptions::for_skript_version(major, minor)
 }
 
 fn document_fault_regions(
