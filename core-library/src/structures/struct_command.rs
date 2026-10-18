@@ -58,6 +58,11 @@ pub(super) fn resolve(
                     return super::reject_structure(reason);
                 }
                 payload.candidate.metadata.extend(command.metadata());
+                super::append_metadata(
+                    &mut payload,
+                    parser_wasm::STRUCTURE_ENTRY_BODY_MODES_METADATA,
+                    r#"[{"path":["trigger"],"mode":"trigger"}]"#,
+                );
                 Some(command)
             }
             Err(reason) => return super::reject_structure(reason),

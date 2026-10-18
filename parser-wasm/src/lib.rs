@@ -63,6 +63,9 @@ pub const CAPABILITY_EFFECT_PARSER: &str = "parser.effect";
 pub const CAPABILITY_SECTION_PARSER: &str = "parser.section";
 /// Capability ID for top-level Structure lifecycle and EntryValidator hooks.
 pub const CAPABILITY_STRUCTURE_PARSER: &str = "parser.structure";
+/// Owned Structure metadata containing a JSON list of {"path":["entry"],"mode":"trigger"|"conditions"}.
+/// Paths select Section entries in the registration's EntryValidator, never source spelling guesses.
+pub const STRUCTURE_ENTRY_BODY_MODES_METADATA: &str = "structure.entry-body-modes.v1";
 /// Requests every SSG type option in a registered Expression payload.
 pub const REGISTERED_CONTEXT_ALL_TYPE_OPTIONS: &str = "expression.type-options.all";
 /// Immutable native annotation mapping positive SSG input-cardinality evidence to a capture slot.

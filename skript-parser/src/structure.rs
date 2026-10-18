@@ -81,6 +81,8 @@ pub enum StructureHookDecision {
         context: ExpressionParseContext,
         /// Native body parser to run.
         body_mode: StructureBodyMode,
+        /// Section entry paths whose bodies the semantic owner parses as executable code.
+        entry_body_modes: BTreeMap<Vec<String>, crate::SectionBodyMode>,
         /// Candidate metadata after ordered addon hooks ran.
         metadata: BTreeMap<String, String>,
     },
@@ -110,6 +112,12 @@ pub struct StructureCandidate {
     pub parsed_captures: Vec<ParsedCapture>,
     /// Body representation selected by native defaults or a WASM hook.
     pub body: StructureBody,
+    /// Native entry validation failed; retained children are editor recovery only.
+    pub entry_validation_failed: bool,
+    /// Frozen declaration used by this exact static or dynamic candidate.
+    pub entry_validator: Option<EntryValidator>,
+    /// Validated Section entry paths and their semantic body parsers.
+    pub entry_body_modes: BTreeMap<Vec<String>, crate::SectionBodyMode>,
     /// Opaque handler selected by a dynamic registration.
     pub handler: Option<String>,
     /// Dynamic and addon-owned candidate metadata.
@@ -457,8 +465,10 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                         StructureHookDecision::Accept {
                             context,
                             body_mode,
+                            entry_body_modes,
                             metadata,
                         } => {
+                            candidate.entry_body_modes = entry_body_modes;
                             candidate.metadata = metadata;
                             (context, body_mode)
                         }
@@ -470,8 +480,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                         }
                     }
                 };
-                let validator =
-                    structure_entry_validator(&session, &candidate.matched.registration_id);
+                let validator = candidate.entry_validator.clone();
                 let saved_context = session.replace_context(context);
                 let parsed = parse_structure_body(
                     &mut session,
@@ -479,11 +488,13 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                     node,
                     body_mode,
                     validator.as_ref(),
+                    &candidate.entry_body_modes,
                     1,
                 )?;
                 candidate.body = parsed.body;
                 let child_context = session.replace_context(saved_context);
                 if !parsed.entries_valid {
+                    candidate.entry_validation_failed = true;
                     return Ok((
                         candidate,
                         parsed.diagnostics,
@@ -540,6 +551,8 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                         StructureDiagnosticKind::ExtensionFault,
                         &error.to_string(),
                     )?);
+                    best_rejection = None;
+                    matches.unknown = None;
                     matches.selected = None;
                     matches.alternatives.clear();
                     break;
@@ -698,6 +711,7 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
                     StructureHookDecision::Accept {
                         context,
                         body_mode,
+                        entry_body_modes,
                         metadata,
                     } => {
                         accepted_semantically = true;
@@ -711,6 +725,7 @@ fn parse_structure_header<E: ExpressionParseEnvironment>(
                             selected_context = Some(context);
                             selected_body_mode = Some(body_mode);
                         }
+                        candidate.entry_body_modes = entry_body_modes;
                         candidate.metadata = metadata;
                     }
                     StructureHookDecision::Reject {
@@ -964,6 +979,7 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
             parsed_captures.push(parsed);
         }
     }
+    let entry_validator = structure_entry_validator(session, &matched.registration_id);
     Ok(Some(StructureCandidate {
         raw_node_id,
         matched,
@@ -972,6 +988,9 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
         actual_node_type,
         parsed_captures,
         body: StructureBody::None,
+        entry_validation_failed: false,
+        entry_validator,
+        entry_body_modes: BTreeMap::new(),
         handler: dynamic.map(|definition| definition.handler.clone()),
         metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
     }))
@@ -1014,8 +1033,31 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
     node: &RawNode,
     mode: StructureBodyMode,
     validator: Option<&EntryValidator>,
+    entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
     depth: usize,
 ) -> Result<ParsedStructureBody, StructureParseError> {
+    for (path, entry_mode) in entry_body_modes {
+        let mut current = validator;
+        let mut declaration = None;
+        for key in path {
+            declaration = current.and_then(|v| v.entry_data.iter().find(|d| d.key == *key));
+            current = declaration
+                .filter(|d| d.kind == EntryKind::Container)
+                .and_then(|d| d.nested_validator.as_ref());
+        }
+        if mode != StructureBodyMode::Entries
+            || path.is_empty()
+            || declaration.is_none_or(|d| {
+                d.kind != EntryKind::Section
+                    && !(d.kind == EntryKind::Trigger
+                        && *entry_mode == crate::SectionBodyMode::Trigger)
+            })
+        {
+            return Err(session
+                .environment_error(format!("invalid semantic Section entry path {path:?}"))
+                .into());
+        }
+    }
     match mode {
         StructureBodyMode::None => Ok(ParsedStructureBody {
             body: StructureBody::None,
@@ -1053,8 +1095,15 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
                     entries_valid: true,
                 });
             };
-            let (entries, diagnostics, valid) =
-                parse_validator_entries(session, tree, node, validator, depth)?;
+            let (entries, diagnostics, valid) = parse_validator_entries(
+                session,
+                tree,
+                node,
+                validator,
+                entry_body_modes,
+                &[],
+                depth,
+            )?;
             Ok(ParsedStructureBody {
                 body: StructureBody::Entries(entries),
                 diagnostics,
@@ -1069,6 +1118,8 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
     tree: &RawTree,
     parent: &RawNode,
     validator: &EntryValidator,
+    entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
+    path: &[String],
     depth: usize,
 ) -> Result<(Vec<StructureEntry>, Vec<StructureDiagnostic>, bool), StructureParseError> {
     let mut entries = Vec::new();
@@ -1088,7 +1139,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             .iter()
             .enumerate()
             .filter(|(index, data)| data.multiple || !seen.contains(index))
-            .find(|(_, data)| entry_matches(data, child));
+            .find(|(_, data)| structure_entry_matches(data, child));
         let Some((index, data)) = matched else {
             valid = false;
             let duplicate = validator
@@ -1096,7 +1147,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
                 .iter()
                 .enumerate()
                 .find(|(index, data)| {
-                    !data.multiple && seen.contains(index) && entry_matches(data, child)
+                    !data.multiple && seen.contains(index) && structure_entry_matches(data, child)
                 });
             diagnostics.push(if let Some((_, data)) = duplicate {
                 node_diagnostic(
@@ -1116,7 +1167,17 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             continue;
         };
         seen.insert(index);
-        let (entry, diagnostic, entry_valid) = parse_entry(session, tree, child, data, depth)?;
+        let mut entry_path = path.to_vec();
+        entry_path.push(data.key.clone());
+        let (entry, diagnostic, entry_valid) = parse_entry(
+            session,
+            tree,
+            child,
+            data,
+            entry_body_modes,
+            &entry_path,
+            depth,
+        )?;
         entries.push(entry);
         diagnostics.extend(diagnostic);
         valid &= entry_valid;
@@ -1162,6 +1223,8 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     tree: &RawTree,
     node: &RawNode,
     data: &EntryData,
+    entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
+    path: &[String],
     depth: usize,
 ) -> Result<(StructureEntry, Vec<StructureDiagnostic>, bool), StructureParseError> {
     let source = node.text.clone();
@@ -1255,13 +1318,34 @@ fn parse_entry<E: ExpressionParseEnvironment>(
                     valid,
                 ));
             };
-            let (children, nested_diagnostics, nested_valid) =
-                parse_validator_entries(session, tree, node, nested, depth + 1)?;
+            let (children, nested_diagnostics, nested_valid) = parse_validator_entries(
+                session,
+                tree,
+                node,
+                nested,
+                entry_body_modes,
+                path,
+                depth + 1,
+            )?;
             diagnostics.extend(nested_diagnostics);
             valid &= nested_valid;
             StructureEntryValue::Container(children)
         }
-        EntryKind::Section => StructureEntryValue::Section(node.children.clone()),
+        EntryKind::Section => {
+            if let Some(mode) = entry_body_modes.get(path) {
+                let (body, section_diagnostics) =
+                    crate::section::parse_section_body(session, tree, node, *mode, depth)
+                        .map_err(nested_structure_error)?;
+                diagnostics.extend(
+                    section_diagnostics
+                        .into_iter()
+                        .map(section_diagnostic_to_structure),
+                );
+                StructureEntryValue::Trigger(body)
+            } else {
+                StructureEntryValue::Section(node.children.clone())
+            }
+        }
         EntryKind::Unknown => {
             diagnostics.push(node_diagnostic(
                 session,
@@ -1302,7 +1386,8 @@ fn structure_entry(
     }
 }
 
-fn entry_matches(data: &EntryData, node: &RawNode) -> bool {
+/// Tests an EntryValidator declaration against a physical source node.
+pub fn structure_entry_matches(data: &EntryData, node: &RawNode) -> bool {
     match data.kind {
         EntryKind::Trigger | EntryKind::Container | EntryKind::Section => {
             node.kind == RawNodeKind::Section && node.text.eq_ignore_ascii_case(&data.key)

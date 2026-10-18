@@ -251,6 +251,14 @@ pub struct DocumentParseResult {
     pub state: CommitSummary,
 }
 
+impl DocumentParseResult {
+    /// Projects confirmed native children retained after entry-validation errors for a read-only editor.
+    /// Canonical AST macro input and rejected Structure adoption remain unchanged.
+    pub fn editor_ast(&self) -> super::AstTree {
+        super::ast_tree::editor_view(&self.source, &self.syntax, &self.ast)
+    }
+}
+
 struct UncommittedDocument {
     fault_regions: Vec<ExtensionFaultRegion>,
     source: MappedSource,
@@ -845,7 +853,7 @@ mod tests {
         let sources = [
             "on join:\n    message \"hello\"\n",
             "function local(n: number) :: number:\n    return {_n}\non load:\n    send local(log(8)) to console\n",
-            "command /canceltest:\n    trigger:\n        if 1 is 1:\n            send 1 + 2 * 3 to console\n",
+            "command /canceltest:\n    trigger:\n        if 1 is 1:\n            send log(8) to console\n",
         ];
         let mut revision = 0;
         for (index, source) in sources.into_iter().enumerate() {
@@ -866,7 +874,11 @@ mod tests {
                 )
                 .unwrap();
             assert!(baseline.component_failures.is_empty());
-            assert!(baseline.syntax.diagnostics.is_empty());
+            assert!(
+                baseline.syntax.diagnostics.is_empty(),
+                "{source}\n{:#?}",
+                baseline.syntax.diagnostics
+            );
             assert_eq!(baseline.functions.len(), usize::from(index == 1));
             let probes = usize::MAX
                 - token

@@ -101,6 +101,14 @@ impl Document {
         {
             return Ok(SignatureQuery::Ready(None));
         }
+        let query_line = self.structure_query_line(line, offset);
+        let line = &query_line;
+        if matches!(line.scope, Scope::Pending) {
+            return Ok(SignatureQuery::NeedsAnalysis);
+        }
+        if matches!(line.scope, Scope::Raw | Scope::Entries(_)) {
+            return Ok(SignatureQuery::Ready(None));
+        }
         let prefix = &self.source[line.code_start..offset];
         if prefix.len() > MAX_CONTINUATION_BYTES {
             return Ok(SignatureQuery::Ready(None));
@@ -222,6 +230,10 @@ impl Document {
                 }
                 let allowed = if depth > 0 {
                     matches!(pattern.kind, SyntaxKind::Expression | SyntaxKind::Condition)
+                } else if matches!(line.scope, Scope::Expressions) {
+                    pattern.kind == SyntaxKind::Expression
+                } else if matches!(line.scope, Scope::Conditions) {
+                    pattern.kind == SyntaxKind::Condition
                 } else if line.root {
                     matches!(pattern.kind, SyntaxKind::Event | SyntaxKind::Structure)
                 } else {
@@ -454,6 +466,56 @@ mod tests {
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
         })
     }
+    // Graph tests supply a confirmed executable scope; source-only views defer body classification.
+    fn scoped_document(source: Arc<str>, index: Arc<CatalogIndex>) -> Result<Document, String> {
+        let mut document = Document::from_source(source, index)?;
+        for line in document.context.values_mut() {
+            if !line.root {
+                line.scope = Scope::Statements;
+            }
+        }
+        Ok(document)
+    }
+    #[test]
+    fn unknown_current_structure_scope_waits_before_giving_statement_guidance() {
+        let document = Document::from_source(
+            Arc::from("config:\n    teleport player to "),
+            index("teleport %entities% to %location%"),
+        )
+        .unwrap();
+        let position = document
+            .lines
+            .position(&document.source, document.source.len())
+            .unwrap();
+        assert!(matches!(
+            document.signature_at(position, false).unwrap(),
+            SignatureQuery::NeedsAnalysis
+        ));
+    }
+    #[test]
+    fn unknown_entry_key_cannot_be_lexically_classified_as_its_value() {
+        // Entry keys may contain quotes/braces or exceed the value query budget.
+        // Their boundary must be resolved before applying value lexical rules.
+        for key in [
+            "\"q".to_owned(),
+            "{q".to_owned(),
+            "q".repeat(MAX_CONTINUATION_BYTES + 1),
+        ] {
+            let document = Document::from_source(
+                Arc::from(format!("config:\n    {key}: sin(")),
+                index("teleport %entities% to %location%"),
+            )
+            .unwrap();
+            let position = document
+                .lines
+                .position(&document.source, document.source.len())
+                .unwrap();
+            assert!(matches!(
+                document.signature_at(position, false).unwrap(),
+                SignatureQuery::NeedsAnalysis
+            ));
+        }
+    }
     fn query(document: &Document, references: bool) -> Option<SignatureHelp> {
         let position = document
             .lines
@@ -467,8 +529,7 @@ mod tests {
     }
     fn pattern_query(pattern: &str, prefix: &str) -> Option<SignatureHelp> {
         let document =
-            Document::from_source(Arc::from(format!("on join:\n    {prefix}")), index(pattern))
-                .unwrap();
+            scoped_document(Arc::from(format!("on join:\n    {prefix}")), index(pattern)).unwrap();
         query(&document, false)
     }
     #[test]
@@ -542,7 +603,7 @@ mod tests {
             )
             .is_none()
         );
-        let root = Document::from_source(
+        let root = scoped_document(
             Arc::from("teleport player to "),
             index("teleport %entities% to %location%"),
         )
@@ -562,7 +623,7 @@ mod tests {
             let help = pattern_query(pattern, source).unwrap();
             assert!(help.signatures[0].active_parameter.is_none(), "{source}");
         }
-        let document = Document::from_source(
+        let document = scoped_document(
             Arc::from("on join:\n    new SomeType(1, "),
             index(r"new %objects%\(%objects%\)"),
         )
@@ -600,7 +661,7 @@ mod tests {
             pattern_query("teleport %entities% to %location%", "teleport {_a\"b} to ").unwrap();
         assert_eq!(variable.signatures[0].active_parameter, Some(1));
         for source in ["choose(1 # comment", "send \"%choose(1 # comment"] {
-            let mut document = Document::from_source(
+            let mut document = scoped_document(
                 Arc::from(format!("on join:\n    {source}")),
                 index("send %objects%"),
             )
@@ -645,13 +706,12 @@ mod tests {
             nested.kind = inner_kind;
             Arc::get_mut(&mut patterns).unwrap().patterns.push(nested);
             let document =
-                Document::from_source(Arc::from(format!("on join:\n    {source}")), patterns)
-                    .unwrap();
+                scoped_document(Arc::from(format!("on join:\n    {source}")), patterns).unwrap();
             let help = query(&document, false).unwrap();
             assert_eq!(help.signatures[0].label, inner);
             assert_eq!(help.signatures[0].active_parameter, Some(active));
         }
-        let mut document = Document::from_source(
+        let mut document = scoped_document(
             Arc::from("on join:\n    teleport player to "),
             index("teleport %entities% to %location%"),
         )

@@ -109,7 +109,7 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement {
                     id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
-                    minimum_version: 1,
+                    minimum_version: 2,
                     required: true,
                 },
                 CapabilityRequirement {
@@ -260,7 +260,7 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_CONDITION_PARSER, 1),
             ParserCapabilityRequirement::required(CAPABILITY_SECTION_PARSER, 1),
-            ParserCapabilityRequirement::required(CAPABILITY_STRUCTURE_PARSER, 1),
+            ParserCapabilityRequirement::required(CAPABILITY_STRUCTURE_PARSER, 2),
             ParserCapabilityRequirement::required(CAPABILITY_TREE_MACRO, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
             ParserCapabilityRequirement::optional(CAPABILITY_DYNAMIC_SYNTAX, 1),
@@ -1094,7 +1094,7 @@ mod tests {
                 },
                 Capability {
                     id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
-                    version: 1,
+                    version: 2,
                 },
                 Capability {
                     id: CAPABILITY_TREE_MACRO.to_owned(),

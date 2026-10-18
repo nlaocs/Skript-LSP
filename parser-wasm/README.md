@@ -556,6 +556,21 @@ next addon. CoreLibrary implements Skript's `StructEvent`, `StructFunction`,
 and `StructCommand` through this same public ABI; addon-specific Structure
 semantics require no native parser changes.
 
+The `parser.structure` capability version 2 adds the owned metadata contract
+`structure.entry-body-modes.v1`. Its JSON value is a list such as
+`[{"path":["trigger"],"mode":"trigger"}]`; modes are `trigger` or `conditions`.
+One component owns the complete declaration. Each path must resolve through
+the selected static or dynamic EntryValidator to a Section entry; an existing
+Trigger entry can repeat its declared Trigger mode. Other paths, duplicate
+declarations, unknown modes, and changes after enter-body are rejected. Raw
+SectionEntryData remains raw unless its semantic owner declares a body mode.
+CoreLibrary requires version 2 so an older host cannot silently skip this contract.
+
+`DocumentParseResult::editor_ast` supplies a separate read-only view of native
+children retained after entry-validation errors. Rejected headers are absent,
+canonical AST macro input is unchanged, and semantic exit rejections or extension
+faults do not qualify for this recovery path.
+
 ## Text Macros
 
 A Text macro subscribes to `ParseStage` during `Preprocess` with `Transform`

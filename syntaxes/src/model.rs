@@ -133,13 +133,13 @@ pub struct ReturnHandler {
     pub single_return_value: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// Normalized rules for entries accepted by a structure.
 pub struct EntryValidator {
     pub entry_data: Vec<EntryData>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// One named structure entry and its value requirements.
 pub struct EntryData {
     pub key: String,

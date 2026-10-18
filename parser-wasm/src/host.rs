@@ -4942,6 +4942,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         Ok(StructureHookDecision::Accept {
             context: apply_context_updates(request.context, updates, "Structure")?,
             body_mode,
+            entry_body_modes: structure_entry_body_modes(&output.candidate.metadata)?,
             metadata: metadata_entries(output.candidate.metadata)?,
         })
     }
@@ -4995,6 +4996,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         };
         if !same_structure_payload_identity(&output, &original)
             || output.candidate.body_mode != original.candidate.body_mode
+            || structure_entry_body_modes(&output.candidate.metadata)?
+                != request.candidate.entry_body_modes
             || !output.candidate.declarations.is_empty()
         {
             return Err("Structure exit hook changed immutable candidate fields".to_owned());
@@ -5085,6 +5088,47 @@ fn apply_context_update_slice(
         }
     }
     Ok(context)
+}
+
+fn structure_entry_body_modes(
+    metadata: &[WitMetadataEntry],
+) -> Result<BTreeMap<Vec<String>, ParserSectionBodyMode>, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct EntryBody {
+        path: Vec<String>,
+        mode: String,
+    }
+    let mut modes = BTreeMap::new();
+    let mut owner = None;
+    for record in metadata
+        .iter()
+        .filter(|m| m.key == crate::STRUCTURE_ENTRY_BODY_MODES_METADATA)
+    {
+        let component = record
+            .owner_component_id
+            .as_deref()
+            .ok_or("Structure entry body modes require an owning component")?;
+        if owner.replace(component).is_some() {
+            return Err("multiple components declared Structure entry body modes".into());
+        }
+        let declarations: Vec<EntryBody> = serde_json::from_str(&record.value)
+            .map_err(|e| format!("invalid Structure entry body modes: {e}"))?;
+        for declaration in declarations {
+            let mode = match declaration.mode.as_str() {
+                "trigger" => ParserSectionBodyMode::Trigger,
+                "conditions" => ParserSectionBodyMode::Conditions,
+                _ => return Err("unknown Structure entry body mode".into()),
+            };
+            if declaration.path.is_empty()
+                || declaration.path.iter().any(String::is_empty)
+                || modes.insert(declaration.path, mode).is_some()
+            {
+                return Err("empty or duplicate Structure entry body path".into());
+            }
+        }
+    }
+    Ok(modes)
 }
 
 fn structure_hook_payload(
@@ -11781,7 +11825,16 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_SECTION_PARSER,
         CAPABILITY_STRUCTURE_PARSER,
     ]
-    .map(|id| Capability::new(id, 1))
+    .map(|id| {
+        Capability::new(
+            id,
+            if id == CAPABILITY_STRUCTURE_PARSER {
+                2
+            } else {
+                1
+            },
+        )
+    })
     .to_vec()
 }
 
@@ -13246,6 +13299,10 @@ fn normalize_structure_hook_payload(
     if !same_structure_payload_identity(next, previous)
         || previous.timing == WitStructureTiming::ExitBody
             && (next.candidate.body_mode != previous.candidate.body_mode
+                || structure_entry_body_modes(&next.candidate.metadata)
+                    .map_err(|message| StructureParseError::Environment { message })?
+                    != structure_entry_body_modes(&previous.candidate.metadata)
+                        .map_err(|message| StructureParseError::Environment { message })?
                 || !next.candidate.declarations.is_empty())
     {
         return Err(StructureParseError::Environment {
@@ -18334,5 +18391,43 @@ mod tests {
                 dynamic_handler: Some("fixture.other-expression"),
             },
         ));
+    }
+}
+
+#[cfg(test)]
+mod structure_entry_body_contract_tests {
+    use super::*;
+    fn record(owner: Option<&str>, json: &str) -> WitMetadataEntry {
+        WitMetadataEntry {
+            owner_component_id: owner.map(str::to_owned),
+            key: crate::STRUCTURE_ENTRY_BODY_MODES_METADATA.into(),
+            value: json.into(),
+        }
+    }
+    #[test]
+    fn entry_body_contract_requires_one_owner_and_valid_distinct_paths() {
+        let valid = r#"[{"path":["settings","execute"],"mode":"trigger"}]"#;
+        let entries = [record(Some("example.owner"), valid)];
+        assert_eq!(
+            structure_entry_body_modes(&entries).unwrap(),
+            BTreeMap::from([(
+                vec!["settings".into(), "execute".into()],
+                ParserSectionBodyMode::Trigger
+            )])
+        );
+        for entries in [
+            vec![record(None, valid)],
+            vec![record(Some("one"), valid), record(Some("two"), valid)],
+            vec![record(Some("one"), "not json")],
+            vec![record(Some("one"), r#"[{"path":[],"mode":"trigger"}]"#)],
+            vec![record(Some("one"), r#"[{"path":[""],"mode":"trigger"}]"#)],
+            vec![record(Some("one"), r#"[{"path":["x"],"mode":"unknown"}]"#)],
+            vec![record(
+                Some("one"),
+                r#"[{"path":["x"],"mode":"trigger"},{"path":["x"],"mode":"conditions"}]"#,
+            )],
+        ] {
+            assert!(structure_entry_body_modes(&entries).is_err());
+        }
     }
 }

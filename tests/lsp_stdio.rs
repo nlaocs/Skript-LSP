@@ -349,9 +349,15 @@ fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() 
         ),
     ] {
         client.change(version, source);
-        // Request before awaiting diagnostics covers the edit/response ordering.
-        // The held-worker unit test proves the immediate path without this race.
-        let result = client.completion(40 + version, 1, column);
+        // Queue the request before analysis; body suggestions need the current
+        // structural context, so diagnostics may precede the held response.
+        client.send(Request::new(
+            (40 + version).into(),
+            "textDocument/completion".into(),
+            json!({"textDocument":{"uri":client.uri},"position":{"line":1,"character":column}}),
+        ));
+        client.diagnostics(version);
+        let result = client.response(40 + version).response_result.unwrap();
         let first = &result["items"][0];
         assert_eq!(first["label"], "to");
         assert_eq!(first["textEdit"]["newText"], new_text);
@@ -369,7 +375,6 @@ fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() 
             result["items"].as_array().unwrap().len() <= 10,
             "context alternatives are bounded: {result}"
         );
-        client.diagnostics(version);
     }
     client.finish();
 }
@@ -1281,4 +1286,209 @@ fn hover_prose_angle_placeholders_are_literal_without_added_escape_slashes() {
         }
         client.finish();
     }
+}
+
+#[test]
+fn structure_entries_come_from_validator_and_track_partial_edits_and_indentation() {
+    let mut client = Client::initialized_with_capabilities(
+        &[],
+        json!({"textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}}),
+    );
+    client.open(1, "command /test:\n    per");
+    let diagnostics = client.diagnostics(1);
+    assert!(
+        diagnostics
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("trigger") && d.message.contains("missing"))
+    );
+    let list = client.completion(301, 1, 7);
+    let items = list["items"].as_array().unwrap();
+    assert!(!items.is_empty());
+    assert!(
+        items
+            .iter()
+            .all(|item| item["data"]["structureEntry"] == true)
+    );
+    assert!(items.iter().any(|item| item["label"] == "permission"));
+    assert!(
+        items
+            .iter()
+            .any(|item| item["label"] == "permission message")
+    );
+    client.change(
+        2,
+        "command /test:\n\tpermission: sample\n\ttrigger:\n\t\tsend 1 to console\n\t\n",
+    );
+    client.diagnostics(2);
+    let list = client.completion(302, 4, 1);
+    let items = list["items"].as_array().unwrap();
+    assert!(!items.is_empty());
+    assert!(
+        items
+            .iter()
+            .all(|item| item["data"]["structureEntry"] == true)
+    );
+    assert!(
+        !items
+            .iter()
+            .any(|item| item["label"] == "permission" || item["label"] == "trigger")
+    );
+    client.change(3, "command /test:\n    permission: sample\n    permission: duplicate\n    trigger:\n        se\n");
+    let report = client.diagnostics(3);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("only occur once"))
+    );
+    assert!(
+        client.completion(303, 1, 16)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "prose values cannot gain executable suggestions"
+    );
+    let list = client.completion(304, 4, 10);
+    assert!(
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["data"]["syntaxKind"] == "Effect")
+    );
+    client.change(4, "command /test:\n    permission message: keep this # comment\n    trigger:\n        send 1 to console\n");
+    client.diagnostics(4);
+    let list = client.completion(305, 1, 12);
+    let item = list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "permission message")
+        .unwrap();
+    assert_eq!(item["textEdit"]["newText"], "permission message");
+    assert_eq!(item["textEdit"]["range"], json!(range(1, 4, 1, 22)));
+    client.finish();
+}
+
+#[test]
+fn command_trigger_uses_normal_hover_diagnostics_and_semantic_projection() {
+    let mut client = Client::spawn();
+    client.initialize_with_capabilities(&snapshot(), &[], json!({"textDocument":{"semanticTokens":{"requests":{"full":true},"formats":["relative"],"tokenModifiers":[],"tokenTypes":["skriptEffect","skriptLiteral","skriptSection","skriptCondition"]}}}));
+    let initialization = client.response(1).response_result.unwrap();
+    let types = initialization["capabilities"]["semanticTokensProvider"]["legend"]["tokenTypes"]
+        .as_array()
+        .unwrap();
+    client.notify("initialized", json!({}));
+    let source = "command /test:\n    trigger:\n        send 1\n        if 1 is 1:\n            send 2 to console\n        invalid statement here\n";
+    client.open(1, source);
+    let report = client.diagnostics(1);
+    assert!(report.diagnostics.iter().any(|d| d.range.start.line == 5));
+    let hover = client
+        .hover(310, 2, 9)
+        .expect("send in command trigger must have hover");
+    assert_eq!(hover.range, Some(range(2, 8, 2, 14)));
+    client.send(Request::new(
+        311.into(),
+        "textDocument/semanticTokens/full".into(),
+        json!({"textDocument":{"uri":client.uri}}),
+    ));
+    let response = client.response(311).response_result.unwrap();
+    let mut row = 0;
+    let mut column = 0;
+    let mut tokens = Vec::new();
+    for token in response["data"].as_array().unwrap().chunks_exact(5) {
+        let delta = token[0].as_u64().unwrap() as usize;
+        row += delta;
+        column = if delta == 0 {
+            column + token[1].as_u64().unwrap() as usize
+        } else {
+            token[1].as_u64().unwrap() as usize
+        };
+        tokens.push((
+            row,
+            column,
+            token[2].as_u64().unwrap() as usize,
+            types[token[3].as_u64().unwrap() as usize].as_str().unwrap(),
+        ));
+    }
+    assert!(tokens.contains(&(2, 8, 4, "skriptEffect")), "{tokens:?}");
+    assert!(tokens.contains(&(4, 12, 4, "skriptEffect")), "{tokens:?}");
+    assert!(client.hover(312, 5, 10).is_none());
+    client.finish();
+}
+
+#[test]
+fn structure_editing_distinguishes_expression_entries_unknown_sections_and_comments() {
+    let mut client = Client::initialized_with_capabilities(
+        &[],
+        json!({"textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}}),
+    );
+    for (version, source, row, column, expression) in [
+        (1, "auto reload:\n    rec", 1, 7, false),
+        (2, "auto reload:\n    recipients: ", 1, 16, true),
+        (3, "auto reload:\n    RECIPIENTS: pla", 1, 19, true),
+        (4, "auto reload:\n    recipients: player", 1, 9, false),
+    ] {
+        if version == 1 {
+            client.open(version, source);
+        } else {
+            client.change(version, source);
+        }
+        client.diagnostics(version);
+        let list = client.completion(320 + version, row, column);
+        let items = list["items"].as_array().unwrap();
+        assert!(!items.is_empty(), "{source}: {list}");
+        if expression {
+            assert!(
+                items
+                    .iter()
+                    .any(|item| item["data"]["syntaxKind"] == "Expression"),
+                "{list}"
+            );
+            assert!(
+                !items
+                    .iter()
+                    .any(|item| item["data"]["syntaxKind"] == "Effect"),
+                "{list}"
+            );
+        } else {
+            assert!(
+                items.iter().any(|item| item["label"] == "recipients"),
+                "{list}"
+            );
+        }
+    }
+    client.change(5, "command /test:\n    unknown:\n        ");
+    client.diagnostics(5);
+    assert!(
+        client.completion(330, 2, 8)["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    client.change(6, "command /test:\n    per # keep");
+    client.diagnostics(6);
+    let list = client.completion(331, 1, 7);
+    let item = list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "permission")
+        .unwrap();
+    assert_eq!(item["textEdit"]["range"], json!(range(1, 4, 1, 7)));
+    assert!(!item["textEdit"]["newText"].as_str().unwrap().contains('#'));
+    client.change(7,"command /test:\n    permission: one\n    permission: two\n    trigger:\n        send 1 to console\n");
+    let report = client.diagnostics(7);
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("only occur once"))
+    );
+    assert!(
+        client.hover(332, 4, 9).is_some(),
+        "entry error must retain read-only body hover"
+    );
+    client.finish();
 }

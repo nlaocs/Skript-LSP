@@ -685,3 +685,118 @@ fn extension_fault_in_one_root_preserves_an_independent_later_root() {
                 && failure.subscription_id == "expression-data.a.invalid")
     );
 }
+
+#[test]
+fn editor_ast_recovers_entry_failures_without_adopting_rejected_structures() {
+    let mut host = host(modern_fixture());
+    let mut result=host.parse_document(request(90,"on load:\n    send 0 to console\ncommand /test:\n    permission: one\n    permission: two\n    trigger:\n        send 1 to console\n"),DocumentParserConfig::default()).unwrap();
+    let canonical = format!("{:?}", result.ast);
+    assert!(
+        !result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.text == "send 1 to console")
+    );
+    let view = result.editor_ast();
+    assert!(
+        view.nodes
+            .iter()
+            .any(|node| node.text == "send 1 to console")
+    );
+    assert!(!view.nodes.iter().any(|node| node.text == "command /test"));
+    let ids = view
+        .nodes
+        .iter()
+        .map(|node| node.id)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(ids.len(), view.nodes.len());
+    assert!(view.roots.iter().all(|id| ids.contains(id)));
+    assert!(
+        view.nodes
+            .iter()
+            .all(|node| node.children.iter().all(|id| ids.contains(id)))
+    );
+    assert_eq!(canonical, format!("{:?}", result.ast));
+    let StructureDocumentNode::Structure(command) = &mut result.syntax.roots[1] else {
+        panic!()
+    };
+    let candidate = command.unknown.as_mut().unwrap().partial.as_mut().unwrap();
+    assert!(candidate.entry_validation_failed);
+    // A semantic exit rejection carries a partial tree but never this eligibility bit.
+    candidate.entry_validation_failed = false;
+    assert_eq!(canonical, format!("{:?}", result.editor_ast()));
+}
+
+#[test]
+fn legacy_command_trigger_contract_remains_executable() {
+    let mut host = host(legacy_fixture());
+    let result = host
+        .parse_document(
+            request(
+                91,
+                "command /test:\n    trigger:\n        send 1 to console\n",
+            ),
+            DocumentParserConfig::default(),
+        )
+        .unwrap();
+    assert!(
+        result.component_failures.is_empty(),
+        "{:?}",
+        result.component_failures
+    );
+    assert!(result.fault_regions.is_empty());
+    assert!(
+        result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.text == "send 1 to console"),
+        "{:#?}",
+        result.syntax
+    );
+}
+
+#[test]
+fn command_and_event_arithmetic_keep_the_same_body_diagnostics() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/type-parser-versions/skript-2.16.2-java25");
+    let mut host = host(fixture);
+    let sources = [
+        "on load:\n    if 1 is 1:\n        send 1 + 2 * 3 to console\n",
+        "command /arithmetic:\n    trigger:\n        if 1 is 1:\n            send 1 + 2 * 3 to console\n",
+    ];
+    let mut signatures = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        let result = host
+            .parse_document(
+                request(100 + index as u64, source),
+                DocumentParserConfig::default(),
+            )
+            .unwrap();
+        assert!(result.component_failures.is_empty());
+        let diagnostics = result
+            .syntax
+            .diagnostics
+            .iter()
+            .map(|d| {
+                (
+                    d.kind,
+                    d.message.clone(),
+                    d.span
+                        .mapped
+                        .virtual_range
+                        .slice(result.source.virtual_source())
+                        .unwrap()
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        println!("arithmetic-body,{index},{diagnostics:?}");
+        signatures.push(diagnostics);
+    }
+    assert_eq!(
+        signatures[0], signatures[1],
+        "Command must use the same native body path as Event"
+    );
+}

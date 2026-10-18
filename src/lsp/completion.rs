@@ -21,7 +21,9 @@ use syntaxes::{Catalog, Syntax, SyntaxKind};
 mod continuation;
 mod cursor;
 mod signature;
+mod structure;
 pub(super) use signature::{SignatureCapabilities, SignatureQuery};
+use structure::{EntryScope, Scope};
 
 const MAX_ITEMS: usize = 100;
 const MAX_VARIANTS: usize = 16;
@@ -327,7 +329,10 @@ fn render(parts: &[Part], snippets: bool) -> String {
     output
 }
 
+#[derive(Clone)]
 struct Line {
+    node: Option<RawNodeId>,
+    scope: Scope,
     range: TextRange,
     code_start: usize,
     parent: Option<RawNodeId>,
@@ -346,6 +351,7 @@ pub(super) struct Document {
     source: Arc<str>,
     lines: LineIndex,
     context: BTreeMap<u32, Line>,
+    entry_scopes: Vec<EntryScope>,
     variables: Vec<Variable>,
     functions: Vec<Function>,
     index: Arc<CatalogIndex>,
@@ -385,6 +391,7 @@ impl Document {
             source,
             lines,
             context,
+            entry_scopes: Vec::new(),
             variables: Vec::new(),
             functions: Vec::new(),
             index,
@@ -439,7 +446,8 @@ impl Document {
         for range in &blocked {
             lines.range(&source, *range)?;
         }
-        let context = raw_context(&result.raw_tree, &source, &lines, true)?;
+        let mut context = raw_context(&result.raw_tree, &source, &lines, true)?;
+        let entry_scopes = structure::apply(result, &mut context);
         let nodes = result
             .ast
             .nodes
@@ -509,6 +517,7 @@ impl Document {
             source,
             lines,
             context,
+            entry_scopes,
             variables,
             functions,
             index,
@@ -550,6 +559,12 @@ impl Document {
                 return Ok(empty());
             }
             fallback = Line {
+                node: None,
+                scope: if text.is_empty() {
+                    Scope::Statements
+                } else {
+                    Scope::Pending
+                },
                 range: TextRange::new(start, start + text.len()),
                 code_start: start + text.len(),
                 parent: None,
@@ -573,6 +588,14 @@ impl Document {
                 .any(|r| r.start <= offset && offset < r.end || r.is_empty() && r.start == offset)
         {
             return Ok(empty());
+        }
+        let query_line = self.structure_query_line(line, offset);
+        let line = &query_line;
+        if matches!(line.scope, Scope::Pending | Scope::Raw) {
+            return Ok(empty());
+        }
+        if let Scope::Entries(index) = line.scope {
+            return self.entry_completion(line, offset, index, snippets);
         }
         let prefix = &self.source[line.code_start..offset];
         let folded_prefix = prefix.to_lowercase();
@@ -599,7 +622,11 @@ impl Document {
             return Ok(empty());
         }
         let mut frontier_limited = prefix.len() > MAX_CONTINUATION_BYTES;
-        if variable_start.is_none() && word_start > line.code_start && !frontier_limited {
+        if variable_start.is_none()
+            && word_start > line.code_start
+            && !frontier_limited
+            && !matches!(line.scope, Scope::Expressions)
+        {
             let committed = &self.source[line.code_start..word_start];
             let query = &self.source[word_start..offset];
             let folded_query = query.to_lowercase();
@@ -618,7 +645,10 @@ impl Document {
                         SyntaxKind::Effect | SyntaxKind::Condition | SyntaxKind::Section
                     )
                 };
-                if !allowed {
+                if !allowed
+                    || matches!(line.scope, Scope::Conditions)
+                        && pattern.kind != SyntaxKind::Condition
+                {
                     continue;
                 }
                 let frontier = pattern
@@ -670,7 +700,8 @@ impl Document {
         // Continuations have a separate generation budget: they may all fail
         // the right-suffix check, so they must not consume the fallback budget.
         let generated_continuations = items.len();
-        let expression = variable_start.is_some()
+        let expression = matches!(line.scope, Scope::Expressions)
+            || variable_start.is_some()
             || !line.root
                 && (!prefix.is_empty()
                     && (prefix.ends_with(char::is_whitespace)
@@ -683,7 +714,11 @@ impl Document {
                         })));
         // Whitespace may start an argument while still matching fixed words in
         // the current statement. Keep those matches ahead of generic expressions.
-        if expression && !line.root && variable_start.is_none() {
+        if expression
+            && !line.root
+            && variable_start.is_none()
+            && !matches!(line.scope, Scope::Expressions)
+        {
             for template in &self.index.templates {
                 if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
                     break;
@@ -691,7 +726,9 @@ impl Document {
                 if matches!(
                     template.kind,
                     SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
-                ) && template.folded.starts_with(&folded_prefix)
+                ) && (!matches!(line.scope, Scope::Conditions)
+                    || template.kind == SyntaxKind::Condition)
+                    && template.folded.starts_with(&folded_prefix)
                 {
                     items.push(self.template_item(
                         template,
@@ -868,7 +905,11 @@ impl Document {
                         SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
                     )
                 };
-                if !allowed || !template.folded.starts_with(&folded_query) {
+                if !allowed
+                    || matches!(line.scope, Scope::Conditions)
+                        && matches!(template.kind, SyntaxKind::Effect | SyntaxKind::Section)
+                    || !template.folded.starts_with(&folded_query)
+                {
                     continue;
                 }
                 items.push(self.template_item(template, query, start, word_end, line, snippets)?);
@@ -1066,7 +1107,16 @@ fn raw_context(
             ambiguous.insert(row);
         }
         let mut ancestors = Vec::new();
-        let mut parent = if references { node.parent } else { None };
+        let mut editing_parent = node.parent;
+        if node.kind == RawNodeKind::Blank {
+            while let Some(parent) = editing_parent.and_then(|id| tree.get(id)) {
+                if parent.line.indentation.text.len() < node.line.indentation.text.len() {
+                    break;
+                }
+                editing_parent = parent.parent;
+            }
+        }
+        let mut parent = if references { editing_parent } else { None };
         while let Some(id) = parent {
             if ancestors.len() >= tree.nodes.len() {
                 return Err("cyclic completion RawTree".into());
@@ -1082,11 +1132,19 @@ fn raw_context(
         context.insert(
             row,
             Line {
+                node: Some(node.id),
+                scope: if editing_parent.is_none() && node.line.indentation.text.is_empty() {
+                    Scope::Statements
+                } else if references {
+                    Scope::Raw
+                } else {
+                    Scope::Pending
+                },
                 range: TextRange::new(range.start, range.start + text.len()),
                 code_start: range.start + node.line.indentation.text.len(),
-                parent: node.parent,
+                parent: editing_parent,
                 ancestors,
-                root: node.parent.is_none() && node.line.indentation.text.is_empty(),
+                root: editing_parent.is_none() && node.line.indentation.text.is_empty(),
                 blocked: matches!(node.kind, RawNodeKind::Comment | RawNodeKind::Invalid),
                 comments: node
                     .line
@@ -1146,6 +1204,8 @@ impl Document {
                 (
                     node.line.number as u32,
                     Line {
+                        node: Some(node.id),
+                        scope: Scope::Statements,
                         range: node.line.content_span.virtual_range,
                         code_start: node.line.content_span.virtual_range.start
                             + node.line.indentation.text.len(),
@@ -1163,6 +1223,7 @@ impl Document {
             source,
             lines,
             context,
+            entry_scopes: Vec::new(),
             variables: Vec::new(),
             functions: Vec::new(),
             index: Arc::new(CatalogIndex {

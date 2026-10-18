@@ -47,6 +47,48 @@ pub(super) fn from_structure_document(
     }
 }
 
+/// Read-only editor view; rejected Structure headers never become canonical AST roots.
+pub(super) fn editor_view(
+    source: &MappedSource,
+    document: &StructureDocument,
+    ast: &AstTree,
+) -> AstTree {
+    let mut builder = AstBuilder {
+        source,
+        nodes: ast.nodes.clone(),
+    };
+    let mut roots = ast.roots.clone();
+    for root in &document.roots {
+        let StructureDocumentNode::Structure(matches) = root else {
+            continue;
+        };
+        if matches.selected.is_some() {
+            continue;
+        }
+        let Some(candidate) = matches.unknown.as_ref().and_then(|u| u.partial.as_deref()) else {
+            continue;
+        };
+        if !candidate.entry_validation_failed {
+            continue;
+        }
+        if let StructureBody::Entries(entries) = &candidate.body {
+            for entry in entries {
+                let id = builder.entry(entry);
+                builder.nodes[id as usize].metadata.push(WitMetadataEntry {
+                    owner_component_id: None,
+                    key: "parser.editor-recovery".into(),
+                    value: "invalid-structure-entries".into(),
+                });
+                roots.push(id);
+            }
+        }
+    }
+    AstTree {
+        roots,
+        nodes: builder.nodes,
+    }
+}
+
 struct AstBuilder<'a> {
     source: &'a MappedSource,
     nodes: Vec<AstNode>,

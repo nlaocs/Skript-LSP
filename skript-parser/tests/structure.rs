@@ -1107,6 +1107,7 @@ mod extension_fault_recovery {
             Ok(StructureHookDecision::Accept {
                 context: request.context.clone(),
                 body_mode: StructureBodyMode::Trigger,
+                entry_body_modes: request.candidate.entry_body_modes.clone(),
                 metadata: request.candidate.metadata.clone(),
             })
         }
@@ -1415,4 +1416,293 @@ mod extension_fault_recovery {
         assert!(matches!(body[0], SectionBodyNode::Unclaimed(_)));
         assert!(matches!(&body[1], SectionBodyNode::Effect(matches) if matches.selected.is_some()));
     }
+}
+
+struct EntryBodyEnvironment {
+    path: Vec<String>,
+}
+impl PatternMatchEnvironment for EntryBodyEnvironment {
+    fn resolve_type(
+        &mut self,
+        _: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+    fn dispatch_hook(&mut self, _: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+impl ExpressionParseEnvironment for EntryBodyEnvironment {
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+    fn parse_expression_leaf(
+        &mut self,
+        _: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        Ok(ExpressionLeafParse::default())
+    }
+    fn enter_structure(
+        &mut self,
+        request: StructureHookRequest<'_>,
+    ) -> Result<skript_parser::StructureHookDecision, String> {
+        Ok(skript_parser::StructureHookDecision::Accept {
+            context: request.context.clone(),
+            body_mode: request.default_body_mode,
+            entry_body_modes: BTreeMap::from([(
+                self.path.clone(),
+                skript_parser::SectionBodyMode::Trigger,
+            )]),
+            metadata: request.candidate.metadata.clone(),
+        })
+    }
+}
+
+#[test]
+fn semantic_entry_body_modes_follow_declarations_and_preserve_source_identity() {
+    let mut code = key_value("code", true, false);
+    code.kind = EntryKind::Section;
+    let mut raw = code.clone();
+    raw.key = "data".into();
+    let validator = EntryValidator {
+        entry_data: vec![container(
+            "settings",
+            EntryValidator {
+                entry_data: vec![code, raw],
+            },
+        )],
+    };
+    let catalog = catalog(vec![structure(
+        0,
+        "config",
+        NodeType::Section,
+        Some(validator.clone()),
+    )]);
+    let source = MappedSource::identity(
+        "config:\n    settings:\n        code:\n            invalid statement\n        data:\n            retained value\n",
+    );
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+    let document = parse_structures(
+        &catalog,
+        StructureParseRequest {
+            source: &source,
+            tree: &tree,
+            context: ExpressionParseContext::default(),
+        },
+        &mut EntryBodyEnvironment {
+            path: vec!["settings".into(), "code".into()],
+        },
+        StructureParserConfig::default(),
+    )
+    .unwrap();
+    let candidate = selected(&document);
+    assert_eq!(candidate.entry_validator.as_ref(), Some(&validator));
+    let StructureBody::Entries(entries) = &candidate.body else {
+        panic!("entries required")
+    };
+    let StructureEntryValue::Container(children) = &entries[0].value else {
+        panic!("container required")
+    };
+    let StructureEntryValue::Trigger(body) = &children[0].value else {
+        panic!("owner selected executable body")
+    };
+    assert!(
+        matches!(&body[0], skript_parser::SectionBodyNode::Effect(matches) if matches.unknown.is_some())
+    );
+    assert!(matches!(&children[1].value, StructureEntryValue::Section(ids) if ids.len() == 1));
+    assert_eq!(children[0].kind, EntryKind::Section);
+    assert_eq!(
+        children[0]
+            .span
+            .mapped
+            .virtual_range
+            .slice(source.virtual_source()),
+        Some("code:")
+    );
+    let diagnostic = document
+        .diagnostics
+        .iter()
+        .find(|d| d.kind == StructureDiagnosticKind::Unclaimed)
+        .unwrap();
+    assert_eq!(
+        diagnostic
+            .span
+            .mapped
+            .virtual_range
+            .slice(source.virtual_source()),
+        Some("invalid statement")
+    );
+    assert_eq!(
+        diagnostic.span.mapped.origins[0].original_range,
+        diagnostic.span.mapped.virtual_range
+    );
+    let mut unreachable_validator = validator.clone();
+    unreachable_validator.entry_data[0].kind = EntryKind::Section;
+    let unreachable_catalog = self::catalog(vec![structure(
+        0,
+        "config",
+        NodeType::Section,
+        Some(unreachable_validator),
+    )]);
+    assert!(
+        parse_structures(
+            &unreachable_catalog,
+            StructureParseRequest {
+                source: &source,
+                tree: &tree,
+                context: ExpressionParseContext::default()
+            },
+            &mut EntryBodyEnvironment {
+                path: vec!["settings".into(), "code".into()]
+            },
+            StructureParserConfig::default()
+        )
+        .is_err()
+    );
+    let mut legacy_validator = validator.clone();
+    legacy_validator.entry_data[0]
+        .nested_validator
+        .as_mut()
+        .unwrap()
+        .entry_data[0]
+        .kind = EntryKind::Trigger;
+    let legacy_catalog = self::catalog(vec![structure(
+        0,
+        "config",
+        NodeType::Section,
+        Some(legacy_validator),
+    )]);
+    let legacy = parse_structures(
+        &legacy_catalog,
+        StructureParseRequest {
+            source: &source,
+            tree: &tree,
+            context: ExpressionParseContext::default(),
+        },
+        &mut EntryBodyEnvironment {
+            path: vec!["settings".into(), "code".into()],
+        },
+        StructureParserConfig::default(),
+    )
+    .unwrap();
+    selected(&legacy);
+    for path in [vec!["missing".into()], vec!["settings".into()], Vec::new()] {
+        assert!(
+            parse_structures(
+                &catalog,
+                StructureParseRequest {
+                    source: &source,
+                    tree: &tree,
+                    context: ExpressionParseContext::default()
+                },
+                &mut EntryBodyEnvironment { path },
+                StructureParserConfig::default()
+            )
+            .is_err(),
+            "undeclared/non-Section paths must fail"
+        );
+    }
+}
+
+#[test]
+fn later_structure_fault_does_not_revive_an_entry_rejection() {
+    use skript_parser::*;
+    struct Environment {
+        pending: Option<ExtensionFault>,
+    }
+    impl PatternMatchEnvironment for Environment {
+        fn resolve_type(
+            &mut self,
+            _: TypeExpressionRequest<'_>,
+        ) -> Result<TypeExpressionOutcome, String> {
+            Ok(TypeExpressionOutcome::default())
+        }
+        fn dispatch_hook(&mut self, _: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+            Ok(PatternHookControl::Continue)
+        }
+        fn take_extension_fault(&mut self) -> Option<ExtensionFault> {
+            self.pending.take()
+        }
+    }
+    impl ExpressionParseEnvironment for Environment {
+        fn state_revision(&self) -> Result<u64, String> {
+            Ok(0)
+        }
+        fn parse_expression_leaf(
+            &mut self,
+            _: ExpressionLeafRequest<'_>,
+        ) -> Result<ExpressionLeafParse, String> {
+            Ok(ExpressionLeafParse::default())
+        }
+        fn enter_structure(
+            &mut self,
+            request: StructureHookRequest<'_>,
+        ) -> Result<StructureHookDecision, String> {
+            Ok(StructureHookDecision::Accept {
+                context: request.context.clone(),
+                body_mode: request.default_body_mode,
+                entry_body_modes: BTreeMap::new(),
+                metadata: request.candidate.metadata.clone(),
+            })
+        }
+        fn exit_structure(
+            &mut self,
+            _: StructureHookRequest<'_>,
+        ) -> Result<StructureExitDecision, String> {
+            self.pending = Some(ExtensionFault {
+                component_id: "fixture.owner".into(),
+                subscription_id: "exit".into(),
+                phase: "Structure".into(),
+                target: "candidate".into(),
+                code: "parser.extension-trap".into(),
+                message: "injected".into(),
+            });
+            Err("injected".into())
+        }
+    }
+    let first = structure(
+        0,
+        "config",
+        NodeType::Section,
+        Some(EntryValidator {
+            entry_data: vec![key_value("required", false, false)],
+        }),
+    );
+    let mut second = structure(1, "config", NodeType::Section, None);
+    let Syntax::Structure(other) = &mut second else {
+        panic!()
+    };
+    other.common.registration_id = RegistrationId("registration:fallback".into());
+    other.common.definition_id = DefinitionId("definition:fallback".into());
+    let catalog = catalog(vec![first, second]);
+    let source = MappedSource::identity("config:\n    arbitrary: value\n");
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+    let document = parse_structures(
+        &catalog,
+        StructureParseRequest {
+            source: &source,
+            tree: &tree,
+            context: ExpressionParseContext::default(),
+        },
+        &mut Environment { pending: None },
+        StructureParserConfig::default(),
+    )
+    .unwrap();
+    assert!(
+        document
+            .diagnostics
+            .iter()
+            .any(|d| d.kind == StructureDiagnosticKind::ExtensionFault)
+    );
+    let StructureDocumentNode::Structure(matches) = &document.roots[0] else {
+        panic!()
+    };
+    assert!(matches.selected.is_none());
+    assert!(
+        matches
+            .unknown
+            .as_ref()
+            .and_then(|node| node.partial.as_ref())
+            .is_none()
+    );
 }

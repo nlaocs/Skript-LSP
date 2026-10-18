@@ -1374,6 +1374,7 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         Ok(crate::StructureHookDecision::Accept {
             context: request.context.clone(),
             body_mode: request.default_body_mode,
+            entry_body_modes: request.candidate.entry_body_modes.clone(),
             metadata: request.candidate.metadata.clone(),
         })
     }

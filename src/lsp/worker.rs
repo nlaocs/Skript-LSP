@@ -145,7 +145,8 @@ impl Analyzer for ParserAnalyzer {
         let mut completion = None;
         let mut completion_error = None;
         let outcome = match result {
-            Ok(result) => {
+            Ok(mut result) => {
+                result.ast = result.editor_ast();
                 let status =
                     if result.execution_status == parser_wasm::DocumentExecutionStatus::Partial {
                         "partial"
