@@ -325,6 +325,211 @@ fn completion_request(client: &Client, id: i32, column: u32) {
         .unwrap();
 }
 
+fn signature_request(client: &Client, id: i32, column: u32) {
+    client
+        .connection
+        .sender
+        .send(
+            lsp_server::Request::new(
+                id.into(),
+                "textDocument/signatureHelp".into(),
+                json!({"textDocument":{"uri":URI},"position":{"line":0,"character":column}}),
+            )
+            .into(),
+        )
+        .unwrap();
+}
+
+#[test]
+fn signature_and_suppressed_completion_respond_before_the_held_worker() {
+    let client = Client::start_with_index(
+        json!({"textDocument":{"signatureHelp":{"signatureInformation":{"activeParameterSupport":true,"parameterInformation":{"labelOffsetSupport":true}}}}}),
+        Some(completion::CatalogIndex::test_signature_index()),
+    );
+    client.open(1, "hold player to ");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    signature_request(&client, 40, 15);
+    let result = token_response(&client, 40).response_result.unwrap();
+    assert_eq!(
+        result["signatures"][0]["label"],
+        "hold %objects% to %locations%"
+    );
+    assert_eq!(result["signatures"][0]["activeParameter"], 1);
+    client.change(2, "hold \"literal");
+    completion_request(&client, 41, 13);
+    let result = token_response(&client, 41).response_result.unwrap();
+    assert_eq!(result["items"], json!([]));
+    assert_eq!(result["isIncomplete"], false);
+    signature_request(&client, 42, 13);
+    assert!(
+        token_response(&client, 42)
+            .response_result
+            .unwrap()
+            .is_null()
+    );
+    client.proceed.send(()).unwrap();
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 2);
+    client.proceed.send(()).unwrap();
+    client.diagnostics(2);
+    client
+        .connection
+        .sender
+        .send(lsp_server::Request::new(43.into(), "fixture/barrier".into(), Value::Null).into())
+        .unwrap();
+    loop {
+        let message = client.connection.receiver.recv_timeout(TIMEOUT).unwrap();
+        if let Message::Response(response) = message {
+            assert_eq!(
+                response.id,
+                43.into(),
+                "a completed editing request responded twice"
+            );
+            break;
+        }
+    }
+    client.finish();
+}
+
+#[test]
+fn signature_requests_cancel_and_invalidate_on_change_close_reopen_and_shutdown() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    signature_request(&client, 40, 0);
+    signature_request(&client, 41, 0);
+    signature_request(&client, 42, 99);
+    assert_eq!(
+        token_response(&client, 42)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidParams as i32
+    );
+    client.notify("$/cancelRequest", json!({"id":40}));
+    assert_eq!(
+        token_response(&client, 40)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    client.change(2, "hold");
+    assert_eq!(
+        token_response(&client, 41)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    signature_request(&client, 43, 0);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    assert_eq!(
+        token_response(&client, 43)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    client.diagnostics(2);
+    signature_request(&client, 44, 0);
+    assert!(
+        token_response(&client, 44)
+            .response_result
+            .unwrap()
+            .is_null()
+    );
+    client.open(0, "hold");
+    signature_request(&client, 45, 0);
+    client.sync(46);
+    client
+        .connection
+        .sender
+        .send(lsp_server::Request::new(99.into(), "shutdown".into(), Value::Null).into())
+        .unwrap();
+    assert_eq!(
+        token_response(&client, 45)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    assert!(
+        token_response(&client, 99)
+            .response_result
+            .unwrap()
+            .is_null()
+    );
+    client.proceed.send(()).unwrap();
+    client.notify("exit", Value::Null);
+    assert!(client.server.join().unwrap().is_ok());
+}
+
+#[test]
+fn signature_fatal_cancel_stale_partial_and_worker_failure_are_terminal() {
+    for suffix in ["fatal", "cancel", "stale", "partial", "panic"] {
+        let client = Client::start();
+        client.open(1, &format!("hold-{suffix}"));
+        assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+        signature_request(&client, 40, 0);
+        client.sync(41);
+        client.proceed.send(()).unwrap();
+        if matches!(suffix, "fatal" | "partial") {
+            client.diagnostics(1);
+        }
+        let response = token_response(&client, 40);
+        if suffix == "panic" {
+            assert_eq!(
+                response.response_result.unwrap_err().code,
+                ErrorCode::InternalError as i32
+            );
+            assert!(client.server.join().unwrap().is_err());
+        } else {
+            assert!(response.response_result.unwrap().is_null());
+            client.finish();
+        }
+    }
+}
+
+#[test]
+fn signature_pending_limit_rejects_excess_requests_and_shutdown_finishes_the_rest() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    for id in 100..165 {
+        signature_request(&client, id, 0);
+    }
+    assert_eq!(
+        token_response(&client, 164)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestFailed as i32
+    );
+    client
+        .connection
+        .sender
+        .send(lsp_server::Request::new(99.into(), "shutdown".into(), Value::Null).into())
+        .unwrap();
+    for id in 100..164 {
+        assert_eq!(
+            token_response(&client, id)
+                .response_result
+                .unwrap_err()
+                .code,
+            ErrorCode::RequestCanceled as i32
+        );
+    }
+    assert!(
+        token_response(&client, 99)
+            .response_result
+            .unwrap()
+            .is_null()
+    );
+    client.proceed.send(()).unwrap();
+    client.notify("exit", Value::Null);
+    assert!(client.server.join().unwrap().is_ok());
+}
+
 #[test]
 fn syntax_completion_does_not_wait_for_the_held_worker_or_respond_twice() {
     let client = Client::start_with_index(

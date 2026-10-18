@@ -17,7 +17,7 @@ clientは `rootUri` または一件の `workspaceFolders` と、次の `initiali
 }
 ```
 
-対応する要求は `initialize`、`textDocument/hover`、`textDocument/completion`、交渉済みの `textDocument/semanticTokens/full`、`shutdown`、
+対応する要求は `initialize`、`textDocument/hover`、`textDocument/completion`、`textDocument/signatureHelp`、交渉済みの `textDocument/semanticTokens/full`、`shutdown`、
 通知は `initialized`、`exit`、`textDocument/didOpen`、`didChange`、`didClose`、`$/cancelRequest`。
 同期方式はFullで、変更は文書全体の `text` と増加するclient versionを送る。
 位置encodingはUTF-16。診断はversion付きの `publishDiagnostics` で置換し、
@@ -177,9 +177,30 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 編集中に構文候補を返せる場合は、現在の原文だけからnative RawTreeを作り、全文WASM解析を待たずに`isIncomplete=true`で返す。
 このcontextはrevisionごとに再利用し、256KiBを超える原文では即時経路を使わない。参照scope用の祖先列は即時経路では作らない。
 即時応答は文頭構文と継続語を対象とし、その要求には未解析の関数・変数を後送しない。次の補完要求で現在の解析済み候補を得られる。
-構文候補を返せない場合は解析完了まで要求を保持する。旧revisionの履歴や文書関数を流用しない。
+文字列本文とコメントで候補が無いと確定できる場合も、解析完了を待たずに空の完了応答を返す。
+それ以外で構文候補を返せない場合は解析完了まで要求を保持する。旧revisionの履歴や文書関数を流用しない。
 編集・closeは旧要求へContentModified、個別取消・shutdownはRequestCancelledを返す。
 取消・stale・fatalは空結果、worker failureはerrorで終端し、旧revisionの候補を返さない。
+
+## 引数案内
+
+`signatureHelpProvider` は `(`、`,`、空白をtrigger、`)`をretriggerとして公開する。
+現在の原文と同じPattern AST graphから元文法を表示し、現在のslotをその文法中のUTF-16範囲で示す。
+先頭がslotの文法、option/choice、空白を挟まない固定文字、引数内のExpression/Conditionにも同じ探索を使う。
+固定文字の一致が多く、消費済みslotが少ない候補を選び、同点はCatalog順に保つ。
+入れ子は合意できたslot開始位置から最大16段まで進める。文字列・変数名・補間の区切り走査は補完と共有する。
+これは構造上の入力支援であり、型、Addon guard、実行scope、意味的に正しいoverloadの採用を保証しない。
+
+Functionは現在文書のregistryとCatalogを使い、同shapeのshadowとvoid署名も維持する。
+現在revisionの文書解析前はFunction案内を保留する。同名Functionがなければ登録patternの探索を続ける。
+括弧・引用符・変数名・補間内のcommaを区別し、nativeの区切り規則で単数の位置引数を数える。
+named argument、複数値parameter、範囲外の引数、曖昧なslot、固定語の途中では、未確定の引数を強調しない。
+
+`labelOffsetSupport`がないclientには一意なparameter labelを文字列で返す。重複labelでは誤った位置を避けるためparameter一覧を省く。
+`activeParameterSupport`がないclientにはhelp全体のindexを使い、別候補へ同じindexを誤適用しないようにする。
+要求ごとの探索は共有100万操作、prefix4096 byte、文法/関数label1024 byte、最大20署名に制限する。
+保留要求は文書ごと64件、server全体256件までで、超過分はRequestFailedにする。
+編集・close・個別取消・shutdown・worker failureの終端方針は補完と同じである。結果が無い場合はnullを返す。
 
 ## 計測と検証
 
@@ -191,6 +212,7 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 これらはRustのbuild/compile時間や、clientが画面へ診断を描くまでの時間を含まない。
 最新版へまとめられて実行されなかった要求の解析時間は計上しない。
 `skript-lsp completion timing`の`source`は`syntax`または`analysis`を示す。
+`skript-lsp signature timing`も同じ区分で`queryMs`、`waitMs`、署名数を記録する。
 `queryMs`は候補検索と応答構築で、即時経路では必要なnative context作成も含む。
 `waitMs`は受信後から解析済み候補検索を始めるまでの待機で、失敗した即時試行も含む。即時応答では0になる。
 通信・client scheduling・menu描画とRust build/compileはこれらに含まれず、それぞれ別に計測する。

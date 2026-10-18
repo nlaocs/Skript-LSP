@@ -23,7 +23,7 @@ impl Budget {
     pub fn exhausted(&self) -> bool {
         self.0 == 0
     }
-    fn scan(&mut self, bytes: usize) -> bool {
+    pub(super) fn scan(&mut self, bytes: usize) -> bool {
         if bytes > self.0 {
             self.0 = 0;
             return false;
@@ -37,12 +37,14 @@ impl Budget {
 enum Edge {
     Empty(usize),
     Text(String, usize),
-    Slot(usize),
+    Slot(usize, usize),
 }
 
 pub(super) struct Graph {
     nodes: Vec<Vec<Edge>>,
     end: usize,
+    pub(super) parameters: Vec<std::ops::Range<usize>>,
+    slot_boundaries: HashMap<usize, Vec<char>>,
 }
 
 pub(super) struct Frontier {
@@ -59,6 +61,8 @@ impl Graph {
         let mut graph = Self {
             nodes: vec![Vec::new()],
             end: 0,
+            parameters: Vec::new(),
+            slot_boundaries: HashMap::new(),
         };
         let start = if prefix.is_empty() {
             0
@@ -68,6 +72,41 @@ impl Graph {
             next
         };
         graph.end = graph.sequence(elements, start, 0)?;
+        let targets = graph
+            .nodes
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                Edge::Slot(next, _) => Some(*next),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        for target in targets {
+            let mut pending = vec![target];
+            let mut seen = HashSet::new();
+            let mut chars = BTreeSet::new();
+            while let Some(node) = pending.pop() {
+                if !seen.insert(node) {
+                    continue;
+                }
+                for edge in &graph.nodes[node] {
+                    match edge {
+                        Edge::Empty(next) => pending.push(*next),
+                        Edge::Text(text, next) => match text.chars().next() {
+                            Some(c) if !c.is_whitespace() => {
+                                chars.insert(c.to_lowercase().next()?);
+                            }
+                            None => pending.push(*next),
+                            _ => {}
+                        },
+                        Edge::Slot(..) => {}
+                    }
+                }
+            }
+            graph
+                .slot_boundaries
+                .insert(target, chars.into_iter().collect());
+        }
         Some(graph)
     }
 
@@ -95,7 +134,9 @@ impl Graph {
                     self.nodes[from].push(Edge::Text(text.clone(), next))
                 }
                 PatternElement::TypeExpr(_) | PatternElement::Regex(_) => {
-                    self.nodes[from].push(Edge::Slot(next))
+                    let parameter = self.parameters.len();
+                    self.parameters.push(element.span.start..element.span.end);
+                    self.nodes[from].push(Edge::Slot(next, parameter))
                 }
                 PatternElement::Option(elements) => {
                     self.nodes[from].push(Edge::Empty(next));
@@ -177,12 +218,13 @@ impl Graph {
                         }
                         _ => {}
                     },
-                    Edge::Slot(next) if fixed > 0 && offset < committed.len() => {
-                        let (ends, clipped) = slot_ends(committed, offset, budget);
+                    Edge::Slot(next, _) if fixed > 0 && offset < committed.len() => {
+                        let (ends, clipped) =
+                            slot_ends(committed, offset, budget, &self.slot_boundaries[next]);
                         limited |= clipped;
                         pending.extend(ends.into_iter().map(|end| (*next, end, fixed, slots + 1)));
                     }
-                    Edge::Slot(_) => {}
+                    Edge::Slot(..) => {}
                 }
             }
         }
@@ -235,7 +277,7 @@ impl Graph {
                 match edge {
                     Edge::Empty(next) => pending.push(("", *next, prefix.clone())),
                     Edge::Text(text, next) => pending.push((text, *next, prefix.clone())),
-                    Edge::Slot(_) => {
+                    Edge::Slot(..) => {
                         if !prefix.is_empty() {
                             output.insert(prefix.clone());
                         }
@@ -244,6 +286,70 @@ impl Graph {
             }
         }
         (output.into_iter().collect(), limited || budget.exhausted())
+    }
+
+    /// Editing evidence only: a slot accepts incomplete opaque source. Prefer
+    /// paths which have consumed more fixed grammar; never resolve a type here.
+    pub(super) fn signature(
+        &self,
+        input: &str,
+        budget: &mut Budget,
+    ) -> Option<(usize, usize, Option<(usize, usize)>)> {
+        let mut pending = vec![(0, 0, 0, 0)];
+        let mut visited = HashSet::new();
+        let mut found = Vec::new();
+        while let Some((node, offset, fixed, slots)) = pending.pop() {
+            if !budget.spend() || visited.len() >= MAX_STATES {
+                return None;
+            }
+            if !visited.insert((node, offset, fixed, slots)) {
+                continue;
+            }
+            if node == self.end && offset == input.len() && fixed > 0 {
+                found.push((fixed, slots, None));
+            }
+            for edge in self.nodes[node].iter().rev() {
+                if !budget.spend() {
+                    return None;
+                }
+                match edge {
+                    Edge::Empty(next) => pending.push((*next, offset, fixed, slots)),
+                    Edge::Text(text, next) => match consume(text, input, offset, budget) {
+                        Some(Consumed::Full(end, matched)) => {
+                            pending.push((*next, end, fixed + matched, slots))
+                        }
+                        Some(Consumed::Prefix(_, matched)) if fixed + matched > 0 => {
+                            found.push((fixed + matched, slots, None))
+                        }
+                        _ => {}
+                    },
+                    Edge::Slot(next, parameter) => {
+                        if fixed > 0 {
+                            found.push((fixed, slots, Some((*parameter, offset))));
+                        }
+                        let (ends, limited) =
+                            slot_ends(input, offset, budget, &self.slot_boundaries[next]);
+                        if limited {
+                            return None;
+                        }
+                        pending.extend(ends.into_iter().map(|end| (*next, end, fixed, slots + 1)));
+                    }
+                }
+            }
+        }
+        let fixed = found.iter().map(|v| v.0).max()?;
+        let slots = found.iter().filter(|v| v.0 == fixed).map(|v| v.1).min()?;
+        let mut active = found
+            .iter()
+            .filter(|v| v.0 == fixed && v.1 == slots)
+            .map(|v| v.2);
+        let first = active.next()?;
+        let parameter = if active.all(|value| value == first) {
+            first
+        } else {
+            None
+        };
+        Some((fixed, slots, parameter))
     }
 }
 
@@ -299,23 +405,31 @@ fn consume<'a>(
     Some(Consumed::Full(offset, fixed))
 }
 
-fn slot_ends(input: &str, start: usize, budget: &mut Budget) -> (Vec<usize>, bool) {
+fn slot_ends(
+    input: &str,
+    start: usize,
+    budget: &mut Budget,
+    adjacent: &[char],
+) -> (Vec<usize>, bool) {
+    let mut frames = super::cursor::LexicalCursor::new(&input[start..]);
     let mut stack = Vec::new();
-    let mut quoted = false;
-    let mut cursor = start;
     let mut ends = Vec::new();
     let mut limited = false;
     let mut nonempty = false;
-    while cursor < input.len() {
-        if !budget.spend() {
+    for event in frames.by_ref() {
+        if !budget.scan(adjacent.len() + 1) {
             limited = true;
             break;
         }
-        let c = input[cursor..].chars().next().unwrap();
-        if !quoted
+        let cursor = start + event.offset;
+        let c = event.character;
+        let outer = event.depth == 1 && matches!(event.state, super::Lexical::Code(false));
+        if outer
             && stack.is_empty()
-            && (c.is_whitespace() || matches!(c, ',' | ')' | ']' | '}' | ':'))
             && nonempty
+            && (c.is_whitespace()
+                || matches!(c, ',' | ')' | ']' | '}' | ':')
+                || adjacent.contains(&c.to_lowercase().next().unwrap()))
         {
             if ends.len() == MAX_SLOT_ENDS {
                 limited = true;
@@ -324,28 +438,27 @@ fn slot_ends(input: &str, start: usize, budget: &mut Budget) -> (Vec<usize>, boo
             ends.push(cursor);
         }
         nonempty |= !c.is_whitespace();
-        if c == '"' {
-            if quoted && input.as_bytes().get(cursor + 1) == Some(&b'"') {
-                cursor += 1;
-            } else {
-                quoted = !quoted;
-            }
-        } else if !quoted {
+        if outer {
             match c {
                 '(' => stack.push(')'),
                 '[' => stack.push(']'),
-                '{' => stack.push('}'),
-                ')' | ']' | '}' => {
+                ')' | ']' => {
                     if stack.pop() != Some(c) {
                         return (ends, limited);
                     }
                 }
+                '}' => return (ends, limited),
                 _ => {}
             }
         }
-        cursor += c.len_utf8();
     }
-    if !quoted && !limited && stack.is_empty() && nonempty && ends.len() < MAX_SLOT_ENDS {
+    if !limited
+        && frames.depth() == 1
+        && matches!(frames.state(), super::Lexical::Code(false))
+        && stack.is_empty()
+        && nonempty
+        && ends.len() < MAX_SLOT_ENDS
+    {
         ends.push(input.len());
     }
     (ends, limited)
@@ -370,6 +483,10 @@ mod tests {
     }
     #[test]
     fn arguments_are_structurally_delimited_and_never_reinserted() {
+        assert_eq!(
+            keywords("take %objects%'s name", "take player's ", "na"),
+            ["name"]
+        );
         for source in [
             "teleport player ",
             "teleport name of player ",

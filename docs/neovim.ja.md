@@ -87,6 +87,13 @@ snippet対応時は必須引数・型slotをtab stopにする。Neovim標準のs
 `tests/neovim/completion.lua`は標準clientの実応答とmenu・確定後のbufferを確認し、
 JSONに要求往復時間、解析・候補検索logを分けて保存する。headlessの標準clientを対象とする。
 
+## 引数案内を使う
+
+標準clientでは `:lua vim.lsp.buf.signature_help()` で現在の文法と引数位置を表示できる。
+Blinkを使う構成では既存の `opts` に `signature = { enabled = true }` を加えると、空白・`(`・`,`で標準の案内windowを開ける。
+既存の補完キー設定を変更する必要はない。この設定はBlink全体の有効化であり、他の対応LSPにも適用される。
+文法内の位置は入力支援であり、引数型やAddon guardの成功を示さない。曖昧な場合は文法だけを表示する。
+
 ## Semantic Tokens の色
 
 付属設定はNeovimの標準capabilitiesへ `skriptEvent`、`skriptCondition`、`skriptEffect`、`skriptExpression`、

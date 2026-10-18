@@ -151,6 +151,77 @@ fn snapshot() -> PathBuf {
 }
 
 #[test]
+fn signature_help_uses_catalog_slots_current_functions_and_utf16_parameter_labels() {
+    let mut client = Client::spawn();
+    client.initialize_with_capabilities(&snapshot(), &[], json!({"textDocument":{"signatureHelp":{"signatureInformation":{"activeParameterSupport":true,"parameterInformation":{"labelOffsetSupport":true}}}}}));
+    let initialized = client.response(1).response_result.unwrap();
+    assert_eq!(
+        initialized["capabilities"]["signatureHelpProvider"]["triggerCharacters"],
+        json!(["(", ",", " "])
+    );
+    client.notify("initialized", json!({}));
+    let source = "function greet(first: number, second: text) :: text:\r\n    return {_second}\r\non join:\r\n    teleport player to player's location\r\n    send greet(1, \"日本😀\") to console\r\n";
+    client.open(1, source);
+    client.diagnostics(1);
+    client.send(Request::new(
+        20.into(),
+        "textDocument/signatureHelp".into(),
+        json!({"textDocument":{"uri":client.uri},"position":{"line":3,"character":23}}),
+    ));
+    let pattern = client.response(20).response_result.unwrap();
+    let info = &pattern["signatures"][0];
+    let label = info["label"].as_str().unwrap();
+    assert!(label.contains("teleport"));
+    let active = info["activeParameter"].as_u64().expect("destination slot") as usize;
+    let selected = &info["parameters"][active]["label"];
+    let utf16 = label.encode_utf16().collect::<Vec<_>>();
+    assert!(
+        String::from_utf16(
+            &utf16[selected[0].as_u64().unwrap() as usize..selected[1].as_u64().unwrap() as usize]
+        )
+        .unwrap()
+        .contains("location")
+    );
+    client.send(Request::new(
+        21.into(),
+        "textDocument/signatureHelp".into(),
+        json!({"textDocument":{"uri":client.uri},"position":{"line":4,"character":18}}),
+    ));
+    let function = client.response(21).response_result.unwrap();
+    assert_eq!(function["signatures"][0]["activeParameter"], 1);
+    assert!(
+        function["signatures"][0]["label"]
+            .as_str()
+            .unwrap()
+            .starts_with("greet(first:")
+    );
+    client.change(2, "on join:\n    send greet(1, \"x\") to console\n");
+    client.send(Request::new(
+        22.into(),
+        "textDocument/signatureHelp".into(),
+        json!({"textDocument":{"uri":client.uri},"position":{"line":1,"character":18}}),
+    ));
+    client.diagnostics(2);
+    let revised = client.response(22).response_result.unwrap();
+    let signatures = revised["signatures"]
+        .as_array()
+        .expect("registered statement guidance survives");
+    assert!(!signatures.is_empty());
+    assert!(
+        signatures
+            .iter()
+            .all(|s| !s["label"].as_str().unwrap().starts_with("greet(")),
+        "removed document Function must not survive"
+    );
+    assert!(
+        signatures
+            .iter()
+            .any(|s| s["label"].as_str().unwrap().contains("send"))
+    );
+    client.finish();
+}
+
+#[test]
 fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() {
     let mut client = Client::initialized_with_capabilities(
         &[],

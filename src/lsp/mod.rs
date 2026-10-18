@@ -29,6 +29,7 @@ struct ProjectConfig {
     hover_format: MarkupKind,
     semantic_legend: Option<semantic_tokens::Legend>,
     completion_snippets: bool,
+    signature_capabilities: completion::SignatureCapabilities,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +71,13 @@ impl ProjectConfig {
             })
             .cloned()
             .unwrap_or(MarkupKind::PlainText);
+        let signature_capabilities = completion::SignatureCapabilities::negotiate(
+            params
+                .capabilities
+                .text_document
+                .as_ref()
+                .and_then(|d| d.signature_help.as_ref()),
+        );
         let root = match params.workspace_folders {
             Some(folders) if folders.len() > 1 => {
                 return Err("only one project workspace is supported".into());
@@ -106,6 +114,7 @@ impl ProjectConfig {
             hover_format,
             semantic_legend,
             completion_snippets,
+            signature_capabilities,
         })
     }
 }
@@ -201,8 +210,100 @@ struct Document {
     syntax_completion: Option<completion::Document>,
     completion_ready: bool,
     completion_requests: Vec<(RequestId, Position, Instant)>,
+    signature_requests: Vec<(RequestId, Position, Instant)>,
+    signature_capabilities: completion::SignatureCapabilities,
 }
 impl Document {
+    fn queue_signature(
+        &mut self,
+        connection: &Connection,
+        id: RequestId,
+        position: Position,
+        received: Instant,
+        server_has_capacity: bool,
+    ) -> Result<(), String> {
+        if !server_has_capacity || self.signature_requests.len() >= 64 {
+            send(
+                connection,
+                Response::new_err(
+                    id,
+                    ErrorCode::RequestFailed as i32,
+                    "too many pending signature requests".into(),
+                ),
+            )
+        } else {
+            self.signature_requests.push((id, position, received));
+            Ok(())
+        }
+    }
+    fn send_signature(
+        &self,
+        connection: &Connection,
+        id: RequestId,
+        position: Position,
+        wait_ms: f64,
+    ) -> Result<(), String> {
+        let started = Instant::now();
+        let result = match &self.completion {
+            Some(document) => document.signature_at(position, true)?,
+            None => completion::SignatureQuery::Ready(None),
+        };
+        let completion::SignatureQuery::Ready(help) = result else {
+            return Err("analyzed signature still needs references".into());
+        };
+        let help = self.signature_capabilities.adapt(help);
+        let count = help.as_ref().map_or(0, |h| h.signatures.len());
+        send(connection, Response::new_ok(id, help))?;
+        log(
+            connection,
+            format!(
+                "skript-lsp signature timing {}",
+                json!({"queryMs":started.elapsed().as_secs_f64()*1000.0,"waitMs":wait_ms,"source":"analysis","signatures":count})
+            ),
+        )
+    }
+    fn try_syntax_signature(
+        &mut self,
+        connection: &Connection,
+        id: &RequestId,
+        position: Position,
+        index: Arc<completion::CatalogIndex>,
+    ) -> Result<bool, String> {
+        let started = Instant::now();
+        if self.syntax_completion.is_none() {
+            self.syntax_completion =
+                completion::Document::from_source(Arc::clone(&self.source), index).ok();
+        }
+        let Some(document) = &self.syntax_completion else {
+            return Ok(false);
+        };
+        let completion::SignatureQuery::Ready(help) = document.signature_at(position, false)?
+        else {
+            return Ok(false);
+        };
+        let help = self.signature_capabilities.adapt(help);
+        let count = help.as_ref().map_or(0, |h| h.signatures.len());
+        send(connection, Response::new_ok(id.clone(), help))?;
+        log(
+            connection,
+            format!(
+                "skript-lsp signature timing {}",
+                json!({"queryMs":started.elapsed().as_secs_f64()*1000.0,"waitMs":0,"source":"syntax","signatures":count})
+            ),
+        )?;
+        Ok(true)
+    }
+    fn finish_signature_requests(&mut self, connection: &Connection) -> Result<(), String> {
+        for (id, position, queued) in std::mem::take(&mut self.signature_requests) {
+            self.send_signature(
+                connection,
+                id,
+                position,
+                queued.elapsed().as_secs_f64() * 1000.0,
+            )?;
+        }
+        Ok(())
+    }
     fn completion_response(&self, id: RequestId, position: Position, snippets: bool) -> Response {
         let result = match &self.completion {
             Some(document) => document.at(position, snippets),
@@ -273,7 +374,11 @@ impl Document {
         let Some(document) = &self.syntax_completion else {
             return Ok(false);
         };
-        let list = document.syntax_at(position, snippets)?;
+        let mut list = document.syntax_at(position, snippets)?;
+        let suppressed = document.suppresses_completion(position);
+        if suppressed {
+            list.is_incomplete = false;
+        }
         // Reference history and Function shadowing still require the current parse.
         let has_syntax = list.items.iter().any(|item| {
             item.data.as_ref().is_some_and(|data| {
@@ -283,17 +388,18 @@ impl Document {
                 )
             })
         });
-        if !has_syntax {
+        if !has_syntax && !suppressed {
             return Ok(false);
         }
         let count = list.items.len();
+        let incomplete = list.is_incomplete;
         let query_ms = started.elapsed().as_secs_f64() * 1000.0;
         send(connection, Response::new_ok(id.clone(), list))?;
         log(
             connection,
             format!(
                 "skript-lsp completion timing {}",
-                json!({"queryMs":query_ms,"waitMs":0,"source":"syntax","items":count,"isIncomplete":true})
+                json!({"queryMs":query_ms,"waitMs":0,"source":"syntax","items":count,"isIncomplete":incomplete})
             ),
         )?;
         Ok(true)
@@ -308,6 +414,16 @@ impl Document {
         Ok(())
     }
     fn cancel_requests(&mut self, connection: &Connection, code: ErrorCode) -> Result<(), String> {
+        for (id, _, _) in self.signature_requests.drain(..) {
+            send(
+                connection,
+                Response::new_err(
+                    id,
+                    code as i32,
+                    "signature analysis is no longer available for this request".into(),
+                ),
+            )?;
+        }
         for (id, _, _) in self.completion_requests.drain(..) {
             send(
                 connection,
@@ -335,13 +451,15 @@ struct Documents {
     open: HashMap<Uri, Document>,
     next_id: u64,
     completion_index: Option<Arc<completion::CatalogIndex>>,
+    signature_capabilities: completion::SignatureCapabilities,
 }
 impl Documents {
-    fn new() -> Self {
+    fn new(signature_capabilities: completion::SignatureCapabilities) -> Self {
         Self {
             open: HashMap::new(),
             next_id: 0,
             completion_index: None,
+            signature_capabilities,
         }
     }
     fn id(&mut self) -> Result<u64, String> {
@@ -396,6 +514,8 @@ impl Documents {
                 syntax_completion: None,
                 completion_ready: false,
                 completion_requests: Vec::new(),
+                signature_requests: Vec::new(),
+                signature_capabilities: self.signature_capabilities,
             },
         );
         worker.submit(job);
@@ -489,8 +609,9 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
     };
     let semantic_legend = config.semantic_legend.clone();
     let completion_snippets = config.completion_snippets;
+    let signature_capabilities = config.signature_capabilities;
     let mut worker = Worker::start(config, factory)?;
-    let mut documents = Documents::new();
+    let mut documents = Documents::new(signature_capabilities);
     let mut initialize_id = Some(initialize_id);
     let mut initialized = false;
     let mut shutdown = false;
@@ -505,7 +626,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(index), startup_ms) => {
                         documents.completion_index = index;
-                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]}});
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
                         if let Some(legend) = &semantic_legend {
                             capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
                         }
@@ -544,6 +665,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             }
                             document.finish_token_requests(&connection)?;
                             document.finish_completion_requests(&connection, completion_snippets)?;
+                            document.finish_signature_requests(&connection)?;
                         }
                     }
                     Event::Failed(error) => {
@@ -604,6 +726,27 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                     }
                                     Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
                                 }
+                            } else if request.method == "textDocument/signatureHelp" && initialize_id.is_none() && initialized && !shutdown {
+                                let received = Instant::now();
+                                let has_capacity = documents.open.values().map(|d| d.signature_requests.len()).sum::<usize>() < 256;
+                                match serde_json::from_value::<lsp_types::SignatureHelpParams>(request.params) {
+                                    Ok(params) => {
+                                        let target = params.text_document_position_params;
+                                        let syntax_index = documents.completion_index.clone();
+                                        if let Some(document) = documents.open.get_mut(&target.text_document.uri) {
+                                            if document.lines.offset(&document.source, target.position).is_none() {
+                                                send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, "invalid signature UTF-16 position".into()))?;
+                                            } else if document.completion_ready {
+                                                document.send_signature(&connection, request.id, target.position, 0.0)?;
+                                            } else if let Some(index) = syntax_index {
+                                                if !document.try_syntax_signature(&connection, &request.id, target.position, index)? {
+                                                    document.queue_signature(&connection, request.id, target.position, received, has_capacity)?;
+                                                }
+                                            } else { document.queue_signature(&connection, request.id, target.position, received, has_capacity)?; }
+                                        } else { send(&connection, Response::new_ok(request.id, Value::Null))?; }
+                                    }
+                                    Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
+                                }
                             } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
                                 let response = match serde_json::from_value::<HoverParams>(request.params) {
                                     Ok(params) => {
@@ -630,6 +773,11 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 "$/cancelRequest" => {
                                     if let Ok(id) = serde_json::from_value::<RequestId>(notification.params["id"].clone()) {
                                         for document in documents.open.values_mut() {
+                                            if let Some(index) = document.signature_requests.iter().position(|(pending, _, _)| *pending == id) {
+                                                document.signature_requests.remove(index);
+                                                send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "signature request cancelled".into()))?;
+                                                break;
+                                            }
                                             if let Some(index) = document.completion_requests.iter().position(|(pending, _, _)| *pending == id) {
                                                 document.completion_requests.remove(index);
                                                 send(&connection, Response::new_err(id, ErrorCode::RequestCanceled as i32, "completion request cancelled".into()))?;

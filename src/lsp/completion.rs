@@ -19,6 +19,9 @@ use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{Catalog, Syntax, SyntaxKind};
 
 mod continuation;
+mod cursor;
+mod signature;
+pub(super) use signature::{SignatureCapabilities, SignatureQuery};
 
 const MAX_ITEMS: usize = 100;
 const MAX_VARIANTS: usize = 16;
@@ -415,6 +418,27 @@ impl Document {
     pub fn syntax_at(&self, position: Position, snippets: bool) -> Result<CompletionList, String> {
         self.at_with_references(position, snippets, false)
     }
+    /// A source-confirmed string/comment cannot gain candidates from references.
+    pub fn suppresses_completion(&self, position: Position) -> bool {
+        let Some(offset) = self.lines.offset(&self.source, position) else {
+            return false;
+        };
+        let Some(line) = self.context.get(&position.line) else {
+            return false;
+        };
+        if offset < line.code_start || offset > line.range.end {
+            return false;
+        }
+        line.blocked
+            || line
+                .comments
+                .iter()
+                .any(|r| r.start <= offset && offset <= r.end)
+            || matches!(
+                lexical_context(&self.source[line.code_start..offset]),
+                Lexical::String | Lexical::Comment
+            )
+    }
     pub fn from_result(
         result: &DocumentParseResult,
         source: Arc<str>,
@@ -561,6 +585,10 @@ impl Document {
         };
         if line.blocked
             || offset < line.code_start
+            || line
+                .comments
+                .iter()
+                .any(|r| r.start <= offset && offset <= r.end)
             || line
                 .comments
                 .iter()
@@ -1103,43 +1131,9 @@ enum Lexical {
     Comment,
 }
 fn lexical_context(text: &str) -> Lexical {
-    let mut stack = vec![Lexical::Code(false)];
-    let mut cursor = 0;
-    while cursor < text.len() {
-        let c = text[cursor..].chars().next().unwrap();
-        let next = text.as_bytes().get(cursor + 1);
-        match *stack.last().unwrap() {
-            Lexical::Code(interpolation) => match c {
-                '%' if interpolation => {
-                    stack.pop();
-                }
-                '"' => stack.push(Lexical::String),
-                '{' => stack.push(Lexical::Variable(cursor)),
-                '#' if !interpolation => return Lexical::Comment,
-                _ => {}
-            },
-            Lexical::String => match c {
-                '"' if next == Some(&b'"') => cursor += 1,
-                '"' => {
-                    stack.pop();
-                }
-                '%' if next == Some(&b'%') => cursor += 1,
-                '%' => stack.push(Lexical::Code(true)),
-                _ => {}
-            },
-            Lexical::Variable(_) => match c {
-                '}' => {
-                    stack.pop();
-                }
-                '%' if next == Some(&b'%') => cursor += 1,
-                '%' => stack.push(Lexical::Code(true)),
-                _ => {}
-            },
-            Lexical::Comment => return Lexical::Comment,
-        }
-        cursor += c.len_utf8();
-    }
-    *stack.last().unwrap_or(&Lexical::Comment)
+    let mut cursor = cursor::LexicalCursor::new(text);
+    while cursor.next().is_some() {}
+    cursor.state()
 }
 
 #[cfg(test)]
@@ -1201,12 +1195,54 @@ impl CatalogIndex {
     pub fn test_syntax_index() -> Arc<Self> {
         Document::test_fixture(Arc::from("hold pattern")).index
     }
+    pub fn test_signature_index() -> Arc<Self> {
+        let mut index = Self::test_syntax_index();
+        let label = "hold %objects% to %locations%";
+        let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
+            "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+        ))
+        .unwrap();
+        let parsed = syntax_pattern_parser::syntax::parse(label, &rules).unwrap();
+        Arc::get_mut(&mut index).unwrap().patterns.push(Pattern {
+            kind: SyntaxKind::Structure,
+            label: label.into(),
+            detail: "fixture".into(),
+            identity: "fixture".into(),
+            graph: continuation::Graph::new(&parsed.elements).unwrap(),
+        });
+        index
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use syntax_pattern_parser::syntax::{Span, Spanned};
+
+    #[test]
+    fn nested_braces_keep_the_complete_variable_history_query_and_edit() {
+        let source = "on join:\n    send {_outer{inner}} to console\n    send {_outer{in";
+        let mut document = Document::test_fixture(Arc::from(source));
+        document.variables.push(Variable {
+            source: "{_outer{inner}}".into(),
+            parent: document.context[&2].parent,
+            local: true,
+            observed: source.find("{_outer").unwrap(),
+        });
+        let list = document
+            .at(
+                document.lines.position(source, source.len()).unwrap(),
+                false,
+            )
+            .unwrap();
+        let item = list
+            .items
+            .iter()
+            .find(|item| item.label == "{_outer{inner}}")
+            .expect("whole native variable name remains visible");
+        assert_eq!(edit(item).range.start, Position::new(2, 9));
+        assert_eq!(edit(item).new_text, "{_outer{inner}}");
+    }
 
     fn edit(item: &CompletionItem) -> &TextEdit {
         let Some(CompletionTextEdit::Edit(edit)) = &item.text_edit else {
