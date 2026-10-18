@@ -54,9 +54,10 @@ local function count(text, needle)
   local n, position = 0, 1
   while true do local i = text:find(needle, position, true); if not i then return n end; n, position = n + 1, i + #needle end
 end
-local function hover(row)
+local function hover(row, options)
+  options = options or {}
   api.nvim_set_current_win(report.sourceWindow)
-  api.nvim_win_set_cursor(0, { row + 1, 11 })
+  api.nvim_win_set_cursor(0, { row + 1, options.column or 11 })
   local before = #report.requests
   if row == 1 and #report.cases == 0 then
     -- Exercise Neovim's default LSP K mapping, not a replacement callback.
@@ -70,14 +71,19 @@ local function hover(row)
   local observation = snapshot(win)
   observation.formatting = formatting(win)
   observation.response = request.result
-  observation.selectedSource = api.nvim_buf_get_text(buffer, row, 9, row, request.result.range["end"].character, {})[1]
-  assert(request.result.range.start.line == row and request.result.range.start.character == 9, "wrong selected expression")
+  local start, ending = request.result.range.start, request.result.range["end"]
+  assert(start.line == row and start.character == (options.start or 9), "wrong selected expression")
+  observation.selectedSource = table.concat(api.nvim_buf_get_text(buffer, start.line,
+    vim.str_byteindex(api.nvim_buf_get_lines(buffer, start.line, start.line + 1, false)[1], "utf-16", start.character, false),
+    ending.line, vim.str_byteindex(api.nvim_buf_get_lines(buffer, ending.line, ending.line + 1, false)[1], "utf-16", ending.character, false), {}), "\n")
   assert(vim.w[win].lsp_floating_bufnr == buffer, "wrong floating source buffer")
   assert(observation.syntax == "markdown" or observation.filetype == "markdown", "standard Markdown renderer required")
   local text = table.concat(observation.lines, "\n")
   assert(not text:find("<strong>", 1, true) and not text:find("<em>", 1, true) and not text:find("&lt;", 1, true), "unconverted documentation in real float")
-  contains(text, "<red>")
-  assert(count(text, "Examples") == 1, "Examples heading repeated in actual float")
+  if not options.literalProse then
+    contains(text, "<red>")
+    assert(count(text, "Examples") == 1, "Examples heading repeated in actual float")
+  end
   report.cases[#report.cases + 1] = observation
   return observation, win
 end
@@ -176,6 +182,66 @@ local function run()
   contains(table.concat(edited.lines, "\n"), classes[2])
   assert(not edited.response.contents.value:find(classes[1], 1, true), "stale Java class after edit")
   api.nvim_win_close(win, true)
+  local before_angles = #report.publications
+  source = { "on join:", '    log "angle probe"', '    send first 2 characters of "hello" to console', '    send stone named "hello" to console', "    send color of stone to console" }
+  api.nvim_buf_set_lines(buffer, 0, -1, false, source)
+  assert(#publish_after(before_angles).diagnostics == 0, "angle descriptions require a healthy real fixture")
+  for _, query in ipairs({
+    { name = "log-description-prose", row = 1, column = 5, start = 4, literal = "[<script>.sk]" },
+    { name = "substring-description-prose", row = 2, column = 11, literal = "<x>" },
+    { name = "named-description-code", row = 3, column = 16, literal = "<item/inventory>" },
+    { name = "color-description-spaced-placeholder", row = 4, column = 11, literal = "<%color of ...%>" },
+  }) do
+    local observed, preview = hover(query.row, { column = query.column, start = query.start, literalProse = true })
+    observed.name = query.name
+    local value = observed.response.contents.value
+    contains(value, query.literal)
+    assert(not value:find("\\<", 1, true) and not value:find("\\>", 1, true), "server added angle escape slashes")
+    local target
+    for row, line in ipairs(observed.lines) do if line:find(query.literal, 1, true) then target = row; break end end
+    assert(target, "literal description missing from actual buffer")
+    api.nvim_set_current_win(preview)
+    api.nvim_win_set_cursor(preview, { target, 0 })
+    vim.cmd("normal! zz")
+    observed.focusedDescription = snapshot(preview)
+    api.nvim_set_current_win(report.sourceWindow)
+    observed.unfocusedDescription = snapshot(preview)
+    for _, view in ipairs({ observed.focusedDescription, observed.unfocusedDescription }) do
+      local screen = table.concat(view.screen, "\n")
+      contains(screen, query.literal)
+      assert(not screen:find("\\<", 1, true) and not screen:find("\\>", 1, true), "escape slash visible in actual screen")
+      assert(not screen:find("&lt;", 1, true) and not screen:find("&gt;", 1, true), "entity workaround exposed source markup")
+    end
+    api.nvim_win_close(preview, true)
+  end
+  -- Controlled renderer case: the real snapshot has no intentional prose path.
+  -- Rust tests verify HTML -> this Markdown; here the actual renderer must keep
+  -- the intended literal backslashes in focused and unfocused screen cells.
+  local literal = [[C:\Skript\scripts\*.sk \\server\share \n &lt;x&gt; 日本😀]]
+  local markdown = { [[`C:\Skript\scripts\*.sk` `\\server\share` `\n` `&lt;x&gt;` 日本😀]], [[**`<player>`** *`C:\path`* [`<item type>`](<https://example.test/>)]] }
+  local control_buf, control_win = vim.lsp.util.open_floating_preview(markdown, "markdown", { border = "single" })
+  vim.treesitter.get_parser(control_buf):parse(true)
+  local styled = {}
+  for _, check in ipairs({ { "<player>", "markup.strong", "bold" }, { [[C:\path]], "markup.italic", "italic" } }) do
+    local column = assert(markdown[2]:find(check[1], 1, true))
+    local captures = vim.treesitter.get_captures_at_pos(control_buf, 1, column)
+    local found = false
+    for _, capture in ipairs(captures) do if capture.capture == check[2] then found = true end end
+    local attributes = api.nvim_get_hl(0, { name = "@" .. check[2], link = false })
+    assert(found and attributes[check[3]], "styled literal lost Markdown emphasis")
+    styled[check[2]] = { captures = captures, attributes = attributes }
+  end
+  api.nvim_set_current_win(control_win)
+  local focused = snapshot(control_win)
+  api.nvim_set_current_win(report.sourceWindow)
+  local unfocused = snapshot(control_win)
+  report.literalControl = { origin = "controlled standard renderer; not an SSG response", input = markdown, expected = literal, focused = focused, unfocused = unfocused, styled = styled }
+  for _, view in ipairs({ focused, unfocused }) do
+    local screen = table.concat(view.screen, "\n")
+    for _, word in ipairs({ [[C:\Skript\scripts\*.sk]], [[\\server\share]], [[\n]], [[&lt;x&gt;]], "日本😀", "<player>", [[C:\path]], "<item type>" }) do contains(screen, word) end
+  end
+  api.nvim_win_close(control_win, true)
+  assert(#report.cases == 8, "all existing and angle-prose cases must execute")
   client.request = request
   api.nvim_buf_delete(buffer, { force = true })
   client:stop(false)

@@ -79,6 +79,8 @@ Exact originだけを使い、Replaced/Anchored originの位置は親要素へ�
 情報を持たない関数や型について、戻り値のJava表現から実装クラスを推測しない。
 説明のHTMLは強調・段落・箇条書き・コード・安全な外部リンクをMarkdownまたはPlainTextへ変換する。
 HTMLを識別した後で文字参照を一段だけ復号し、Skriptの `<red>` 等をコードから削除しない。
+通常文中のplaceholder・パス・Markdown記号を含む断片はinline codeで保護する。
+Neovimでバックスラッシュのescapeが露出するのを避け、原文にあるバックスラッシュ自体は保持する。
 相対リンクやSSG内の参照anchorは表示ラベルを残す。URLの基点は推測しない。
 Examples見出しは一つにし、単一行itemのうちsection開始行より深い字下げの継続行だけを結合する。
 元から複数行のitem、同じ深さのitem、独立した例の境界と字下げを保持する。

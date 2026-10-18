@@ -835,3 +835,43 @@ fn hover_formats_real_ssg_docs_examples_and_implementation_classes_for_both_clie
         client.finish();
     }
 }
+
+#[test]
+fn hover_prose_angle_placeholders_are_literal_without_added_escape_slashes() {
+    for format in ["markdown", "plaintext"] {
+        let mut client = Client::initialized_with_capabilities(
+            &[],
+            json!({"textDocument":{"hover":{"contentFormat":[format]}}}),
+        );
+        client.open(
+            1,
+            "on load:\n    log \"hello\"\n    send first 2 characters of \"hello\" to console\n",
+        );
+        assert!(client.diagnostics(1).diagnostics.is_empty());
+        for (id, line, column, expected) in [(10, 1, 5, "<script>"), (11, 2, 11, "<x>")] {
+            let HoverContents::Markup(content) = client.hover(id, line, column).unwrap().contents
+            else {
+                panic!("markup required")
+            };
+            assert_eq!(serde_json::to_value(content.kind).unwrap(), format);
+            assert!(content.value.contains(expected), "{}", content.value);
+            assert!(
+                !content.value.contains("\\<") && !content.value.contains("\\>"),
+                "added prose escapes: {}",
+                content.value
+            );
+            if format == "markdown" {
+                assert!(
+                    content.value.contains(if line == 1 {
+                        "`[<script>.sk]`"
+                    } else {
+                        "`<x>`"
+                    }),
+                    "{}",
+                    content.value
+                );
+            }
+        }
+        client.finish();
+    }
+}

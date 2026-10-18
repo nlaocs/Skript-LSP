@@ -129,6 +129,85 @@ fn inline_code(text: &str) -> String {
     }
 }
 
+/// Keep continuous visible text together even when the HTML scanner splits it
+/// at unknown tags. Literal Markdown syntax uses code spans, since Neovim's
+/// standard highlighter displays backslash escapes rather than concealing them.
+#[derive(Default)]
+struct Text {
+    value: String,
+    code: Vec<std::ops::Range<usize>>,
+}
+
+impl Text {
+    fn push(&mut self, text: &str) {
+        self.value.push_str(text);
+    }
+
+    fn push_code(&mut self, text: &str) {
+        let start = self.value.len();
+        self.value.push_str(text);
+        if start != self.value.len() {
+            self.code.push(start..self.value.len());
+        }
+    }
+
+    fn flush(&mut self, output: &mut String, markdown: bool) {
+        if !markdown {
+            output.push_str(&self.value);
+        } else {
+            let mut cursor = 0;
+            while cursor < self.value.len() {
+                let start = cursor;
+                let mut literal = false;
+                while cursor < self.value.len() {
+                    if let Some(code) = self.code.iter().find(|range| range.contains(&cursor)) {
+                        cursor = code.end;
+                        literal = true;
+                        continue;
+                    }
+                    let rest = &self.value[cursor..];
+                    let c = rest.chars().next().unwrap();
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    if "\\`*_{}[]<>#!|&".contains(c) {
+                        literal = true;
+                    }
+                    // Placeholders may contain spaces, but cannot swallow the
+                    // next line or a known HTML structure (flush boundaries).
+                    let close = match c {
+                        '<' => Some('>'),
+                        '[' => Some(']'),
+                        _ => None,
+                    };
+                    if let Some(close) = close
+                        && let Some(end) = rest.find(close)
+                        && !rest[..end].contains(['\n', '\r'])
+                    {
+                        cursor += end + close.len_utf8();
+                    } else {
+                        cursor += c.len_utf8();
+                    }
+                }
+                if cursor != start {
+                    let text = &self.value[start..cursor];
+                    output.push_str(&if literal {
+                        inline_code(text)
+                    } else {
+                        text.to_owned()
+                    });
+                } else {
+                    let c = self.value[cursor..].chars().next().unwrap();
+                    output.push(c);
+                    cursor += c.len_utf8();
+                }
+            }
+        }
+        self.value.clear();
+        self.code.clear();
+    }
+}
+
 fn code_block(text: &str, language: &str) -> String {
     let fence = "`".repeat((longest_run(text, '`') + 1).max(3));
     format!("{fence}{language}\n{text}\n{fence}")
@@ -313,6 +392,7 @@ fn code_text(input: &str) -> String {
 /// including Skript color tags. Entity-decoded text never enters this scanner.
 fn html(input: &str, markdown: bool) -> String {
     let mut output = String::new();
+    let mut text = Text::default();
     let mut rest = input;
     let mut lists: Vec<Option<usize>> = Vec::new();
     let mut links = Vec::new();
@@ -345,6 +425,7 @@ fn html(input: &str, markdown: bool) -> String {
                         }
                         let body = code_text(body);
                         if name == "pre" {
+                            text.flush(&mut output, markdown);
                             newline(&mut output, 2);
                             output.push_str(&if markdown {
                                 code_block(&body, "")
@@ -353,12 +434,29 @@ fn html(input: &str, markdown: bool) -> String {
                             });
                             newline(&mut output, 2);
                         } else {
-                            output.push_str(&if markdown { inline_code(&body) } else { body });
+                            text.push_code(&body);
                         }
                     }
                     rest = &after[end + close.len()..];
                     continue;
                 }
+            }
+            let url = (name == "a" && !current.closing)
+                .then(|| href(current.attributes))
+                .flatten();
+            let linked = if current.closing {
+                links
+                    .last()
+                    .is_some_and(|(_, url): &(usize, Option<String>)| url.is_some())
+            } else {
+                url.is_some()
+            };
+            if matches!(
+                name,
+                "strong" | "b" | "em" | "i" | "p" | "div" | "br" | "ul" | "ol" | "li"
+            ) || name == "a" && linked
+            {
+                text.flush(&mut output, markdown);
             }
             let recognized = match name {
                 "strong" | "b" => {
@@ -418,7 +516,7 @@ fn html(input: &str, markdown: bool) -> String {
                             });
                         }
                     } else {
-                        links.push((output.len(), href(current.attributes)));
+                        links.push((output.len(), url));
                     }
                     true
                 }
@@ -430,11 +528,7 @@ fn html(input: &str, markdown: bool) -> String {
                 continue;
             }
             let literal = html_escape::decode_html_entities(&rest[..current.end]);
-            output.push_str(&if markdown {
-                escape(&literal)
-            } else {
-                literal.into_owned()
-            });
+            text.push(&literal);
             rest = &rest[current.end..];
             continue;
         }
@@ -444,13 +538,10 @@ fn html(input: &str, markdown: bool) -> String {
             rest.find('<').unwrap_or(rest.len())
         };
         let decoded = html_escape::decode_html_entities(&rest[..length]);
-        output.push_str(&if markdown {
-            escape(&decoded)
-        } else {
-            decoded.into_owned()
-        });
+        text.push(&decoded);
         rest = &rest[length..];
     }
+    text.flush(&mut output, markdown);
     output.trim().to_owned()
 }
 
@@ -467,7 +558,7 @@ mod tests {
         );
         assert_eq!(
             html(input, true),
-            "**Players:** *custom* \\<red\\> \\<gold\\> \\&lt;x\\&gt; 😀 ©"
+            "**Players:** *custom* `<red>` `<gold>` `&lt;x&gt;` 😀 ©"
         );
     }
 
@@ -476,7 +567,7 @@ mod tests {
         for (input, expected) in [
             ("日本😀", "日本😀"),
             ("<em>日本語</em>", "*日本語*"),
-            ("<😀", "\\<😀"),
+            ("<😀", "`<😀`"),
         ] {
             assert_eq!(html(input, true), expected);
         }
@@ -494,6 +585,43 @@ mod tests {
         assert_eq!(
             html("<code>send \"<b><i><red> &amp;lt;\"</code>", true),
             "`send \"<b><i><red> &lt;\"`"
+        );
+    }
+
+    #[test]
+    fn prose_preserves_literal_backslashes_placeholders_and_entities_without_escape_slashes() {
+        let input = r#"Path C:\Skript\scripts\*.sk \\server\share \n &lt;item type&gt; [&lt;script&gt;.sk] &amp;lt;x&amp;gt; 日本😀"#;
+        assert_eq!(
+            html(input, true),
+            r#"Path `C:\Skript\scripts\*.sk` `\\server\share` `\n` `<item type>` `[<script>.sk]` `&lt;x&gt;` 日本😀"#
+        );
+        assert_eq!(
+            html(input, false),
+            r#"Path C:\Skript\scripts\*.sk \\server\share \n <item type> [<script>.sk] &lt;x&gt; 日本😀"#
+        );
+        assert_eq!(
+            html("[<script>.sk] <x><y> <code>a`b</code><z>", true),
+            "`[<script>.sk]` `<x><y>` ``a`b<z>``"
+        );
+        assert_eq!(
+            html("[<span><x></span>.sk] <x><a href='#ref'><y></a><z>", true),
+            "`[<x>.sk]` `<x><y><z>`"
+        );
+        assert_eq!(
+            html("before <code>a b</code><code>c</code> after", true),
+            "before `a bc` after"
+        );
+        assert_eq!(
+            html("<%color of ...%>this text is colored!", true),
+            "`<%color of ...%>this` text is `colored!`"
+        );
+        assert_eq!(html("<x\nnext paragraph", true), "`<x`\nnext paragraph");
+        assert_eq!(
+            html(
+                "<strong>&lt;player&gt;</strong> <em>C:\\path</em> <a href='https://example.test'>&lt;item type&gt;</a>",
+                true
+            ),
+            "**`<player>`** *`C:\\path`* [`<item type>`](<https://example.test/>)"
         );
     }
 
