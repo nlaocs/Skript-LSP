@@ -31,6 +31,9 @@ use syntaxes::{
 };
 use thiserror::Error;
 
+mod preparation;
+pub use preparation::ExpressionPreparationCache;
+
 #[cfg(test)]
 #[path = "expression/capture_view_tests.rs"]
 mod capture_view_tests;
@@ -1230,6 +1233,11 @@ pub enum RegisteredExpressionDecision {
 
 /// Unified native/WASM environment used during recursive Expression parsing.
 pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
+    /// Optional reuse of pure pattern tables; no parsed source or semantics are cached.
+    fn expression_preparation_cache(&mut self) -> Option<&mut ExpressionPreparationCache> {
+        None
+    }
+
     /// Associates an observed execution fault with the native recovery scope.
     fn observe_extension_fault(
         &mut self,
@@ -1533,8 +1541,8 @@ pub(crate) struct ExpressionSession<'a, E> {
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
     registered_candidates: Vec<PatternCandidate<'a>>,
     syntax_candidate_templates: HashMap<SyntaxKind, Vec<PatternCandidate<'a>>>,
-    pattern_prefilters: HashMap<&'a str, PatternPrefilter>,
-    pattern_initials: PatternInitialIndex,
+    pattern_prefilters: HashMap<&'a str, Arc<PatternPrefilter>>,
+    pattern_initials: Arc<PatternInitialIndex>,
     expected_type_ids: RefCell<HashMap<Vec<ExpressionExpectedType>, usize>>,
     candidate_compatibility_cache: RefCell<Vec<Vec<bool>>>,
     matcher_position_cache: RefCell<HashMap<MatcherPositionKey, Vec<PatternPosition>>>,
@@ -1745,8 +1753,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         } else {
             catalog_pattern_candidates(catalog, SyntaxKind::Expression)
         };
-        let pattern_prefilters = pattern_prefilter_index(&registered_candidates);
-        let pattern_initials = pattern_initial_index(&registered_candidates, &pattern_prefilters);
+        let (pattern_prefilters, pattern_initials) =
+            if let Some(cache) = environment.expression_preparation_cache() {
+                let prepared = cache.prepare(&registered_candidates);
+                (
+                    prepared.local_prefilters(&registered_candidates),
+                    Arc::clone(&prepared.initials),
+                )
+            } else {
+                let filters = pattern_prefilter_index(&registered_candidates);
+                let initials = Arc::new(pattern_initial_index(&registered_candidates, &filters));
+                (filters, initials)
+            };
         ExpressionSession {
             forwarded_cancellation: None,
             forwarded_fault: None,
@@ -1852,7 +1870,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 let prefilter = self
                     .pattern_prefilters
                     .entry(pattern.source)
-                    .or_insert_with(|| PatternPrefilter::new(pattern));
+                    .or_insert_with(|| Arc::new(PatternPrefilter::new(pattern)));
                 pattern_prefilter_matches(prefilter, input)
             });
         }
@@ -3612,7 +3630,7 @@ struct PatternInitialIndex {
 
 fn pattern_prefilter_index<'a>(
     candidates: &[PatternCandidate<'a>],
-) -> HashMap<&'a str, PatternPrefilter> {
+) -> HashMap<&'a str, Arc<PatternPrefilter>> {
     let mut result = HashMap::new();
     for pattern in candidates
         .iter()
@@ -3620,7 +3638,7 @@ fn pattern_prefilter_index<'a>(
     {
         result
             .entry(pattern.source)
-            .or_insert_with(|| PatternPrefilter::new(pattern));
+            .or_insert_with(|| Arc::new(PatternPrefilter::new(pattern)));
     }
     result
 }
@@ -3650,7 +3668,7 @@ fn minimum_pattern_input_len(elements: &[SpannedPatternElement]) -> usize {
 
 fn pattern_initial_index(
     candidates: &[PatternCandidate<'_>],
-    prefilters: &HashMap<&str, PatternPrefilter>,
+    prefilters: &HashMap<&str, Arc<PatternPrefilter>>,
 ) -> PatternInitialIndex {
     let mut wildcard = Vec::new();
     let mut by_initial = HashMap::<char, Vec<PatternPosition>>::new();

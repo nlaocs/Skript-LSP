@@ -3997,6 +3997,12 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 }
 
 impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn expression_preparation_cache(
+        &mut self,
+    ) -> Option<&mut skript_parser::ExpressionPreparationCache> {
+        Some(&mut self.hooks.host.expression_preparation)
+    }
+
     fn observe_extension_fault(
         &mut self,
         fault: &skript_parser::ExtensionFault,
@@ -8706,6 +8712,7 @@ pub struct ParserHost {
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
+    expression_preparation: skript_parser::ExpressionPreparationCache,
     state_store: StateStore,
     dynamic_syntax_registry: Option<DynamicSyntaxRegistry>,
     capabilities: Vec<Capability>,
@@ -8794,6 +8801,7 @@ impl ParserHost {
             runtime,
             config,
             native_cancellation: None,
+            expression_preparation: skript_parser::ExpressionPreparationCache::default(),
             state_store,
             dynamic_syntax_registry,
             capabilities,
