@@ -2,8 +2,9 @@ use super::variable;
 use crate::expression_candidates::{candidate, metadata};
 use crate::nlaocs::skript_parser_addon::types::{
     Diagnostic, DiagnosticSeverity, DynamicMultiplicity, ExpressionExpectedType,
-    ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload, MappedSpan, MetadataEntry,
-    ParseRequest, ParseResult, ParseResultReference, ParseResultStatus, SourceOrigin, TextRange,
+    ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload, ExpressionPublicData,
+    MappedSpan, MetadataEntry, ParseRequest, ParseResult, ParseResultReference, ParseResultStatus,
+    SourceOrigin, TextRange,
 };
 
 const EXPRESSION_PARSER_ID: &str = "host.expression";
@@ -110,6 +111,24 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
         let expression_count = requests.len().to_string();
         leaf.metadata
             .push(metadata("embedded-expression-count", &expression_count));
+        leaf.public_data.push(ExpressionPublicData {
+            schema_id: crate::public_data::INTERPOLATION_SCHEMA_ID.into(),
+            schema_version: crate::public_data::INTERPOLATION_SCHEMA_VERSION,
+            json: serde_json::to_string(&crate::public_data::InterpolationData {
+                expressions: ranges
+                    .iter()
+                    .enumerate()
+                    .map(
+                        |(index, range)| crate::public_data::InterpolationExpression {
+                            child_index: index as u32,
+                            opening: (container.body_offset + range.start - 1) as u64,
+                            closing: (container.body_offset + range.end) as u64,
+                        },
+                    )
+                    .collect(),
+            })
+            .expect("interpolation positions are serializable"),
+        });
         leaf.children = requests
             .iter()
             .map(|request| {

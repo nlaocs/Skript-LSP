@@ -98,6 +98,7 @@ impl AstBuilder<'_> {
         );
         self.push(NodeInput {
             kind: SyntaxKind::Structure,
+            pattern_captures: Some(&structure.matched.matched.captures),
             function: None,
             syntax_id: structure.matched.registration_id.clone(),
             span: &structure.matched.matched.span,
@@ -136,6 +137,7 @@ impl AstBuilder<'_> {
         );
         self.push(NodeInput {
             kind: SyntaxKind::Section,
+            pattern_captures: Some(&section.matched.matched.captures),
             function: None,
             syntax_id: section.matched.registration_id.clone(),
             span: &section.matched.matched.span,
@@ -157,6 +159,7 @@ impl AstBuilder<'_> {
         let metadata = candidate_metadata(&effect.matched, effect.metadata.clone(), []);
         self.push(NodeInput {
             kind: SyntaxKind::Effect,
+            pattern_captures: Some(&effect.matched.matched.captures),
             function: None,
             syntax_id: effect.matched.registration_id.clone(),
             span: &effect.matched.matched.span,
@@ -186,6 +189,7 @@ impl AstBuilder<'_> {
         );
         self.push(NodeInput {
             kind: SyntaxKind::Event,
+            pattern_captures: Some(event.captures()),
             function: None,
             syntax_id: event.matched.registration_id.clone(),
             span: &event.span,
@@ -265,6 +269,7 @@ impl AstBuilder<'_> {
         metadata.extend(standard);
         self.push(NodeInput {
             kind: SyntaxKind::Condition,
+            pattern_captures: Some(&condition.captures),
             function: None,
             syntax_id,
             span: &condition.span,
@@ -306,6 +311,7 @@ impl AstBuilder<'_> {
         };
         self.push(NodeInput {
             kind,
+            pattern_captures: Some(&expression.captures),
             function: expression.function.as_ref(),
             syntax_id,
             span: &expression.span,
@@ -363,6 +369,7 @@ impl AstBuilder<'_> {
         ];
         self.push(NodeInput {
             kind: SyntaxKind::Structure,
+            pattern_captures: None,
             function: None,
             syntax_id: format!("parser:structure-entry.{}", entry_kind(&entry.kind)),
             span: &entry.span,
@@ -441,7 +448,7 @@ impl AstBuilder<'_> {
             .and_then(|origin| origin.expansion)
             .and_then(|expansion| self.source.expansions().get(expansion))
             .map_or(0, |expansion| u64::from(expansion.syntax_context.get()));
-        self.nodes.push(AstNode {
+        let mut node = AstNode {
             id,
             kind: input.kind,
             syntax_id: input.syntax_id,
@@ -460,13 +467,18 @@ impl AstBuilder<'_> {
             children: input.children,
             function: input.function.map(function_call_to_wit),
             metadata: input.metadata,
-        });
+        };
+        if let Some(captures) = input.pattern_captures {
+            super::source_geometry::retain_pattern_captures(&mut node, captures);
+        }
+        self.nodes.push(node);
         id
     }
 }
 
 struct NodeInput<'a> {
     kind: SyntaxKind,
+    pattern_captures: Option<&'a [skript_parser::PatternCapture]>,
     function: Option<&'a skript_parser::FunctionCall>,
     syntax_id: String,
     span: &'a MatchSpan,
@@ -630,6 +642,84 @@ mod tests {
         );
     }
 
+    #[test]
+    fn native_capture_geometry_survives_projection_and_rejects_macro_mutations() {
+        let (source, root, _) = super::super::capture_view_tests::fixture();
+        let tree = expression_for_test(&source, &root);
+        let node = &tree.nodes[tree.roots[0] as usize];
+        use super::super::source_geometry::{
+            PATTERN_CAPTURE_PREFIX, pattern_capture_geometry_is_current,
+        };
+        assert!(pattern_capture_geometry_is_current(node));
+        let spans = node
+            .captures
+            .iter()
+            .filter(|capture| capture.name.starts_with(PATTERN_CAPTURE_PREFIX))
+            .collect::<Vec<_>>();
+        assert_eq!(spans.len(), root.captures.len());
+        for (capture, native) in spans.iter().zip(&root.captures) {
+            let CaptureValue::Span(actual) = &capture.value else {
+                panic!()
+            };
+            let (skript_parser::PatternCapture::TypeExpression { span, .. }
+            | skript_parser::PatternCapture::Regex { span, .. }) = native;
+            assert_eq!(
+                format!("{actual:?}"),
+                format!("{:?}", mapped_span_to_wit(span.mapped.clone()))
+            );
+        }
+        let mut renumbered = node.clone();
+        renumbered.id += 100;
+        renumbered.children.iter_mut().for_each(|id| *id += 100);
+        assert!(pattern_capture_geometry_is_current(&renumbered));
+        for mutation in 0..5 {
+            let mut changed = node.clone();
+            match mutation {
+                0 => {
+                    changed
+                        .captures
+                        .retain(|capture| !capture.name.starts_with(PATTERN_CAPTURE_PREFIX));
+                }
+                1 => {
+                    let capture = changed
+                        .captures
+                        .iter_mut()
+                        .find(|capture| capture.name.starts_with(PATTERN_CAPTURE_PREFIX))
+                        .unwrap();
+                    let CaptureValue::Span(span) = &mut capture.value else {
+                        panic!()
+                    };
+                    span.virtual_range.end = span.virtual_range.start;
+                    span.origins[0].original_range.end = span.origins[0].original_range.start;
+                }
+                2 => {
+                    changed.summary.as_mut().unwrap().pattern_index = Some(1234);
+                }
+                3 => {
+                    let seal = changed
+                        .metadata
+                        .iter_mut()
+                        .find(|entry| entry.key == "parser.pattern-capture-seal.v1")
+                        .unwrap();
+                    seal.owner_component_id = Some("foreign.component".into());
+                }
+                _ => {
+                    let seal = changed
+                        .metadata
+                        .iter()
+                        .find(|entry| entry.key == "parser.pattern-capture-seal.v1")
+                        .unwrap()
+                        .clone();
+                    changed.metadata.push(seal);
+                }
+            }
+            assert!(
+                !pattern_capture_geometry_is_current(&changed),
+                "mutation {mutation}"
+            );
+        }
+    }
+
     // Pre-view projection, using owned capture fields directly.
     fn legacy_captures(
         builder: &mut AstBuilder<'_>,
@@ -705,7 +795,12 @@ mod tests {
                 .iter()
                 .map(|capture| capture.name.as_str())
                 .collect::<Vec<_>>(),
-            ["7:host.expression", "2:host.expression"]
+            [
+                "7:host.expression",
+                "2:host.expression",
+                "parser.pattern-capture:7",
+                "parser.pattern-capture:2"
+            ]
         );
         assert_eq!(parent.children, [2, 3]);
         assert_eq!(builder.nodes.len(), 5);

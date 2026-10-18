@@ -216,6 +216,40 @@ mod tests {
     }
 
     #[test]
+    fn document_source_colors_separate_section_condition_and_variable_interpolation() {
+        let snapshot =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/current-multi-addon-2.15.4");
+        let input = "on load:\n    if 1 is 1:\n        send \"value: %sin(1)%\" to console\n        send {_key%sin(1)%} to console\n\n:quit\n";
+        let mut output = Vec::new();
+        let mut error = Vec::new();
+        assert_eq!(
+            run_with_io_mode(
+                ["--repl"],
+                snapshot,
+                Cursor::new(input),
+                &mut output,
+                &mut error,
+                true,
+                false
+            ),
+            EXIT_SUCCESS
+        );
+        assert!(error.is_empty(), "{}", String::from_utf8_lossy(&error));
+        let output = String::from_utf8(output).unwrap();
+        let view = output.split("tree:").next().unwrap();
+        assert!(view.contains("\x1b[38;2;92;208;179mif"), "{view:?}");
+        assert!(view.contains("\x1b[38;2;252;98;85m is "), "{view:?}");
+        assert_eq!(
+            view.matches("\x1b[38;2;176;176;176m%").count(),
+            4,
+            "{view:?}"
+        );
+        assert!(view.contains("\x1b[38;2;0;255;255m{_key"), "{view:?}");
+        assert!(view.contains("\x1b[38;2;160;160;160msin"), "{view:?}");
+        eprintln!("REPL_SOURCE_VIEW={view:?}");
+    }
+
+    #[test]
     fn document_and_json_modes_obey_the_same_color_policy() {
         let snapshot =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/current-multi-addon-2.15.4");

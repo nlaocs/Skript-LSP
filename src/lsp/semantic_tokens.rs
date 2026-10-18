@@ -10,7 +10,7 @@ use lsp_types::{
 use parser_wasm::{
     DocumentParseResult,
     bindings::nlaocs::skript_parser_addon::types::{CaptureValue, OriginKind, SyntaxKind},
-    host::{AstNode, AstTree, MappedSpan},
+    host::{AstNode, AstTree, MappedSpan, source_geometry},
 };
 use skript_parser::{RawNodeKind, RawTriviaKind, TextRange};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -28,10 +28,11 @@ enum Role {
     Literal,
     Function,
     Variable,
+    InterpolationDelimiter,
 }
 
 impl Role {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Event,
         Self::Condition,
         Self::Effect,
@@ -41,6 +42,7 @@ impl Role {
         Self::Literal,
         Self::Function,
         Self::Variable,
+        Self::InterpolationDelimiter,
     ];
 
     fn name(self) -> &'static str {
@@ -54,6 +56,7 @@ impl Role {
             Self::Literal => "skriptLiteral",
             Self::Function => "function",
             Self::Variable => "variable",
+            Self::InterpolationDelimiter => "skriptInterpolationDelimiter",
         }
     }
 }
@@ -178,16 +181,44 @@ impl Document {
             depths.insert(id, depth);
             pending.extend(node.children.iter().map(|child| (*child, depth + 1)));
         }
+        let mut invalid_geometry = HashSet::new();
         for id in depths.keys() {
             let node = nodes[id];
+            let geometry_current = source_geometry::pattern_capture_geometry_is_current(node);
+            if source_geometry::has_pattern_capture_geometry(node) && !geometry_current {
+                invalid_geometry.insert(*id);
+            }
             for (range, origin) in origins(&node.span)?.into_iter().zip(&node.span.origins) {
                 lines.range(source, range)?;
                 if origin.kind != OriginKind::Exact {
                     blocked.push(range);
                 }
             }
+            if invalid_geometry.contains(id) {
+                // All capture Span/Text evidence participates in the seal,
+                // including non-reserved spans supplied by a binding.
+                continue;
+            }
             for capture in &node.captures {
                 if let CaptureValue::Span(span) = &capture.value {
+                    if capture
+                        .name
+                        .starts_with(source_geometry::PATTERN_CAPTURE_PREFIX)
+                    {
+                        // A stale/malformed parent proof is not a failure of its
+                        // independently valid children or siblings.
+                        if !geometry_current {
+                            continue;
+                        }
+                        if origins(span).is_err()
+                            || origins(span)?
+                                .iter()
+                                .any(|range| lines.range(source, *range).is_err())
+                        {
+                            invalid_geometry.insert(*id);
+                            continue;
+                        }
+                    }
                     for (range, origin) in origins(span)?.into_iter().zip(&span.origins) {
                         lines.range(source, range)?;
                         if origin.kind != OriginKind::Exact {
@@ -203,6 +234,9 @@ impl Document {
         let mut pieces = Vec::new();
         for id in depths.keys() {
             let node = nodes[id];
+            if invalid_geometry.contains(id) {
+                continue;
+            }
             let Some(role) = classify(node) else {
                 continue;
             };
@@ -211,13 +245,7 @@ impl Document {
             {
                 continue;
             }
-            // Raw regex captures carry text but no span in the final AST.
-            // Searching for that text would be ambiguous with repeated words.
-            if node
-                .captures
-                .iter()
-                .any(|capture| matches!(capture.value, CaptureValue::Text(_)))
-            {
+            if !text_captures_are_located(node, source) {
                 continue;
             }
             let ranges = origins(&node.span)?;
@@ -253,11 +281,51 @@ impl Document {
                             )?);
                         }
                     }
-                    CaptureValue::Text(_) => unreachable!(),
+                    // Its complete native slot was checked above and is also
+                    // present as a sealed Span capture. Do not search the text.
+                    CaptureValue::Text(_) => {}
                 }
             }
             for range in &captures {
                 lines.range(source, *range)?;
+            }
+            if matches!(role, Role::Literal | Role::Variable) && ranges.len() == 1 {
+                let parent = ranges[0];
+                if let Some(parts) = super::public_data::interpolation_parts(node) {
+                    for part in parts {
+                        // The parser located the complete interpolation slot.
+                        // A routed/macro-edited child may cover less source;
+                        // never repaint the rest with the container's role.
+                        captures.push(TextRange::new(
+                            parent.start + part.opening,
+                            parent.start + part.closing + 1,
+                        ));
+                        let child = nodes
+                            .get(&node.children[part.child_index])
+                            .ok_or("missing interpolation child")?;
+                        let inner = TextRange::new(
+                            parent.start + part.opening + 1,
+                            parent.start + part.closing,
+                        );
+                        let child_ranges = origins(&child.span)?;
+                        if child.span.origins.len() != 1
+                            || child.span.origins[0].kind != OriginKind::Exact
+                            || child_ranges
+                                .iter()
+                                .any(|range| range.start < inner.start || range.end > inner.end)
+                        {
+                            continue;
+                        }
+                        for offset in [part.opening, part.closing] {
+                            let delimiter =
+                                TextRange::new(parent.start + offset, parent.start + offset + 1);
+                            captures.push(delimiter);
+                            for fragment in subtract(delimiter, &blocked) {
+                                pieces.push((fragment, Role::InterpolationDelimiter, *id));
+                            }
+                        }
+                    }
+                }
             }
             for mut range in ranges {
                 if role == Role::Function {
@@ -411,10 +479,8 @@ fn classify(node: &AstNode) -> Option<Role> {
     }
 }
 
-/// Some native captures (all Event captures and unbound regex captures) are
-/// absent from the WIT arena. An empty capture list therefore proves nothing.
-/// Match the actual catalog registration, then conservatively omit patterns
-/// containing slots whose source ownership the final AST cannot establish.
+/// Match the adopted registration and trust native capture spans only while
+/// their owner-protected source/identity seal still matches the final AST.
 fn fixed_parts_are_known(node: &AstNode, catalog: &Catalog) -> bool {
     let Some((registration, definition, index)) = registered_pattern_identity(node) else {
         return false;
@@ -438,7 +504,76 @@ fn fixed_parts_are_known(node: &AstNode, catalog: &Catalog) -> bool {
     else {
         return false;
     };
+    if source_geometry::has_pattern_capture_geometry(node) {
+        return complete_capture_geometry(node);
+    }
+    // Older or addon-created nodes without a native proof stay conservative.
     slots_are_projected(&pattern.parsed.elements, node.kind == SyntaxKind::Event)
+}
+
+fn complete_capture_geometry(node: &AstNode) -> bool {
+    if !source_geometry::pattern_capture_geometry_is_current(node) {
+        return false;
+    }
+    let Ok(parents) = origins(&node.span) else {
+        return false;
+    };
+    node.captures.iter().all(|capture| {
+        if !capture
+            .name
+            .starts_with(source_geometry::PATTERN_CAPTURE_PREFIX)
+        {
+            return true;
+        }
+        let CaptureValue::Span(span) = &capture.value else {
+            return false;
+        };
+        span.virtual_range.start >= node.span.virtual_range.start
+            && span.virtual_range.end <= node.span.virtual_range.end
+            && origins(span).is_ok_and(|ranges| {
+                ranges.iter().all(|range| {
+                    parents
+                        .iter()
+                        .any(|parent| parent.start <= range.start && range.end <= parent.end)
+                })
+            })
+    })
+}
+
+fn text_captures_are_located(node: &AstNode, source: &str) -> bool {
+    node.captures.iter().all(|capture| {
+        let CaptureValue::Text(value) = &capture.value else {
+            return true;
+        };
+        if !complete_capture_geometry(node) {
+            return false;
+        }
+        let Some((index, _)) = capture.name.split_once(':') else {
+            return false;
+        };
+        let Ok(index) = index.parse::<u64>() else {
+            return false;
+        };
+        let name = format!("{}{index}", source_geometry::PATTERN_CAPTURE_PREFIX);
+        let Some(CaptureValue::Span(span)) = node
+            .captures
+            .iter()
+            .find(|capture| capture.name == name)
+            .map(|capture| &capture.value)
+        else {
+            return false;
+        };
+        origins(span).is_ok_and(|ranges| {
+            ranges
+                .iter()
+                .all(|range| source.get(range.start..range.end).is_some())
+                && ranges
+                    .iter()
+                    .map(|range| &source[range.start..range.end])
+                    .collect::<String>()
+                    == *value
+        })
+    })
 }
 
 fn registered_pattern_identity(node: &AstNode) -> Option<(&str, &str, u64)> {
@@ -838,6 +973,181 @@ mod tests {
         assert_eq!(
             decoded(&result, &all()),
             vec![(0, 2, 4, "skriptLiteral".into())]
+        );
+    }
+
+    #[test]
+    fn located_raw_text_uses_the_entire_native_capture_without_hiding_its_child() {
+        let source = "if value";
+        let mapped = skript_parser::MappedSource::identity(source);
+        let mut parent = node(1, SyntaxKind::Section, "section", source, 0, source.len());
+        parent.children = vec![2];
+        parent.captures.push(Capture {
+            name: "0:fixture.raw".into(),
+            value: CaptureValue::Text("value".into()),
+        });
+        source_geometry::retain_pattern_captures(
+            &mut parent,
+            &[skript_parser::PatternCapture::Regex {
+                capture_index: 0,
+                pattern_span: syntax_pattern_parser::syntax::Span::new(3, 7),
+                value: "value".into(),
+                span: skript_parser::MatchSpan {
+                    local_range: TextRange::new(3, 8),
+                    mapped: mapped.map_range(TextRange::new(3, 8)).unwrap(),
+                },
+                groups: vec![],
+            }],
+        );
+        // The routed child deliberately covers only part of the native slot.
+        let child = node(2, SyntaxKind::Expression, "literal", source, 3, 6);
+        let result = document(source, vec![1], vec![parent.clone(), child.clone()], vec![]);
+        assert_eq!(
+            decoded(&result, &all()),
+            vec![
+                (0, 0, 2, "skriptSection".into()),
+                (0, 3, 3, "skriptLiteral".into())
+            ]
+        );
+        let CaptureValue::Span(span) = &mut parent.captures.last_mut().unwrap().value else {
+            panic!()
+        };
+        span.origins[0].original_range.end = 6;
+        let result = document(source, vec![1], vec![parent, child], vec![]);
+        assert_eq!(
+            decoded(&result, &all()),
+            vec![(0, 3, 3, "skriptLiteral".into())]
+        );
+    }
+
+    #[test]
+    fn parser_confirmed_delimiters_do_not_depend_on_trimmed_child_boundaries() {
+        let source = "{_x% value %}";
+        let mut parent = node(
+            1,
+            SyntaxKind::Expression,
+            "variable",
+            source,
+            0,
+            source.len(),
+        );
+        parent.children = vec![2];
+        parent.summary.as_mut().unwrap().public_data = vec![
+            ExpressionPublicData { schema_id: "nlaocs.skript.variable".into(), schema_version: 1,
+                json: r#"{"scope":"local","name":[{"kind":"text","text":"x"},{"kind":"expression","childIndex":0}]}"#.into() },
+            ExpressionPublicData { schema_id: "nlaocs.skript.interpolation".into(), schema_version: 1,
+                json: r#"{"expressions":[{"childIndex":0,"opening":3,"closing":11}]}"#.into() },
+        ];
+        let child = node(
+            2,
+            SyntaxKind::Expression,
+            "registered-expression",
+            source,
+            5,
+            10,
+        );
+        let result = document(source, vec![1], vec![parent.clone(), child.clone()], vec![]);
+        assert_eq!(
+            decoded(&result, &all()),
+            vec![
+                (0, 0, 3, "variable".into()),
+                (0, 3, 1, "skriptInterpolationDelimiter".into()),
+                (0, 5, 5, "skriptExpression".into()),
+                (0, 11, 1, "skriptInterpolationDelimiter".into()),
+                (0, 12, 1, "variable".into()),
+            ]
+        );
+        let narrowed = node(
+            2,
+            SyntaxKind::Expression,
+            "registered-expression",
+            source,
+            5,
+            6,
+        );
+        let result = document(source, vec![1], vec![parent.clone(), narrowed], vec![]);
+        assert_eq!(
+            decoded(&result, &all()),
+            vec![
+                (0, 0, 3, "variable".into()),
+                (0, 3, 1, "skriptInterpolationDelimiter".into()),
+                (0, 5, 1, "skriptExpression".into()),
+                (0, 11, 1, "skriptInterpolationDelimiter".into()),
+                (0, 12, 1, "variable".into()),
+            ],
+            "the unclassified remainder of a known interpolation slot has no parent fallback"
+        );
+        for mutation in 0..4 {
+            let mut malformed = parent.clone();
+            let record = &mut malformed.summary.as_mut().unwrap().public_data[1];
+            match mutation {
+                0 => record.schema_version = 2,
+                1 => {
+                    record.json =
+                        r#"{"expressions":[{"childIndex":1,"opening":3,"closing":11}]}"#.into()
+                }
+                2 => {
+                    record.json =
+                        r#"{"expressions":[{"childIndex":0,"opening":3,"closing":999}]}"#.into()
+                }
+                _ => {
+                    let duplicate = record.clone();
+                    malformed
+                        .summary
+                        .as_mut()
+                        .unwrap()
+                        .public_data
+                        .push(duplicate);
+                }
+            }
+            let result = document(source, vec![1], vec![malformed, child.clone()], vec![]);
+            assert!(
+                result
+                    .tokens
+                    .iter()
+                    .all(|(_, role)| *role != Role::InterpolationDelimiter)
+            );
+            assert!(
+                result
+                    .tokens
+                    .iter()
+                    .any(|(_, role)| *role == Role::Expression)
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_reserved_geometry_omits_the_parent_but_preserves_healthy_children() {
+        let source = "if value\nsend";
+        let mut parent = node(1, SyntaxKind::Section, "section", source, 0, 8);
+        parent.children = vec![2];
+        let mut broken = parent.span.clone();
+        broken.origins[0].original_range.end = 999;
+        parent.captures.push(Capture {
+            name: "parser.pattern-capture:0".into(),
+            value: CaptureValue::Span(broken),
+        });
+        let mut missing_origin = parent.span.clone();
+        missing_origin.origins.clear();
+        parent.captures.push(Capture {
+            name: "0:binding".into(),
+            value: CaptureValue::Span(missing_origin),
+        });
+        let mut anchored = parent.span.clone();
+        anchored.origins[0].kind = OriginKind::Anchored;
+        parent.captures.push(Capture {
+            name: "1:binding".into(),
+            value: CaptureValue::Span(anchored),
+        });
+        let child = node(2, SyntaxKind::Expression, "literal", source, 3, 8);
+        let sibling = node(3, SyntaxKind::Effect, "effect", source, 9, 13);
+        let result = document(source, vec![1, 3], vec![parent, child, sibling], vec![]);
+        assert_eq!(
+            decoded(&result, &all()),
+            vec![
+                (0, 3, 5, "skriptLiteral".into()),
+                (1, 0, 4, "skriptEffect".into())
+            ]
         );
     }
 

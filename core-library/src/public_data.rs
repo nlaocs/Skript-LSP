@@ -11,6 +11,26 @@ pub const VARIABLE_SCHEMA_ID: &str = "nlaocs.skript.variable";
 /// Version of [`VariableData`]. Unknown versions must not be silently interpreted.
 pub const VARIABLE_SCHEMA_VERSION: u32 = 1;
 
+/// Parser-confirmed interpolation delimiters, relative UTF-8 byte offsets into
+/// the enclosing Expression source. They are not inferred from a trimmed child.
+pub const INTERPOLATION_SCHEMA_ID: &str = "nlaocs.skript.interpolation";
+pub const INTERPOLATION_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterpolationData {
+    pub expressions: Vec<InterpolationExpression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterpolationExpression {
+    #[serde(rename = "childIndex")]
+    pub child_index: u32,
+    /// Offset of the opening percent sign, excluding escaped `%%`.
+    pub opening: u64,
+    /// Offset of the closing percent sign; the inner source ends here.
+    pub closing: u64,
+}
+
 /// Name and scope of a variable reference, not its runtime value.
 ///
 /// Type and multiplicity remain on the enclosing Expression candidate. `name`

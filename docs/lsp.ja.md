@@ -104,6 +104,7 @@ fullのみを実装し、range・delta・modifierは公開しない。未対応�
 | token type | 対象 |
 | --- | --- |
 | `skriptEvent` / `skriptCondition` / `skriptEffect` | 採用された各構文の確定した固定部分 |
+| `skriptInterpolationDelimiter` | parserが位置を確定した文字列・変数名補間の `%` |
 | `skriptExpression` / `skriptSection` / `skriptStructure` | 同じくExpression・Section・Structureの固定部分 |
 | `skriptLiteral` | 最終結果がliteralと示す値。Type parserが生成した値も含む |
 | 標準 `function` | 型付きFunction callの名前だけ |
@@ -117,10 +118,20 @@ fullのみを実装し、range・delta・modifierは公開しない。未対応�
 別nodeの原文範囲が競合する部分は順番で選ばず省略する。Function名は単一Exact originと原文一致を確認する。
 未完成文書でも独立して確定した兄弟は着色できる。
 
-最終ASTでは一部のcapture位置が失われるため、Text captureを持つ親、CatalogのID・patternと照合できない親、
-regexを含むpatternの親を初版では着色しない。EventではTypeExprを含むpatternの親も省略する。
-`if` / `while`等の固定語や宣言header、動的構文の親もこの制約に該当し得る。確定した子の着色は残る。
+native parserが採用したregex/TypeExpr captureのMappedSpanを、既存WITのSpan captureとして最終ASTへ保持する。
+host所有のsealをnodeの採用identityと位置集合に結び付け、macroによるcaptureの削除・縮小・移動後は根拠として使わない。
+全capture範囲を子より狭く解釈せず差し引くため、`if 1 is 1:` は固定`if`がSection、`is`がConditionになる。
+Text captureは対応する元位置と原文一致も確認し、文字検索で位置を補わない。
+sealのないregex親、根拠が変化した親、CatalogのID・patternと照合できない動的構文の親等は省略し、独立した子を残す。
+regex capture全体に含まれる未分類の宣言名等を親の固定語として塗らない。
 default/group/listのwrapper、型名の宣言位置、引数label等の位置や意味を補作しない。
+
+補間delimiterはCoreLibraryの公開schema `nlaocs.skript.interpolation` version 1が示す、親source内のUTF-8 byte位置を使う。
+単一Exact origin、原文の`%`、childIndexと子の包含を確認し、空白をtrimした子の隣接文字からは推測しない。
+位置が確定した補間slotは全体を親から引き、macro等で子が狭くなっても残りを親色へ戻さない。
+escaped `%%` はdelimiterではない。対応を表明しないclientへ別分類の色で代用しない。
+補間schemaを利用できない場合は専用delimiter分類を省略し、独立に確定した親分類と子の範囲を維持する。
+現parserが拒否する`{_key% sin(1) %}`等の入力は、診断と無色の範囲を保ち、着色のために受理した扱いへ変えない。
 
 token用の不変データはworkerで作り、通信threadで再解析しない。
 解析中のfull要求は通信処理を止めずに保持し、同じ世代・revisionの解析完了時に返す。

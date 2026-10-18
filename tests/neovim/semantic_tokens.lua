@@ -118,6 +118,7 @@ local ok, failure = xpcall(function()
       skriptEvent = "C55F73", skriptCondition = "FC6255", skriptEffect = "58C4DD",
       skriptExpression = "83C167", skriptSection = "5CD0B3", skriptStructure = "9A72AC",
       variable = "00FFFF", ["function"] = "A0A0A0",
+      skriptInterpolationDelimiter = "B0B0B0",
     }) do
       local highlight = api.nvim_get_hl(0, { name = "@lsp.type." .. role .. ".skript", link = true })
       assert(not highlight.link and highlight.fg == tonumber(rgb, 16), vim.inspect(highlight))
@@ -136,17 +137,61 @@ local ok, failure = xpcall(function()
     local string_child, variable_child = at(1, "sin"), at(2, "sin")
     check("string-and-variable-interpolation-own-child-ranges", { string = string_child, variable = variable_child })
     assert(#string_child == 1 and #variable_child == 1, "parent color overlaps an interpolation child")
+    local delimiters = {}
+    for row = 1, 2 do
+      for column = 0, #lines[row + 1] - 1 do
+        if lines[row + 1]:sub(column + 1, column + 1) == "%" then
+          local found = false
+          for _, value in ipairs(vim.lsp.semantic_tokens.get_at_pos(buffer, row, column) or {}) do
+            if value.start_col == column and value.end_col == column + 1 and value.type == "skriptInterpolationDelimiter" then found = true; delimiters[#delimiters + 1] = value end
+          end
+          assert(found, "interpolation delimiter did not retain its own range")
+        end
+      end
+    end
+    assert(#delimiters == 4)
+    check("string-and-variable-percent-delimiters-match-repl-gray", delimiters)
+    local interpolation_publication = change({ "on load:", '    send "100%%, %sin(1)%" to console', '    send {_key% sin(1) %} to console', '    send {_outer%{_inner%sin(1)%}%} to console' }, true)
+    assert(vim.iter(interpolation_publication.diagnostics):any(function(diagnostic)
+      return diagnostic.code == "parser.syntax-incomplete" and diagnostic.range.start.line == 2
+    end), "the current parser rejects whitespace around an embedded expression")
+    wait_for("nested interpolations", function() return token(3, "sin", "function") end)
+    local counts = {}
+    for row = 1, 3 do
+      local count = 0
+      for column = 0, #lines[row + 1] - 1 do
+        for _, value in ipairs(vim.lsp.semantic_tokens.get_at_pos(buffer, row, column) or {}) do
+          if value.start_col == column and value.end_col == column + 1 and value.type == "skriptInterpolationDelimiter" then count = count + 1 end
+        end
+      end
+      counts[#counts + 1] = count
+    end
+    assert(vim.deep_equal(counts, { 2, 0, 4 }), vim.inspect(counts))
+    local escaped = at(1, "%%")
+    assert(#escaped == 1 and escaped[1].type == "skriptLiteral", vim.inspect(escaped))
+    assert(#at(2, "%") == 0, "unparsed interpolation has no fabricated token")
+    check("escaped-percent-nested-delimiters-and-unparsed-whitespace", counts)
     change({ "on join:", "    send name of player to console" }, false)
     wait_for("registered expression fixed words", function() return token(1, "name", "skriptExpression") and token(1, "of", "skriptExpression") end)
     check("expression-fixed-words-have-their-own-classification")
     change({ "on load:", "    if 1 is 1:", '        send "ok" to console' }, false)
     wait_for("condition child fixed words", function() return token(1, "is", "skriptCondition") and token(2, "send", "skriptEffect") end)
-    assert(#at(1, "if") == 0, "regex parent must not color an unprojected capture")
-    check("regex-parent-is-omitted-while-condition-child-is-colored")
+    wait_for("section fixed word", function() return token(1, "if", "skriptSection") end)
+    assert(#at(1, "if") == 1 and #at(1, "is") == 1)
+    local section_mark = wait_for("section highlight", function() return inspect_mark(1, "if", "skriptSection") end)
+    assert(section_mark.highlight.fg == tonumber("5CD0B3", 16), vim.inspect(section_mark))
+    check("native-regex-capture-range-separates-section-and-condition", section_mark)
     local condition_mark = wait_for("condition highlight", function() return inspect_mark(1, "is", "skriptCondition") end)
     assert(condition_mark.highlight.fg == tonumber("FC6255", 16), vim.inspect(condition_mark))
     assert(condition_mark.highlight.fg ~= event_mark.highlight.fg)
     check("event-and-condition-have-distinct-repl-colors", { event = event_mark, condition = condition_mark })
+    change({ "function greet(message: string) :: string:", '    send "hello" to console', "on load:", '    send greet("hello") to console' }, false)
+    wait_for("function Structure fixed word", function() return token(0, "function", "skriptStructure") and token(3, "greet", "function") end)
+    local structure_mark = wait_for("Structure highlight", function() return inspect_mark(0, "function", "skriptStructure") end)
+    assert(structure_mark.highlight.fg == tonumber("9A72AC", 16), vim.inspect(structure_mark))
+    assert(#at(0, "greet") == 0 and #at(0, "message") == 0 and #at(0, "string") == 0,
+      "unclassified declaration capture must not inherit the Structure prefix color")
+    check("structure-fixed-prefix-keeps-repl-color-without-coloring-its-regex-capture", structure_mark)
     -- Reload the sample with one pre-existing override, without changing any file.
     api.nvim_set_hl(0, "@lsp.type.skriptCondition.skript", { fg = "#123456" })
     dofile(configuration)

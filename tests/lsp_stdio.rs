@@ -27,7 +27,7 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
         json!({"textDocument":{"semanticTokens":{
             "requests":{"full":true}, "formats":["relative"], "tokenModifiers":[],
             "tokenTypes":["skriptEvent","skriptCondition","skriptEffect","skriptExpression",
-                "skriptSection","skriptStructure","skriptLiteral","function","variable"]
+                "skriptSection","skriptStructure","skriptLiteral","function","variable","skriptInterpolationDelimiter"]
         }}}),
     );
     let initialization = client.response(1).response_result.unwrap();
@@ -35,9 +35,9 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
     assert_eq!(provider["full"], true);
     assert!(provider.get("range").is_none());
     let types = provider["legend"]["tokenTypes"].as_array().unwrap();
-    assert_eq!(types.len(), 9);
+    assert_eq!(types.len(), 10);
     client.notify("initialized", json!({}));
-    let source = "on load:\r\n    send \"日本😀\" to console\r\n    send sin(1) to console\r\n    send {_money} to console\r\n    # no semantic color here\r\n    this effect does not exist\r\n";
+    let source = "on load:\r\n    send \"日本😀\" to console\r\n    send sin(1) to console\r\n    send {_money} to console\r\n    # no semantic color here\r\n    this effect does not exist\r\n    if 1 is 1:\r\n        send \"ok\" to console\r\n    send {_key%sin(1)%} to console\r\n    send {_key% sin(1) %} to console\r\n    send \"100%%\" to console\r\n";
     client.open(1, source);
     client.send(Request::new(
         10.into(),
@@ -50,6 +50,15 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.range.start.line == 5)
+    );
+    assert!(
+        diagnostics.diagnostics.iter().any(|diagnostic| {
+            diagnostic.range.start == Position::new(9, 9)
+                && diagnostic.range.end == Position::new(9, 25)
+                && diagnostic.code
+                    == Some(NumberOrString::String("parser.syntax-incomplete".into()))
+        }),
+        "the current parser rejects spaces around the embedded expression"
     );
     let result = client.response(10).response_result.unwrap();
     let data = result["data"].as_array().unwrap();
@@ -78,7 +87,7 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
         let text = String::from_utf16(&text[start..start + length]).unwrap();
         let kind = types[token[3].as_u64().unwrap() as usize].as_str().unwrap();
         assert!(
-            line < 4,
+            (line < 4 || line >= 6) && line != 9,
             "comments and unclaimed statements have no semantic tokens"
         );
         decoded.push((line, start, length, kind, text));
@@ -90,6 +99,11 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
         (2, 9, 3, "function", "sin"),
         (2, 13, 1, "skriptLiteral", "1"),
         (3, 9, 8, "variable", "{_money}"),
+        (6, 4, 2, "skriptSection", "if"),
+        (6, 9, 2, "skriptCondition", "is"),
+        (8, 14, 1, "skriptInterpolationDelimiter", "%"),
+        (8, 15, 3, "function", "sin"),
+        (8, 21, 1, "skriptInterpolationDelimiter", "%"),
     ] {
         assert!(
             decoded.iter().any(|actual| actual.0 == expected.0
@@ -100,6 +114,12 @@ fn semantic_tokens_use_final_original_ranges_and_negotiated_classifications() {
             "missing {expected:?}: {decoded:#?}"
         );
     }
+    assert!(
+        !decoded
+            .iter()
+            .any(|token| token.0 == 10 && token.3 == "skriptInterpolationDelimiter"),
+        "escaped %% is literal source"
+    );
     client.change(2, "");
     assert!(client.diagnostics(2).diagnostics.is_empty());
     client.send(Request::new(

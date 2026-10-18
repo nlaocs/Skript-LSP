@@ -72,8 +72,8 @@ headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktop
 ## Semantic Tokens の色
 
 付属設定はNeovimの標準capabilitiesへ `skriptEvent`、`skriptCondition`、`skriptEffect`、`skriptExpression`、
-`skriptSection`、`skriptStructure`、`skriptLiteral` を追加し、`@lsp.type.<分類>.skript` の色を定義する。
-既存の8役割はREPLのソース構文色と同じRGBを初期値にする。
+`skriptSection`、`skriptStructure`、`skriptLiteral`、`skriptInterpolationDelimiter` を追加し、
+`@lsp.type.<分類>.skript` の色を定義する。役割別RGBはREPLのソース構文色と揃える。
 
 | 分類 | RGB |
 |---|---|
@@ -85,8 +85,10 @@ headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktop
 | Structure | `#9A72AC` |
 | Variable | `#00FFFF` |
 | Function | `#A0A0A0` |
+| Interpolation delimiter | `#B0B0B0` |
 
-たとえば `on load:` の `load` はEvent、`if 1 is 1:` の `is` はConditionとして別の色になる。
+たとえば `on load:` の `load` はEvent、`if 1 is 1:` の `if` はSection、`is` はConditionとして別の色になる。
+文字列・変数名の `%…%` はdelimiterをgrayに分け、内側の式・変数・関数は自身の分類を維持する。
 literalは既存の `Normal` リンクを維持し、REPLの白を固定せずthemeの前景色に従う。
 `default = true` のため、既に定義したhighlight groupを上書きしない。好みのthemeでは同じgroupを設定できる。
 
@@ -96,11 +98,12 @@ Neovimの既定tokenTypesは標準分類だけであり、そのままのclient�
 他clientでも同じ独自名への対応表明と色設定が必要になる。
 
 確定した固定語と子の式を別範囲にし、親AST全体を同色で塗らない。
-regex captureの位置が最終ASTに残らない構文等は、親を着色せず子だけを残す。
-`if` / `while`や宣言header、動的構文の一部も対象外になり得る。詳細は[LSPの制約](lsp.ja.md)を参照する。
+採用したnative captureの位置を最終ASTへ保持し、`if`等の固定部分とcapture全域を分離する。
+macro変更後等に位置の根拠を確認できない親、未分類のcapture内、動的構文の一部は対象外になり得る。
+詳細は[LSPの制約](lsp.ja.md)を参照する。
 
 同じ隔離環境で `tests/neovim/semantic_tokens.lua` を実行すると、標準decoderのtoken範囲、
-標準highlighterの実extmark、8役割のRGB、Event/Conditionの区別、literalのNormalリンク、既存色の維持、
+標準highlighterの実extmark、役割別RGB、Structure/Section/Conditionの区別、literalのNormalリンク、既存色の維持、
 UTF-16、日本語・絵文字、文字列/変数名の補間、未完成文書、編集、同URI再openを検査する。
 出力は既存の `SKRIPT_LSP_SMOKE_OUTPUT`、または専用directoryを示す `SKRIPT_LSP_OUTPUT` から指定する。
 `SKRIPT_LSP_STANDARD_TOKENS=1` では標準capabilitiesだけの対照試験を行う。

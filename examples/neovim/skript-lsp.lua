@@ -24,7 +24,7 @@ end
 -- contains only standard names. Explicitly opt in to Skript's syntax roles.
 local capabilities = vim.lsp.protocol.make_client_capabilities()
 for _, name in ipairs({ "skriptEvent", "skriptCondition", "skriptEffect", "skriptExpression",
-  "skriptSection", "skriptStructure", "skriptLiteral" }) do
+  "skriptSection", "skriptStructure", "skriptLiteral", "skriptInterpolationDelimiter" }) do
   table.insert(capabilities.textDocument.semanticTokens.tokenTypes, name)
 end
 -- Match the REPL's source-syntax RGB palette; keep literal text theme-aware.
@@ -32,6 +32,7 @@ for role, color in pairs({
   skriptEvent = "#C55F73", skriptCondition = "#FC6255", skriptEffect = "#58C4DD",
   skriptExpression = "#83C167", skriptSection = "#5CD0B3", skriptStructure = "#9A72AC",
   variable = "#00FFFF", ["function"] = "#A0A0A0",
+  skriptInterpolationDelimiter = "#B0B0B0",
 }) do
   vim.api.nvim_set_hl(0, "@lsp.type." .. role .. ".skript", { fg = color, default = true })
 end

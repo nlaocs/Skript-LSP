@@ -1,5 +1,54 @@
 use parser_wasm::host::AstNode;
 
+pub(super) struct InterpolationPart {
+    pub child_index: usize,
+    pub opening: usize,
+    pub closing: usize,
+}
+
+/// Read only the parser-confirmed v1 contract. A child can trim surrounding
+/// whitespace, so its immediate neighbours do not identify delimiters.
+pub(super) fn interpolation_parts(node: &AstNode) -> Option<Vec<InterpolationPart>> {
+    let mut records = node
+        .summary
+        .as_ref()?
+        .public_data
+        .iter()
+        .filter(|record| record.schema_id == "nlaocs.skript.interpolation");
+    let record = records.next()?;
+    if records.next().is_some() || record.schema_version != 1 {
+        return None;
+    }
+    let data: serde_json::Value = serde_json::from_str(&record.json).ok()?;
+    let values = data.get("expressions")?.as_array()?;
+    if values.len() != node.children.len() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for (index, value) in values.iter().enumerate() {
+        let child_index = usize::try_from(value.get("childIndex")?.as_u64()?).ok()?;
+        let opening = usize::try_from(value.get("opening")?.as_u64()?).ok()?;
+        let closing = usize::try_from(value.get("closing")?.as_u64()?).ok()?;
+        if child_index != index
+            || opening >= closing
+            || closing >= node.text.len()
+            || node.text.as_bytes().get(opening) != Some(&b'%')
+            || node.text.as_bytes().get(closing) != Some(&b'%')
+            || parts
+                .last()
+                .is_some_and(|previous: &InterpolationPart| previous.closing >= opening)
+        {
+            return None;
+        }
+        parts.push(InterpolationPart {
+            child_index,
+            opening,
+            closing,
+        });
+    }
+    Some(parts)
+}
+
 /// Read the versioned public name/scope contract without inferring a value,
 /// fixed type, declaration binding, or storage policy from the source spelling.
 pub(super) fn variable_details(node: &AstNode) -> Option<(String, String)> {

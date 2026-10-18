@@ -15,6 +15,7 @@ mod document;
 #[cfg(test)]
 mod function_projection_tests;
 mod public_data;
+pub mod source_geometry;
 mod subscriptions;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
