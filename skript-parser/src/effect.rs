@@ -136,9 +136,75 @@ pub struct EffectCandidateFailure {
 /// Selected Effect, later alternatives, or a source-preserving unknown node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectMatches {
+    /// A native call is distinct from a registered Effect candidate.
+    pub native_function: NativeFunctionMatch,
     pub selected: Option<EffectCandidate>,
     pub alternatives: Vec<EffectCandidate>,
     pub unknown: Option<UnknownEffectNode>,
+}
+
+/// Native function parsing precedes registered Effect matching.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum NativeFunctionMatch {
+    #[default]
+    NotCall,
+    Selected {
+        raw_node_id: RawNodeId,
+        node: Box<crate::ExpressionNode>,
+    },
+    /// A complete call shape failed signature/argument resolution.
+    Rejected,
+}
+
+impl EffectMatches {
+    pub fn has_selection(&self) -> bool {
+        self.selected.is_some() || self.selected_function().is_some()
+    }
+
+    pub fn selected_function(&self) -> Option<&crate::ExpressionNode> {
+        match &self.native_function {
+            NativeFunctionMatch::Selected { node, .. } => Some(node),
+            _ => None,
+        }
+    }
+
+    pub fn selected_raw_node_id(&self) -> Option<RawNodeId> {
+        match &self.native_function {
+            NativeFunctionMatch::Selected { raw_node_id, .. } => Some(*raw_node_id),
+            _ => self
+                .selected
+                .as_ref()
+                .map(|candidate| candidate.raw_node_id),
+        }
+    }
+
+    pub fn function_rejected(&self) -> bool {
+        matches!(self.native_function, NativeFunctionMatch::Rejected)
+    }
+
+    /// Consumes an accepted statement without inventing a registered Effect.
+    pub fn into_selected_capture(
+        mut self,
+        catalog: &Catalog,
+    ) -> Result<(crate::ParsedCaptureSemanticSummary, ParsedCaptureValue), Self> {
+        if self.selected_function().is_some() {
+            if let NativeFunctionMatch::Selected { node, .. } =
+                std::mem::take(&mut self.native_function)
+            {
+                return Ok((
+                    crate::expression::expression_semantic_summary(&node),
+                    ParsedCaptureValue::Expression(*node),
+                ));
+            }
+        }
+        if let Some(selected) = self.selected.take() {
+            return Ok((
+                effect_semantic_summary(&selected, catalog),
+                ParsedCaptureValue::Effect(Box::new(selected)),
+            ));
+        }
+        Err(self)
+    }
 }
 
 /// Failure while validating a RawTree node or parsing its Effect contents.
@@ -265,6 +331,41 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     depth: usize,
 ) -> Result<EffectMatches, EffectParseError> {
     session.ensure_depth(depth)?;
+    match crate::function::parse_function_statement(session, range, depth)? {
+        crate::function::FunctionStatementParse::Selected(node) => {
+            return Ok(EffectMatches {
+                native_function: NativeFunctionMatch::Selected {
+                    raw_node_id,
+                    node: Box::new(node),
+                },
+                selected: None,
+                alternatives: Vec::new(),
+                unknown: None,
+            });
+        }
+        crate::function::FunctionStatementParse::Rejected(failure) => {
+            let span = session.map_range(range)?;
+            let source = range
+                .slice(session.source().virtual_source())
+                .ok_or(EffectParseError::InvalidCodeRange { range })?
+                .to_owned();
+            return Ok(EffectMatches {
+                native_function: NativeFunctionMatch::Rejected,
+                selected: None,
+                alternatives: Vec::new(),
+                unknown: Some(UnknownEffectNode {
+                    raw_node_id,
+                    source,
+                    span: span.clone(),
+                    failures: RankedFailures {
+                        fallback: Some(failure.unwrap_or_else(|| nested_failure_trace(span))),
+                        candidates: Vec::new(),
+                    },
+                }),
+            });
+        }
+        crate::function::FunctionStatementParse::NotCall => {}
+    }
     let mut candidates = effect_pattern_candidates(session);
     session.retain_viable_patterns(range, &mut candidates)?;
     let matches = session.match_candidates_at_depth(range, &candidates, depth)?;
@@ -424,6 +525,7 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     };
 
     Ok(EffectMatches {
+        native_function: NativeFunctionMatch::NotCall,
         selected,
         alternatives,
         unknown,
@@ -771,18 +873,18 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                     session.replace_context(previous);
                 }
                 let parsed = parsed?;
-                match parsed.selected {
-                    Some(selected) => ParsedCapture {
+                match parsed.into_selected_capture(session.catalog()) {
+                    Ok((summary, value)) => ParsedCapture {
                         capture_index,
                         binding: binding.clone(),
                         result: ParsedCaptureResult::success(
                             binding.parser_id.clone(),
                             span.clone(),
-                            Some(effect_semantic_summary(&selected, session.catalog())),
-                            ParsedCaptureValue::Effect(Box::new(selected)),
+                            Some(summary),
+                            value,
                         ),
                     },
-                    None => {
+                    Err(parsed) => {
                         let cause = parsed
                             .unknown
                             .map(effect_failure_trace)

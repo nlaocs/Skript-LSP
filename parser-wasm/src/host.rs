@@ -5394,12 +5394,9 @@ fn structure_child_node_ids(body: &StructureBody) -> Vec<u64> {
                         |value| Some(value.raw_node_id),
                     )
                 }
-                skript_parser::SectionBodyNode::Effect(value) => {
-                    value.selected.as_ref().map_or_else(
-                        || value.unknown.as_ref().map(|value| value.raw_node_id),
-                        |value| Some(value.raw_node_id),
-                    )
-                }
+                skript_parser::SectionBodyNode::Effect(value) => value
+                    .selected_raw_node_id()
+                    .or_else(|| value.unknown.as_ref().map(|value| value.raw_node_id)),
                 skript_parser::SectionBodyNode::Condition { raw_node_id, .. } => Some(*raw_node_id),
                 skript_parser::SectionBodyNode::Trivia(id)
                 | skript_parser::SectionBodyNode::Unclaimed(id) => Some(*id),
@@ -7029,6 +7026,7 @@ fn unknown_effect_matches(
         .ok_or(EffectParseError::InvalidCodeRange { range })?
         .to_owned();
     Ok(EffectMatches {
+        native_function: skript_parser::NativeFunctionMatch::NotCall,
         selected: None,
         alternatives: Vec::new(),
         unknown: Some(UnknownEffectNode {
@@ -9743,7 +9741,7 @@ impl ParserHost {
                 return Err(error.into());
             }
         };
-        if matches.selected.is_none()
+        if !matches.has_selection()
             && let Some(unknown) = matches.unknown.as_ref()
         {
             if let Some(candidate) = unknown.failures.primary() {
@@ -9754,7 +9752,7 @@ impl ParserHost {
         }
         // Selected candidates already ran their exact Effect hook inside the
         // parser. Keep this outer pass for unknown/near-match diagnostics only.
-        if matches.selected.is_some() {
+        if matches.has_selection() {
             return Ok(WasmEffectParseResult {
                 matches,
                 effects,
@@ -11215,6 +11213,9 @@ impl ParserHost {
             skript_parser::HOST_CONDITION_PARSER_ID => {
                 self.execute_condition_parse_request(transaction, context, request)
             }
+            skript_parser::HOST_EFFECT_PARSER_ID => {
+                self.execute_effect_parse_request(transaction, context, request)
+            }
             _ => self.execute_addon_parse_request(transaction, context, request),
         }
     }
@@ -11324,6 +11325,118 @@ impl ParserHost {
                 &selected.node,
                 self.config.syntax_catalog.as_deref(),
             ),
+            expression_roots: BTreeMap::new(),
+            calls: parsed.calls,
+        })
+    }
+
+    fn execute_effect_parse_request(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: &InvocationContext,
+        request: &ParseRequest,
+    ) -> Result<ExecutedParseResult, HostError> {
+        let source = MappedSource::identity(request.input.clone());
+        let mut tree = skript_parser::parse_raw_tree(&source, self.raw_tree_options());
+        let syntax_context =
+            u32::try_from(context.syntax_context).map_err(|_| HostError::InvalidParseResult {
+                parser_id: request.parser_id.clone(),
+                message: "Effect syntax context does not fit u32".to_owned(),
+            })?;
+        for node in &mut tree.nodes {
+            node.syntax_context = skript_parser::SyntaxContextId::new(syntax_context);
+        }
+        let simple = (tree.roots.len() == 1 && tree.diagnostics.is_empty())
+            .then(|| tree.get(tree.roots[0]))
+            .flatten()
+            .filter(|node| node.kind == ParserRawNodeKind::Simple && node.children.is_empty());
+        let Some(node) = simple else {
+            return Ok(ExecutedParseResult {
+                wire: failed_parse_result(
+                    request,
+                    "parser.effect-no-match",
+                    "input is not one valid Effect statement",
+                ),
+                expression_roots: BTreeMap::new(),
+                calls: Vec::new(),
+            });
+        };
+        let parsed = self.parse_effect_in_parse(
+            transaction,
+            context.clone(),
+            EffectParseRequest {
+                source: &source,
+                node,
+                context: parse_request_context(request, context).map_err(|message| {
+                    HostError::InvalidParseResult {
+                        parser_id: request.parser_id.clone(),
+                        message,
+                    }
+                })?,
+            },
+            EffectParserConfig::default(),
+        )?;
+        let mut arena = ParseResultArena::new(request, self.config.syntax_catalog.as_deref());
+        let root_id = parsed
+            .matches
+            .into_selected_capture(
+                self.config
+                    .syntax_catalog
+                    .as_deref()
+                    .expect("Effect parser requires a catalog"),
+            )
+            .ok()
+            .map(|(summary, value)| {
+                let capture = ParserParsedCapture {
+                    capture_index: 0,
+                    binding: skript_parser::RegisteredCaptureBinding {
+                        capture_index: 0,
+                        parser_id: request.parser_id.clone(),
+                        required: true,
+                        options: BTreeMap::new(),
+                    },
+                    result: skript_parser::ParsedCaptureResult {
+                        parser_id: request.parser_id.clone(),
+                        status: skript_parser::ParsedCaptureStatus::Success,
+                        span: skript_parser::MatchSpan {
+                            local_range: node
+                                .code_span
+                                .as_ref()
+                                .expect("Simple node has code span")
+                                .virtual_range,
+                            mapped: node.code_span.clone().expect("Simple node has code span"),
+                        },
+                        summary: Some(summary),
+                        value: Some(value),
+                        diagnostics: Vec::new(),
+                        attachments: Vec::new(),
+                    },
+                };
+                arena
+                    .push_capture(&capture)
+                    .expect("selected Effect has a capture value")
+            });
+        let wire = if let Some(root_id) = root_id {
+            ParseResult {
+                host_token: 0,
+                request_id: request.request_id,
+                parser_id: request.parser_id.clone(),
+                status: WitParseResultStatus::Success,
+                roots: vec![root_id],
+                nodes: arena.nodes,
+                diagnostics: Vec::new(),
+            }
+        } else {
+            failed_parse_result(
+                request,
+                "parser.effect-no-match",
+                "input is not a valid Effect statement",
+            )
+        };
+        Ok(ExecutedParseResult {
+            wire,
+            // A statement result cannot be adopted as an Expression child, even
+            // if the called function happens to return a value.
             expression_roots: BTreeMap::new(),
             calls: parsed.calls,
         })
@@ -19073,6 +19186,97 @@ mod tests {
                 dynamic_handler: Some("fixture.other-expression"),
             },
         ));
+    }
+
+    #[test]
+    fn additional_effect_request_projects_native_function_without_expression_adoption() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+        let mut config = core_test_config();
+        config.syntax_catalog = Some(Arc::new(ssg::load(fixture).unwrap().catalog().clone()));
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            config,
+        )
+        .unwrap();
+        let transaction = host
+            .begin_parse("file:///workspace", "file:///workspace/request.sk", 1)
+            .unwrap();
+        let context = InvocationContext {
+            invocation_id: 1,
+            subscription_id: String::new(),
+            document_id: "file:///workspace/request.sk".into(),
+            document_revision: 1,
+            expansion: None,
+            syntax_context: 7,
+        };
+        let request = ParseRequest {
+            request_id: 80,
+            parser_id: skript_parser::HOST_EFFECT_PARSER_ID.into(),
+            input: "sin(1)".into(),
+            expected_types: Vec::new(),
+            options: Vec::new(),
+            span: MappedSpan {
+                virtual_range: WitTextRange {
+                    start: 100,
+                    end: 106,
+                },
+                origins: vec![WitSourceOrigin {
+                    original_range: WitTextRange {
+                        start: 100,
+                        end: 106,
+                    },
+                    kind: WitOriginKind::Exact,
+                    expansion: None,
+                }],
+            },
+        };
+        let parsed = host
+            .execute_parse_request(&transaction, &context, &request)
+            .unwrap();
+        validate_parse_result(&request, &parsed.wire).unwrap();
+        assert_eq!(parsed.wire.status, WitParseResultStatus::Success);
+        assert_eq!(parsed.wire.parser_id, skript_parser::HOST_EFFECT_PARSER_ID);
+        assert_eq!(parsed.wire.roots.len(), 1);
+        let root = &parsed.wire.nodes[parsed.wire.roots[0] as usize];
+        assert_eq!(root.kind, "function");
+        assert_eq!(root.parser_id, skript_parser::HOST_EFFECT_PARSER_ID);
+        assert_eq!(root.function.as_ref().unwrap().name, "sin");
+        assert_eq!(root.span.virtual_range.start, 100);
+        assert_eq!(root.span.virtual_range.end, 106);
+        assert_eq!(root.children.len(), 1);
+        assert!(
+            parsed.expression_roots.is_empty(),
+            "statement results cannot become value children"
+        );
+        assert!(
+            !parsed.calls.is_empty(),
+            "selected argument parsing keeps its real provenance calls"
+        );
+        for invalid in [
+            "sin(1) trailing",
+            "sin(",
+            "unknown_call(1)",
+            "sin(1)\nsin(2)",
+        ] {
+            let mut bad = request.clone();
+            bad.input = invalid.into();
+            bad.span.virtual_range.end = 100 + invalid.len() as u64;
+            bad.span.origins[0].original_range.end = 100 + invalid.len() as u64;
+            let parsed = host
+                .execute_parse_request(&transaction, &context, &bad)
+                .unwrap();
+            assert_eq!(
+                parsed.wire.status,
+                WitParseResultStatus::Failed,
+                "{invalid}"
+            );
+            assert!(parsed.wire.roots.is_empty() && parsed.expression_roots.is_empty());
+        }
+        transaction.cancel().unwrap();
     }
 }
 

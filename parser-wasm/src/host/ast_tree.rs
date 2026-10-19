@@ -435,9 +435,10 @@ impl AstBuilder<'_> {
                 SectionBodyNode::Section(matches) => {
                     matches.selected.as_ref().map(|value| self.section(value))
                 }
-                SectionBodyNode::Effect(matches) => {
-                    matches.selected.as_ref().map(|value| self.effect(value))
-                }
+                SectionBodyNode::Effect(matches) => matches
+                    .selected_function()
+                    .map(|value| self.expression(value))
+                    .or_else(|| matches.selected.as_ref().map(|value| self.effect(value))),
                 SectionBodyNode::Condition { matches, .. } => matches
                     .selected
                     .as_ref()

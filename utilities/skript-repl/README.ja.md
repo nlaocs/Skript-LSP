@@ -58,7 +58,7 @@ skript-repl.exe --event "on join:" "send player"
 skript-repl.exe --section "loop all players:" "continue"
 ```
 
-これは以前のEffectCommandCLIの契約を維持するmodeです。選択されたEffectまたは
+これは以前のEffectCommandCLIの契約を維持するmodeです。選択されたnative Function statement、Effectまたは
 EffectSection、pattern、capture、再帰Expression、type、multiplicity、addon、
 default、diagnostic、parse時間を表示します。成功したhookの書き込みを含め、
 report作成後にparse transactionを破棄します。
@@ -67,8 +67,8 @@ report作成後にparse transactionを破棄します。
 
 | Code | 意味 |
 | ---: | --- |
-| `0` | Effectが一致した。 |
-| `1` | 入力は有効だがEffectが一致しなかった。 |
+| `0` | native Function statement、EffectまたはEffectSectionが一致した。 |
+| `1` | 入力は有効だがnative Function statement、Effect、EffectSectionのいずれも一致しなかった。 |
 | `2` | command line引数が不正。 |
 | `3` | snapshot、host、parser、addon、I/Oの準備に失敗した。 |
 
@@ -178,7 +178,7 @@ document JSONでもnodeごとの`function`へcall bindingを保持します。
 
 JSONが機械読み取り用の契約です。
 
-- 単発および一行Effect reportは`schemaVersion: 7`。
+- 単発および一行Effect reportは`schemaVersion: 8`。native Function statementは、既存の構造化Function reportを`matchedFunction`の結果として持つ。
 - 複数行document reportは`schemaVersion: 2`。schema 1にnodeごとのFunction call bindingを追加。
 - document nodeはarena形式で、`roots`、`children`、captureが数値node IDを参照する。
 - mapped spanは全original originとmacro expansion IDを保持する。

@@ -915,3 +915,178 @@ fn command_and_event_arithmetic_keep_the_same_body_diagnostics() {
         "Command must use the same native body path as Event"
     );
 }
+
+#[test]
+fn native_function_statements_share_executable_bodies_and_preserve_published_proof() {
+    // A Core-only positive fixture must not acquire overlapping addon syntax.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime");
+    let snapshot = ssg::load(&fixture).expect("genuine Core snapshot must load");
+    let return_registration = snapshot
+        .catalog()
+        .effects()
+        .find(|effect| effect.common.element_class.as_str() == "ch.njol.skript.effects.EffReturn")
+        .expect("genuine snapshot has the standard return Effect")
+        .common
+        .registration_id
+        .as_str()
+        .to_owned();
+    let comparison_registration = snapshot
+        .catalog()
+        .conditions()
+        .find(|condition| {
+            condition.common.element_class.as_str() == "ch.njol.skript.conditions.CondCompare"
+        })
+        .expect("genuine snapshot has the standard comparison Condition")
+        .common
+        .registration_id
+        .as_str()
+        .to_owned();
+    let mut host = host(fixture);
+    let text = "function procedure(value: number):\n    send {_value} to console\nfunction computed(value: number = 1) :: number:\n    return {_value}\nfunction wrapper():\n    procedure(1)\non load:\n    procedure(value: 2)\n    computed()\n    if 1 is 1:\n        procedure(3)\n    procedure(5) if 1 is 1\ncommand /fixture:\n    trigger:\n        procedure(4)\n";
+    let result = host
+        .parse_document(request(70, text), DocumentParserConfig::default())
+        .unwrap();
+    assert!(
+        result.component_failures.is_empty(),
+        "{:#?}",
+        result.component_failures
+    );
+    assert!(
+        result.syntax.diagnostics.is_empty(),
+        "{:#?}",
+        result.syntax.diagnostics
+    );
+    assert!(
+        result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.text == "return {_value}"
+                && node
+                    .summary
+                    .as_ref()
+                    .and_then(|summary| summary.registration_id.as_deref())
+                    == Some(return_registration.as_str())),
+        "the value-returning function retains the genuine standard return Effect"
+    );
+    assert_eq!(
+        result
+            .ast
+            .nodes
+            .iter()
+            .filter(|node| node.text == "1 is 1"
+                && node
+                    .summary
+                    .as_ref()
+                    .and_then(|summary| summary.registration_id.as_deref())
+                    == Some(comparison_registration.as_str()))
+            .count(),
+        2,
+        "the nested section and routed conditional Effect both retain real comparison nodes"
+    );
+    let calls = result
+        .ast
+        .nodes
+        .iter()
+        .filter(|node| node.function.is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 6, "{:#?}", result.ast);
+    let witnesses = result.semantic_witnesses();
+    assert!(
+        result
+            .ast
+            .nodes
+            .iter()
+            .all(|node| witnesses.native_valid(node)),
+        "new Function nodes must not invalidate the native forest proof"
+    );
+    for node in calls {
+        let call = node.function.as_ref().unwrap();
+        assert_eq!(node.kind, parser_wasm::host::SyntaxKind::Function);
+        assert_eq!(
+            &text[node.span.virtual_range.start as usize..node.span.virtual_range.end as usize],
+            node.text
+        );
+        assert!(call.definition_id.starts_with("function:"));
+        assert!(!call.registration_id.is_empty());
+        assert!(
+            node.metadata.iter().any(
+                |entry| entry.owner_component_id.is_none() && entry.key == "function.signature"
+            )
+        );
+        assert!(
+            node.metadata
+                .iter()
+                .any(|entry| entry.owner_component_id.is_none()
+                    && entry.key == "function.document-id"
+                    && entry.value == "file:///workspace/document.sk")
+        );
+        assert!(
+            node.metadata
+                .iter()
+                .any(|entry| entry.owner_component_id.is_none()
+                    && entry.key == "function.revision"
+                    && entry.value == "70")
+        );
+        if call.name == "procedure" {
+            assert!(node.summary.as_ref().unwrap().return_type.is_none());
+            assert!(node.summary.as_ref().unwrap().multiplicity.is_none());
+            assert_eq!(node.children.len(), 1);
+            let child = result
+                .ast
+                .nodes
+                .iter()
+                .find(|child| child.id == node.children[0])
+                .unwrap();
+            assert!(
+                child.span.virtual_range.start >= node.span.virtual_range.start
+                    && child.span.virtual_range.end <= node.span.virtual_range.end
+            );
+        } else {
+            assert_eq!(call.name, "computed");
+            assert!(node.summary.as_ref().unwrap().return_type.is_some());
+            assert!(call.arguments[0].omitted);
+        }
+    }
+}
+
+#[test]
+fn rejected_function_statement_recovers_following_statements_and_does_not_claim_partial_calls() {
+    let mut host = host(modern_fixture());
+    for (revision, bad) in [
+        (71, "procedure()"),
+        (72, "procedure(1) trailing"),
+        (73, "procedure("),
+    ] {
+        let text = format!(
+            "function procedure(value: number):\n    send {{_value}} to console\non load:\n    {bad}\n    send log(8) to console\n"
+        );
+        let result = host
+            .parse_document(request(revision, &text), DocumentParserConfig::default())
+            .unwrap();
+        assert!(
+            result.component_failures.is_empty(),
+            "{bad}: {:#?}",
+            result.component_failures
+        );
+        assert!(
+            !result.ast.nodes.iter().any(|node| node
+                .function
+                .as_ref()
+                .is_some_and(|call| call.name == "procedure")),
+            "invalid/partial call was published: {bad}"
+        );
+        assert!(
+            result.ast.nodes.iter().any(|node| node
+                .function
+                .as_ref()
+                .is_some_and(|call| call.name == "log")),
+            "following ordinary Effect containing a function expression must recover: {bad}"
+        );
+        assert!(
+            !result.syntax.diagnostics.is_empty() || !result.raw_tree.diagnostics.is_empty(),
+            "{bad} must retain a diagnostic"
+        );
+    }
+}

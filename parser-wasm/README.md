@@ -478,7 +478,12 @@ their return type or multiplicity.
 
 `ParserHost::parse_effect_in_parse` takes a lossless `RawNodeKind::Simple`
 node and matches its exact `code_span`, excluding indentation and trailing
-comments. Static SSG Effects and frozen dynamic registrations share the same
+comments. A complete native Function statement resolves before EffectSection and
+Effect registrations, using the shared argument/signature resolver and retaining
+the existing Function/FunctionCall AST shape. Void calls remain invalid as value
+expressions; statement results never populate additional-parse Expression adoption
+roots. `host.effect` additional requests and routed captures use this same native
+Effect entry. Static SSG Effects and frozen dynamic registrations share the same
 resolved ordering. `%type%` captures re-enter the recursive Expression session,
 so selected Effect and child Expression state use one transaction hierarchy.
 

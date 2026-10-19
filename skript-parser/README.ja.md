@@ -205,10 +205,13 @@ signatureを保持します。project全体の複数file symbol indexやvariable
 
 ## Effect解析
 
-`parse_effect`はlosslessな`RawNodeKind::Simple` nodeを1件受け取ります。nodeの正確なcode spanを
-まずstatic SSG EffectSection登録、その後に通常Effectへ照合し、採用`EffectCandidate`、決定的なalternative、または
-`UnknownEffectNode`を返します。unknownは元の`RawNodeId`、正確なcode text、mapped source span、
-順位付きの候補`FailureTrace`を保持するため、LSPの後続回復で未認識lineを失いません。
+`parse_effect`はlosslessな`RawNodeKind::Simple` nodeを1件受け取ります。まず完全なnative Function呼び出しを
+解決し、void Functionを受け付けるほか、戻り値を捨てる文も解析します。`EffectMatches::selected_function`は
+架空のEffect登録を作らずにそのFunction nodeを公開し、`has_selection`はnativeと登録候補の両方の採用を
+表します。Function呼び出しとして認識した不正な入力は失敗を保持し、登録候補の照合へ進みません。
+呼び出しの形でない入力はstatic SSG EffectSection登録、その後に通常Effectへ照合し、採用`EffectCandidate`、
+決定的なalternative、または`UnknownEffectNode`を返します。unknownは元の`RawNodeId`、正確なcode text、
+mapped source span、順位付きの候補`FailureTrace`を保持するため、LSPの後続回復で未認識lineを失いません。
 
 `parse_effect_with_snapshot`はstatic/dynamic登録をfrozen registry順で統合し、dynamic候補のopaque
 handlerとmetadataも保持します。型付きcaptureは内部`ExpressionSession`を共有し、recursion limit、
@@ -218,8 +221,11 @@ placeholderを持たないpatternではExpression経路を起動しません。
 一行Effect解析に参加するSectionは、static登録で`effectSection`が設定されたものだけです。
 source identityは`MatchSyntaxKind::Section`のまま、Sectionのdefinition/registration IDを維持します。
 通常Sectionは対象外です。WASM hostではSection target・Effect phaseとして通知し、Section bodyの
-lifecycleは実行しません。汎用dynamic Section登録だけではEffectSectionになりません。また、この入口は
-単独のvoid Function呼び出しstatementには対応していません。
+lifecycleは実行しません。汎用dynamic Section登録だけではEffectSectionになりません。Function statementは
+上記のnative経路を使い、架空のEffectSection登録を作りません。汎用native APIはcallerが提供する
+Function lookup environmentを使います。hostの直接／追加Effect・Expression APIはdocument Function
+registryを持たず、native lookupはCatalog内に限ります。document解析とそのrouted captureは、
+実際のdocument registryを使います。
 
 ## Condition解析
 

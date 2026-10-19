@@ -281,18 +281,70 @@ pub(crate) fn parse_function_call<E: ExpressionParseEnvironment>(
     ) else {
         return Ok(PrefixParse::default());
     };
+    resolve_function_call(session, &call, Some(expected_types), depth)
+}
+
+pub(crate) enum FunctionStatementParse {
+    NotCall,
+    Selected(ExpressionNode),
+    Rejected(Option<FailureTrace>),
+}
+
+/// A statement requires the complete call and may discard any return value.
+/// Its argument effects are adopted only after unique signature resolution.
+pub(crate) fn parse_function_statement<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    range: TextRange,
+    depth: usize,
+) -> Result<FunctionStatementParse, ExpressionParseError> {
+    session.check_cancelled()?;
+    let Some(call) = parse_call_syntax(
+        session.source().virtual_source(),
+        range,
+        &[range.end],
+        session.function_policy(),
+    ) else {
+        return Ok(FunctionStatementParse::NotCall);
+    };
+    session
+        .begin_semantic_candidate()
+        .map_err(environment_error)?;
+    let parsed = (|| {
+        let mut parsed = resolve_function_call(session, &call, None, depth)?;
+        session.check_cancelled()?;
+        if let Some(candidate) = parsed.candidates.pop() {
+            session.select_expression(&candidate.node)?;
+            Ok(FunctionStatementParse::Selected(candidate.node))
+        } else {
+            Ok(FunctionStatementParse::Rejected(parsed.failure))
+        }
+    })();
+    let accepted = matches!(&parsed, Ok(FunctionStatementParse::Selected(_)));
+    session
+        .finish_semantic_candidate(accepted)
+        .map_err(environment_error)?;
+    parsed
+}
+
+fn resolve_function_call<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    call: &CallSyntax,
+    expected_types: Option<&[ExpressionExpectedType]>,
+    depth: usize,
+) -> Result<PrefixParse, ExpressionParseError> {
     if duplicate_named_argument(&call.arguments) {
         return Ok(PrefixParse::default());
     }
-
     let definitions = session.function_definitions(&call.name)?;
     let definitions = definitions
         .iter()
         .filter(|definition| {
-            definition.return_type.is_some()
-                && session.return_type_matches(definition.return_type.as_ref(), expected_types)
-                && session
-                    .multiplicity_matches(Some(definition.return_multiplicity()), expected_types)
+            expected_types.is_none_or(|expected| {
+                definition.return_type.is_some()
+                    && session.return_type_matches(definition.return_type.as_ref(), expected)
+                    && session
+                        .multiplicity_matches(Some(definition.return_multiplicity()), expected)
+            })
         })
         .collect::<Vec<_>>();
     if definitions.is_empty() {
@@ -663,7 +715,10 @@ fn build_candidate<E: ExpressionParseEnvironment>(
                 } else {
                     syntaxes::PossibleReturnTypesState::Unresolved
                 },
-                multiplicity: Some(definition.return_multiplicity()),
+                multiplicity: definition
+                    .return_type
+                    .as_ref()
+                    .map(|_| definition.return_multiplicity()),
                 captures: Vec::new(),
                 tags: Vec::new(),
                 mark: 0,

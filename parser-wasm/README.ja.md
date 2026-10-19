@@ -393,9 +393,12 @@ multiplicityを重複して格納しません。
 ## Effect解析
 
 `ParserHost::parse_effect_in_parse`はlosslessな`RawNodeKind::Simple` nodeを受け取り、indentationと
-行末commentを除いた正確な`code_span`を照合します。static SSG Effectとfrozen dynamic登録は
-同じresolved orderを使います。`%type%` captureは再帰Expression sessionへ入り直すため、採用
-Effectと子Expressionのstateは1つのtransaction階層で管理されます。
+行末commentを除いた正確な`code_span`を照合します。完全なnative Function statementはEffectSectionと
+Effect登録より先に共通の引数／signature resolverで解決し、既存のFunction／FunctionCall AST形状を
+維持します。void呼び出しは値Expressionとしては引き続き不正で、statement結果をadditional-parseの
+Expression adoption rootsへ追加しません。`host.effect`追加requestとrouted captureも同じnative Effect
+入口を使います。static SSG Effectとfrozen dynamic登録は同じresolved orderを使います。`%type%` captureは
+再帰Expression sessionへ入り直すため、採用Effectと子Expressionのstateは1つのtransaction階層で管理されます。
 
 Effect subscriptionは`parser.effect` capabilityと`Effect` phaseを使います。hostはnative照合前に
 category-levelの`SyntaxKind::Effect` hookを呼びます。exact pattern/registrationのsemantic hookは候補照合中に

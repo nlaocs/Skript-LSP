@@ -352,3 +352,377 @@ fn named_argument_names_follow_the_skript_version_grammar() {
             .is_some()
     );
 }
+
+#[derive(Default)]
+struct StatementEnvironment {
+    visible: usize,
+    applications: usize,
+    semantic: Vec<(usize, usize)>,
+    expressions: Vec<(usize, usize)>,
+    effect_hooks: usize,
+    cancel_after_argument: bool,
+    cancelled: bool,
+    cancel_empty_lookup: bool,
+}
+
+impl PatternMatchEnvironment for StatementEnvironment {
+    fn cancellation_requested(&mut self) -> bool {
+        self.cancelled
+    }
+
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        if matches!(
+            event.kind,
+            skript_parser::MatchSyntaxKind::Effect | skript_parser::MatchSyntaxKind::Section
+        ) {
+            self.effect_hooks += 1;
+        }
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for StatementEnvironment {
+    fn lookup_functions(
+        &mut self,
+        request: FunctionLookupRequest<'_>,
+    ) -> Result<Vec<FunctionDefinition>, String> {
+        if self.cancel_empty_lookup && request.name == "unknown_call" {
+            self.cancelled = true;
+        }
+        match request.name {
+            "procedure" => {
+                let mut definition = document_function(request.name);
+                definition.return_type = None;
+                Ok(vec![definition])
+            }
+            "ambiguous" => {
+                let first = document_function(request.name);
+                let mut second = first.clone();
+                second.registration_id.push_str(":long");
+                second.parameters[0].parameter_type = ClassName("java.lang.Long".into());
+                Ok(vec![first, second])
+            }
+            _ => DocumentFunctionEnvironment.lookup_functions(request),
+        }
+    }
+
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        let mut result = DocumentFunctionEnvironment.parse_expression_leaf(request)?;
+        for candidate in &mut result.candidates {
+            candidate.effects = Some(skript_parser::ExpressionEffects::new((
+                self.visible,
+                self.visible + 1,
+                1usize,
+            )));
+        }
+        Ok(result)
+    }
+
+    fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        self.semantic.push((self.visible, self.applications));
+        Ok(())
+    }
+
+    fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let before = self.semantic.pop().expect("balanced semantic scope");
+        if !accepted {
+            (self.visible, self.applications) = before;
+        }
+        Ok(())
+    }
+
+    fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        self.expressions.push((self.visible, self.applications));
+        Ok(())
+    }
+
+    fn defer_expression_candidate(
+        &mut self,
+        accepted: bool,
+    ) -> Result<Option<skript_parser::ExpressionEffects>, String> {
+        let before = self.expressions.pop().expect("balanced expression scope");
+        let after = self.visible;
+        let applications = self.applications - before.1;
+        (self.visible, self.applications) = before;
+        Ok(
+            accepted
+                .then(|| skript_parser::ExpressionEffects::new((before.0, after, applications))),
+        )
+    }
+
+    fn apply_expression_effects(
+        &mut self,
+        effects: &skript_parser::ExpressionEffects,
+    ) -> Result<(), String> {
+        let &(before, after, applications) = effects
+            .downcast_ref::<(usize, usize, usize)>()
+            .expect("this environment's effects");
+        if self.visible == before {
+            self.visible = after;
+        } else {
+            assert_eq!(
+                self.visible, after,
+                "deferred effects cannot overwrite unrelated state"
+            );
+        }
+        // This count is restored/deferred with the transaction, but every
+        // adoption attempt adds its complete selected argument application log.
+        // Calling select_expression twice therefore cannot pass via idempotent value writes.
+        self.applications += applications;
+        if self.cancel_after_argument {
+            self.cancelled = true;
+        }
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(self.visible as u64)
+    }
+}
+
+fn statement(
+    text: &str,
+    environment: &mut StatementEnvironment,
+    policy: FunctionVersionPolicy,
+) -> Result<skript_parser::EffectMatches, skript_parser::EffectParseError> {
+    let snapshot = ssg::load(fixture()).unwrap();
+    let source = MappedSource::identity(text);
+    let tree = skript_parser::parse_raw_tree(
+        &source,
+        skript_parser::RawTreeOptions::for_skript_version(2, 15),
+    );
+    skript_parser::parse_effect(
+        snapshot.catalog(),
+        skript_parser::EffectParseRequest {
+            source: &source,
+            node: tree.get(tree.roots[0]).unwrap(),
+            context: ExpressionParseContext::default(),
+        },
+        environment,
+        skript_parser::EffectParserConfig {
+            expression: ExpressionParserConfig {
+                function: policy,
+                ..ExpressionParserConfig::default()
+            },
+        },
+    )
+}
+
+#[test]
+fn function_statements_accept_void_and_discard_values_without_becoming_expressions() {
+    for text in ["procedure(1)", "local(value: 1)", "sin(1)"] {
+        let mut environment = StatementEnvironment::default();
+        let parsed = statement(
+            text,
+            &mut environment,
+            FunctionVersionPolicy::for_skript_version(2, 15, 4),
+        )
+        .unwrap();
+        assert!(parsed.has_selection(), "{text}: {parsed:#?}");
+        assert!(
+            parsed.selected.is_none() && parsed.alternatives.is_empty() && parsed.unknown.is_none()
+        );
+        let node = parsed.selected_function().unwrap();
+        assert_eq!(node.span.local_range.slice(text), Some(text));
+        node.function
+            .as_ref()
+            .unwrap()
+            .validate_children(node.children.len())
+            .unwrap();
+        assert_eq!(node.children.len(), 1);
+        assert_eq!(
+            environment.visible, 1,
+            "only selected argument effects survive"
+        );
+        assert_eq!(
+            environment.applications, 1,
+            "selected arguments are adopted exactly once"
+        );
+        assert_eq!(
+            environment.effect_hooks, 0,
+            "native calls do not impersonate Effect registrations"
+        );
+        assert!(environment.semantic.is_empty() && environment.expressions.is_empty());
+        if text.starts_with("procedure") {
+            assert!(node.return_type.is_none() && node.multiplicity.is_none());
+            let snapshot = ssg::load(fixture()).unwrap();
+            let source = MappedSource::identity(text);
+            let expression = parse_expression(
+                snapshot.catalog(),
+                ExpressionParseRequest {
+                    source: &source,
+                    range: TextRange::new(0, text.len()),
+                    expected_types: vec![ExpressionExpectedType {
+                        class_name: ClassName("java.lang.Object".into()),
+                        plural: true,
+                    }],
+                    context: ExpressionParseContext::default(),
+                },
+                &mut StatementEnvironment::default(),
+                ExpressionParserConfig::default(),
+            )
+            .unwrap();
+            assert!(
+                expression.selected.is_none(),
+                "void remains invalid in a value position"
+            );
+        }
+    }
+}
+
+#[test]
+fn recognized_function_statement_errors_are_terminal_and_discard_argument_effects() {
+    for text in [
+        "unknown_call(1)",
+        "local()",
+        "local(1, 2)",
+        "local(value: 1, value: 2)",
+        "local(not_a_number)",
+        "ambiguous(1)",
+    ] {
+        let mut environment = StatementEnvironment::default();
+        let parsed = statement(
+            text,
+            &mut environment,
+            FunctionVersionPolicy::for_skript_version(2, 15, 4),
+        )
+        .unwrap();
+        assert!(parsed.function_rejected(), "{text}: {parsed:#?}");
+        assert!(!parsed.has_selection());
+        assert!(parsed.unknown.as_ref().unwrap().failures.fallback.is_some());
+        assert_eq!(
+            environment.visible, 0,
+            "{text} leaked rejected candidate state"
+        );
+        assert_eq!(
+            environment.applications, 0,
+            "{text} retained an argument application"
+        );
+        assert_eq!(
+            environment.effect_hooks, 0,
+            "recognized invalid calls cannot fall through to registry"
+        );
+        assert!(environment.semantic.is_empty() && environment.expressions.is_empty());
+    }
+}
+
+#[test]
+fn function_statement_recognition_requires_complete_call_and_keeps_version_policy() {
+    for text in [
+        "local(1) trailing",
+        "local(",
+        "local (1)",
+        "local(1) + local(2)",
+        "send log(8) to console",
+        "dummy effect registered through wrapper",
+    ] {
+        let parsed = statement(
+            text,
+            &mut StatementEnvironment::default(),
+            FunctionVersionPolicy::for_skript_version(2, 15, 4),
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                parsed.native_function,
+                skript_parser::NativeFunctionMatch::NotCall
+            ),
+            "{text}: {parsed:#?}"
+        );
+        if text.starts_with("local") {
+            assert!(!parsed.has_selection(), "no prefix call acceptance: {text}");
+        }
+        if text == "dummy effect registered through wrapper" {
+            assert!(
+                parsed.selected.is_some(),
+                "ordinary Effects still use the registry"
+            );
+        }
+    }
+    let old = statement(
+        "wide_named(target value: 1)",
+        &mut StatementEnvironment::default(),
+        FunctionVersionPolicy::for_skript_version(2, 14, 3),
+    )
+    .unwrap();
+    assert!(old.function_rejected());
+    let current = statement(
+        "wide_named(target value: 1)",
+        &mut StatementEnvironment::default(),
+        FunctionVersionPolicy::for_skript_version(2, 15, 0),
+    )
+    .unwrap();
+    assert!(current.selected_function().is_some());
+}
+
+#[test]
+fn function_statement_cancellation_unwinds_speculation_and_allows_the_next_parse() {
+    let mut environment = StatementEnvironment {
+        visible: 10,
+        cancel_after_argument: true,
+        ..Default::default()
+    };
+    let error = statement(
+        "local(1)",
+        &mut environment,
+        FunctionVersionPolicy::for_skript_version(2, 15, 4),
+    )
+    .unwrap_err();
+    assert!(
+        skript_parser::parse_cancellation(&error).is_some(),
+        "{error:?}"
+    );
+    assert_eq!(environment.visible, 10);
+    assert_eq!(environment.applications, 0);
+    assert!(environment.semantic.is_empty() && environment.expressions.is_empty());
+    environment.cancel_after_argument = false;
+    environment.cancelled = false;
+    let parsed = statement(
+        "local(1)",
+        &mut environment,
+        FunctionVersionPolicy::for_skript_version(2, 15, 4),
+    )
+    .unwrap();
+    assert!(parsed.selected_function().is_some());
+    assert_eq!(environment.visible, 11);
+    assert_eq!(environment.applications, 1);
+}
+
+#[test]
+fn function_statement_early_terminal_paths_preserve_typed_cancellation() {
+    for environment in [
+        StatementEnvironment {
+            cancelled: true,
+            ..Default::default()
+        },
+        StatementEnvironment {
+            cancel_empty_lookup: true,
+            ..Default::default()
+        },
+    ] {
+        let mut environment = environment;
+        let error = statement(
+            "unknown_call(1)",
+            &mut environment,
+            FunctionVersionPolicy::for_skript_version(2, 15, 4),
+        )
+        .unwrap_err();
+        assert!(
+            skript_parser::parse_cancellation(&error).is_some(),
+            "{error:?}"
+        );
+        assert_eq!((environment.visible, environment.applications), (0, 0));
+        assert!(environment.semantic.is_empty() && environment.expressions.is_empty());
+        assert_eq!(environment.effect_hooks, 0);
+    }
+}

@@ -253,11 +253,14 @@ not implement a project-wide cross-file symbol index or variable type-flow analy
 
 ## Effect Parsing
 
-`parse_effect` consumes one lossless `RawNodeKind::Simple` node. It matches the
-node's exact code span against static SSG EffectSection registrations first,
-then ordinary Effects, and returns the
-selected `EffectCandidate`, deterministic alternatives, or an
-`UnknownEffectNode`. The unknown form retains the original `RawNodeId`, exact
+`parse_effect` consumes one lossless `RawNodeKind::Simple` node. It first resolves
+a complete native Function call, accepting void functions or discarding a return
+value. `EffectMatches::selected_function` exposes that Function node without a
+fabricated Effect registration; `has_selection` covers both native and registered
+selections. A recognized invalid function call retains its failure and stops
+registered matching. Non-call shapes fall through to static SSG EffectSection
+registrations, then ordinary Effects, returning the selected `EffectCandidate`,
+deterministic alternatives, or an `UnknownEffectNode`. The unknown form retains the original `RawNodeId`, exact
 code text, mapped source span, and ranked candidate `FailureTrace` values so later
 LSP recovery does not discard an unrecognized line.
 
@@ -273,7 +276,11 @@ parsing. Their source identity remains `MatchSyntaxKind::Section`, including
 Section definition/registration IDs; ordinary Sections are excluded. In the
 WASM host this is a Section target in the Effect phase, not a Section body
 lifecycle. General dynamic Section registrations do not imply EffectSection
-support. This entry point does not add a standalone void Function-call statement path.
+support. Function statements use the native path above, without a fabricated
+EffectSection registration. Generic native APIs use the caller-provided Function
+lookup environment. Direct/additional host Effect and Expression APIs do not
+attach a document Function registry: their native lookup is Catalog-only.
+Document parsing and its routed captures use the actual document registry.
 
 ## Condition Parsing
 

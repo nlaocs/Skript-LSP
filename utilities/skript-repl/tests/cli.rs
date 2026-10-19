@@ -519,7 +519,7 @@ fn default_expression_without_event_reports_the_omitted_audience() {
     assert!(!report.matched());
     let (json, human) = render_json_and_human(report);
 
-    assert_eq!(json["schemaVersion"], 7);
+    assert_eq!(json["schemaVersion"], 8);
     assert_eq!(json["input"], "send stone");
     assert!(json["context"]["event"].is_null());
     assert_eq!(json["result"]["status"], "incomplete");
@@ -778,7 +778,7 @@ fn parses_effect_and_reports_literal_and_type_information() {
     let json_text = report.to_json().unwrap();
     assert!(!json_text.contains('\x1b'));
     let json: Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(json["schemaVersion"], 7);
+    assert_eq!(json["schemaVersion"], 8);
     assert!(json["context"]["event"].is_null());
     assert!(json["parseDurationNs"].is_u64());
     assert_eq!(json["result"]["status"], "matched");
@@ -998,29 +998,112 @@ fn reports_node_local_public_data_as_structured_json() {
 
 #[test]
 fn reports_interpolated_variable_public_data_and_embedded_children() {
+    fn public_records(
+        node: &Value,
+        expected: &[&str],
+    ) -> std::collections::BTreeMap<String, Value> {
+        let mut records = std::collections::BTreeMap::new();
+        for record in node["publicData"]
+            .as_array()
+            .expect("node public data is an array")
+        {
+            let schema = record["schemaId"].as_str().expect("public schema ID");
+            assert_eq!(
+                record["schemaVersion"], 1,
+                "unsupported version for {schema}"
+            );
+            assert!(
+                record["json"].is_object(),
+                "{schema} must retain structured JSON"
+            );
+            assert!(record.get("rawJson").is_none() && record.get("error").is_none());
+            assert!(
+                record.get("ownerComponentId").is_none(),
+                "shared public records do not claim component ownership"
+            );
+            assert!(
+                records
+                    .insert(schema.to_owned(), record["json"].clone())
+                    .is_none(),
+                "duplicate {schema}"
+            );
+        }
+        assert_eq!(
+            records.keys().map(String::as_str).collect::<Vec<_>>(),
+            expected
+        );
+        records
+    }
+
+    const VARIABLE: &str = "nlaocs.skript.variable";
+    const IDENTITY: &str = "nlaocs.skript.variable-identity";
+    const INTERPOLATION: &str = "nlaocs.skript.interpolation";
+    let source = "send {_price::%{_key}%} to console";
     let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
     let report = session
-        .analyze_effect("send {_price::%{_key}%} to console")
+        .analyze_effect(source)
         .expect("interpolated variable Expression must parse");
     assert!(report.matched());
 
     let json: Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
     let variable = &json["result"]["effect"]["elements"][0]["resolved"];
     assert_eq!(variable["source"], "{_price::%{_key}%}");
+    let records = public_records(variable, &[INTERPOLATION, VARIABLE, IDENTITY]);
     assert_eq!(
-        variable["publicData"][0]["json"]["name"],
-        serde_json::json!([
-            {"kind": "text", "text": "price::"},
-            {"kind": "expression", "childIndex": 0},
-        ])
+        records[VARIABLE],
+        serde_json::json!({
+            "scope": "local",
+            "name": [
+                {"kind": "text", "text": "price::"},
+                {"kind": "expression", "childIndex": 0},
+            ],
+        })
+    );
+    assert_eq!(
+        records[IDENTITY],
+        serde_json::json!({
+            "scope": "local", "resolution": "dynamic", "list": false, "casePolicy": "unknown",
+        }),
+        "a dynamic template must not acquire an invented static name or alias"
+    );
+    let parent_source = variable["source"].as_str().unwrap();
+    let opening = parent_source.find('%').unwrap();
+    let closing = parent_source.rfind('%').unwrap();
+    assert_eq!(
+        records[INTERPOLATION],
+        serde_json::json!({
+            "expressions": [{"childIndex": 0, "opening": opening, "closing": closing}],
+        })
     );
     assert_eq!(variable["embeddedExpressions"].as_array().unwrap().len(), 1);
     let embedded = &variable["embeddedExpressions"][0];
     assert_eq!(embedded["source"], "{_key}");
+    let child_records = public_records(embedded, &[VARIABLE, IDENTITY]);
     assert_eq!(
-        embedded["publicData"][0]["schemaId"],
-        "nlaocs.skript.variable"
+        child_records[VARIABLE],
+        serde_json::json!({
+            "scope": "local", "name": [{"kind": "text", "text": "key"}],
+        })
     );
+    assert_eq!(
+        child_records[IDENTITY],
+        serde_json::json!({
+            "scope": "local", "resolution": "static", "name": "key", "aliasKey": "key", "list": false, "casePolicy": "unknown",
+        })
+    );
+
+    // Public records stay on their source node; their childIndex and geometry
+    // bind the template to the separately reported embedded child.
+    let parent_start = variable["span"]["start"].as_u64().unwrap() as usize;
+    let parent_end = variable["span"]["end"].as_u64().unwrap() as usize;
+    let child_start = embedded["span"]["start"].as_u64().unwrap() as usize;
+    let child_end = embedded["span"]["end"].as_u64().unwrap() as usize;
+    assert_eq!(source.get(parent_start..parent_end), Some(parent_source));
+    assert_eq!(source.get(child_start..child_end), Some("{_key}"));
+    assert_eq!(child_start, parent_start + opening + 1);
+    assert_eq!(child_end, parent_start + closing);
+    assert_eq!(source.as_bytes()[parent_start + opening], b'%');
+    assert_eq!(source.as_bytes()[parent_start + closing], b'%');
 }
 
 #[test]
@@ -2093,7 +2176,7 @@ fn repl_survives_no_match_toggles_json_and_reloads_snapshot() {
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("effect: unknown"));
     assert!(output.contains("JSON output enabled"));
-    assert!(output.contains("\"schemaVersion\": 7"));
+    assert!(output.contains("\"schemaVersion\": 8"));
     assert!(output.contains("JSON output disabled"));
     assert!(output.contains("reloaded"));
     assert!(output.contains("EffMessage"));
@@ -2215,4 +2298,25 @@ fn document_root_diagnostics_are_not_duplicated() {
         );
     }
     assert!(json["faultRegions"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn standalone_function_statement_is_reported_as_a_matched_function() {
+    let mut session = SkriptSession::load(modern_fixture()).expect("fixture must load");
+    let report = session
+        .analyze_effect("sin(1)")
+        .expect("native function statement must parse");
+    assert!(report.matched());
+    let (json, human) = render_json_and_human(report);
+    assert_eq!(json["schemaVersion"], 8);
+    assert_eq!(json["result"]["status"], "matchedFunction");
+    let function = &json["result"]["function"];
+    assert_eq!(function["source"], "sin(1)");
+    assert_eq!(function["expression"]["kind"], "function");
+    assert_eq!(function["expression"]["name"], "sin");
+    assert_eq!(function["arguments"][0]["values"][0]["source"], "1");
+    assert_eq!(function["span"]["start"], 0);
+    assert_eq!(function["span"]["end"], 6);
+    assert!(json["result"].get("effect").is_none());
+    assert!(human.contains("result: matched") && human.contains("function:"));
 }

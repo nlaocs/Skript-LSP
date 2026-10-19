@@ -29,7 +29,7 @@ use presentation::{HumanStyle, Role};
 
 pub use document::DocumentAnalysisReport;
 
-const REPORT_SCHEMA_VERSION: u32 = 7;
+const REPORT_SCHEMA_VERSION: u32 = 8;
 const MAX_REPORT_EXPRESSION_DEPTH: usize = 8;
 const MAX_REPORT_PATTERN_DEPTH: usize = 16;
 
@@ -86,7 +86,14 @@ impl AnalysisReport {
                 message: failure.error.to_string(),
             })
             .collect();
-        let parse_result = if let Some(selected) = result.matches.selected {
+        let parse_result = if let Some(function) = result.matches.selected_function() {
+            let mut source_colors = Vec::new();
+            collect_expression_node_colors(input, function, &mut source_colors, 0);
+            ParseResultReport::MatchedFunction {
+                function: Box::new(expression_report(function, input, catalog, 0)),
+                source_colors,
+            }
+        } else if let Some(selected) = result.matches.selected {
             ParseResultReport::Matched {
                 effect: Box::new(effect_report(input, selected, catalog)),
                 alternatives: result
@@ -172,9 +179,12 @@ impl AnalysisReport {
         }
     }
 
-    /// Returns whether one Effect candidate consumed the complete input.
+    /// Returns whether a native function statement or Effect consumed the complete input.
     pub fn matched(&self) -> bool {
-        matches!(self.data.result, ParseResultReport::Matched { .. })
+        matches!(
+            self.data.result,
+            ParseResultReport::Matched { .. } | ParseResultReport::MatchedFunction { .. }
+        )
     }
 
     /// Serializes the versioned machine-readable report.
@@ -224,7 +234,9 @@ impl AnalysisReport {
     fn write_human(&self, writer: &mut dyn Write, color: bool) -> io::Result<()> {
         let style = HumanStyle(color);
         let status = match &self.data.result {
-            ParseResultReport::Matched { .. } => "matched",
+            ParseResultReport::Matched { .. } | ParseResultReport::MatchedFunction { .. } => {
+                "matched"
+            }
             ParseResultReport::Incomplete { .. } => "incomplete",
             ParseResultReport::Unknown { .. } => "unknown",
         };
@@ -235,6 +247,25 @@ impl AnalysisReport {
             style.status(status, status)
         )?;
         match &self.data.result {
+            ParseResultReport::MatchedFunction {
+                function,
+                source_colors,
+            } => {
+                let highlight = SourceHighlight::new(&self.data.input, source_colors, color);
+                let source = if color {
+                    render_source_colors(&self.data.input, source_colors)
+                } else {
+                    self.data.input.clone()
+                };
+                writeln!(
+                    writer,
+                    "\n{} {}",
+                    style.paint(Role::Heading, "source:"),
+                    source
+                )?;
+                writeln!(writer, "\n{}", style.paint(Role::Heading, "function:"))?;
+                write_expression(writer, function, 1, style, highlight)?;
+            }
             ParseResultReport::Matched {
                 effect,
                 alternatives,
@@ -875,6 +906,11 @@ struct SnapshotReport {
     rename_all_fields = "camelCase"
 )]
 enum ParseResultReport {
+    MatchedFunction {
+        function: Box<ExpressionReport>,
+        #[serde(skip)]
+        source_colors: Vec<SourceColorSpan>,
+    },
     Matched {
         effect: Box<EffectReport>,
         alternatives: Vec<CandidateSummaryReport>,
@@ -3853,6 +3889,123 @@ mod tests {
         assert_eq!(
             SourceColor::InterpolationDelimiter.ansi_code(),
             "38;2;176;176;176"
+        );
+    }
+
+    #[test]
+    fn native_void_statement_report_keeps_real_function_identity_and_no_value_contract() {
+        use skript_parser::*;
+        struct VoidEnvironment;
+        impl PatternMatchEnvironment for VoidEnvironment {
+            fn resolve_type(
+                &mut self,
+                _request: TypeExpressionRequest<'_>,
+            ) -> Result<TypeExpressionOutcome, String> {
+                Ok(TypeExpressionOutcome::default())
+            }
+            fn dispatch_hook(
+                &mut self,
+                _event: PatternHookEvent<'_>,
+            ) -> Result<PatternHookControl, String> {
+                Ok(PatternHookControl::Continue)
+            }
+        }
+        impl ExpressionParseEnvironment for VoidEnvironment {
+            fn state_revision(&self) -> Result<u64, String> {
+                Ok(0)
+            }
+            fn parse_expression_leaf(
+                &mut self,
+                _request: ExpressionLeafRequest<'_>,
+            ) -> Result<ExpressionLeafParse, String> {
+                Ok(ExpressionLeafParse::default())
+            }
+            fn lookup_functions(
+                &mut self,
+                request: FunctionLookupRequest<'_>,
+            ) -> Result<Vec<FunctionDefinition>, String> {
+                Ok((request.name == "procedure")
+                    .then(|| FunctionDefinition {
+                        parser_id: "document.function".into(),
+                        name: "procedure".into(),
+                        definition_id: "function:document:procedure".into(),
+                        registration_id: "function:document:procedure:0".into(),
+                        registration_order: 0,
+                        return_type: None,
+                        return_type_is_single: true,
+                        parameters: Vec::new(),
+                        metadata: BTreeMap::new(),
+                    })
+                    .into_iter()
+                    .collect())
+            }
+        }
+        let input = "procedure()";
+        let catalog = ssg::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4"),
+        )
+        .unwrap()
+        .into_catalog();
+        let source = MappedSource::identity(input);
+        let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+        let matches = parse_effect(
+            &catalog,
+            EffectParseRequest {
+                source: &source,
+                node: tree.get(tree.roots[0]).unwrap(),
+                context: ExpressionParseContext::default(),
+            },
+            &mut VoidEnvironment,
+            EffectParserConfig::default(),
+        )
+        .unwrap();
+        assert!(matches.selected_function().is_some());
+        let result = WasmEffectParseResult {
+            matches,
+            effects: parser_wasm::host::HookEffects {
+                diagnostics: Vec::new(),
+                context_updates: Vec::new(),
+                parse_requests: Vec::new(),
+                parse_results: Vec::new(),
+            },
+            calls: Vec::new(),
+            failures: Vec::new(),
+        };
+        let report = AnalysisReport::from_result(
+            input,
+            &SnapshotDescription {
+                snapshot_id: "fixture".into(),
+                minecraft_version: "fixture".into(),
+                skript_version: "2.15.4".into(),
+                plugin_count: 0,
+            },
+            result,
+            &catalog,
+            Duration::ZERO,
+            None,
+            std::iter::empty::<&SectionContext>(),
+        );
+        assert!(report.matched());
+        let json: serde_json::Value =
+            serde_json::from_str(&report.clone().to_json().unwrap()).unwrap();
+        assert_eq!(json["schemaVersion"], 8);
+        assert_eq!(json["result"]["status"], "matchedFunction");
+        let function = &json["result"]["function"];
+        assert_eq!(function["expression"]["name"], "procedure");
+        assert_eq!(
+            function["expression"]["syntax"]["definitionId"],
+            "function:document:procedure"
+        );
+        assert!(function["returnType"].is_null() && function["multiplicity"].is_null());
+        assert!(json["result"].get("effect").is_none());
+        let mut human = Vec::new();
+        report.write(OutputFormat::Human, &mut human).unwrap();
+        let human = String::from_utf8(human).unwrap();
+        assert!(
+            human.contains("result: matched")
+                && human.contains("function:")
+                && human.contains("procedure")
         );
     }
 }

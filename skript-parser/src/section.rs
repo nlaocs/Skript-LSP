@@ -6,10 +6,10 @@ use crate::{
     ExpressionParseEnvironment, ExpressionParseError, ExpressionParserConfig, ExpressionSession,
     FailureFrame, FailureFrameRole, FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID,
     MappedSource, MatchPattern, MatchSpan, MatchSyntaxKind, ParsedCapture, ParsedCaptureResult,
-    ParsedCaptureStatus, ParsedCaptureValue, PatternCandidate, PatternCapture, PatternFailure,
-    PatternFailureReason, RawNode, RawNodeId, RawNodeKind, RawTree, RegisteredSyntaxIdentity,
-    SectionBodyMode, SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision,
-    SectionRawNodeSummary, SectionSiblingSummary, TextRange,
+    ParsedCaptureStatus, PatternCandidate, PatternCapture, PatternFailure, PatternFailureReason,
+    RawNode, RawNodeId, RawNodeKind, RawTree, RegisteredSyntaxIdentity, SectionBodyMode,
+    SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision, SectionRawNodeSummary,
+    SectionSiblingSummary, TextRange,
 };
 use std::collections::BTreeMap;
 use syntaxes::{
@@ -578,22 +578,19 @@ fn section_candidate<E: ExpressionParseEnvironment>(
                     session.replace_context(previous);
                 }
                 let parsed = parsed?;
-                match parsed.selected {
-                    Some(selected) => ParsedCapture {
+                match parsed.into_selected_capture(session.catalog()) {
+                    Ok((summary, value)) => ParsedCapture {
                         capture_index,
                         binding: binding.clone(),
                         result: ParsedCaptureResult::success(
                             binding.parser_id.clone(),
                             span.clone(),
-                            Some(crate::effect::effect_semantic_summary(
-                                &selected,
-                                session.catalog(),
-                            )),
-                            ParsedCaptureValue::Effect(Box::new(selected)),
+                            Some(summary),
+                            value,
                         ),
                     },
-                    None if binding.required => return Ok(None),
-                    None => ParsedCapture {
+                    Err(_) if binding.required => return Ok(None),
+                    Err(_) => ParsedCapture {
                         capture_index,
                         binding: binding.clone(),
                         result: ParsedCaptureResult::failure(
@@ -871,13 +868,26 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                         let Some(effect_matches) = effect_matches else {
                             continue;
                         };
-                        if effect_matches.selected.is_some() {
+                        if effect_matches.has_selection() {
                             preceding_sections.clear();
                             extend_match_diagnostics(
                                 session,
                                 child,
                                 true,
                                 !effect_matches.alternatives.is_empty(),
+                                &mut diagnostics,
+                            )?;
+                            body.push(SectionBodyNode::Effect(Box::new(effect_matches)));
+                            continue;
+                        }
+
+                        if effect_matches.function_rejected() {
+                            preceding_sections.clear();
+                            extend_match_diagnostics(
+                                session,
+                                child,
+                                false,
+                                false,
                                 &mut diagnostics,
                             )?;
                             body.push(SectionBodyNode::Effect(Box::new(effect_matches)));

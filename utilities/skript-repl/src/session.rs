@@ -564,7 +564,7 @@ impl SkriptSession {
             }
         };
         let retain = matches!(state_policy, EffectStatePolicy::RetainMatched)
-            && result.matches.selected.is_some();
+            && result.matches.has_selection();
         match (baseline, retain) {
             (Some(_), true) => {}
             (Some(baseline), false) => transaction.rollback_to(&baseline)?,

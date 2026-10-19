@@ -4,9 +4,8 @@ use crate::{
     ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureFrame,
     FailureFrameRole, FailureTrace, HOST_CONDITION_PARSER_ID, HOST_EFFECT_PARSER_ID,
     HOST_EVENT_PARSER_ID, MappedSource, MatchSpan, ParsedCapture, ParsedCaptureResult,
-    ParsedCaptureStatus, ParsedCaptureValue, PatternCapture, PatternFailure, PatternFailureReason,
-    RawNode, RawNodeId, RawNodeKind, RawTree, RegisteredSyntaxIdentity, SectionBodyNode,
-    SectionDiagnostic, TextRange,
+    ParsedCaptureStatus, PatternCapture, PatternFailure, PatternFailureReason, RawNode, RawNodeId,
+    RawNodeKind, RawTree, RegisteredSyntaxIdentity, SectionBodyNode, SectionDiagnostic, TextRange,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use syntaxes::{
@@ -1006,22 +1005,19 @@ fn structure_candidate<E: ExpressionParseEnvironment>(
                     session.replace_context(previous);
                 }
                 let parsed = parsed.map_err(nested_structure_error)?;
-                match parsed.selected {
-                    Some(selected) => ParsedCapture {
+                match parsed.into_selected_capture(session.catalog()) {
+                    Ok((summary, value)) => ParsedCapture {
                         capture_index,
                         binding: binding.clone(),
                         result: ParsedCaptureResult::success(
                             binding.parser_id.clone(),
                             span.clone(),
-                            Some(crate::effect::effect_semantic_summary(
-                                &selected,
-                                session.catalog(),
-                            )),
-                            ParsedCaptureValue::Effect(Box::new(selected)),
+                            Some(summary),
+                            value,
                         ),
                     },
-                    None if binding.required => return Ok(None),
-                    None => ParsedCapture {
+                    Err(_) if binding.required => return Ok(None),
+                    Err(_) => ParsedCapture {
                         capture_index,
                         binding: binding.clone(),
                         result: ParsedCaptureResult::failure(

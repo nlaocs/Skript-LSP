@@ -794,12 +794,16 @@ fn analyze(fixture: &Fixture, case: &Case) -> Result<Value, String> {
                 if !result.failures.is_empty() {
                     return Err(format!("component failures: {:?}", result.failures));
                 }
-                let root = result
-                    .matches
-                    .selected
-                    .as_ref()
-                    .map(|candidate| project_effect(candidate, &session.catalog))
-                    .transpose()?;
+                let root = if let Some(function) = result.matches.selected_function() {
+                    Some(project_expression(function, &session.catalog)?)
+                } else {
+                    result
+                        .matches
+                        .selected
+                        .as_ref()
+                        .map(|candidate| project_effect(candidate, &session.catalog))
+                        .transpose()?
+                };
                 let failure = result.matches.unknown.as_ref().map(|unknown| {
                     let primary = unknown.failures.primary();
                     json!({"recognized": primary.map(|candidate| json!({

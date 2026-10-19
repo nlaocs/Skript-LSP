@@ -68,7 +68,7 @@ skript-repl.exe --section "loop all players:" "continue"
 ```
 
 This mode preserves the former EffectCommandCLI contract. It reports the
-selected Effect or EffectSection, pattern, captures, recursive Expressions,
+selected native Function statement, Effect or EffectSection, pattern, captures, recursive Expressions,
 types, multiplicity, addon data, defaults, diagnostics, and parse time. Its
 parse transaction is discarded after reporting, including successful hook
 writes.
@@ -77,8 +77,8 @@ Stable exit codes are:
 
 | Code | Meaning |
 | ---: | --- |
-| `0` | The Effect matched. |
-| `1` | The input was valid but no Effect matched. |
+| `0` | A native Function statement, Effect, or EffectSection matched. |
+| `1` | The input was valid but no native Function statement, Effect, or EffectSection matched. |
 | `2` | Command-line arguments were invalid. |
 | `3` | Snapshot, host, parser, addon, or I/O setup failed. |
 
@@ -199,7 +199,7 @@ declaration order, supplied names, omitted parameters, and multiple values.
 
 JSON is the machine-readable contract:
 
-- one-shot and one-line Effect reports use `schemaVersion: 7`;
+- one-shot and one-line Effect reports use `schemaVersion: 8`; native function statements have a `matchedFunction` result with the existing structured Function report;
 - multiline document reports use `schemaVersion: 2`, adding Function call bindings
   on document nodes to schema 1;
 - document nodes form an arena: `roots`, `children`, and node captures contain

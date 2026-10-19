@@ -439,3 +439,169 @@ fn genuine_chance_condition_keeps_native_slot_and_both_reaching_writes() {
         );
     }
 }
+
+#[test]
+fn actual_imported_void_statement_preserves_lsp_identity_and_is_a_flow_barrier() {
+    use super::super::project::{ProjectSnapshot, ProjectSource};
+
+    // Existing analyzer() loads the genuine95c5 typeRuntime fixture. Baseline
+    // warning proves local String inference is active before checking the call.
+    let directory = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(directory.path()).unwrap();
+    let definition_path = root.join("definition.sk");
+    let definition_source = "function imported_void():\n    send \"marker\" to console\n";
+    std::fs::write(&definition_path, definition_source).unwrap();
+    let definition_uri: lsp_types::Uri = url::Url::from_file_path(&definition_path)
+        .unwrap()
+        .as_str()
+        .parse()
+        .unwrap();
+    let caller_uri: lsp_types::Uri = url::Url::from_file_path(root.join("caller.sk"))
+        .unwrap()
+        .as_str()
+        .parse()
+        .unwrap();
+    let mut parser = analyzer();
+    parser.project_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+    let job = |source: &str, revision: u64| Job {
+        uri: caller_uri.clone(),
+        project: Some(Arc::new(ProjectSnapshot {
+            epoch: revision,
+            root: root.clone(),
+            open: vec![ProjectSource {
+                uri: caller_uri.clone(),
+                generation: 1,
+                source_epoch: revision,
+                source: Arc::from(source),
+            }],
+        })),
+        generation: 1,
+        revision,
+        version: revision as i32,
+        source: Arc::from(source),
+        control: Control::new(),
+        queued_at: Instant::now(),
+    };
+    let before = "on join:\n    set {_t} to \"somewhere\"\n    teleport player to {_t}\n";
+    let initial = parser.analyze(&job(before, 1));
+    let (initial_diagnostics, initial_status) = diagnostics(&initial);
+    assert_eq!(initial_status, "complete");
+    let initial_read = position(before, before.rfind("{_t}").unwrap() + 2);
+    assert!(matches!(
+        initial.semantic.as_ref().unwrap().type_at(initial_read),
+        Some((_, semantic::InferredType::Values { classes, maybe_unset: false, .. }))
+            if classes.len() == 1 && classes.contains("java.lang.String")
+    ));
+    assert_eq!(initial_diagnostics.len(), 1, "{initial_diagnostics:#?}");
+    assert_eq!(
+        initial_diagnostics[0].code,
+        Some(NumberOrString::String(
+            "semantic.variable-type-mismatch".into()
+        ))
+    );
+    assert_eq!(
+        initial_diagnostics[0].data.as_ref().unwrap()["actualTypes"],
+        json!(["java.lang.String"])
+    );
+
+    let current = "on join:\n    set {_t} to \"somewhere\"\n    imported_void()\n    teleport player to {_t}\n";
+    let analyzed = parser.analyze(&job(current, 2));
+    let (found, status) = diagnostics(&analyzed);
+    assert_eq!(status, "complete");
+    assert!(
+        found.is_empty(),
+        "valid call must not leave an unclaimed node or stale warning: {found:#?}"
+    );
+    let semantic = analyzed.semantic.as_ref().unwrap();
+    let write = position(current, current.find("{_t}").unwrap() + 2);
+    assert!(matches!(
+        semantic.type_at(write),
+        Some((_, semantic::InferredType::Values { classes, maybe_unset: false, .. }))
+            if classes.len() == 1 && classes.contains("java.lang.String")
+    ));
+    let read = position(current, current.rfind("{_t}").unwrap() + 2);
+    assert!(matches!(
+        semantic.type_at(read),
+        Some((_, semantic::InferredType::Unknown))
+    ));
+    let project = analyzed
+        .project_semantics
+        .iter()
+        .map(Arc::as_ref)
+        .collect::<Vec<_>>();
+    let owner = project
+        .iter()
+        .copied()
+        .find(|document| document.uri == definition_uri)
+        .unwrap();
+    let symbol = owner
+        .functions
+        .iter()
+        .find(|symbol| symbol.definition.name == "imported_void")
+        .unwrap();
+    assert!(symbol.definition.return_type.is_none());
+    assert_eq!(
+        symbol.definition.metadata.get("function.document-id"),
+        Some(&super::super::project::document_key(
+            definition_uri.as_str()
+        ))
+    );
+    assert_eq!(
+        owner.source_witness,
+        format!("{:x}", Sha256::digest(definition_source.as_bytes()))
+    );
+    let call_start = current.find("imported_void").unwrap();
+    let call_at = position(current, call_start + 1);
+    let call_range = Range::new(
+        position(current, call_start),
+        position(current, call_start + "imported_void".len()),
+    );
+    let targets = semantic.definitions_at(call_at, &project);
+    assert_eq!(targets.len(), 1, "{targets:#?}");
+    assert_eq!(targets[0].uri, definition_uri);
+    assert_eq!(targets[0].range, symbol.range);
+    let references = semantic.references_at(call_at, &project, false);
+    assert_eq!(
+        references,
+        vec![lsp_types::Location::new(caller_uri.clone(), call_range)]
+    );
+    let all_references = semantic.references_at(call_at, &project, true);
+    assert_eq!(all_references.len(), 2, "{all_references:#?}");
+    assert!(all_references.contains(&lsp_types::Location::new(
+        definition_uri.clone(),
+        symbol.name_range.unwrap()
+    )));
+    assert_eq!(
+        owner.references_at(symbol.name_range.unwrap().start, &project, false),
+        references
+    );
+    let hover = analyzed
+        .hover
+        .as_ref()
+        .unwrap()
+        .at(call_at)
+        .expect("real void statement hover");
+    let hover = serde_json::to_string(&hover).unwrap();
+    assert!(
+        hover.contains("imported_void") && hover.contains("Signature"),
+        "{hover}"
+    );
+    let legend = semantic_token_legend();
+    let wire = legend.wire();
+    let tokens = analyzed.semantic_tokens.as_ref().unwrap().full(&legend);
+    let mut row = 0;
+    let mut column = 0;
+    let mut function_tokens = Vec::new();
+    for token in tokens.data {
+        if token.delta_line == 0 {
+            column += token.delta_start;
+        } else {
+            row += token.delta_line;
+            column = token.delta_start;
+        }
+        if wire.token_types[token.token_type as usize].as_str() == "function" {
+            function_tokens.push((row, column, token.length));
+        }
+    }
+    assert_eq!(function_tokens, vec![(2, 4, "imported_void".len() as u32)]);
+}

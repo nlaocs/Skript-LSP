@@ -782,7 +782,7 @@ fn try_map_condition_spans<E>(
     Ok(())
 }
 
-fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSummary {
+pub(crate) fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptureSemanticSummary {
     if matches!(node.kind, ExpressionNodeKind::Grouped)
         && let Some(child) = node.children.first()
     {
@@ -3182,22 +3182,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         self.replace_context(previous);
                     }
                     let parsed = parsed.map_err(|error| nested_expression_error(error))?;
-                    match parsed.selected {
-                        Some(selected) => {
-                            let summary =
-                                crate::effect::effect_semantic_summary(&selected, self.catalog);
-                            ParsedCapture {
-                                capture_index,
-                                binding: binding.clone(),
-                                result: ParsedCaptureResult::success(
-                                    binding.parser_id.clone(),
-                                    span.clone(),
-                                    Some(summary),
-                                    ParsedCaptureValue::Effect(Box::new(selected)),
-                                ),
-                            }
-                        }
-                        None => {
+                    match parsed.into_selected_capture(self.catalog) {
+                        Ok((summary, value)) => ParsedCapture {
+                            capture_index,
+                            binding: binding.clone(),
+                            result: ParsedCaptureResult::success(
+                                binding.parser_id.clone(),
+                                span.clone(),
+                                Some(summary),
+                                value,
+                            ),
+                        },
+                        Err(parsed) => {
                             if binding.required {
                                 let cause = parsed
                                     .unknown
