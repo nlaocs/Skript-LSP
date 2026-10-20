@@ -38,6 +38,7 @@ impl Documents {
                 uris.push(focused);
             }
         }
+        let mut jobs = Vec::with_capacity(uris.len());
         for uri in uris {
             let revision = self.id()?;
             let document = self.open.get_mut(&uri).unwrap();
@@ -54,7 +55,7 @@ impl Documents {
             document.syntax_completion = None;
             document.prepared_completion = None;
             document.completion_ready = false;
-            worker.submit(Job {
+            jobs.push(Job {
                 uri,
                 generation: document.generation,
                 revision,
@@ -65,6 +66,7 @@ impl Documents {
                 project: Some(Arc::clone(&snapshot)),
             });
         }
+        worker.submit_all(jobs);
         Ok(())
     }
 }

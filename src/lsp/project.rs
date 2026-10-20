@@ -100,11 +100,45 @@ struct Cached {
     lookup_names: BTreeSet<String>,
     semantic: Arc<semantic::Document>,
 }
+// One owned, completed side-document result can be handed to another job in the
+// same immutable batch. This does not transplant an AST into a new native revision.
+struct ParsedResult {
+    result: DocumentParseResult,
+    source: Source,
+    import_key: String,
+    revision: u64,
+}
+struct ResultHandoff {
+    epoch: u64,
+    project_uri: String,
+    root: PathBuf,
+    open: Vec<(String, u64, u64, String)>,
+    raw_tree: Option<skript_parser::RawTreeOptions>,
+    structure: skript_parser::StructureParserConfig,
+    catalog: Arc<Catalog>,
+    participants: Vec<parser_wasm::host::ComponentInfo>,
+    parsed: ParsedResult,
+}
+fn open_key(snapshot: &ProjectSnapshot) -> Vec<(String, u64, u64, String)> {
+    snapshot
+        .open
+        .iter()
+        .map(|source| {
+            (
+                source.uri.as_str().to_owned(),
+                source.generation,
+                source.source_epoch,
+                digest(&source.source),
+            )
+        })
+        .collect()
+}
 #[derive(Default)]
 pub(super) struct ProjectIndex {
     documents: BTreeMap<String, Cached>,
     next_native_revision: u64,
     revisions: BTreeMap<String, u64>,
+    handoff: Option<ResultHandoff>,
 }
 
 fn digest(source: &str) -> String {
@@ -456,6 +490,13 @@ impl ProjectIndex {
         project_uri: &str,
         uri: &Uri,
     ) -> Result<(), String> {
+        if self
+            .handoff
+            .as_ref()
+            .is_some_and(|handoff| handoff.parsed.source.key() == uri.as_str())
+        {
+            self.handoff = None;
+        }
         self.documents.remove(uri.as_str());
         if let Some(revision) = self.revisions.remove(uri.as_str()) {
             host.release_document(project_uri, &document_key(uri.as_str()), revision)
@@ -578,11 +619,29 @@ impl ProjectIndex {
         config: DocumentParserConfig,
         observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
     ) -> Result<ProjectAnalysis, ProjectError> {
+        // Take before discovery so cancelled, failed and incomplete passes cannot
+        // leave a result available for a later job. Host/index/catalog share the
+        // immutable ParserAnalyzer lifetime; every semantic input is checked below.
+        let previous = self.handoff.take();
         let scan_root = fs::canonicalize(&snapshot.root)
             .map_err(|error| incomplete(format!("cannot resolve project root: {error}")))?;
         let discovered = sources(snapshot, &config.cancellation)?;
         require_stable_project(discovered.len(), host.project_semantics_are_stable())?;
         let participants = host.components();
+        let batch_open = open_key(snapshot);
+        let cancellation = config.cancellation.clone();
+        let raw_tree = config.raw_tree;
+        let structure = config.structure.clone();
+        let previous = previous.filter(|handoff| {
+            handoff.epoch == snapshot.epoch
+                && handoff.project_uri == project_uri
+                && handoff.root == snapshot.root
+                && handoff.open == batch_open
+                && handoff.raw_tree == raw_tree
+                && handoff.structure == structure
+                && Arc::ptr_eq(&handoff.catalog, &catalog)
+                && handoff.participants == participants
+        });
         let current = discovered.get(current_uri.as_str()).ok_or_else(|| {
             failure("current project document is absent from immutable open snapshot")
         })?;
@@ -668,6 +727,13 @@ impl ProjectIndex {
                 .filter(|uri| uri.as_str() != current_uri.as_str())
                 .cloned(),
         );
+        // A prior successful job may already own this exact native result.
+        // Fresh discovery and the final full-namespace/source/revision guards
+        // still run before it is consumed. Only one side result is staged.
+        let mut current_result = previous
+            .map(|handoff| handoff.parsed)
+            .filter(|parsed| parsed.source.key() == current_uri.as_str());
+        let mut staged = None;
         let mut stable = false;
         let max_rounds = discovered.len().saturating_add(1);
         for _round in 0..max_rounds {
@@ -692,7 +758,8 @@ impl ProjectIndex {
                         "project function analysis exceeded its parse budget",
                     ));
                 }
-                let (_, record, _) = self.parse(
+                let import_key = definitions_key(&imported);
+                let (result, record, revision) = self.parse(
                     host,
                     Arc::clone(&catalog),
                     project_uri,
@@ -702,6 +769,17 @@ impl ProjectIndex {
                     snapshot.epoch,
                     None,
                 )?;
+                let parsed = ParsedResult {
+                    result,
+                    source: source.clone(),
+                    import_key,
+                    revision,
+                };
+                if uri == current_uri.as_str() {
+                    current_result = Some(parsed);
+                } else if snapshot.open.iter().any(|view| view.uri.as_str() == uri) {
+                    staged = Some(parsed);
+                }
                 working.insert(uri.clone(), record);
                 parsed_documents += 1;
                 any = true;
@@ -726,22 +804,42 @@ impl ProjectIndex {
                 "project function declarations did not converge within {max_rounds} rounds"
             )));
         }
+        if config.cancellation.is_cancelled() {
+            return Err(ProjectError::Cancelled);
+        }
         let expected = working
             .get(current_uri.as_str())
             .map(|record| record.export_key.clone())
             .unwrap_or_default();
         let imported = imports(&working, current_uri.as_str());
-        let (result, record, revision) = self.parse(
-            host,
-            Arc::clone(&catalog),
-            project_uri,
-            current,
-            config,
-            imported,
-            snapshot.epoch,
-            Some(observer),
-        )?;
-        parsed_documents += 1;
+        let retained = current_result.filter(|parsed| {
+            parsed.import_key == definitions_key(&imported)
+                && parsed.source.same(current)
+                && self.revisions.get(current_uri.as_str()) == Some(&parsed.revision)
+                && working
+                    .get(current_uri.as_str())
+                    .is_some_and(|record| record.source.same(current))
+        });
+        let (result, record, revision) = if let Some(parsed) = retained {
+            let record = working
+                .get(current_uri.as_str())
+                .cloned()
+                .ok_or_else(|| failure("retained current project record is absent"))?;
+            (parsed.result, record, parsed.revision)
+        } else {
+            let parsed = self.parse(
+                host,
+                Arc::clone(&catalog),
+                project_uri,
+                current,
+                config,
+                imported,
+                snapshot.epoch,
+                Some(observer),
+            )?;
+            parsed_documents += 1;
+            parsed
+        };
         // A component can disable itself after a trap during these parses.
         // Earlier side-document facts then describe a different environment.
         require_stable_project(discovered.len(), host.project_semantics_are_stable())?;
@@ -757,7 +855,7 @@ impl ProjectIndex {
         }
         let current_semantic = Arc::clone(&record.semantic);
         working.insert(current_uri.as_str().to_owned(), record);
-        self.finish(
+        let analysis = self.finish(
             discovered,
             working,
             before,
@@ -768,7 +866,38 @@ impl ProjectIndex {
             snapshot.epoch,
             parsed_documents,
             &scan_root,
-        )
+        )?;
+        // Publish a handoff only after membership and closed-source witnesses
+        // passed finish. A changed complete import namespace requires a reparse,
+        // even when the side result never looked up that newly available name.
+        if cancellation.is_cancelled() {
+            return Err(ProjectError::Cancelled);
+        }
+        if let Some(parsed) = staged.filter(|parsed| {
+            parsed.result.execution_status == parser_wasm::DocumentExecutionStatus::Complete
+                && parsed.result.fault_regions.is_empty()
+                && parsed.result.component_failures.is_empty()
+                && parsed.import_key
+                    == definitions_key(&imports(&self.documents, parsed.source.key()))
+                && self.revisions.get(parsed.source.key()) == Some(&parsed.revision)
+                && self
+                    .documents
+                    .get(parsed.source.key())
+                    .is_some_and(|record| record.source.same(&parsed.source))
+        }) {
+            self.handoff = Some(ResultHandoff {
+                epoch: snapshot.epoch,
+                project_uri: project_uri.to_owned(),
+                root: snapshot.root.clone(),
+                open: batch_open,
+                raw_tree,
+                structure,
+                catalog,
+                participants,
+                parsed,
+            });
+        }
+        Ok(analysis)
     }
     fn analyze_local(
         &mut self,

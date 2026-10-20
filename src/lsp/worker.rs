@@ -196,8 +196,10 @@ impl Analyzer for ParserAnalyzer {
         let mut project_semantics = Vec::new();
         let mut project_metrics = Value::Null;
         let mut project_incomplete = None;
+        let mut parsed_document = true;
         let result = if let Some(snapshot) = &job.project {
             self.project.analyze(&mut self.host, Arc::clone(&self.catalog), &self.project_uri, snapshot, &job.uri, config, &mut observer).map(|analysis| {
+                parsed_document = analysis.parsed_documents != 0;
                 semantic = Some(analysis.current_semantic);
                 project_semantics = analysis.documents;
                 project_incomplete = analysis.incomplete_reason;
@@ -218,7 +220,13 @@ impl Analyzer for ParserAnalyzer {
                 )
                 .map_err(super::project::ProjectError::from)
         };
-        let incremental = self.host.incremental_metrics();
+        // A transferred result runs no native parse. Do not attribute the
+        // producer's last hook-cache counters to this consumer job.
+        let incremental = if parsed_document {
+            self.host.incremental_metrics()
+        } else {
+            Default::default()
+        };
         let analysis_metrics = json!({"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
@@ -544,7 +552,16 @@ impl Worker {
         })
     }
     pub fn submit(&self, job: Job) {
-        self.queue.lock().unwrap().submit(job);
+        self.submit_all(std::iter::once(job));
+    }
+    pub fn submit_all(&self, jobs: impl IntoIterator<Item = Job>) {
+        // Publish the whole immutable project batch before the worker can choose
+        // a document. The existing bounded priority/fairness policy still applies.
+        let mut queue = self.queue.lock().unwrap();
+        for job in jobs {
+            queue.submit(job);
+        }
+        drop(queue);
         let _ = self.wake.try_send(());
     }
     pub fn release(&self, uri: &str, revision: u64) {
@@ -593,6 +610,38 @@ mod scheduling_tests {
             queued_at: Instant::now(),
             project: None,
         }
+    }
+
+    #[test]
+    fn project_batch_is_locked_and_complete_before_waking_the_worker() {
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        let (wake, wake_receiver) = bounded(1);
+        let (_, events) = unbounded();
+        let worker = Worker {
+            queue: Arc::clone(&queue),
+            wake,
+            events,
+            handle: None,
+        };
+        let jobs = [
+            job("file:///background.sk", 1),
+            job("file:///current.sk", 2),
+        ];
+        worker.submit_all(jobs.into_iter().inspect(|_| {
+            assert!(
+                queue.try_lock().is_err(),
+                "a worker cannot pop a partly published batch"
+            );
+            assert!(
+                wake_receiver.try_recv().is_err(),
+                "do not wake the worker before the batch is complete"
+            );
+        }));
+        wake_receiver.try_recv().unwrap();
+        assert!(wake_receiver.try_recv().is_err());
+        let mut queue = queue.lock().unwrap();
+        assert_eq!(queue.pop().unwrap().0, "file:///current.sk");
+        assert_eq!(queue.pop().unwrap().0, "file:///background.sk");
     }
 
     #[test]

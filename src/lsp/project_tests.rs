@@ -192,7 +192,10 @@ fn actual_unopened_function_is_parsed_imported_and_jump_targets_current_source()
         )
         .unwrap();
     assert_eq!(analyzed.scanned_documents, 2);
-    assert!(preparations > 0);
+    assert_eq!(
+        preparations, 0,
+        "the retained stable current result needs no provisional reparse"
+    );
     let call = analyzed
         .result
         .ast
@@ -361,8 +364,8 @@ fn unrelated_edit_reuses_contract_certified_closed_document_semantics() {
         .unwrap();
     assert_eq!(analyzed.scanned_documents, 2);
     assert_eq!(
-        analyzed.parsed_documents, 2,
-        "changed current discovery + final current result; unchanged closed definition stays certified"
+        analyzed.parsed_documents, 1,
+        "the changed current result is retained with the full unchanged import namespace"
     );
 }
 
@@ -576,8 +579,44 @@ fn nested_boundary_added_after_discovery_cannot_certify_same_byte_exports() {
     let current = snapshot.open[0].uri.clone();
     let (mut host, catalog) = host();
     let mut index = ProjectIndex::new();
-    let mut changed = false;
-    let result = index
+    let discovered = sources(&snapshot, &DocumentCancellationToken::new()).unwrap();
+    let analyzed = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(analyzed.result.ast.nodes.iter().any(|node| {
+        node.function
+            .as_ref()
+            .is_some_and(|call| call.name == "project_value")
+    }));
+    let working = index.documents.clone();
+    let canonical_root = fs::canonicalize(root.path()).unwrap();
+    fs::create_dir(folder.join(".git")).unwrap();
+    let error = index
+        .finish(
+            discovered,
+            working,
+            BTreeMap::new(),
+            BTreeSet::new(),
+            analyzed.result,
+            analyzed.current_semantic,
+            analyzed.native_revision,
+            snapshot.epoch,
+            analyzed.parsed_documents,
+            &canonical_root,
+        )
+        .err()
+        .expect("a retained result cannot cross a new project boundary");
+    assert!(matches!(error, ProjectError::Incomplete(_)));
+    assert!(error.to_string().contains("nested project"));
+    let next = index
         .analyze(
             &mut host,
             catalog,
@@ -585,26 +624,12 @@ fn nested_boundary_added_after_discovery_cannot_certify_same_byte_exports() {
             &snapshot,
             &current,
             Default::default(),
-            &mut |_| {
-                if !changed {
-                    fs::create_dir(folder.join(".git")).unwrap();
-                    changed = true;
-                }
-            },
+            &mut |_| {},
         )
         .unwrap();
-    assert!(changed);
+    assert_eq!(next.documents.len(), 1);
     assert!(
-        result
-            .incomplete_reason
-            .as_ref()
-            .unwrap()
-            .contains("nested project")
-    );
-    assert_eq!(result.documents.len(), 1);
-    assert!(
-        result
-            .result
+        next.result
             .ast
             .nodes
             .iter()
@@ -738,4 +763,530 @@ fn total_source_budget_remains_bounded_and_is_a_discovery_incompleteness() {
     let error = sources(&snapshot, &DocumentCancellationToken::new()).unwrap_err();
     assert!(matches!(error, ProjectError::Incomplete(_)));
     assert!(error.to_string().contains("source budget"));
+}
+
+#[test]
+fn cold_unqueried_function_enters_completion_namespace_before_result_reuse() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("definition.sk"),
+        "function greet() :: text:\n    return \"hello\"\n",
+    )
+    .unwrap();
+    let source = "on load:\n    send gr\n";
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(&root.path().join("caller.sk"), source, 1, 1)],
+    };
+    let current = snapshot.open[0].uri.clone();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    let analyzed = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(
+        analyzed.parsed_documents, 3,
+        "new unqueried imports require a final parse with the complete namespace"
+    );
+    let completions = super::super::completion::CatalogIndex::with_documentation_format(
+        &catalog,
+        host.raw_tree_options(),
+        lsp_types::MarkupKind::PlainText,
+    );
+    let document = super::super::completion::Document::from_result(
+        &analyzed.result,
+        Arc::from(source),
+        Arc::new(completions),
+    )
+    .unwrap();
+    let proposals = document.at(lsp_types::Position::new(1, 11), false).unwrap();
+    assert!(
+        proposals
+            .items
+            .iter()
+            .any(|item| item.label.starts_with("greet(")),
+        "the actual completion list must include the never-called imported function"
+    );
+    assert_eq!(analyzed.native_revision, index.revisions[current.as_str()]);
+    let next = index
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(
+        next.parsed_documents, 1,
+        "an unchanged current document still obtains its authoritative result once"
+    );
+}
+
+fn handoff_fixture() -> (tempfile::TempDir, ProjectSnapshot) {
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = ProjectSnapshot {
+        epoch: 11,
+        root: root.path().into(),
+        open: vec![
+            view(
+                &root.path().join("foreground.sk"),
+                "on load:
+    if 1 is 1:
+        send 1 to console
+    invalid statement here
+",
+                1,
+                1,
+            ),
+            view(
+                &root.path().join("background.sk"),
+                "on load:
+    send 2 to console
+",
+                1,
+                1,
+            ),
+        ],
+    };
+    (root, snapshot)
+}
+fn produce_handoff(
+    index: &mut ProjectIndex,
+    host: &mut ParserHost,
+    catalog: &Arc<Catalog>,
+    snapshot: &ProjectSnapshot,
+) {
+    index
+        .analyze(
+            host,
+            Arc::clone(catalog),
+            "file:///project",
+            snapshot,
+            &snapshot.open[1].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(
+        index.handoff.is_some(),
+        "a completed side open document must be available"
+    );
+}
+#[test]
+fn completed_side_result_is_transferred_once_with_unchanged_diagnostics_and_hover() {
+    let (_root, snapshot) = handoff_fixture();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    produce_handoff(&mut index, &mut host, &catalog, &snapshot);
+    let revision = index.handoff.as_ref().unwrap().parsed.revision;
+    let current = &snapshot.open[0];
+    let reused = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current.uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(reused.parsed_documents, 0);
+    assert_eq!(
+        reused.native_revision, revision,
+        "the original native revision is transferred, never reissued"
+    );
+    assert!(index.handoff.is_none());
+    let actual = super::super::diagnostics::from_result(&current.uri, &reused.result).unwrap();
+    assert!(actual.iter().any(|d| d.range.start.line == 3));
+    let hover = super::super::hover::Document::from_result(
+        reused.result,
+        Arc::clone(&current.source),
+        Arc::clone(&catalog),
+        lsp_types::MarkupKind::PlainText,
+    )
+    .unwrap();
+    let actual_hover = hover.at(lsp_types::Position::new(2, 9));
+    assert!(
+        actual_hover.is_some(),
+        "the nested effect keeps its actual original range"
+    );
+    let clean = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current.uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(
+        clean.parsed_documents, 1,
+        "the handoff cannot be consumed twice"
+    );
+    let expected = super::super::diagnostics::from_result(&current.uri, &clean.result).unwrap();
+    assert_eq!(
+        serde_json::to_value(actual).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    let clean_hover = super::super::hover::Document::from_result(
+        clean.result,
+        Arc::clone(&current.source),
+        catalog,
+        lsp_types::MarkupKind::PlainText,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(actual_hover).unwrap(),
+        serde_json::to_value(clean_hover.at(lsp_types::Position::new(2, 9))).unwrap()
+    );
+}
+#[test]
+fn result_handoff_rechecks_the_whole_batch_and_semantic_configuration() {
+    let (mut host, catalog) = host();
+    for change in 0..8 {
+        let (_root, mut snapshot) = handoff_fixture();
+        let mut index = ProjectIndex::new();
+        produce_handoff(&mut index, &mut host, &catalog, &snapshot);
+        let retained_revision = index.handoff.as_ref().unwrap().parsed.revision;
+        let mut config = DocumentParserConfig::default();
+        let mut selected_catalog = Arc::clone(&catalog);
+        match change {
+            0 => snapshot.epoch += 1,
+            1 => snapshot.open[0].generation += 1,
+            2 => snapshot.open[0].source_epoch += 1,
+            3 => {
+                snapshot.open[0].source = Arc::from(
+                    "on load:
+    send 3 to console
+",
+                )
+            }
+            4 => snapshot.open[1].generation += 1,
+            5 => config.raw_tree = Some(skript_parser::RawTreeOptions::for_skript_version(2, 8)),
+            6 => config.structure.headers_only = true,
+            7 => selected_catalog = self::host().1,
+            _ => unreachable!(),
+        }
+        let analyzed = index
+            .analyze(
+                &mut host,
+                selected_catalog,
+                "file:///project",
+                &snapshot,
+                &snapshot.open[0].uri,
+                config,
+                &mut |_| {},
+            )
+            .unwrap();
+        assert!(
+            analyzed.native_revision > retained_revision,
+            "the current document itself must be reparsed for changed input {change}"
+        );
+        assert!(
+            analyzed.parsed_documents > 0,
+            "changed batch/config input {change} must not consume the old result"
+        );
+    }
+}
+#[test]
+fn handoff_discovers_new_uncalled_imports_even_without_a_new_project_epoch() {
+    let (root, snapshot) = handoff_fixture();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    produce_handoff(&mut index, &mut host, &catalog, &snapshot);
+    fs::write(
+        root.path().join("new.sk"),
+        "function greet() :: text:
+    return \"hello\"
+",
+    )
+    .unwrap();
+    let analyzed = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &snapshot.open[0].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(
+        analyzed.parsed_documents >= 2,
+        "fresh closed-file discovery changes the full import namespace"
+    );
+    assert!(
+        analyzed
+            .result
+            .functions
+            .imports()
+            .iter()
+            .any(|item| item.definition.name == "greet")
+    );
+}
+#[test]
+fn cancellation_release_and_native_revision_replacement_discard_handoffs() {
+    let (mut host, catalog) = host();
+    for change in 0..3 {
+        let (_root, snapshot) = handoff_fixture();
+        let mut index = ProjectIndex::new();
+        produce_handoff(&mut index, &mut host, &catalog, &snapshot);
+        let current = &snapshot.open[0].uri;
+        let config = DocumentParserConfig::default();
+        match change {
+            0 => config.cancellation.cancel(),
+            1 => index
+                .release_uri(&mut host, "file:///project", current)
+                .unwrap(),
+            2 => {
+                let source = sources(&snapshot, &config.cancellation)
+                    .unwrap()
+                    .remove(current.as_str())
+                    .unwrap();
+                index
+                    .parse(
+                        &mut host,
+                        Arc::clone(&catalog),
+                        "file:///project",
+                        &source,
+                        config.clone(),
+                        Vec::new(),
+                        snapshot.epoch,
+                        None,
+                    )
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let result = index.analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            current,
+            config,
+            &mut |_| {},
+        );
+        if change == 0 {
+            assert!(matches!(result, Err(ProjectError::Cancelled)));
+            assert!(index.handoff.is_none());
+        } else {
+            assert!(result.unwrap().parsed_documents > 0);
+        }
+    }
+}
+#[test]
+fn incomplete_discovery_discards_a_prior_handoff() {
+    let (root, snapshot) = handoff_fixture();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    produce_handoff(&mut index, &mut host, &catalog, &snapshot);
+    fs::create_dir(root.path().join(".git")).unwrap();
+    // A nested boundary created after the producer must be discovered again.
+    let nested = root.path().join("nested");
+    fs::create_dir(&nested).unwrap();
+    let mut changed = snapshot.clone();
+    changed.open[0].uri = path_uri(&nested.join("foreground.sk")).unwrap();
+    fs::create_dir(nested.join(".git")).unwrap();
+    let local = index
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &changed,
+            &changed.open[0].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(local.incomplete_reason.is_some());
+    assert!(index.handoff.is_none());
+}
+
+fn function_handoff_fixture() -> (tempfile::TempDir, ProjectSnapshot) {
+    let (root, mut snapshot) = handoff_fixture();
+    snapshot.open[0].source = Arc::from(
+        "function from_foreground() :: number:\n    return 2\non load:\n    send from_background() to console\n    send fr\n",
+    );
+    snapshot.open[1].source = Arc::from(
+        "function from_background() :: number:\n    return 1\non load:\n    send 2 to console\n",
+    );
+    (root, snapshot)
+}
+#[test]
+fn side_handoff_retains_imported_call_proofs_after_provider_revision_changes() {
+    let (_root, snapshot) = function_handoff_fixture();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    produce_handoff(&mut index, &mut host, &catalog, &snapshot);
+    let original = &index.handoff.as_ref().unwrap().parsed;
+    let imported_revision = original
+        .result
+        .functions
+        .imports()
+        .iter()
+        .find(|function| function.definition.name == "from_background")
+        .unwrap()
+        .document_revision;
+    assert!(
+        index.revisions[snapshot.open[1].uri.as_str()] > imported_revision,
+        "the producer's final full-import parse must have advanced the provider revision"
+    );
+    let current = &snapshot.open[0];
+    let reused = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current.uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(reused.parsed_documents, 0);
+    let project = reused.documents.iter().map(Arc::as_ref).collect::<Vec<_>>();
+    let targets = reused
+        .current_semantic
+        .definitions_at(lsp_types::Position::new(3, 15), &project);
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].uri, snapshot.open[1].uri);
+    assert_eq!(targets[0].range.start.line, 0);
+    let completion_index = Arc::new(
+        super::super::completion::CatalogIndex::with_documentation_format(
+            &catalog,
+            host.raw_tree_options(),
+            lsp_types::MarkupKind::PlainText,
+        ),
+    );
+    let completion = super::super::completion::Document::from_result(
+        &reused.result,
+        Arc::clone(&current.source),
+        completion_index,
+    )
+    .unwrap();
+    let items = completion
+        .at(lsp_types::Position::new(4, 11), false)
+        .unwrap();
+    assert!(
+        items
+            .items
+            .iter()
+            .any(|item| item.label.starts_with("from_background("))
+    );
+    assert!(
+        items
+            .items
+            .iter()
+            .any(|item| item.label.starts_with("from_foreground("))
+    );
+    let actual_diagnostics =
+        super::super::diagnostics::from_result(&current.uri, &reused.result).unwrap();
+    let actual_hover = super::super::hover::Document::from_result(
+        reused.result,
+        Arc::clone(&current.source),
+        Arc::clone(&catalog),
+        lsp_types::MarkupKind::PlainText,
+    )
+    .unwrap()
+    .at(lsp_types::Position::new(3, 15));
+    assert!(
+        serde_json::to_string(&actual_hover)
+            .unwrap()
+            .contains("from_background() -> number")
+    );
+    let clean = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current.uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(clean.parsed_documents, 1);
+    let clean_diagnostics =
+        super::super::diagnostics::from_result(&current.uri, &clean.result).unwrap();
+    assert_eq!(
+        serde_json::to_value(actual_diagnostics).unwrap(),
+        serde_json::to_value(clean_diagnostics).unwrap()
+    );
+    let clean_hover = super::super::hover::Document::from_result(
+        clean.result,
+        Arc::clone(&current.source),
+        catalog,
+        lsp_types::MarkupKind::PlainText,
+    )
+    .unwrap()
+    .at(lsp_types::Position::new(3, 15));
+    assert_eq!(
+        serde_json::to_value(actual_hover).unwrap(),
+        serde_json::to_value(clean_hover).unwrap()
+    );
+}
+#[test]
+fn producer_cancellation_and_final_membership_failure_discard_staged_side_results() {
+    let (mut host, catalog) = host();
+    for cancel in [false, true] {
+        let (root, mut snapshot) = function_handoff_fixture();
+        let nested = root.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        snapshot.open[0].uri = path_uri(&nested.join("foreground.sk")).unwrap();
+        let mut index = ProjectIndex::new();
+        let config = DocumentParserConfig::default();
+        let cancellation = config.cancellation.clone();
+        let mut observed = false;
+        let result = index.analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &snapshot.open[1].uri,
+            config,
+            &mut |event| {
+                if matches!(event, StructurePreparationEvent::Headers { .. }) && !observed {
+                    observed = true;
+                    if cancel {
+                        cancellation.cancel();
+                    } else {
+                        fs::create_dir(nested.join(".git")).unwrap();
+                    }
+                }
+            },
+        );
+        assert!(
+            observed,
+            "the producer must reach final parsing after staging its side document"
+        );
+        if cancel {
+            assert!(matches!(result, Err(ProjectError::Cancelled)));
+        } else {
+            let local = result.unwrap();
+            assert!(local.incomplete_reason.is_some());
+            assert_eq!(local.documents.len(), 1);
+            assert!(!local.current_semantic.project_complete);
+        }
+        assert!(
+            index.handoff.is_none(),
+            "no staged data may escape a cancelled or incomplete producer"
+        );
+    }
 }
