@@ -24,8 +24,7 @@ fn no_responses(client: &Client, barrier: i32, ids: &[i32]) {
 }
 
 fn request(client: &Client, id: i32, method: &str, character: u32) {
-    let mut params =
-        json!({"textDocument":{"uri":URI},"position":{"line":0,"character":character}});
+    let mut params = json!({"textDocument":{"uri":fixture_uri("example.sk")},"position":{"line":0,"character":character}});
     if method == "textDocument/references" {
         params["context"] = json!({"includeDeclaration":true});
     }
@@ -47,7 +46,7 @@ fn completion_documentation_format_is_independent_of_hover_preference() {
         (json!(["plaintext", "markdown"]), MarkupKind::PlainText),
         (json!([]), MarkupKind::PlainText),
     ] {
-        let params = serde_json::from_value(json!({"rootUri":"file:///project","capabilities":{"textDocument":{"hover":{"contentFormat":["plaintext"]},"completion":{"completionItem":{"documentationFormat":formats}}}},"initializationOptions":{"snapshotPath":"snapshot"}})).unwrap();
+        let params = serde_json::from_value(json!({"rootUri":fixture_project_uri(),"capabilities":{"textDocument":{"hover":{"contentFormat":["plaintext"]},"completion":{"completionItem":{"documentationFormat":formats}}}},"initializationOptions":{"snapshotPath":"snapshot"}})).unwrap();
         let config = ProjectConfig::from_params(params).unwrap();
         assert_eq!(config.completion_format, expected);
         assert_eq!(config.hover_format, MarkupKind::PlainText);
@@ -137,7 +136,7 @@ fn semantic_requests_validate_surrogates_and_reversed_ranges_before_waiting() {
             ErrorCode::InvalidParams as i32
         );
     }
-    client.connection.sender.send(lsp_server::Request::new(43.into(),"textDocument/inlayHint".into(),json!({"textDocument":{"uri":URI},"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":2}}})).into()).unwrap();
+    client.connection.sender.send(lsp_server::Request::new(43.into(),"textDocument/inlayHint".into(),json!({"textDocument":{"uri":fixture_uri("example.sk")},"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":2}}})).into()).unwrap();
     assert_eq!(
         token_response(&client, 43)
             .response_result

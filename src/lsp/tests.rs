@@ -9,7 +9,19 @@ mod annotations;
 #[path = "tests/preparation.rs"]
 mod preparation;
 
-const URI: &str = "file:///project/example.sk";
+fn fixture_project_uri() -> String {
+    url::Url::from_directory_path(std::env::temp_dir().join("skript-lsp-protocol-tests"))
+        .expect("the temporary directory is an absolute filesystem path")
+        .into()
+}
+
+fn fixture_uri(relative: &str) -> String {
+    url::Url::parse(&fixture_project_uri())
+        .unwrap()
+        .join(relative)
+        .unwrap()
+        .into()
+}
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 #[test]
@@ -28,7 +40,7 @@ fn hover_content_format_uses_first_supported_client_preference_and_defaults_to_p
         ),
     ] {
         let params = serde_json::from_value(json!({
-            "rootUri":"file:///project", "capabilities":{"textDocument":{"hover":hover}},
+            "rootUri":fixture_project_uri(), "capabilities":{"textDocument":{"hover":hover}},
             "initializationOptions":{"snapshotPath":"snapshot"}
         }))
         .unwrap();
@@ -215,7 +227,7 @@ impl Client {
             actions,
             server,
         };
-        client.connection.sender.send(lsp_server::Request::new(1.into(), "initialize".into(), json!({"rootUri":"file:///project","capabilities":capabilities,"initializationOptions":{"snapshotPath":"snapshot"}})).into()).unwrap();
+        client.connection.sender.send(lsp_server::Request::new(1.into(), "initialize".into(), json!({"rootUri":fixture_project_uri(),"capabilities":capabilities,"initializationOptions":{"snapshotPath":"snapshot"}})).into()).unwrap();
         let response = client.until(
             |message| matches!(message, Message::Response(response) if response.id == 1.into()),
         );
@@ -268,7 +280,7 @@ impl Client {
                 lsp_server::Request::new(
                     id.into(),
                     "textDocument/hover".into(),
-                    json!({"textDocument":{"uri":URI},"position":{"line":0,"character":0}}),
+                    json!({"textDocument":{"uri":fixture_uri("example.sk")},"position":{"line":0,"character":0}}),
                 )
                 .into(),
             )
@@ -283,13 +295,13 @@ impl Client {
     fn open(&self, version: i32, text: &str) {
         self.notify(
             "textDocument/didOpen",
-            json!({"textDocument":{"uri":URI,"languageId":"skript","version":version,"text":text}}),
+            json!({"textDocument":{"uri":fixture_uri("example.sk"),"languageId":"skript","version":version,"text":text}}),
         );
     }
     fn change(&self, version: i32, text: &str) {
         self.notify(
             "textDocument/didChange",
-            json!({"textDocument":{"uri":URI,"version":version},"contentChanges":[{"text":text}]}),
+            json!({"textDocument":{"uri":fixture_uri("example.sk"),"version":version},"contentChanges":[{"text":text}]}),
         );
     }
     fn diagnostics(&self, version: i32) -> Value {
@@ -335,7 +347,7 @@ fn token_request(client: &Client, id: i32) {
             lsp_server::Request::new(
                 id.into(),
                 "textDocument/semanticTokens/full".into(),
-                json!({"textDocument":{"uri":URI}}),
+                json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
             )
             .into(),
         )
@@ -359,7 +371,7 @@ fn completion_request(client: &Client, id: i32, column: u32) {
             lsp_server::Request::new(
                 id.into(),
                 "textDocument/completion".into(),
-                json!({"textDocument":{"uri":URI},"position":{"line":0,"character":column}}),
+                json!({"textDocument":{"uri":fixture_uri("example.sk")},"position":{"line":0,"character":column}}),
             )
             .into(),
         )
@@ -374,7 +386,7 @@ fn signature_request(client: &Client, id: i32, column: u32) {
             lsp_server::Request::new(
                 id.into(),
                 "textDocument/signatureHelp".into(),
-                json!({"textDocument":{"uri":URI},"position":{"line":0,"character":column}}),
+                json!({"textDocument":{"uri":fixture_uri("example.sk")},"position":{"line":0,"character":column}}),
             )
             .into(),
         )
@@ -463,7 +475,10 @@ fn signature_requests_cancel_and_invalidate_on_change_close_reopen_and_shutdown(
         ErrorCode::ContentModified as i32
     );
     signature_request(&client, 43, 0);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
+    );
     assert_eq!(
         token_response(&client, 43)
             .response_result
@@ -640,7 +655,10 @@ fn completion_edit_close_and_reopen_terminate_old_requests_without_reusing_a_cac
     );
     completion_request(&client, 42, 0);
     client.sync(43);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
+    );
     assert_eq!(
         token_response(&client, 42)
             .response_result
@@ -777,7 +795,10 @@ fn semantic_requests_are_invalidated_by_edit_close_and_reopen() {
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 11);
     token_request(&client, 42);
     client.sync(43);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
+    );
     assert_eq!(
         token_response(&client, 42)
             .response_result
@@ -898,7 +919,10 @@ fn close_and_version_reset_reopen_cannot_publish_the_previous_open_generation() 
     let client = Client::start();
     client.open(30, "hold");
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 30);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
+    );
     assert!(
         client.diagnostics(30)["diagnostics"]
             .as_array()
@@ -916,14 +940,14 @@ fn close_and_version_reset_reopen_cannot_publish_the_previous_open_generation() 
     // Project open allocates a generation, then its current parse revision.
     assert_eq!(
         client.released.recv_timeout(TIMEOUT).unwrap(),
-        (URI.to_owned(), 2)
+        (fixture_uri("example.sk"), 2)
     );
     assert_eq!(
         &client.actions.lock().unwrap()[..4],
         &[
             Action::Started(30),
             Action::Finished(30),
-            Action::Released(URI.to_owned(), 2),
+            Action::Released(fixture_uri("example.sk"), 2),
             Action::Started(0)
         ]
     );
@@ -951,7 +975,7 @@ fn latest_edit_precedes_pending_open_without_dropping_either_document() {
     let client = Client::start();
     client.open(1, "hold");
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
-    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":"file:///project/z.sk","languageId":"skript","version":55,"text":""}}));
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":fixture_uri("z.sk"),"languageId":"skript","version":55,"text":""}}));
     client.change(2, "");
     client.sync(22);
     client.proceed.send(()).unwrap();
@@ -1036,7 +1060,10 @@ fn hover_cache_does_not_survive_close_and_reopen_with_reset_version() {
     client.change(11, "hold");
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 10);
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 11);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
+    );
     client.diagnostics(11);
     assert!(client.hover(35).is_null());
     client.open(0, "fresh");
@@ -1057,7 +1084,7 @@ fn initialization_failure_returns_an_error_without_claiming_capabilities() {
     let (client, connection) = Connection::memory();
     let server =
         thread::spawn(|| serve(connection, Box::new(|_| Err("snapshot unavailable".into()))));
-    client.sender.send(lsp_server::Request::new(1.into(), "initialize".into(), json!({"rootUri":"file:///project","capabilities":{},"initializationOptions":{"snapshotPath":"missing"}})).into()).unwrap();
+    client.sender.send(lsp_server::Request::new(1.into(), "initialize".into(), json!({"rootUri":fixture_project_uri(),"capabilities":{},"initializationOptions":{"snapshotPath":"missing"}})).into()).unwrap();
     let Message::Response(response) = client.receiver.recv_timeout(TIMEOUT).unwrap() else {
         panic!("expected initialize error")
     };

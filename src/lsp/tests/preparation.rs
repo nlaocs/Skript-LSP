@@ -11,7 +11,7 @@ fn request(client: &Client, id: i32, method: &str, line: u32, character: u32) {
             lsp_server::Request::new(
                 id.into(),
                 method.into(),
-                json!({"textDocument":{"uri":URI},"position":{"line":line,"character":character}}),
+                json!({"textDocument":{"uri":fixture_uri("example.sk")},"position":{"line":line,"character":character}}),
             )
             .into(),
         )
@@ -142,7 +142,10 @@ fn close_reopen_same_version_has_new_preparation_ticket_and_ignores_old_finish()
     assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
     request(&client, 40, "textDocument/completion", 1, 8);
     let first = token_response(&client, 40).response_result.unwrap();
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":URI}}));
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":fixture_uri("example.sk")}}),
+    );
     client.diagnostics(1);
     client.open(1, "hold:\n    hold");
     request(&client, 41, "textDocument/completion", 1, 8);
