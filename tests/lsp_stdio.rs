@@ -947,9 +947,11 @@ fn else_without_preceding_if_keeps_its_rejection_reason_and_original_range() {
 #[test]
 fn long_percent_encoded_japanese_uri_can_close_and_reopen_at_version_zero() {
     let mut client = Client::initialized(&[]);
-    // The filename has 123 characters; percent encoding expands its Japanese text.
-    let filename = format!("{}.sk", "日".repeat(120));
-    let uri = url::Url::from_file_path(client.project.path().join(filename)).unwrap();
+    // Keep each UTF-8 component within filesystem limits while expanding the URI.
+    let directory = client.project.path().join("日".repeat(60));
+    std::fs::create_dir(&directory).unwrap();
+    let filename = format!("{}.sk", "日".repeat(60));
+    let uri = url::Url::from_file_path(directory.join(filename)).unwrap();
     assert!(uri.as_str().is_ascii());
     assert!(
         uri.as_str().len() > 1024,
