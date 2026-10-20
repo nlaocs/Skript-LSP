@@ -726,3 +726,144 @@ fn function_statement_early_terminal_paths_preserve_typed_cancellation() {
         assert_eq!(environment.effect_hooks, 0);
     }
 }
+
+#[derive(Default)]
+struct NamespaceProbe {
+    lookup_calls: usize,
+    argument_leaf_calls: usize,
+}
+
+impl PatternMatchEnvironment for NamespaceProbe {
+    fn resolve_type(
+        &mut self,
+        _request: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(
+        &mut self,
+        _event: PatternHookEvent<'_>,
+    ) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for NamespaceProbe {
+    fn parse_expression_leaf(
+        &mut self,
+        request: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        if request.remaining.slice(request.input) == Some("1") {
+            self.argument_leaf_calls += 1;
+        }
+        DocumentFunctionEnvironment.parse_expression_leaf(request)
+    }
+
+    fn lookup_functions(
+        &mut self,
+        request: FunctionLookupRequest<'_>,
+    ) -> Result<Vec<FunctionDefinition>, String> {
+        self.lookup_calls += 1;
+        DocumentFunctionEnvironment.lookup_functions(request)
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+}
+
+#[test]
+fn incomplete_namespace_stops_document_and_catalog_calls_before_lookup_or_arguments() {
+    let snapshot = ssg::load(fixture()).unwrap();
+    assert!(!snapshot.catalog().functions_named("sin").is_empty());
+    for text in ["local(1)", "sin(1)", "not_registered(1)"] {
+        let source = MappedSource::identity(text);
+        let mut environment = NamespaceProbe::default();
+        let error = parse_expression(
+            snapshot.catalog(),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![ExpressionExpectedType {
+                    class_name: ClassName("java.lang.Object".into()),
+                    plural: false,
+                }],
+                context: ExpressionParseContext::default(),
+            },
+            &mut environment,
+            ExpressionParserConfig {
+                function_namespace_complete: false,
+                ..ExpressionParserConfig::default()
+            },
+        )
+        .expect_err("missing namespace must not be interpreted as no-match or catalog success");
+        let unavailable = skript_parser::function_namespace_unavailable(&error).unwrap();
+        assert_eq!(
+            unavailable.span.virtual_range,
+            TextRange::new(0, text.len())
+        );
+        assert_eq!(unavailable.name, text.split('(').next().unwrap());
+        assert_eq!(environment.lookup_calls, 0);
+        assert_eq!(environment.argument_leaf_calls, 0);
+        assert!(skript_parser::extension_fault(&error).is_none());
+        assert!(skript_parser::parse_cancellation(&error).is_none());
+    }
+}
+
+#[test]
+fn incomplete_namespace_propagates_through_a_native_group_without_losing_call_range() {
+    let snapshot = ssg::load(fixture()).unwrap();
+    let text = "(local(1))";
+    let source = MappedSource::identity(text);
+    let error = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![ExpressionExpectedType {
+                class_name: ClassName("java.lang.Object".into()),
+                plural: false,
+            }],
+            context: ExpressionParseContext::default(),
+        },
+        &mut NamespaceProbe::default(),
+        ExpressionParserConfig {
+            function_namespace_complete: false,
+            ..ExpressionParserConfig::default()
+        },
+    )
+    .unwrap_err();
+    let unavailable = skript_parser::function_namespace_unavailable(&error).unwrap();
+    assert_eq!(unavailable.name, "local");
+    assert_eq!(unavailable.span.virtual_range.slice(text), Some("local(1)"));
+}
+
+#[test]
+fn complete_namespace_default_still_selects_document_function_and_parses_its_argument() {
+    let snapshot = ssg::load(fixture()).unwrap();
+    let text = "local(1)";
+    let source = MappedSource::identity(text);
+    let mut environment = NamespaceProbe::default();
+    let result = parse_expression(
+        snapshot.catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: vec![ExpressionExpectedType {
+                class_name: ClassName("java.lang.Object".into()),
+                plural: false,
+            }],
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        ExpressionParserConfig::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        result.selected.unwrap().node.function.unwrap().name,
+        "local"
+    );
+    assert!(environment.lookup_calls > 0);
+    assert!(environment.argument_leaf_calls > 0);
+}

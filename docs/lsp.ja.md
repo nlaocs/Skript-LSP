@@ -368,3 +368,25 @@ cargo test -p parser-wasm -p syntaxes --all-features --locked --lib
 close/versionリセット/reopen、cancel/stale/fatal/partialの区別を確認する。
 stdio試験は実CoreLibraryとsnapshot、試験Addonを使い、初期化/終了、原文位置、options、faultを確認する。
 [Neovim手順](neovim.ja.md)には独立設定と期限付きheadless確認を用意している。
+
+
+## Workspace discovery and incomplete projects
+
+The client selects one explicit workspace root. The normal Neovim integration defaults to
+the opened file's directory; an arbitrary ancestor Git repository does not identify a Skript
+source scope. Set SKRIPT_LSP_ROOT explicitly when multiple source directories belong together.
+Nested repositories (.git directory or worktree file) are separate project boundaries.
+Discovery does not follow symlinks or Windows reparse points. Ordinary folders, including
+hidden, dependency-looking and generated-looking names, remain eligible; no name blacklist
+silently changes the language namespace.
+
+The limits remain 50,000 directory entries, 512 sources, directory depth 64, 1 MiB per file
+and 16 MiB total. Discovery/closed-file failures publish lsp.project-incomplete and analyze
+the current immutable open buffer afresh without previous imports. Function calls remain
+unresolved while the global namespace is incomplete, including catalog functions that could
+be shadowed by undiscovered definitions. Unaffected statements keep their local analysis.
+Function signatures/completions and exhaustive references are unavailable in this mode.
+References and project-wide definitions return RequestFailed rather than a partial list.
+Cancellation and parser/extension failures retain their distinct handling.
+Timing details.project includes root, currentDocument, complete and incompleteReason so the
+selected scope can be diagnosed without scanning unrelated parent directories.

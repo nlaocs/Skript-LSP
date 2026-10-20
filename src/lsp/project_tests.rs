@@ -365,3 +365,377 @@ fn unrelated_edit_reuses_contract_certified_closed_document_semantics() {
         "changed current discovery + final current result; unchanged closed definition stays certified"
     );
 }
+
+#[test]
+fn nested_project_markers_are_boundaries_but_ordinary_folder_names_are_not() {
+    let root = tempfile::tempdir().unwrap();
+    for name in [".hidden", "target", "node_modules", "vendor", "ordinary"] {
+        let folder = root.path().join(name);
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("allowed.sk"), "on load:\n    send 1\n").unwrap();
+    }
+    for (name, directory_marker) in [("nested", true), ("worktree", false)] {
+        let folder = root.path().join(name);
+        fs::create_dir(&folder).unwrap();
+        if directory_marker {
+            fs::create_dir(folder.join(".git")).unwrap();
+        } else {
+            fs::write(folder.join(".git"), "gitdir: elsewhere").unwrap();
+        }
+        fs::write(folder.join("not-part-of-parent.sk"), [0xff]).unwrap();
+    }
+    let mut snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![],
+    };
+    let found = sources(&snapshot, &DocumentCancellationToken::new()).unwrap();
+    assert_eq!(found.len(), 5);
+    snapshot.open.push(view(
+        &root.path().join("nested/new.sk"),
+        "on load:\n    send 1\n",
+        1,
+        1,
+    ));
+    assert!(matches!(
+        sources(&snapshot, &DocumentCancellationToken::new()),
+        Err(ProjectError::Incomplete(_))
+    ));
+}
+
+#[test]
+fn discovery_limits_report_incompleteness_without_raising_quotas() {
+    let root = tempfile::tempdir().unwrap();
+    for n in 0..=MAX_FILES {
+        fs::write(root.path().join(format!("{n}.sk")), "on load:").unwrap();
+    }
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![],
+    };
+    assert!(matches!(
+        sources(&snapshot, &DocumentCancellationToken::new()),
+        Err(ProjectError::Incomplete(_))
+    ));
+    let deep = tempfile::tempdir().unwrap();
+    let mut directory = deep.path().to_path_buf();
+    for _ in 0..=MAX_DEPTH {
+        directory.push("d");
+        fs::create_dir(&directory).unwrap();
+    }
+    let snapshot = ProjectSnapshot {
+        root: deep.path().into(),
+        ..snapshot
+    };
+    let error = sources(&snapshot, &DocumentCancellationToken::new()).unwrap_err();
+    assert!(matches!(error, ProjectError::Incomplete(_)));
+    assert!(error.to_string().contains("nesting"));
+}
+
+#[test]
+fn complete_incomplete_complete_withdraws_imports_and_keeps_native_revisions_monotonic() {
+    let root = tempfile::tempdir().unwrap();
+    let definition = root.path().join("definition.sk");
+    let contents = "function project_value() :: number:\n    return 1\n";
+    fs::write(&definition, contents).unwrap();
+    let caller = root.path().join("caller.sk");
+    let source = "on load:\n    send 1 to console\n    send project_value() to console\n    send 2 to console\n";
+    let mut snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(&caller, source, 1, 1)],
+    };
+    let current = snapshot.open[0].uri.clone();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    let first = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(first.incomplete_reason.is_none());
+    assert!(
+        first
+            .result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.function.is_some())
+    );
+    fs::write(&definition, [0xff]).unwrap();
+    snapshot.epoch += 1;
+    let local = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(local.incomplete_reason.as_ref().unwrap().contains("UTF-8"));
+    assert!(!local.current_semantic.project_complete);
+    assert_eq!(local.documents.len(), 1);
+    assert!(
+        local
+            .current_semantic
+            .project_definition_unavailable(lsp_types::Position::new(2, 12))
+    );
+    assert!(
+        !local
+            .current_semantic
+            .project_definition_unavailable(lsp_types::Position::new(1, 5))
+    );
+    assert!(local.native_revision > first.native_revision);
+    assert!(
+        local
+            .result
+            .ast
+            .nodes
+            .iter()
+            .all(|node| node.function.is_none())
+    );
+    let found = super::super::diagnostics::from_result(&current, &local.result).unwrap();
+    assert!(
+        found
+            .iter()
+            .all(|d| d.severity != Some(lsp_types::DiagnosticSeverity::ERROR)),
+        "{found:#?}"
+    );
+    let hover = super::super::hover::Document::from_result(
+        local.result,
+        Arc::from(source),
+        Arc::clone(&catalog),
+        lsp_types::MarkupKind::PlainText,
+    )
+    .unwrap();
+    assert!(hover.at(lsp_types::Position::new(1, 5)).is_some());
+    assert!(hover.at(lsp_types::Position::new(3, 5)).is_some());
+    assert!(hover.at(lsp_types::Position::new(2, 12)).is_none());
+    fs::write(&definition, contents).unwrap();
+    snapshot.epoch += 1;
+    let recovered = index
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(recovered.incomplete_reason.is_none());
+    assert!(recovered.current_semantic.project_complete);
+    assert!(recovered.native_revision > local.native_revision);
+    assert!(
+        recovered
+            .result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.function.is_some())
+    );
+    assert_eq!(fs::read_to_string(definition).unwrap(), contents);
+    assert!(
+        !caller.exists(),
+        "the open buffer was never written to disk"
+    );
+}
+
+#[test]
+fn nested_boundary_added_after_discovery_cannot_certify_same_byte_exports() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join("definitions");
+    fs::create_dir(&folder).unwrap();
+    fs::write(
+        folder.join("definition.sk"),
+        "function project_value() :: number:\n    return 1\n",
+    )
+    .unwrap();
+    let caller = root.path().join("caller.sk");
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(
+            &caller,
+            "on load:\n    send project_value() to console\n    send 2 to console\n",
+            1,
+            1,
+        )],
+    };
+    let current = snapshot.open[0].uri.clone();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    let mut changed = false;
+    let result = index
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {
+                if !changed {
+                    fs::create_dir(folder.join(".git")).unwrap();
+                    changed = true;
+                }
+            },
+        )
+        .unwrap();
+    assert!(changed);
+    assert!(
+        result
+            .incomplete_reason
+            .as_ref()
+            .unwrap()
+            .contains("nested project")
+    );
+    assert_eq!(result.documents.len(), 1);
+    assert!(
+        result
+            .result
+            .ast
+            .nodes
+            .iter()
+            .all(|node| node.function.is_none())
+    );
+}
+
+#[test]
+fn missing_workspace_keeps_valid_open_text_without_reading_another_root() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("not-created");
+    let caller = root.join("caller.sk");
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root,
+        open: vec![view(&caller, "on load:\n    send 1 to console\n", 1, 1)],
+    };
+    let current = snapshot.open[0].uri.clone();
+    let (mut host, catalog) = host();
+    let result = ProjectIndex::new()
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &snapshot,
+            &current,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(result.incomplete_reason.is_some());
+    assert_eq!(result.parsed_documents, 1);
+    assert!(
+        result
+            .result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.text == "send 1 to console" && node.summary.is_some())
+    );
+    assert!(!caller.exists());
+}
+
+#[test]
+fn directory_entry_quota_counts_non_sources_and_never_exposes_a_partial_catalog() {
+    assert_eq!(MAX_ENTRIES, 50_000);
+    let root = tempfile::tempdir().unwrap();
+    for n in 0..=MAX_ENTRIES {
+        fs::write(root.path().join(format!("{n}.data")), []).unwrap();
+    }
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![],
+    };
+    let error = sources(&snapshot, &DocumentCancellationToken::new()).unwrap_err();
+    assert!(matches!(error, ProjectError::Incomplete(_)));
+    assert!(error.to_string().contains("50000 directory entries"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_junction_is_not_followed_into_or_outside_the_project() {
+    let root = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    fs::write(external.path().join("must-not-read.sk"), [0xff]).unwrap();
+    let junction = root.path().join("junction");
+    let status = std::process::Command::new("cmd")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(&junction)
+        .arg(external.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(link(&fs::symlink_metadata(&junction).unwrap()));
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![],
+    };
+    assert!(
+        sources(&snapshot, &DocumentCancellationToken::new())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_open_uri_through_an_inside_junction_degrades_instead_of_admitting_an_alias() {
+    let root = tempfile::tempdir().unwrap();
+    let real = root.path().join("real");
+    fs::create_dir(&real).unwrap();
+    fs::write(real.join("source.sk"), "on load:\n    send 1\n").unwrap();
+    let alias = root.path().join("alias");
+    let status = std::process::Command::new("cmd")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(&alias)
+        .arg(&real)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(
+            &alias.join("source.sk"),
+            "on load:\n    send 2\n",
+            1,
+            1,
+        )],
+    };
+    assert!(matches!(
+        sources(&snapshot, &DocumentCancellationToken::new()),
+        Err(ProjectError::Incomplete(_))
+    ));
+}
+
+#[test]
+fn total_source_budget_remains_bounded_and_is_a_discovery_incompleteness() {
+    let root = tempfile::tempdir().unwrap();
+    let data = vec![b' '; MAX_FILE_BYTES];
+    for n in 0..=MAX_SOURCE_BYTES / MAX_FILE_BYTES {
+        fs::write(root.path().join(format!("{n}.sk")), &data).unwrap();
+    }
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![],
+    };
+    let error = sources(&snapshot, &DocumentCancellationToken::new()).unwrap_err();
+    assert!(matches!(error, ProjectError::Incomplete(_)));
+    assert!(error.to_string().contains("source budget"));
+}

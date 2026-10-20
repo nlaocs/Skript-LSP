@@ -389,6 +389,7 @@ pub(super) struct Document {
     functions: Vec<Function>,
     index: Arc<CatalogIndex>,
     blocked: Vec<TextRange>,
+    function_namespace_complete: bool,
 }
 
 fn exact_native(span: &skript_parser::MappedSpan) -> Option<TextRange> {
@@ -429,6 +430,7 @@ impl Document {
             functions: Vec::new(),
             index,
             blocked: Vec::new(),
+            function_namespace_complete: true,
         })
     }
 
@@ -468,9 +470,8 @@ impl Document {
         }
         let lines = LineIndex::new(&source);
         let blocked = result
-            .fault_regions
-            .iter()
-            .flat_map(|r| r.span.origins.iter())
+            .unresolved_spans()
+            .flat_map(|span| span.origins.iter())
             .map(|o| {
                 Ok(TextRange::new(
                     usize::try_from(o.original_range.start).map_err(|_| "fault range overflow")?,
@@ -557,6 +558,7 @@ impl Document {
             functions,
             index,
             blocked,
+            function_namespace_complete: result.function_namespace_complete,
         })
     }
 
@@ -817,7 +819,7 @@ impl Document {
                     )?);
                 }
             }
-            if variable_start.is_none() && references {
+            if variable_start.is_none() && references && self.function_namespace_complete {
                 let query = &self.source[word_start..offset];
                 for (index, function) in self
                     .functions
@@ -1292,6 +1294,7 @@ impl Document {
                 documentation_format: lsp_types::MarkupKind::PlainText,
             }),
             blocked: Vec::new(),
+            function_namespace_complete: true,
         }
     }
 }

@@ -38,13 +38,14 @@ pub(super) struct ProjectSnapshot {
 #[derive(Debug)]
 pub(super) enum ProjectError {
     Cancelled,
+    Incomplete(String),
     Failed(String),
 }
 impl fmt::Display for ProjectError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cancelled => f.write_str("project analysis cancelled"),
-            Self::Failed(message) => f.write_str(message),
+            Self::Incomplete(message) | Self::Failed(message) => f.write_str(message),
         }
     }
 }
@@ -71,6 +72,7 @@ pub(super) struct ProjectAnalysis {
     pub changed_export_names: BTreeSet<String>,
     pub scanned_documents: usize,
     pub parsed_documents: usize,
+    pub incomplete_reason: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -113,6 +115,10 @@ pub(super) fn document_key(uri: &str) -> String {
 }
 fn failure(message: impl Into<String>) -> ProjectError {
     ProjectError::Failed(message.into())
+}
+
+fn incomplete(message: impl Into<String>) -> ProjectError {
+    ProjectError::Incomplete(message.into())
 }
 
 fn uri_path(uri: &Uri) -> Result<PathBuf, ProjectError> {
@@ -171,39 +177,92 @@ fn link(metadata: &fs::Metadata) -> bool {
     }
     false
 }
+fn project_marker(directory: &Path) -> Result<bool, ProjectError> {
+    match fs::symlink_metadata(directory.join(".git")) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(incomplete(format!(
+            "cannot inspect project boundary {}: {error}",
+            directory.display()
+        ))),
+    }
+}
+fn validate_member(path: &Path, root: &Path) -> Result<(), ProjectError> {
+    canonical_source(path, root).map_err(|error| incomplete(error.to_string()))?;
+    // Compare canonical ancestors, but inspect their original spelling for links.
+    for (index, ancestor) in path.ancestors().enumerate() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if link(&metadata) => {
+                return Err(incomplete(format!(
+                    "project source path became a link: {}",
+                    path.display()
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(incomplete(format!(
+                    "cannot inspect source ancestry {}: {error}",
+                    ancestor.display()
+                )));
+            }
+        }
+        let canonical =
+            canonical_source(ancestor, root).map_err(|error| incomplete(error.to_string()))?;
+        if canonical == root {
+            return Ok(());
+        }
+        if index > 0 && project_marker(ancestor)? {
+            return Err(incomplete(format!(
+                "project source belongs to a nested project: {}",
+                path.display()
+            )));
+        }
+    }
+    Err(incomplete("project source has no workspace ancestor"))
+}
 fn read_source(path: &Path) -> Result<Arc<str>, ProjectError> {
+    if fs::canonicalize(path).ok().as_deref() != Some(path) {
+        return Err(incomplete(format!(
+            "project source changed or became a link: {}",
+            path.display()
+        )));
+    }
     let before = fs::metadata(path).map_err(|error| {
-        failure(format!(
+        incomplete(format!(
             "cannot read project source {}: {error}",
             path.display()
         ))
     })?;
     if before.len() > MAX_FILE_BYTES as u64 {
-        return Err(failure(format!(
+        return Err(incomplete(format!(
             "project source exceeds {MAX_FILE_BYTES} byte analysis limit: {}",
             path.display()
         )));
     }
     let bytes = fs::read(path).map_err(|error| {
-        failure(format!(
+        incomplete(format!(
             "cannot read project source {}: {error}",
             path.display()
         ))
     })?;
     let after = fs::metadata(path).map_err(|error| {
-        failure(format!(
+        incomplete(format!(
             "cannot recheck project source {}: {error}",
             path.display()
         ))
     })?;
-    if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
-        return Err(failure(format!(
+    if before.len() != after.len()
+        || before.modified().ok() != after.modified().ok()
+        || fs::canonicalize(path).ok().as_deref() != Some(path)
+    {
+        return Err(incomplete(format!(
             "project source changed while reading: {}",
             path.display()
         )));
     }
     let source = String::from_utf8(bytes)
-        .map_err(|_| failure(format!("project source is not UTF-8: {}", path.display())))?;
+        .map_err(|_| incomplete(format!("project source is not UTF-8: {}", path.display())))?;
     Ok(Arc::from(source))
 }
 fn sources(
@@ -211,19 +270,22 @@ fn sources(
     cancel: &parser_wasm::DocumentCancellationToken,
 ) -> Result<BTreeMap<String, Source>, ProjectError> {
     let root = fs::canonicalize(&snapshot.root).map_err(|error| {
-        failure(format!(
+        incomplete(format!(
             "cannot resolve project root {}: {error}",
             snapshot.root.display()
         ))
     })?;
     if !root.is_dir() {
-        return Err(failure("project root is not a directory"));
+        return Err(incomplete("project root is not a directory"));
     }
     let mut open = BTreeMap::new();
     for view in &snapshot.open {
-        let path = canonical_source(&uri_path(&view.uri)?, &root)?;
+        let original = uri_path(&view.uri)?;
+        validate_member(&original, &root)?;
+        let path =
+            canonical_source(&original, &root).map_err(|error| incomplete(error.to_string()))?;
         if open.insert(path, view.clone()).is_some() {
-            return Err(failure("two open project URIs resolve to the same file"));
+            return Err(incomplete("two open project URIs resolve to the same file"));
         }
     }
     let mut pending = vec![(root.clone(), 0)];
@@ -234,32 +296,53 @@ fn sources(
             return Err(ProjectError::Cancelled);
         }
         if depth > MAX_DEPTH {
-            return Err(failure(format!(
+            return Err(incomplete(format!(
                 "project directory nesting exceeds {MAX_DEPTH}"
             )));
         }
+        let metadata = fs::symlink_metadata(&directory).map_err(|error| {
+            incomplete(format!("cannot inspect {}: {error}", directory.display()))
+        })?;
+        if link(&metadata) || fs::canonicalize(&directory).ok().as_ref() != Some(&directory) {
+            return Err(incomplete(format!(
+                "project directory changed or became a link: {}",
+                directory.display()
+            )));
+        }
+        if directory != root && project_marker(&directory)? {
+            continue;
+        }
         let mut children = Vec::new();
         for child in fs::read_dir(&directory)
-            .map_err(|error| failure(format!("cannot scan {}: {error}", directory.display())))?
+            .map_err(|error| incomplete(format!("cannot scan {}: {error}", directory.display())))?
         {
             if cancel.is_cancelled() {
                 return Err(ProjectError::Cancelled);
             }
             entries += 1;
             if entries > MAX_ENTRIES {
-                return Err(failure(format!(
+                return Err(incomplete(format!(
                     "project scan exceeds {MAX_ENTRIES} directory entries"
                 )));
             }
             children.push(child.map_err(|error| {
-                failure(format!("cannot scan {}: {error}", directory.display()))
+                incomplete(format!("cannot scan {}: {error}", directory.display()))
             })?);
+        }
+        if fs::canonicalize(&directory).ok().as_ref() != Some(&directory)
+            || fs::symlink_metadata(&directory).map_or(true, |m| link(&m))
+        {
+            return Err(incomplete(format!(
+                "project directory changed during discovery: {}",
+                directory.display()
+            )));
         }
         children.sort_by_key(|entry| entry.file_name());
         for child in children {
             let path = child.path();
-            let metadata = fs::symlink_metadata(&path)
-                .map_err(|error| failure(format!("cannot inspect {}: {error}", path.display())))?;
+            let metadata = fs::symlink_metadata(&path).map_err(|error| {
+                incomplete(format!("cannot inspect {}: {error}", path.display()))
+            })?;
             if link(&metadata) {
                 continue;
             }
@@ -273,13 +356,21 @@ fn sources(
                     .and_then(|extension| extension.to_str())
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("sk"))
             {
-                files.insert(canonical_source(&path, &root)?);
+                files.insert(
+                    canonical_source(&path, &root)
+                        .map_err(|error| incomplete(error.to_string()))?,
+                );
+                if files.len() > MAX_FILES {
+                    return Err(incomplete(format!(
+                        "project source analysis limit is {MAX_FILES}"
+                    )));
+                }
             }
         }
     }
     files.extend(open.keys().cloned());
     if files.len() > MAX_FILES {
-        return Err(failure(format!(
+        return Err(incomplete(format!(
             "project contains {} sources; analysis limit is {MAX_FILES}",
             files.len()
         )));
@@ -308,7 +399,7 @@ fn sources(
             .checked_add(view.source.len())
             .ok_or_else(|| failure("project source size overflow"))?;
         if view.source.len() > MAX_FILE_BYTES || total > MAX_SOURCE_BYTES {
-            return Err(failure(format!(
+            return Err(incomplete(format!(
                 "project analysis source budget exceeded ({MAX_FILE_BYTES} bytes per file; {MAX_SOURCE_BYTES} total)"
             )));
         }
@@ -455,6 +546,40 @@ impl ProjectIndex {
         config: DocumentParserConfig,
         observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
     ) -> Result<ProjectAnalysis, ProjectError> {
+        match self.analyze_complete(
+            host,
+            Arc::clone(&catalog),
+            project_uri,
+            snapshot,
+            current_uri,
+            config.clone(),
+            observer,
+        ) {
+            Err(ProjectError::Incomplete(reason)) => self.analyze_local(
+                host,
+                catalog,
+                project_uri,
+                snapshot,
+                current_uri,
+                config,
+                observer,
+                reason,
+            ),
+            result => result,
+        }
+    }
+    fn analyze_complete(
+        &mut self,
+        host: &mut ParserHost,
+        catalog: Arc<Catalog>,
+        project_uri: &str,
+        snapshot: &ProjectSnapshot,
+        current_uri: &Uri,
+        config: DocumentParserConfig,
+        observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
+    ) -> Result<ProjectAnalysis, ProjectError> {
+        let scan_root = fs::canonicalize(&snapshot.root)
+            .map_err(|error| incomplete(format!("cannot resolve project root: {error}")))?;
         let discovered = sources(snapshot, &config.cancellation)?;
         require_stable_project(discovered.len(), host.project_semantics_are_stable())?;
         let participants = host.components();
@@ -533,6 +658,7 @@ impl ProjectIndex {
                 revision,
                 snapshot.epoch,
                 parsed_documents,
+                &scan_root,
             );
         }
         let mut order = vec![current_uri.as_str().to_owned()];
@@ -641,7 +767,81 @@ impl ProjectIndex {
             revision,
             snapshot.epoch,
             parsed_documents,
+            &scan_root,
         )
+    }
+    fn analyze_local(
+        &mut self,
+        host: &mut ParserHost,
+        catalog: Arc<Catalog>,
+        project_uri: &str,
+        snapshot: &ProjectSnapshot,
+        current_uri: &Uri,
+        mut config: DocumentParserConfig,
+        observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
+        reason: String,
+    ) -> Result<ProjectAnalysis, ProjectError> {
+        if config.cancellation.is_cancelled() {
+            return Err(ProjectError::Cancelled);
+        }
+        let view = snapshot
+            .open
+            .iter()
+            .find(|view| view.uri == *current_uri)
+            .ok_or_else(|| failure("current project document must be an open-buffer snapshot"))?;
+        if view.source.len() > MAX_FILE_BYTES {
+            return Err(failure(format!(
+                "open document exceeds {MAX_FILE_BYTES} byte analysis limit"
+            )));
+        }
+        let old_names = self
+            .documents
+            .values()
+            .flat_map(|record| {
+                record
+                    .exports
+                    .iter()
+                    .map(|item| item.definition.name.clone())
+            })
+            .collect();
+        // Release every previous owner before parsing with an explicitly unknown namespace.
+        for uri in self.revisions.keys().cloned().collect::<Vec<_>>() {
+            let uri: Uri = uri
+                .parse()
+                .map_err(|error| failure(format!("invalid cached URI: {error}")))?;
+            self.release_uri(host, project_uri, &uri)?;
+        }
+        let source = Source {
+            view: view.clone(),
+            witness: digest(&view.source),
+            path: None,
+        };
+        config.structure.expression.function_namespace_complete = false;
+        let (result, record, revision) = self.parse(
+            host,
+            catalog,
+            project_uri,
+            &source,
+            config,
+            Vec::new(),
+            snapshot.epoch,
+            Some(observer),
+        )?;
+        let mut semantic = Arc::try_unwrap(record.semantic)
+            .map_err(|_| failure("local semantic snapshot unexpectedly shared"))?;
+        semantic.project_complete = false;
+        let semantic = Arc::new(semantic);
+        Ok(ProjectAnalysis {
+            result,
+            current_semantic: Arc::clone(&semantic),
+            documents: vec![semantic],
+            native_revision: revision,
+            project_epoch: snapshot.epoch,
+            changed_export_names: old_names,
+            scanned_documents: 0,
+            parsed_documents: 1,
+            incomplete_reason: Some(reason),
+        })
     }
     fn finish(
         &mut self,
@@ -654,13 +854,23 @@ impl ProjectIndex {
         revision: u64,
         epoch: u64,
         parsed_documents: usize,
+        root: &Path,
     ) -> Result<ProjectAnalysis, ProjectError> {
         // A closed file changing during background work cannot publish a jump
         // location or signature from the earlier bytes.
+        if fs::canonicalize(root).ok().as_deref() != Some(root) {
+            return Err(incomplete("project root changed during analysis"));
+        }
         for source in sources.values() {
+            let path = source
+                .path
+                .clone()
+                .map(Ok)
+                .unwrap_or_else(|| uri_path(&source.view.uri))?;
+            validate_member(&path, root)?;
             if let Some(path) = &source.path {
                 if digest(&read_source(path)?) != source.witness {
-                    return Err(failure(format!(
+                    return Err(incomplete(format!(
                         "project source changed during analysis: {}",
                         path.display()
                     )));
@@ -698,6 +908,7 @@ impl ProjectIndex {
             changed_export_names,
             scanned_documents: sources.len(),
             parsed_documents,
+            incomplete_reason: None,
         })
     }
 }

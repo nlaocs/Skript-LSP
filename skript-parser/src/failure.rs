@@ -48,6 +48,28 @@ pub fn extension_fault<'a>(
     }
 }
 
+/// Function resolution needs a namespace that the caller has not established.
+/// This is dependency unavailability, not invalid input or a guest failure.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Function namespace is incomplete; call {name} remains unresolved")]
+pub struct FunctionNamespaceUnavailable {
+    pub name: String,
+    /// Exact native call range in this parser request's mapped source.
+    pub span: MappedSpan,
+}
+
+/// Finds dependency unavailability through nested parser error wrappers.
+pub fn function_namespace_unavailable<'a>(
+    mut error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a FunctionNamespaceUnavailable> {
+    loop {
+        if let Some(unavailable) = error.downcast_ref::<FunctionNamespaceUnavailable>() {
+            return Some(unavailable);
+        }
+        error = error.source()?;
+    }
+}
+
 /// Semantic role of one syntax frame in a nested failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureFrameRole {

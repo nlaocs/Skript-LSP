@@ -7,9 +7,8 @@ use serde_json::json;
 impl Document {
     pub fn diagnostics(&self, result: &DocumentParseResult) -> Result<Vec<Diagnostic>, String> {
         let blocked = result
-            .fault_regions
-            .iter()
-            .flat_map(|fault| fault.span.origins.iter())
+            .unresolved_spans()
+            .flat_map(|span| span.origins.iter())
             .map(|origin| {
                 Ok(TextRange::new(
                     usize::try_from(origin.original_range.start)

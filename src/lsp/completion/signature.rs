@@ -118,6 +118,9 @@ impl Document {
         }
         let mut budget = continuation::Budget::new();
         if let Some(call) = call_cursor(prefix) {
+            if !self.function_namespace_complete {
+                return Ok(SignatureQuery::Ready(None));
+            }
             // Document functions can shadow Catalog functions, including void
             // signatures. A source-only view cannot answer this correctly.
             if !references {

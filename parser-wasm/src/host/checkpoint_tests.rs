@@ -171,6 +171,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),

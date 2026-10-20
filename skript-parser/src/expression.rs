@@ -82,6 +82,9 @@ pub struct ExpressionParserConfig {
     pub matcher: PatternMatcherConfig,
     /// Version-dependent Function declaration and call grammar.
     pub function: crate::FunctionVersionPolicy,
+    /// Whether every nonlocal Function candidate is available to resolution.
+    /// False conservatively defers all native calls, including catalog calls.
+    pub function_namespace_complete: bool,
     /// Kinds of root expression that may satisfy this parse request.
     pub root_mode: ExpressionRootMode,
     pub max_depth: usize,
@@ -95,6 +98,7 @@ impl Default for ExpressionParserConfig {
         Self {
             matcher: PatternMatcherConfig::default(),
             function: crate::FunctionVersionPolicy::default(),
+            function_namespace_complete: true,
             root_mode: ExpressionRootMode::All,
             max_depth: 64,
             max_candidates: 10_000,
@@ -1251,6 +1255,16 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     ) {
     }
 
+    /// Records a dependency-uncertain raw recovery owner after rollback.
+    /// `span` belongs to the current enclosing source, including when a nested
+    /// host request reported a call in a fragment-local mapped source.
+    fn observe_function_namespace_unavailable(
+        &mut self,
+        _unavailable: &crate::FunctionNamespaceUnavailable,
+        _span: crate::MappedSpan,
+    ) {
+    }
+
     /// Initializes a default for one omitted typed argument.
     ///
     /// Explicit input and nullable omissions never call this method. A provider
@@ -1469,6 +1483,8 @@ pub enum ExpressionParseError {
     Cancelled(#[from] crate::ParseCancelled),
     #[error("{0}")]
     ExtensionFault(#[from] crate::ExtensionFault),
+    #[error("{0}")]
+    FunctionNamespaceUnavailable(#[from] crate::FunctionNamespaceUnavailable),
     #[error("invalid expression input range {range}")]
     InvalidInputRange { range: TextRange },
     #[error("failed to map expression range: {message}")]
@@ -1545,6 +1561,7 @@ pub(crate) struct RecoveryCheckpoint {
 pub(crate) struct ExpressionSession<'a, E> {
     forwarded_cancellation: Option<crate::ParseCancelled>,
     forwarded_fault: Option<crate::ExtensionFault>,
+    forwarded_unavailable: Option<crate::FunctionNamespaceUnavailable>,
     catalog: &'a Catalog,
     dynamic_snapshot: Option<&'a DynamicSyntaxSnapshot>,
     registered_candidates: Vec<PatternCandidate<'a>>,
@@ -1776,6 +1793,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         ExpressionSession {
             forwarded_cancellation: None,
             forwarded_fault: None,
+            forwarded_unavailable: None,
             catalog,
             dynamic_snapshot,
             registered_candidates,
@@ -2062,6 +2080,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
 
     pub(crate) fn context(&self) -> &ExpressionParseContext {
         &self.context
+    }
+
+    pub(crate) const fn function_namespace_complete(&self) -> bool {
+        self.config.function_namespace_complete
     }
 
     pub(crate) const fn function_policy(&self) -> crate::FunctionVersionPolicy {
@@ -4203,6 +4225,9 @@ fn nested_expression_error(error: impl std::error::Error + 'static) -> Expressio
     if let Some(cancelled) = crate::parse_cancellation(&error) {
         return (*cancelled).into();
     }
+    if let Some(unavailable) = crate::function_namespace_unavailable(&error) {
+        return unavailable.clone().into();
+    }
     crate::extension_fault(&error).cloned().map_or_else(
         || ExpressionParseError::Environment {
             message: error.to_string(),
@@ -4245,6 +4270,14 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
             self.memo.clear();
         }
         cancelled
+    }
+
+    fn take_function_namespace_unavailable(
+        &mut self,
+    ) -> Option<crate::FunctionNamespaceUnavailable> {
+        self.forwarded_unavailable
+            .take()
+            .or_else(|| self.environment.take_function_namespace_unavailable())
     }
 
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
@@ -4348,6 +4381,9 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
         if let Some(cancelled) = self.take_parse_cancellation() {
             return cancelled.into();
         }
+        if let Some(unavailable) = self.take_function_namespace_unavailable() {
+            return unavailable.into();
+        }
         self.environment.take_extension_fault().map_or(
             ExpressionParseError::Environment { message },
             ExpressionParseError::ExtensionFault,
@@ -4357,6 +4393,7 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
     fn forward_environment_error(&mut self, error: ExpressionParseError) -> String {
         self.forwarded_cancellation = crate::parse_cancellation(&error).copied();
         self.forwarded_fault = crate::extension_fault(&error).cloned();
+        self.forwarded_unavailable = crate::function_namespace_unavailable(&error).cloned();
         error.to_string()
     }
 

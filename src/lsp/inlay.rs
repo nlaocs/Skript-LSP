@@ -76,9 +76,8 @@ impl Document {
             }
         }
         let blocked = result
-            .fault_regions
-            .iter()
-            .flat_map(|region| &region.span.origins)
+            .unresolved_spans()
+            .flat_map(|span| &span.origins)
             .map(|origin| (origin.original_range.start, origin.original_range.end))
             .collect::<Vec<_>>();
         let mut hints = Vec::new();

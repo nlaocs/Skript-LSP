@@ -332,6 +332,13 @@ fn resolve_function_call<E: ExpressionParseEnvironment>(
     expected_types: Option<&[ExpressionExpectedType]>,
     depth: usize,
 ) -> Result<PrefixParse, ExpressionParseError> {
+    if !session.function_namespace_complete() {
+        return Err(crate::FunctionNamespaceUnavailable {
+            name: call.name.clone(),
+            span: session.map_range(call.range)?.mapped,
+        }
+        .into());
+    }
     if duplicate_named_argument(&call.arguments) {
         return Ok(PrefixParse::default());
     }

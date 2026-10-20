@@ -117,8 +117,8 @@ impl Document {
             return Err("semantic token source does not match the parsed revision".into());
         }
         let mut blocked = Vec::new();
-        for fault in &result.fault_regions {
-            blocked.extend(origins(&fault.span)?);
+        for span in result.unresolved_spans() {
+            blocked.extend(origins(span)?);
         }
         for node in result.raw_tree.iter() {
             if matches!(node.kind, RawNodeKind::Comment | RawNodeKind::Invalid) {

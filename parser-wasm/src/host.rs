@@ -27,8 +27,9 @@ mod subscriptions;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
 pub use document::{
-    DocumentCancellationToken, DocumentExecutionStatus, DocumentParseError, DocumentParseRequest,
-    DocumentParseResult, DocumentParseStage, DocumentParserConfig, ExtensionFaultRegion,
+    DependencyUnavailableRegion, DocumentCancellationToken, DocumentExecutionStatus,
+    DocumentParseError, DocumentParseRequest, DocumentParseResult, DocumentParseStage,
+    DocumentParserConfig, ExtensionFaultRegion,
 };
 
 use std::{
@@ -3216,6 +3217,7 @@ struct WasmPatternHooks<'a> {
     last_candidate: Option<SavedPatternCandidate>,
     pending_fault: Option<skript_parser::ExtensionFault>,
     pending_cancellation: Option<skript_parser::ParseCancelled>,
+    pending_unavailable: Option<skript_parser::FunctionNamespaceUnavailable>,
     effects: HookEffects,
     calls: Arc<Vec<HookCall>>,
     failures: Vec<ComponentFailure>,
@@ -3224,6 +3226,7 @@ struct WasmPatternHooks<'a> {
 impl WasmPatternHooks<'_> {
     fn host_error(&mut self, error: impl std::error::Error + 'static) -> String {
         self.pending_cancellation = skript_parser::parse_cancellation(&error).copied();
+        self.pending_unavailable = skript_parser::function_namespace_unavailable(&error).cloned();
         if let Some(fault) = skript_parser::extension_fault(&error).cloned() {
             self.pending_fault = Some(fault.clone());
             self.failures.push(ComponentFailure {
@@ -3606,6 +3609,12 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
         self.pending_cancellation.take()
     }
 
+    fn take_function_namespace_unavailable(
+        &mut self,
+    ) -> Option<skript_parser::FunctionNamespaceUnavailable> {
+        self.pending_unavailable.take()
+    }
+
     fn take_extension_fault(&mut self) -> Option<skript_parser::ExtensionFault> {
         self.pending_fault.take()
     }
@@ -3974,6 +3983,12 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
         self.hooks.take_parse_cancellation()
     }
 
+    fn take_function_namespace_unavailable(
+        &mut self,
+    ) -> Option<skript_parser::FunctionNamespaceUnavailable> {
+        self.hooks.pending_unavailable.take()
+    }
+
     fn take_extension_fault(&mut self) -> Option<skript_parser::ExtensionFault> {
         self.hooks.pending_fault.take()
     }
@@ -4069,6 +4084,19 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 && failure.subscription_id == fault.subscription_id
         }) {
             failure.affected_span = Some(mapped_span_to_wit(span));
+        }
+    }
+
+    fn observe_function_namespace_unavailable(
+        &mut self,
+        unavailable: &skript_parser::FunctionNamespaceUnavailable,
+        span: skript_parser::MappedSpan,
+    ) {
+        if let Some(regions) = self.hooks.host.native_dependency_unavailable.as_mut() {
+            regions.push(DependencyUnavailableRegion {
+                span: mapped_span_to_wit(span),
+                name: unavailable.name.clone(),
+            });
         }
     }
 
@@ -8830,6 +8858,8 @@ pub struct ParserHost {
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
+    native_function_namespace_complete: bool,
+    native_dependency_unavailable: Option<Vec<DependencyUnavailableRegion>>,
     semantic_receipts: Option<semantic_proof::ReceiptRegistry>,
     expression_preparation: skript_parser::ExpressionPreparationCache,
     incremental: incremental::IncrementalCache,
@@ -8934,6 +8964,8 @@ impl ParserHost {
             runtime,
             config,
             native_cancellation: None,
+            native_function_namespace_complete: true,
+            native_dependency_unavailable: None,
             semantic_receipts: None,
             expression_preparation: skript_parser::ExpressionPreparationCache::default(),
             incremental: incremental::IncrementalCache::default(),
@@ -9075,6 +9107,7 @@ impl ParserHost {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),
@@ -9127,6 +9160,7 @@ impl ParserHost {
             .into());
         }
 
+        config.function_namespace_complete &= self.native_function_namespace_complete;
         config.function =
             function_policy_for_runtime(self.config.runtime_profile.skript_version.as_deref());
         let catalog = self
@@ -9138,6 +9172,10 @@ impl ParserHost {
         let base = transaction.savepoint()?;
         let input_text = request.source.virtual_source().to_owned();
         let matching_hooks_registered = self.registry.has_matching_hooks();
+        let previous_namespace = mem::replace(
+            &mut self.native_function_namespace_complete,
+            config.function_namespace_complete,
+        );
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
@@ -9151,6 +9189,7 @@ impl ParserHost {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),
@@ -9172,6 +9211,7 @@ impl ParserHost {
             config,
         );
         let (mut effects, mut calls, failures) = environment.into_parts();
+        self.native_function_namespace_complete = previous_namespace;
         match result {
             Ok(matches) => {
                 if matches.selected.is_none() {
@@ -9232,6 +9272,7 @@ impl ParserHost {
             .into());
         }
 
+        config.expression.function_namespace_complete &= self.native_function_namespace_complete;
         config.expression.function =
             function_policy_for_runtime(self.config.runtime_profile.skript_version.as_deref());
         let catalog = self
@@ -9243,6 +9284,10 @@ impl ParserHost {
         let base = transaction.savepoint()?;
         let input_text = request.source.virtual_source().to_owned();
         let matching_hooks_registered = self.registry.has_matching_hooks();
+        let previous_namespace = mem::replace(
+            &mut self.native_function_namespace_complete,
+            config.expression.function_namespace_complete,
+        );
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
@@ -9256,6 +9301,7 @@ impl ParserHost {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),
@@ -9277,6 +9323,7 @@ impl ParserHost {
             config,
         );
         let (mut effects, mut calls, failures) = environment.into_parts();
+        self.native_function_namespace_complete = previous_namespace;
         match result {
             Ok(matches) => {
                 if matches.selected.is_none() {
@@ -9336,6 +9383,7 @@ impl ParserHost {
             .into());
         }
 
+        config.expression.function_namespace_complete &= self.native_function_namespace_complete;
         config.expression.function =
             function_policy_for_runtime(self.config.runtime_profile.skript_version.as_deref());
         let catalog = self
@@ -9346,6 +9394,10 @@ impl ParserHost {
         let dynamic_snapshot = self.dynamic_syntax_snapshot(transaction)?;
         let base = transaction.savepoint()?;
         let matching_hooks_registered = self.registry.has_matching_hooks();
+        let previous_namespace = mem::replace(
+            &mut self.native_function_namespace_complete,
+            config.expression.function_namespace_complete,
+        );
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
@@ -9359,6 +9411,7 @@ impl ParserHost {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),
@@ -9380,6 +9433,7 @@ impl ParserHost {
             config,
         );
         let (mut effects, mut calls, failures) = environment.into_parts();
+        self.native_function_namespace_complete = previous_namespace;
         match parsed {
             Ok(matches) => {
                 if matches.selected.is_none() {
@@ -9450,6 +9504,7 @@ impl ParserHost {
             .into());
         }
 
+        config.expression.function_namespace_complete &= self.native_function_namespace_complete;
         config.expression.function =
             function_policy_for_runtime(self.config.runtime_profile.skript_version.as_deref());
         let catalog = self
@@ -9472,6 +9527,10 @@ impl ParserHost {
                 })
             })?;
         let matching_hooks_registered = self.registry.has_matching_hooks();
+        let previous_namespace = mem::replace(
+            &mut self.native_function_namespace_complete,
+            config.expression.function_namespace_complete,
+        );
         let hooks = WasmPatternHooks {
             host: self,
             transaction,
@@ -9485,6 +9544,7 @@ impl ParserHost {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),
@@ -9529,6 +9589,7 @@ impl ParserHost {
             );
         }
         let (mut effects, calls, failures) = environment.into_parts();
+        self.native_function_namespace_complete = previous_namespace;
         match parsed {
             Ok(document) => {
                 for root in &document.roots {
@@ -9567,6 +9628,23 @@ impl ParserHost {
     /// restored to the entry savepoint. Only the selected candidate and its
     /// accepted Expression/Effect hooks retain transactional changes.
     pub fn parse_effect_in_parse(
+        &mut self,
+        transaction: &ParseTransaction,
+        context: InvocationContext,
+        request: EffectParseRequest<'_>,
+        mut config: EffectParserConfig,
+    ) -> Result<WasmEffectParseResult, HostError> {
+        config.expression.function_namespace_complete &= self.native_function_namespace_complete;
+        let previous_namespace = mem::replace(
+            &mut self.native_function_namespace_complete,
+            config.expression.function_namespace_complete,
+        );
+        let result = self.parse_effect_in_parse_inner(transaction, context, request, config);
+        self.native_function_namespace_complete = previous_namespace;
+        result
+    }
+
+    fn parse_effect_in_parse_inner(
         &mut self,
         transaction: &ParseTransaction,
         context: InvocationContext,
@@ -9706,6 +9784,7 @@ impl ParserHost {
             last_candidate: None,
             pending_fault: None,
             pending_cancellation: None,
+            pending_unavailable: None,
             effects: empty_effects(),
             calls: Arc::default(),
             failures: Vec::new(),

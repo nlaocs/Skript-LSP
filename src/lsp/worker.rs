@@ -195,11 +195,13 @@ impl Analyzer for ParserAnalyzer {
         let mut semantic = None;
         let mut project_semantics = Vec::new();
         let mut project_metrics = Value::Null;
+        let mut project_incomplete = None;
         let result = if let Some(snapshot) = &job.project {
             self.project.analyze(&mut self.host, Arc::clone(&self.catalog), &self.project_uri, snapshot, &job.uri, config, &mut observer).map(|analysis| {
                 semantic = Some(analysis.current_semantic);
                 project_semantics = analysis.documents;
-                project_metrics = json!({"epoch":analysis.project_epoch,"nativeRevision":analysis.native_revision,"scannedDocuments":analysis.scanned_documents,"parsedDocuments":analysis.parsed_documents,"changedExportNames":analysis.changed_export_names});
+                project_incomplete = analysis.incomplete_reason;
+                project_metrics = json!({"root":snapshot.root,"currentDocument":job.uri,"complete":project_incomplete.is_none(),"incompleteReason":project_incomplete,"epoch":analysis.project_epoch,"nativeRevision":analysis.native_revision,"scannedDocuments":analysis.scanned_documents,"parsedDocuments":analysis.parsed_documents,"changedExportNames":analysis.changed_export_names});
                 analysis.result
             })
         } else {
@@ -289,6 +291,17 @@ impl Analyzer for ParserAnalyzer {
                 match diagnostics::from_result(&job.uri, &result) {
                     Ok(mut diagnostics) => {
                         diagnostics.append(&mut flow_diagnostics);
+                        if let Some(reason) = &project_incomplete {
+                            let mut notice = diagnostics::fatal(
+                                "lsp.project-incomplete",
+                                format!(
+                                    "Project discovery is incomplete: {reason}. Analyzing this open document; project function calls and references are unavailable. Workspace: {}",
+                                    job.project.as_ref().unwrap().root.display()
+                                ),
+                            );
+                            notice.severity = Some(lsp_types::DiagnosticSeverity::WARNING);
+                            diagnostics.push(notice);
+                        }
                         match hover::Document::from_result(
                             result,
                             Arc::clone(&job.source),

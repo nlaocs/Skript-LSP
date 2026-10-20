@@ -1090,3 +1090,158 @@ fn rejected_function_statement_recovers_following_statements_and_does_not_claim_
         );
     }
 }
+
+fn namespace_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime")
+}
+
+#[test]
+fn incomplete_namespace_recovers_statement_expression_and_additional_requests_without_false_errors()
+{
+    let mut host = host(namespace_fixture());
+    for (revision, unresolved, name) in [
+        (180, "not_discovered()", "not_discovered"),
+        (181, "sin(1)", "sin"),
+        (182, "send sin(1) to console", "sin"),
+        (183, "send {namespace::%sin(1)%} to console", "sin"),
+    ] {
+        let text =
+            format!("on load:\n    send 1 to console\n    {unresolved}\n    send 2 to console\n");
+        let mut config = DocumentParserConfig::default();
+        config.structure.expression.function_namespace_complete = false;
+        let result = host
+            .parse_document(request(revision, &text), config)
+            .unwrap();
+        assert!(!result.function_namespace_complete);
+        assert_eq!(
+            result.execution_status,
+            parser_wasm::DocumentExecutionStatus::Partial
+        );
+        assert!(
+            result.component_failures.is_empty(),
+            "{:#?}",
+            result.component_failures
+        );
+        assert!(result.fault_regions.is_empty());
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{:#?}",
+            result.syntax.diagnostics
+        );
+        assert_eq!(result.dependency_unavailable.len(), 1, "{:#?}", result);
+        let region = &result.dependency_unavailable[0];
+        assert_eq!(region.name, name);
+        let affected =
+            &text[region.span.virtual_range.start as usize..region.span.virtual_range.end as usize];
+        assert!(affected.contains(unresolved));
+        assert!(!affected.contains("send 1 to console"));
+        assert!(!affected.contains("send 2 to console"));
+        assert_eq!(result.unresolved_spans().count(), 1);
+        assert!(result.ast.nodes.iter().all(|node| node.function.is_none()));
+        let witnesses = result.semantic_witnesses();
+        for healthy in ["send 1 to console", "send 2 to console"] {
+            let node = result
+                .ast
+                .nodes
+                .iter()
+                .find(|node| node.text == healthy && node.summary.is_some())
+                .expect("healthy neighboring Effect remains selected");
+            assert!(witnesses.native_valid(node));
+        }
+    }
+
+    // Per-document policy must not leak to the next complete request.
+    let complete = host
+        .parse_document(
+            request(184, "on load:\n    send sin(1) to console\n"),
+            DocumentParserConfig::default(),
+        )
+        .unwrap();
+    assert!(complete.function_namespace_complete);
+    assert!(complete.dependency_unavailable.is_empty());
+    assert!(complete.ast.nodes.iter().any(|node| {
+        node.function
+            .as_ref()
+            .is_some_and(|call| call.name == "sin")
+    }));
+}
+
+#[test]
+fn incomplete_namespace_in_a_condition_blocks_its_subtree_but_keeps_following_statement() {
+    let mut host = host(namespace_fixture());
+    let text = "on load:\n    if sin(1) is 1:\n        send 3 to console\n    send 2 to console\n";
+    let mut config = DocumentParserConfig::default();
+    config.structure.expression.function_namespace_complete = false;
+    let result = host.parse_document(request(185, text), config).unwrap();
+    assert!(
+        result.component_failures.is_empty(),
+        "{:#?}",
+        result.component_failures
+    );
+    assert!(
+        result.syntax.diagnostics.is_empty(),
+        "{:#?}",
+        result.syntax.diagnostics
+    );
+    assert_eq!(result.dependency_unavailable.len(), 1);
+    let region = &result.dependency_unavailable[0];
+    let affected =
+        &text[region.span.virtual_range.start as usize..region.span.virtual_range.end as usize];
+    assert!(affected.contains("if sin(1) is 1:"));
+    assert!(affected.contains("send 3 to console"));
+    assert!(!affected.contains("send 2 to console"));
+    assert!(
+        !result
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.text == "send 3 to console" && node.summary.is_some())
+    );
+    let healthy = result
+        .ast
+        .nodes
+        .iter()
+        .find(|node| node.text == "send 2 to console" && node.summary.is_some())
+        .unwrap();
+    assert!(result.semantic_witnesses().native_valid(healthy));
+}
+
+#[test]
+fn incomplete_namespace_never_uses_complete_hook_cache_for_the_same_source() {
+    let mut host = host(namespace_fixture());
+    let text =
+        "on load:\n    send 1 to console\n    send sin(1) to console\n    send 2 to console\n";
+    let complete = host
+        .parse_document(request(186, text), DocumentParserConfig::default())
+        .unwrap();
+    assert!(complete.function_namespace_complete);
+    assert!(complete.dependency_unavailable.is_empty());
+    assert!(
+        complete
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.function.is_some())
+    );
+    let mut config = DocumentParserConfig::default();
+    config.structure.expression.function_namespace_complete = false;
+    let limited = host.parse_document(request(187, text), config).unwrap();
+    assert_eq!(limited.dependency_unavailable.len(), 1);
+    assert!(!limited.function_namespace_complete);
+    assert_eq!(host.incremental_metrics().hits, 0);
+    assert_eq!(host.incremental_metrics().stored, 0);
+    assert!(limited.ast.nodes.iter().all(|node| node.function.is_none()));
+    let restored = host
+        .parse_document(request(188, text), DocumentParserConfig::default())
+        .unwrap();
+    assert!(restored.function_namespace_complete);
+    assert!(restored.dependency_unavailable.is_empty());
+    assert!(
+        restored
+            .ast
+            .nodes
+            .iter()
+            .any(|node| node.function.is_some())
+    );
+}

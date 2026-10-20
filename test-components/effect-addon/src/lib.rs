@@ -23,9 +23,9 @@ use nlaocs::skript_parser_addon::{
     },
 };
 use parser_wasm::{
-    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EFFECT_PARSER, CAPABILITY_STATE_STORE,
-    Capability as ParserCapability, CapabilityRequirement as ParserCapabilityRequirement,
-    validate_compatibility,
+    ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_ADDITIONAL_PARSE,
+    CAPABILITY_EFFECT_PARSER, CAPABILITY_STATE_STORE, Capability as ParserCapability,
+    CapabilityRequirement as ParserCapabilityRequirement, validate_compatibility,
 };
 
 const COMPONENT_ID: &str = "test.effect-addon";
@@ -75,6 +75,11 @@ impl addon::Guest for EffectAddon {
                 minor: ABI_VERSION.minor,
             },
             capabilities: vec![
+                CapabilityRequirement {
+                    id: CAPABILITY_ADDITIONAL_PARSE.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
                 CapabilityRequirement {
                     id: CAPABILITY_EFFECT_PARSER.to_owned(),
                     minimum_version: 1,
@@ -154,6 +159,7 @@ impl addon::Guest for EffectAddon {
             ABI_VERSION,
             ParserAbiVersion::new(profile.abi.major, profile.abi.minor),
             &[
+                ParserCapabilityRequirement::required(CAPABILITY_ADDITIONAL_PARSE, 1),
                 ParserCapabilityRequirement::required(CAPABILITY_EFFECT_PARSER, 1),
                 ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
             ],
@@ -176,6 +182,79 @@ impl hooks::Guest for EffectAddon {
         };
         match input.context.subscription_id.as_str() {
             CATEGORY_SUBSCRIPTION => {
+                let namespace_probe = matches!(
+                    (payload.input.as_str(), payload.timing),
+                    ("namespace-before sin(1)", EffectTiming::Before)
+                        | ("namespace-after sin(1)", EffectTiming::After)
+                );
+                if namespace_probe {
+                    record_state("namespace-request")?;
+                    if input.parse_results.is_empty() {
+                        let offset = payload.input.len() as u64 - 6;
+                        let mut span = payload.span.clone();
+                        span.virtual_range.start += offset;
+                        for origin in &mut span.origins {
+                            origin.original_range.start += offset;
+                        }
+                        return Ok(HookOutput {
+                            decision: HookDecision::ContinueProcessing,
+                            replacement: None,
+                            effects: HookEffects {
+                                parse_requests: vec![
+                                    nlaocs::skript_parser_addon::types::ParseRequest {
+                                        request_id: 90,
+                                        parser_id: "host.expression".to_owned(),
+                                        input: "sin(1)".to_owned(),
+                                        expected_types: Vec::new(),
+                                        span,
+                                        options: Vec::new(),
+                                    },
+                                ],
+                                ..empty_effects()
+                            },
+                        });
+                    }
+                    if !input.parse_results.iter().any(|result| {
+                        result.request_id == 90
+                            && result.parser_id == "host.expression"
+                            && matches!(
+                                result.status,
+                                nlaocs::skript_parser_addon::types::ParseResultStatus::Success
+                            )
+                            && result.roots.len() == 1
+                            && result.nodes.iter().any(|node| {
+                                result.roots.contains(&node.node_id)
+                                    && node
+                                        .function
+                                        .as_ref()
+                                        .is_some_and(|call| call.name == "sin")
+                            })
+                    }) {
+                        return Err(addon_error(
+                            "namespace probe requires a real selected Function",
+                        ));
+                    }
+                    return Ok(HookOutput {
+                        decision: HookDecision::ContinueProcessing,
+                        replacement: None,
+                        effects: HookEffects {
+                            diagnostics: vec![Diagnostic {
+                                code: match payload.timing {
+                                    EffectTiming::Before => {
+                                        "effect-fixture-namespace-before-success"
+                                    }
+                                    EffectTiming::After => "effect-fixture-namespace-after-success",
+                                }
+                                .to_owned(),
+                                message: "real nested Function selected".to_owned(),
+                                severity: DiagnosticSeverity::Information,
+                                span: payload.span.clone(),
+                                related: Vec::new(),
+                            }],
+                            ..empty_effects()
+                        },
+                    });
+                }
                 record_state(match payload.timing {
                     EffectTiming::Before => "category-before",
                     EffectTiming::After => "category-after",

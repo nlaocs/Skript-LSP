@@ -20,6 +20,16 @@ impl Document {
         project: &[Arc<semantic::Document>],
     ) -> Response {
         let documents = project.iter().map(Arc::as_ref).collect::<Vec<_>>();
+        if (matches!(query, Query::Definition(position) if self.semantic.as_ref().is_some_and(|document| document.project_definition_unavailable(*position)))
+            || matches!(query, Query::References(..)))
+            && self
+                .semantic
+                .as_ref()
+                .is_some_and(|document| !document.project_complete)
+        {
+            return Response::new_err(id, ErrorCode::RequestFailed as i32,
+                "Project discovery is incomplete; this project-wide semantic query is unavailable until the workspace can be fully analyzed".into());
+        }
         match query {
             Query::Definition(position) => Response::new_ok(
                 id,

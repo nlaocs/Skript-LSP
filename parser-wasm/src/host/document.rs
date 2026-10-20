@@ -233,8 +233,18 @@ pub struct ExtensionFaultRegion {
     pub fault: skript_parser::ExtensionFault,
 }
 
+/// A current-source recovery owner whose Function dependency is unavailable.
+/// It is not a guest failure or an ordinary input syntax error.
+#[derive(Debug, Clone)]
+pub struct DependencyUnavailableRegion {
+    pub span: MappedSpan,
+    pub name: String,
+}
+
 #[derive(Debug)]
 pub struct DocumentParseResult {
+    pub function_namespace_complete: bool,
+    pub dependency_unavailable: Vec<DependencyUnavailableRegion>,
     pub execution_status: DocumentExecutionStatus,
     pub fault_regions: Vec<ExtensionFaultRegion>,
     pub source: MappedSource,
@@ -258,6 +268,15 @@ pub struct DocumentParseResult {
 }
 
 impl DocumentParseResult {
+    /// All current-source regions whose semantics cannot be certified.
+    pub fn unresolved_spans(&self) -> impl Iterator<Item = &MappedSpan> {
+        self.fault_regions.iter().map(|region| &region.span).chain(
+            self.dependency_unavailable
+                .iter()
+                .map(|region| &region.span),
+        )
+    }
+
     /// Validates provider/native facts against the immutable pre-AST semantic proof.
     pub fn semantic_witnesses(&self) -> super::semantic_proof::SemanticWitnesses<'_> {
         self.semantic_proofs.view(&self.ast)
@@ -394,6 +413,13 @@ impl ParserHost {
         let previous_cancellation = self
             .native_cancellation
             .replace(config.cancellation.clone());
+        let function_namespace_complete = self.native_function_namespace_complete
+            && config.structure.expression.function_namespace_complete;
+        let previous_namespace = std::mem::replace(
+            &mut self.native_function_namespace_complete,
+            function_namespace_complete,
+        );
+        let previous_dependencies = self.native_dependency_unavailable.replace(Vec::new());
         let previous_receipts = self.semantic_receipts.replace(Default::default());
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(
@@ -406,6 +432,12 @@ impl ParserHost {
         };
         self.native_cancellation = previous_cancellation;
         self.semantic_receipts = previous_receipts;
+        self.native_function_namespace_complete = previous_namespace;
+        let dependency_unavailable = std::mem::replace(
+            &mut self.native_dependency_unavailable,
+            previous_dependencies,
+        )
+        .unwrap_or_default();
         let parsed = match parsed {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -449,11 +481,17 @@ impl ParserHost {
         self.finish_incremental_document(
             &request.context.document_id,
             request.context.document_revision,
-            parsed.component_failures.is_empty() && parsed.fault_regions.is_empty(),
+            parsed.component_failures.is_empty()
+                && parsed.fault_regions.is_empty()
+                && dependency_unavailable.is_empty(),
         );
 
         Ok(DocumentParseResult {
-            execution_status: if parsed.fault_regions.is_empty() {
+            function_namespace_complete,
+            dependency_unavailable: dependency_unavailable.clone(),
+            execution_status: if parsed.fault_regions.is_empty()
+                && dependency_unavailable.is_empty()
+            {
                 DocumentExecutionStatus::Complete
             } else {
                 DocumentExecutionStatus::Partial
@@ -849,6 +887,104 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn standalone_namespace_recovery_does_not_accumulate_document_dependency_regions() {
+        let mut host = native_test_host();
+        assert!(host.native_dependency_unavailable.is_none());
+        let text = "on load:\n    absent_namespace_call()\n    send 2 to console\n";
+        for revision in 510..513 {
+            let request = DocumentParseRequest::new(
+                "file:///workspace",
+                "file:///namespace-standalone.sk",
+                revision,
+                text,
+            );
+            let transaction = host
+                .begin_parse(&request.project_uri, &request.context.document_id, revision)
+                .unwrap();
+            let source = MappedSource::identity(text);
+            let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 16));
+            let unavailable = tree
+                .nodes
+                .iter()
+                .find(|node| node.text == "absent_namespace_call()")
+                .unwrap()
+                .id;
+            let mut config = StructureParserConfig::default();
+            config.expression.function_namespace_complete = false;
+            let result = host
+                .parse_structures_in_parse(
+                    &transaction,
+                    request.context,
+                    StructureParseRequest {
+                        source: &source,
+                        tree: &tree,
+                        context: ExpressionParseContext::default(),
+                    },
+                    config,
+                )
+                .unwrap();
+            assert!(result.failures.is_empty());
+            assert!(result.document.diagnostics.is_empty());
+            let skript_parser::StructureDocumentNode::Structure(matches) =
+                &result.document.roots[0]
+            else {
+                panic!("Event must remain claimed")
+            };
+            let skript_parser::StructureBody::Trigger(body) =
+                &matches.selected.as_ref().unwrap().body
+            else {
+                panic!("Event body must be parsed")
+            };
+            assert!(body.iter().any(|node| matches!(node, skript_parser::SectionBodyNode::Unclaimed(id) if *id == unavailable)));
+            assert!(
+                host.native_dependency_unavailable.is_none(),
+                "standalone observations have no document collector"
+            );
+            assert!(
+                host.native_function_namespace_complete,
+                "standalone policy restored"
+            );
+            transaction.cancel().unwrap();
+        }
+        let mut config = DocumentParserConfig::default();
+        config.structure.expression.function_namespace_complete = false;
+        let result = host
+            .parse_document(
+                DocumentParseRequest::new(
+                    "file:///workspace",
+                    "file:///namespace-standalone.sk",
+                    513,
+                    text,
+                ),
+                config,
+            )
+            .unwrap();
+        assert_eq!(
+            result.dependency_unavailable.len(),
+            1,
+            "only the current document contributes regions"
+        );
+        assert_eq!(
+            result.dependency_unavailable[0].name,
+            "absent_namespace_call"
+        );
+        assert!(host.native_dependency_unavailable.is_none());
+        let complete = host
+            .parse_document(
+                DocumentParseRequest::new(
+                    "file:///workspace",
+                    "file:///namespace-standalone.sk",
+                    514,
+                    "on load:\n    send 2 to console\n",
+                ),
+                DocumentParserConfig::default(),
+            )
+            .unwrap();
+        assert!(complete.dependency_unavailable.is_empty());
+        assert!(host.native_dependency_unavailable.is_none());
     }
 
     fn native_token(budget: usize) -> DocumentCancellationToken {

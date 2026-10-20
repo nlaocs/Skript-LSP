@@ -173,6 +173,12 @@ impl ParserHost {
         component: usize,
         invocation: &mut HookInvocation,
     ) -> Result<Option<String>, HostError> {
+        // An incomplete Function namespace cannot borrow a semantic response
+        // produced with complete project candidates. No key means no lookup
+        // or store, including providers whose continuation parses a Function.
+        if !self.native_function_namespace_complete {
+            return Ok(None);
+        }
         let Some(active) = self.incremental.active.as_ref() else {
             return Ok(None);
         };

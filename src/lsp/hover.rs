@@ -48,9 +48,8 @@ impl Document {
             return Err("hover source does not match the parsed original revision".into());
         }
         let mut blocked = result
-            .fault_regions
-            .iter()
-            .map(|region| origins(&region.span))
+            .unresolved_spans()
+            .map(origins)
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()

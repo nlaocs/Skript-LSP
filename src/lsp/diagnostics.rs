@@ -517,6 +517,34 @@ pub(super) fn from_result(
         )?;
     }
     let mut diagnostics = collector.finish();
+    for region in &result.dependency_unavailable {
+        let ranges = wit_origins(&region.span)?
+            .into_iter()
+            .map(|range| {
+                LineIndex::new(result.source.original()).range(result.source.original(), range)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        diagnostics.retain(|diagnostic| {
+            !matches!(&diagnostic.code, Some(NumberOrString::String(code)) if matches!(code.as_str(),
+                "parser.structure.unclaimed" | "parser.section.unclaimed" | "parser.syntax-incomplete"))
+                || !ranges.iter().any(|range| range.start <= diagnostic.range.start && diagnostic.range.end <= range.end)
+        });
+        for range in ranges {
+            diagnostics.push(Diagnostic {
+                range,
+                severity: Some(DiagnosticSeverity::INFORMATION),
+                code: Some(NumberOrString::String(
+                    "parser.function-namespace-incomplete".into(),
+                )),
+                source: Some("skript-lsp".into()),
+                message: format!(
+                    "Function {} remains unresolved because project discovery is incomplete",
+                    region.name
+                ),
+                ..Default::default()
+            });
+        }
+    }
     let status = if result.execution_status == parser_wasm::DocumentExecutionStatus::Partial {
         "partial"
     } else {

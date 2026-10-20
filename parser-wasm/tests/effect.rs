@@ -1617,3 +1617,81 @@ fn dynamic_player_expressions_are_valid_audiences() {
     }
     transaction.cancel().unwrap();
 }
+
+#[test]
+fn standalone_effect_namespace_policy_covers_before_and_after_additional_requests() {
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(full_dynamic_catalog()),
+            ..HostConfig::default()
+        },
+    )
+    .unwrap();
+    host.load_addon(EFFECT_ADDON).unwrap();
+    for (revision, text, diagnostic) in [
+        (
+            510,
+            "namespace-before sin(1)",
+            "effect-fixture-namespace-before-success",
+        ),
+        (
+            511,
+            "namespace-after sin(1)",
+            "effect-fixture-namespace-after-success",
+        ),
+    ] {
+        let transaction = host
+            .begin_parse("file:///workspace", "file:///workspace/effect.sk", revision)
+            .unwrap();
+        let source = MappedSource::identity(text);
+        let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+        let node = tree.get(tree.roots[0]).unwrap();
+        let parse_request = || EffectParseRequest {
+            source: &source,
+            node,
+            context: ExpressionParseContext::default(),
+        };
+        let mut config = EffectParserConfig::default();
+        config.expression.function_namespace_complete = false;
+        let error = match host.parse_effect_in_parse(
+            &transaction,
+            context(revision),
+            parse_request(),
+            config,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("incomplete namespace must defer the nested Function request"),
+        };
+        assert_eq!(
+            skript_parser::function_namespace_unavailable(&error)
+                .unwrap()
+                .name,
+            "sin"
+        );
+        assert!(skript_parser::extension_fault(&error).is_none());
+        assert!(
+            transaction.read_write_set().unwrap().writes.is_empty(),
+            "failed nested request rolls back before/after hook writes"
+        );
+        let control = host
+            .parse_effect_in_parse(
+                &transaction,
+                context(revision),
+                parse_request(),
+                EffectParserConfig::default(),
+            )
+            .unwrap();
+        assert!(control.failures.is_empty(), "{:#?}", control.failures);
+        assert!(
+            control
+                .effects
+                .diagnostics
+                .iter()
+                .any(|item| item.code == diagnostic),
+            "complete control must execute the same nested function request successfully: {:#?}",
+            control.effects.diagnostics
+        );
+        transaction.cancel().unwrap();
+    }
+}

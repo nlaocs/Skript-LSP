@@ -398,6 +398,17 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                     .map_err(|message| session.environment_error(message))?;
                 let (matches, selected_context, body_mode) = match header {
                     Ok(value) => value,
+                    Err(error) if crate::function_namespace_unavailable(&error).is_some() => {
+                        let unavailable = crate::function_namespace_unavailable(&error)
+                            .expect("guard checked dependency");
+                        let span = session.map_range(node.span.virtual_range)?;
+                        session
+                            .environment_mut()
+                            .observe_function_namespace_unavailable(unavailable, span.mapped);
+                        session.replace_context(parent_context);
+                        roots.push(StructureDocumentNode::Unclaimed(node.id));
+                        continue;
+                    }
                     Err(error) if crate::extension_fault(&error).is_some() => {
                         let fault = crate::extension_fault(&error).expect("guard checked fault");
                         let span = session.map_range(
@@ -598,6 +609,23 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
             session.replace_context(document_context.clone());
             let (candidate, body_diagnostics, rejection) = match attempt {
                 Ok(value) => value,
+                Err(error) if crate::function_namespace_unavailable(&error).is_some() => {
+                    session
+                        .environment_mut()
+                        .discard_structure_candidate(&provisional_candidate)
+                        .map_err(|message| session.environment_error(message))?;
+                    let unavailable = crate::function_namespace_unavailable(&error)
+                        .expect("guard checked dependency");
+                    let span = session.map_range(node.span.virtual_range)?;
+                    session
+                        .environment_mut()
+                        .observe_function_namespace_unavailable(unavailable, span.mapped);
+                    best_rejection = None;
+                    matches.unknown = None;
+                    matches.selected = None;
+                    matches.alternatives.clear();
+                    break;
+                }
                 Err(error) if crate::extension_fault(&error).is_some() => {
                     session
                         .environment_mut()
@@ -1667,6 +1695,9 @@ fn section_diagnostic_to_structure(value: SectionDiagnostic) -> StructureDiagnos
 fn nested_structure_error(error: impl std::error::Error + 'static) -> StructureParseError {
     if let Some(cancelled) = crate::parse_cancellation(&error) {
         return ExpressionParseError::from(*cancelled).into();
+    }
+    if let Some(unavailable) = crate::function_namespace_unavailable(&error) {
+        return ExpressionParseError::from(unavailable.clone()).into();
     }
     match crate::extension_fault(&error).cloned() {
         Some(fault) => ExpressionParseError::ExtensionFault(fault).into(),

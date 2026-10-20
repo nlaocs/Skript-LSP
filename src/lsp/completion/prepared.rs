@@ -111,6 +111,7 @@ impl PreparedDocument {
                 functions: Vec::new(),
                 index,
                 blocked: Vec::new(),
+                function_namespace_complete: false,
             },
             owners,
             revoked: HashSet::new(),

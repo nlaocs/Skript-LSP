@@ -1031,6 +1031,18 @@ fn recover_body_fault<E: ExpressionParseEnvironment, T>(
         .map_err(|message| session.environment_error(message))?;
     match result {
         Ok(value) => Ok(Some(value)),
+        Err(error) if crate::function_namespace_unavailable(&error).is_some() => {
+            let unavailable =
+                crate::function_namespace_unavailable(&error).expect("guard checked dependency");
+            let span = session.map_range(node.span.virtual_range)?;
+            session
+                .environment_mut()
+                .observe_function_namespace_unavailable(unavailable, span.mapped);
+            session.replace_context(context);
+            body.push(SectionBodyNode::Unclaimed(node.id));
+            // No input-error diagnostic: this raw owner is dependency-uncertain.
+            Ok(None)
+        }
         Err(error) if crate::extension_fault(&error).is_some() => {
             let fault = crate::extension_fault(&error).expect("guard checked fault");
             let span = session.map_range(

@@ -266,6 +266,13 @@ pub trait PatternMatchHooks {
         None
     }
 
+    /// Retrieves neutral dependency unavailability forwarded through a String error.
+    fn take_function_namespace_unavailable(
+        &mut self,
+    ) -> Option<crate::FunctionNamespaceUnavailable> {
+        None
+    }
+
     /// Retrieves the typed cause of an environment error, if it is an extension fault.
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
         None
@@ -333,6 +340,13 @@ pub trait PatternMatchEnvironment {
 
     /// Retrieves a cancellation cause forwarded through an environment String error.
     fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
+        None
+    }
+
+    /// Retrieves neutral dependency unavailability forwarded through a String error.
+    fn take_function_namespace_unavailable(
+        &mut self,
+    ) -> Option<crate::FunctionNamespaceUnavailable> {
         None
     }
 
@@ -450,6 +464,12 @@ impl<R: TypeExpressionResolver, H: PatternMatchHooks> PatternMatchEnvironment
 
     fn take_parse_cancellation(&mut self) -> Option<crate::ParseCancelled> {
         self.hooks.take_parse_cancellation()
+    }
+
+    fn take_function_namespace_unavailable(
+        &mut self,
+    ) -> Option<crate::FunctionNamespaceUnavailable> {
+        self.hooks.take_function_namespace_unavailable()
     }
 
     fn take_extension_fault(&mut self) -> Option<crate::ExtensionFault> {
@@ -575,6 +595,8 @@ pub enum PatternMatchError {
     Cancelled(#[from] crate::ParseCancelled),
     #[error("{0}")]
     ExtensionFault(#[from] crate::ExtensionFault),
+    #[error("{0}")]
+    FunctionNamespaceUnavailable(#[from] crate::FunctionNamespaceUnavailable),
     #[error("pattern matcher limits must be greater than zero")]
     InvalidConfiguration,
     #[error("input range {range} is not valid for the matcher input")]
@@ -1275,6 +1297,9 @@ fn pattern_environment_error<E: PatternMatchEnvironment>(
 ) -> PatternMatchError {
     if let Some(cancelled) = environment.take_parse_cancellation() {
         return cancelled.into();
+    }
+    if let Some(unavailable) = environment.take_function_namespace_unavailable() {
+        return unavailable.into();
     }
     environment
         .take_extension_fault()

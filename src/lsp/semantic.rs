@@ -169,6 +169,8 @@ struct Write {
 pub(super) struct Document {
     pub uri: Uri,
     pub source_witness: String,
+    pub project_complete: bool,
+    unavailable: Vec<TextRange>,
     native_owner: Option<String>,
     source: Arc<str>,
     lines: LineIndex,
@@ -191,8 +193,8 @@ impl Document {
         }
         let lines = LineIndex::new(&source);
         let mut blocked = Vec::new();
-        for fault in &result.fault_regions {
-            for origin in &fault.span.origins {
+        for span in result.unresolved_spans() {
+            for origin in &span.origins {
                 let range = TextRange::new(
                     usize::try_from(origin.original_range.start)
                         .map_err(|_| "semantic fault range overflow")?,
@@ -345,6 +347,24 @@ impl Document {
             functions,
             Some(result.functions.document_id().to_owned()),
         )?;
+        for region in &result.dependency_unavailable {
+            for origin in &region.span.origins {
+                let range = TextRange::new(
+                    origin
+                        .original_range
+                        .start
+                        .try_into()
+                        .map_err(|_| "dependency range overflow")?,
+                    origin
+                        .original_range
+                        .end
+                        .try_into()
+                        .map_err(|_| "dependency range overflow")?,
+                );
+                document.lines.range(&document.source, range)?;
+                document.unavailable.push(range);
+            }
+        }
         for lookup in result.functions.lookups() {
             document
                 .dependencies
@@ -373,6 +393,8 @@ impl Document {
             uri,
             source_witness: format!("{:x}", Sha256::digest(source.as_bytes())),
             native_owner,
+            project_complete: true,
+            unavailable: Vec::new(),
             source,
             lines,
             catalog,
@@ -425,6 +447,30 @@ impl Document {
     }
     /// Project documents must all be current published generations. The caller
     /// removes invalidated documents before passing this read-only set.
+    pub fn project_definition_unavailable(&self, position: Position) -> bool {
+        !self.project_complete
+            && (self
+                .lines
+                .offset(&self.source, position)
+                .is_some_and(|offset| {
+                    self.unavailable
+                        .iter()
+                        .any(|range| range.start <= offset && offset < range.end)
+                })
+                || self.at(position).is_some_and(|occurrence| {
+                    matches!(
+                        &occurrence.reference,
+                        Reference::Function { .. }
+                            | Reference::Variable {
+                                identity: Identity {
+                                    key: VariableKey { local: false, .. },
+                                    ..
+                                },
+                                ..
+                            }
+                    )
+                }))
+    }
     pub fn definitions_at(&self, position: Position, project: &[&Document]) -> Vec<Location> {
         let Some(occurrence) = self.at(position) else {
             return Vec::new();
