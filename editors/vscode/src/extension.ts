@@ -139,7 +139,11 @@ class Clients {
       initialize: () => {}, clear: () => {}, getState: () => ({ kind: 'static' }),
     };
     client.registerFeature(contract);
-    completion = new Completion(client, [{ scheme: 'file', language: 'skript', pattern: new vscode.RelativePattern(root, isWorkspace ? '**/*' : '*') }], owns, initialDocument);
+    completion = new Completion(client, [{ scheme: 'file', language: 'skript', pattern: new vscode.RelativePattern(root, isWorkspace ? '**/*' : '*') }], owns, initialDocument, (event, detail) => {
+      if (vscode.workspace.getConfiguration('skriptLsp', root.uri).get('trace.server', 'off') !== 'off') {
+        this.output.info(`completion ${event} ${JSON.stringify({ root: key, ...detail })}`);
+      }
+    });
     client.registerFeature(completion);
     try {
       await client.start();
@@ -156,6 +160,7 @@ class Clients {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Skript LSP', { log: true });
   context.subscriptions.push(output);
+  output.info(`Activated ${context.extension.id}@${context.extension.packageJSON.version} from ${context.extensionPath} (VS Code ${vscode.version})`);
   const tokenTypes = (context.extension.packageJSON.contributes.semanticTokenTypes as { id: string }[]).map(type => type.id);
   const clients = manager = new Clients(output, tokenTypes);
   context.subscriptions.push(

@@ -9,6 +9,8 @@ interface Refresh {
   phase: 'final' | 'revoked' | 'failed' | 'project-changed';
 }
 interface Attempt {
+  id: number;
+  started: number;
   document: vscode.TextDocument;
   version: number;
   position: vscode.Position;
@@ -41,12 +43,19 @@ export class Completion implements StaticFeature {
   private provider: vscode.CompletionItemProvider | undefined;
   private triggers: string[] = [];
   private generation = 0;
+  private nextAttemptId = 0;
   private readonly attempts = new Map<string, Attempt>();
 
   constructor(private readonly client: LanguageClient,
     private readonly selector: vscode.DocumentSelector,
     private readonly owns: (uri: vscode.Uri) => boolean,
-    private readonly initialDocument: vscode.TextDocument) {}
+    private readonly initialDocument: vscode.TextDocument,
+    private readonly observe: (event: string, detail: Record<string, unknown>) => void = () => {}) {}
+
+  private log(event: string, detail: Record<string, unknown>): void {
+    // Diagnostic observers must not change completion results or lease cleanup.
+    try { this.observe(event, detail); } catch { /* The output may already be disposed. */ }
+  }
 
   fillClientCapabilities: StaticFeature['fillClientCapabilities'] = capabilities => {
     capabilities.experimental = { ...capabilities.experimental, skriptCompletionRefresh: true };
@@ -62,6 +71,7 @@ export class Completion implements StaticFeature {
     this.triggers = [...new Set([...(capabilities.completionProvider.triggerCharacters ?? []), ' '])];
     this.replaceRegistration();
     feature.clear();
+    this.log('registered', { uri: document.uri.toString(), triggers: this.triggers });
     this.notifications = this.client.onNotification('skript/completionRefresh', (value: unknown) => {
       if (!value || typeof value !== 'object') return;
       const refresh = value as Partial<Refresh>;
@@ -70,6 +80,7 @@ export class Completion implements StaticFeature {
         || !refresh.position || !Number.isSafeInteger(refresh.position.line) || !Number.isSafeInteger(refresh.position.character)
         || !['final', 'revoked', 'failed', 'project-changed'].includes(refresh.phase ?? '')) return;
       const latest = this.attempts.get(refresh.uri);
+      this.log('notification', { id: latest?.id, uri: refresh.uri, version: refresh.version, position: refresh.position, ticket: refresh.ticket, phase: refresh.phase });
       if (!latest || refresh.uri !== this.client.code2ProtocolConverter.asUri(latest.document.uri)
         || refresh.version !== latest.version || refresh.position.line !== latest.position.line
         || refresh.position.character !== latest.position.character) return;
@@ -79,6 +90,10 @@ export class Completion implements StaticFeature {
   };
 
   provide: NonNullable<Middleware['provideCompletionItem']> = async (document, position, context, token, next) => {
+    const id = ++this.nextAttemptId;
+    const started = Date.now();
+    const trace = (event: string, detail: Record<string, unknown>) => this.log(event, { id, elapsedMs: Date.now() - started, ...detail });
+    trace('entry', { uri: document.uri.toString(), version: document.version, position, context, owned: this.owns(document.uri), cancelled: token.isCancellationRequested });
     if (!this.owns(document.uri)) return undefined;
     const version = document.version;
     const generation = this.generation;
@@ -86,15 +101,20 @@ export class Completion implements StaticFeature {
     // The server owns one prepared ticket per document. Do not let a background
     // provider query at another position revoke the visible suggest session.
     for (;;) {
-      if (document.isClosed || document.version !== version || token.isCancellationRequested || generation !== this.generation) return undefined;
+      if (document.isClosed || document.version !== version || token.isCancellationRequested || generation !== this.generation) {
+        trace('discarded', { reason: 'stale-before-dispatch' });
+        return undefined;
+      }
       const previous = this.attempts.get(uri);
       if (!previous) break;
       if (previous.version === version && !previous.position.isEqual(position) && this.isCurrentEditor(previous)) {
+        trace('lease-wait', { uri, version, position, previousPosition: previous.position });
         let cancellation: vscode.Disposable | undefined;
         await Promise.race([previous.done, new Promise<void>(resolve => {
           cancellation = token.onCancellationRequested(() => resolve());
         })]);
         cancellation?.dispose();
+        trace('lease-wake', { cancelled: token.isCancellationRequested });
         // A newer foreground request may now own the lease; check again.
         continue;
       }
@@ -103,27 +123,40 @@ export class Completion implements StaticFeature {
     }
     let finish!: () => void;
     const done = new Promise<void>(resolve => { finish = resolve; });
-    const attempt: Attempt = { document, version, position, token, done, finish, active: true, refreshes: new Map() };
+    const attempt: Attempt = { id, started, document, version, position, token, done, finish, active: true, refreshes: new Map() };
     this.attempts.set(uri, attempt);
     attempt.cancellation = token.onCancellationRequested(() => this.finish(attempt));
     try {
+      trace('dispatch', { uri, version, position, context });
       const result = await next(document, position, context, token);
       if (!attempt.active || document.isClosed || document.version !== version || token.isCancellationRequested || generation !== this.generation) {
+        trace('discarded', { uri, version, currentVersion: document.version, active: attempt.active, closed: document.isClosed, cancelled: token.isCancellationRequested, generationChanged: generation !== this.generation });
         this.finish(attempt);
         return undefined;
       }
       const items = Array.isArray(result) ? result : result?.items;
-      for (const item of items ?? []) alignFilter(document, position, item);
+      const aligned = new Set<vscode.CompletionItem>();
+      for (const item of items ?? []) {
+        const before = item.filterText;
+        alignFilter(document, position, item);
+        if (before !== item.filterText) aligned.add(item);
+      }
+      trace('sdk-result', { uri, version, position, count: items?.length ?? 0, incomplete: !Array.isArray(result) && result?.isIncomplete, items: items?.slice(0, 5).map(item => ({ kind: item.kind, filterLength: item.filterText?.length, filterAligned: aligned.has(item), range: item.range })) });
       const tickets = new Set((items ?? []).map(item => {
         const data = (item as vscode.CompletionItem & { data?: { completionPhase?: unknown; completionTicket?: unknown } }).data;
         return data?.completionPhase === 'prepared' && typeof data.completionTicket === 'string' ? data.completionTicket : undefined;
       }).filter((ticket): ticket is string => ticket !== undefined));
       if (tickets.size === 1) {
         attempt.ticket = [...tickets][0];
-        if (this.refresh(attempt)) return undefined;
+        if (this.refresh(attempt)) {
+          trace('discarded', { reason: 'terminal-during-conversion' });
+          return undefined;
+        }
       } else this.finish(attempt);
+      trace('return', { count: items?.length ?? 0, preparedTicket: attempt.ticket });
       return result;
     } catch (error) {
+      trace('error', { uri, version, position, errorType: error instanceof Error ? error.name : typeof error });
       this.finish(attempt);
       throw error;
     }
@@ -131,6 +164,7 @@ export class Completion implements StaticFeature {
 
   invalidate(uri: vscode.Uri): void {
     const attempt = this.attempts.get(this.client.code2ProtocolConverter.asUri(uri));
+    this.log('change', { id: attempt?.id, uri: uri.toString(), pending: !!attempt });
     if (attempt) this.finish(attempt);
   }
 
@@ -140,6 +174,7 @@ export class Completion implements StaticFeature {
   }
 
   private finish(attempt: Attempt): void {
+    if (attempt.active) this.log('lease-finished', { id: attempt.id, elapsedMs: Date.now() - attempt.started });
     attempt.active = false;
     const uri = this.client.code2ProtocolConverter.asUri(attempt.document.uri);
     if (this.attempts.get(uri) === attempt) this.attempts.delete(uri);
@@ -149,18 +184,20 @@ export class Completion implements StaticFeature {
 
   private refresh(attempt: Attempt): boolean {
     if (!attempt.active || !attempt.ticket || !attempt.refreshes.has(attempt.ticket)) return false;
+    this.log('refresh', { id: attempt.id, elapsedMs: Date.now() - attempt.started, ticket: attempt.ticket, uri: attempt.document.uri.toString(), version: attempt.version, position: attempt.position, phase: attempt.refreshes.get(attempt.ticket)?.phase, focused: vscode.window.state.focused, currentEditor: this.isCurrentEditor(attempt), cancelled: attempt.token.isCancellationRequested });
     this.finish(attempt);
     if (attempt.document.isClosed || attempt.document.version !== attempt.version || attempt.token.isCancellationRequested
       || !vscode.window.state.focused || !this.isCurrentEditor(attempt)) return true;
-    this.replaceRegistration();
+    this.replaceRegistration(attempt.id);
     return true;
   }
 
-  private replaceRegistration(): void {
+  private replaceRegistration(id?: number): void {
     if (!this.provider) return;
     const previous = this.registration;
     this.registration = vscode.languages.registerCompletionItemProvider(this.selector, this.provider, ...this.triggers);
     previous?.dispose();
+    this.log('registration-replaced', { id });
   }
 
   getState: StaticFeature['getState'] = () => ({ kind: 'static' });

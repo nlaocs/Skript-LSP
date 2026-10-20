@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function host() {
+function host(logger) {
   class Position {
     constructor(line, character) { this.line = line; this.character = character; }
     isEqual(other) { return this.line === other.line && this.character === other.character; }
@@ -37,7 +37,7 @@ function host() {
       throw Error(`Unexpected dependency ${name}`);
     },
   });
-  const bridge = new module.exports.Completion(client, [{ language: 'skript', scheme: 'file' }], () => true, document);
+  const bridge = new module.exports.Completion(client, [{ language: 'skript', scheme: 'file' }], () => true, document, logger);
   bridge.initialize({ completionProvider: { triggerCharacters: ['{'] } });
   const cancellationToken = () => {
     const listeners = new Set();
@@ -195,4 +195,14 @@ test('terminal notifications during conversion never supply the superseded prepa
     h.refresh({ phase }); resolve([h.item()]);
     assert.equal(await pending, undefined); assert.equal(h.registrations.length, 2);
   }
+});
+
+test('diagnostic observer failures do not alter completion results or lease cleanup', async () => {
+  const h = host(() => { throw Error('Output disposed'); });
+  const item = h.item();
+  const result = await h.bridge.provide(h.document, h.position, {}, h.token, async () => [item]);
+  assert.equal(result[0], item);
+  h.refresh(); assert.equal(h.registrations.length, 2);
+  h.bridge.invalidate(h.document.uri);
+  h.bridge.clear();
 });

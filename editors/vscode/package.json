@@ -2,7 +2,7 @@
   "name": "skript-lsp",
   "displayName": "Skript LSP (Prototype)",
   "description": "A thin VS Code client for the existing Skript language server.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "nlaocs",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
@@ -210,7 +210,7 @@
     "check": "tsc -p . --noEmit",
     "test": "npm run compile && node --test out/test/config.test.js out/test/grammar.test.js scripts/lifecycle.test.cjs scripts/completion.test.cjs",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --out skript-lsp-0.1.1.vsix"
+    "package": "vsce package --out skript-lsp-0.1.2.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "10.1.2"

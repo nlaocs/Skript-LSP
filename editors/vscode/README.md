@@ -15,14 +15,14 @@ npm test
 npm run package
 ```
 
-`skript-lsp-0.1.1.vsix` が生成されます。依存関係はlockfileで固定し、registryはnpm公式に限定しています。`ignore-scripts` でも明示した `npm run` は実行できます。実行ファイル、SSGデータ、WASM addonは同梱・自動取得しません。既存のサーバーbuildと完全なSSG exportディレクトリを別途用意してください（[サーバー仕様](../../docs/lsp.ja.md)）。
+`skript-lsp-0.1.2.vsix` が生成されます。依存関係はlockfileで固定し、registryはnpm公式に限定しています。`ignore-scripts` でも明示した `npm run` は実行できます。実行ファイル、SSGデータ、WASM addonは同梱・自動取得しません。既存のサーバーbuildと完全なSSG exportディレクトリを別途用意してください（[サーバー仕様](../../docs/lsp.ja.md)）。
 
 ## Install / configure
 
 InsidersではExtensionsの「Install from VSIX...」から生成物を選べます。最初は専用profile、または下記の専用data directoryを使ってください。Stableでも同じVSIXを利用できます。
 
 ```sh
-code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --install-extension /path/to/skript-lsp-0.1.1.vsix
+code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --install-extension /path/to/skript-lsp-0.1.2.vsix
 code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --new-window /path/to/project
 ```
 
@@ -84,3 +84,5 @@ code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/te
 導入前のVSIXへ戻す場合は、対象profileへ前のVSIXを再installしてください。サーバー・snapshotは自動更新しないため、この拡張の削除では変更しません。
 
 実装の基礎はMicrosoft公式の [Language Server Extension Guide](https://code.visualstudio.com/api/language-extensions/language-server-extension-guide)、[Extension tests](https://code.visualstudio.com/api/working-with-extensions/testing-extension)、[Semantic highlighting](https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide)、[Workspace Trust](https://code.visualstudio.com/api/extension-guides/workspace-trust) です。
+
+With `skriptLsp.trace.server` set to `messages` or `verbose`, the main output also records completion provider entry, dispatch attempts, response counts and ranges, phase refresh, waits and discarded results. They omit source text, candidate labels and filter strings; URI, version, positions, filter lengths and alignment flags remain. Dispatch means the SDK request callback was invoked, not proof of transport delivery. These metadata logs do not require the channel log level to be Trace. Activation logs identify the loaded extension version and path. They help separate API completion from automatic suggest display; an API response alone does not confirm a visible menu.
