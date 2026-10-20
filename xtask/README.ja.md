@@ -107,3 +107,12 @@ cargo run -p xtask --locked -- build-test-components
 
 build command自体が重要なintegration checkです。workspace全体のtestでは、すべてのconsumerが
 出力artifactを埋め込み、instantiateできることを確認します。
+
+## ビルド生成物の再利用
+
+プラットフォームとツールチェーンの環境ごとに、既存の `CARGO_TARGET_DIR` を共有します。
+リビジョンや呼び出し元の作業ディレクトリが変わっても再利用し、検証ごとの target を
+作りません。`xtask` がその target から派生させる component 用の配置は維持します。
+Cargo のファイルロックと環境のビルドガードを守り、実行中サーバーが使う生成物を
+削除しません。導入済み実行ファイルを置き換える前に、現行版と検証済みの復元用コピーを
+保持します。

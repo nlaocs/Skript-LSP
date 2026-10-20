@@ -24,7 +24,7 @@ function host(extensionRoot) {
     onDidChangeWorkspaceFolders: listen('folders'), onDidChangeConfiguration: listen('config'),
     onDidGrantWorkspaceTrust: listen('trust'),
   };
-  const vscode = { workspace, Uri: { file: uri, parse: value => uri(fileURLToPath(value)) },
+  const vscode = { RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } }, workspace, Uri: { file: uri, parse: value => uri(fileURLToPath(value)) },
     window: { createOutputChannel: () => output, showErrorMessage: () => Promise.resolve(undefined) },
     commands: { registerCommand: (name, callback) => { commands.set(name, callback); return { dispose() {} }; } } };
   let startupFailure = false;
@@ -38,7 +38,7 @@ function host(extensionRoot) {
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(entry, 'utf8'), {
     module, exports: module.exports,
-    require: name => name === 'vscode' ? vscode : name === 'vscode-languageclient/node' ? { LanguageClient: Client } : name === './config' ? { resolveConfiguration: raw => raw } : nativeRequire(name),
+    require: name => name === 'vscode' ? vscode : name === 'vscode-languageclient/node' ? { LanguageClient: Client } : name === './config' ? { resolveConfiguration: raw => raw } : name === './completion' ? { Completion: class {} } : nativeRequire(name),
   }, { filename: entry });
   const context = { subscriptions: [], extension: { packageJSON: JSON.parse(fs.readFileSync(path.join(extensionRoot, 'package.json'), 'utf8')) } };
   return { api: module.exports, context, workspace, document, instances, errors, events,

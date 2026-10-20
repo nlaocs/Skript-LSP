@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { LanguageClient, Middleware, StaticFeature } from 'vscode-languageclient/node';
 import { resolveConfiguration } from './config';
+import { Completion } from './completion';
 
 // The server accepts exactly one explicit file root per connection.
 function rootFor(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
@@ -98,12 +99,15 @@ class Clients {
       addonPaths: settings.get<string[]>('addonPaths', []),
     }, root.uri.fsPath);
     const owns = (uri: vscode.Uri): boolean => rootFor(uri)?.uri.toString() === key;
+    const initialDocument = vscode.workspace.textDocuments.find(doc => doc.languageId === 'skript' && owns(doc.uri));
+    if (!initialDocument) return;
     // Gate every document operation by the same explicit root ownership.
+    let completion: Completion;
     const middleware: Middleware = {
       didOpen: async (doc, next) => { if (owns(doc.uri)) await next(doc); },
-      didChange: async (event, next) => { if (owns(event.document.uri)) await next(event); },
-      didClose: async (doc, next) => { if (owns(doc.uri)) await next(doc); },
-      provideCompletionItem: (doc, pos, context, token, next) => owns(doc.uri) ? next(doc, pos, context, token) : undefined,
+      didChange: async (event, next) => { if (owns(event.document.uri)) { completion.invalidate(event.document.uri); await next(event); } },
+      didClose: async (doc, next) => { if (owns(doc.uri)) { completion.invalidate(doc.uri); await next(doc); } },
+      provideCompletionItem: (doc, pos, context, token, next) => completion.provide(doc, pos, context, token, next),
       provideHover: (doc, pos, token, next) => owns(doc.uri) ? next(doc, pos, token) : undefined,
       provideSignatureHelp: (doc, pos, context, token, next) => owns(doc.uri) ? next(doc, pos, context, token) : undefined,
       provideDefinition: (doc, pos, token, next) => owns(doc.uri) ? next(doc, pos, token) : undefined,
@@ -135,6 +139,8 @@ class Clients {
       initialize: () => {}, clear: () => {}, getState: () => ({ kind: 'static' }),
     };
     client.registerFeature(contract);
+    completion = new Completion(client, [{ scheme: 'file', language: 'skript', pattern: new vscode.RelativePattern(root, isWorkspace ? '**/*' : '*') }], owns, initialDocument);
+    client.registerFeature(completion);
     try {
       await client.start();
       this.clients.set(key, client);

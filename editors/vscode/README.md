@@ -15,14 +15,14 @@ npm test
 npm run package
 ```
 
-`skript-lsp-0.1.0.vsix` が生成されます。依存関係はlockfileで固定し、registryはnpm公式に限定しています。`ignore-scripts` でも明示した `npm run` は実行できます。実行ファイル、SSGデータ、WASM addonは同梱・自動取得しません。既存のサーバーbuildと完全なSSG exportディレクトリを別途用意してください（[サーバー仕様](../../docs/lsp.ja.md)）。
+`skript-lsp-0.1.1.vsix` が生成されます。依存関係はlockfileで固定し、registryはnpm公式に限定しています。`ignore-scripts` でも明示した `npm run` は実行できます。実行ファイル、SSGデータ、WASM addonは同梱・自動取得しません。既存のサーバーbuildと完全なSSG exportディレクトリを別途用意してください（[サーバー仕様](../../docs/lsp.ja.md)）。
 
 ## Install / configure
 
 InsidersではExtensionsの「Install from VSIX...」から生成物を選べます。最初は専用profile、または下記の専用data directoryを使ってください。Stableでも同じVSIXを利用できます。
 
 ```sh
-code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --install-extension /path/to/skript-lsp-0.1.0.vsix
+code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --install-extension /path/to/skript-lsp-0.1.1.vsix
 code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --new-window /path/to/project
 ```
 
@@ -50,7 +50,7 @@ Settingsで次を指定します。Windowsの実行ファイルは `.exe`、JSON
 
 Command Paletteの `Skript LSP: Start / Stop / Restart / Show Output` で操作します。最後の対象文書が閉じられるとそのrootのclientを停止します。関連設定やworkspace foldersを変更すると接続を作り直します。明示的にStopした状態は設定変更後も維持します。起動エラーを直したらStart/Restartしてください。
 
-`skriptLsp.trace.server` を `messages` / `verbose` にするとprotocolをOutputで確認できます。verboseにはソース本文・ローカルパスが含まれるため、共有前に内容を確認してください。
+`skriptLsp.trace.server` はwindow単位の設定です。Outputの「Skript LSP」でログレベルをTraceにするとprotocol tracingが有効になり、この設定でmessages / verboseの詳細度を選べます（SDKの仕様によりoffでもTraceレベルではmessages）。Trace以外ではprotocol tracingは無効です。verboseにはソース本文・ローカルパスが含まれるため、共有前に内容を確認してください。
 
 ## Colors / editor limits
 
@@ -58,7 +58,7 @@ Command Paletteの `Skript LSP: Start / Stop / Restart / Show Output` で操作�
 
 hoverや補完説明の `skript` / `skript-pattern` code fenceにはTextMate grammarを提供します。例文の文字列・変数・補間、およびpatternの `%types%` やgroup記号が字句単位で色分けされます。説明欄内でサーバーのASTやsemantic tokensを再解析するものではありません。VS CodeのMarkdown表示とthemeに依存し、Neovimの独自表示と同一の配色は保証しません。
 
-この試作版は標準LSP機能を優先し、Neovim用の独自completion refresh通知やcompletion-edit adapterは実装していません。非同期解析中の補完は入力・再要求で更新されます。既存サーバーの構文対応・project探索上限・診断精度もそのまま適用されます。大量ディレクトリで探索上限に達しても、開いた文書の解析を続けるのはサーバー側の契約です。
+補完はサーバーのprepared/final/revoked/project-changed通知を利用し、現在の文書・版・位置・ticketに一致する候補を更新します。取消・編集・終了後の結果は破棄します。空白でも補完を起動し、右側のsuffixを保つ編集ではfilterTextを入力範囲に合わせます。文字列内の補間はコードのtoken種別に戻します。構文名・Javaクラス名による例外は追加していません。候補がないprepared結果には現サーバーがticketを付けないため、その場合の独自通知更新はありません。既存サーバーの探索上限・解析費用は引き続き適用されます。大量ディレクトリで探索上限に達しても、開いた文書の解析を続けるのはサーバー側の契約です。
 
 ## Isolated integration tests
 

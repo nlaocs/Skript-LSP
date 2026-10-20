@@ -112,3 +112,12 @@ cargo run -p xtask --locked -- build-test-components
 The build commands themselves are the important integration checks. The full
 workspace test verifies that every consumer can embed and instantiate their
 outputs.
+
+## Reuse build artifacts
+
+Use one existing `CARGO_TARGET_DIR` for each platform and toolchain environment.
+Reuse that directory across revisions and working directories; do not create a new
+target directory for each validation run. Keep the component subdirectories that
+`xtask` derives from that target. Respect Cargo file locks and any environment
+build guard, and do not remove artifacts used by a running server. Keep the
+currently installed executable and a verified rollback copy before replacing it.

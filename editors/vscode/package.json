@@ -2,7 +2,7 @@
   "name": "skript-lsp",
   "displayName": "Skript LSP (Prototype)",
   "description": "A thin VS Code client for the existing Skript language server.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "nlaocs",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
@@ -57,7 +57,10 @@
       {
         "language": "skript",
         "scopeName": "source.skript",
-        "path": "./syntaxes/skript.tmLanguage.json"
+        "path": "./syntaxes/skript.tmLanguage.json",
+        "tokenTypes": {
+          "meta.interpolation.skript": "other"
+        }
       },
       {
         "language": "skript-pattern",
@@ -118,8 +121,8 @@
             "verbose"
           ],
           "default": "off",
-          "scope": "resource",
-          "description": "Language client protocol tracing. Verbose traces contain source text."
+          "scope": "window",
+          "description": "Protocol detail when the Skript LSP Output channel log level is Trace. Verbose includes source text; otherwise protocol tracing is off."
         }
       }
     },
@@ -205,9 +208,9 @@
   "scripts": {
     "compile": "tsc -p .",
     "check": "tsc -p . --noEmit",
-    "test": "npm run compile && node --test out/test/config.test.js out/test/grammar.test.js scripts/lifecycle.test.cjs",
+    "test": "npm run compile && node --test out/test/config.test.js out/test/grammar.test.js scripts/lifecycle.test.cjs scripts/completion.test.cjs",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --out skript-lsp-0.1.0.vsix"
+    "package": "vsce package --out skript-lsp-0.1.1.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "10.1.2"

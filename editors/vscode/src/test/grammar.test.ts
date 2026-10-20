@@ -20,12 +20,27 @@ test('documentation grammars color pattern slots and example interpolation witho
     const tokens = pattern!.tokenizeLine('send %objects% [to %players%]', INITIAL).tokens;
     assert.ok(tokens.some(token => token.scopes.includes('variable.parameter.skript-pattern')));
     assert.ok(tokens.some(token => token.scopes.includes('punctuation.definition.group.skript-pattern')));
-    const example = await registry.loadGrammar('source.skript');
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../..', 'package.json'), 'utf8'));
+    const grammar = manifest.contributes.grammars.find((value: { language: string }) => value.language === 'skript');
+    assert.deepEqual(grammar.tokenTypes, { 'meta.interpolation.skript': 'other' });
+    const example = await registry.loadGrammarWithConfiguration('source.skript', 1, {
+      tokenTypes: Object.fromEntries(Object.entries(grammar.tokenTypes).map(([scope, type]) => {
+        assert.equal(type, 'other'); return [scope, 0];
+      })),
+    });
     const line = 'send "hello %{_name}%" # greeting';
     const exampleTokens = example!.tokenizeLine(line, INITIAL).tokens;
     assert.ok(exampleTokens.some(token => token.scopes.includes('variable.other.skript')));
     assert.ok(exampleTokens.some(token => token.scopes.includes('punctuation.section.interpolation.begin.skript')));
     assert.ok(exampleTokens.some(token => token.scopes.includes('comment.line.number-sign.skript')));
+    const encoded = example!.tokenizeLine2(line, INITIAL).tokens;
+    const typeAt = (character: number): number => {
+      let metadata = 0;
+      for (let i = 0; i < encoded.length && encoded[i] <= character; i += 2) metadata = encoded[i + 1];
+      return (metadata >>> 8) & 3;
+    };
+    assert.equal(typeAt(line.indexOf('hello')), 2, 'Ordinary text remains a string token.');
+    assert.equal(typeAt(line.indexOf('_name')), 0, 'Interpolation is code for quickSuggestions.');
     const escaped = 'send "say ""# hello""" # outside';
     const escapedTokens = example!.tokenizeLine(escaped, INITIAL).tokens;
     assert.ok(escapedTokens.filter(token => token.scopes.includes('comment.line.number-sign.skript')).every(token => token.startIndex === escaped.lastIndexOf('#')));
