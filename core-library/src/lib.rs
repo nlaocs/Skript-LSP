@@ -12,6 +12,7 @@ mod expression_candidates;
 mod expressions;
 mod language;
 mod loop_context;
+mod mapped_span;
 mod primitives;
 pub mod public_data;
 mod runtime;

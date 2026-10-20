@@ -19,13 +19,17 @@ fn update(value: &str) -> ContextUpdate {
 #[test]
 fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() {
     for other_count in 0..=3 {
-        let mut effects = empty_effects();
-        effects.context_updates.push(update("base"));
+        let mut effects = Arc::new(empty_effects());
+        Arc::make_mut(&mut effects)
+            .context_updates
+            .push(update("base"));
         let mut calls = Arc::new(vec![call("base")]);
         let mut failures = Vec::new();
         let base = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
 
-        effects.context_updates.push(update("selected"));
+        Arc::make_mut(&mut effects)
+            .context_updates
+            .push(update("selected"));
         extend_hook_calls(&mut calls, vec![call("selected-1"), call("selected-2")]);
         let selected = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
         let selected_clone = selected.clone();
@@ -33,7 +37,9 @@ fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() 
 
         base.restore(&mut effects, &mut calls, &mut failures);
         assert_eq!(*calls, vec![call("base")]);
-        effects.context_updates.push(update("other"));
+        Arc::make_mut(&mut effects)
+            .context_updates
+            .push(update("other"));
         extend_hook_calls(&mut calls, vec![call("other"); other_count]);
 
         selected.restore(&mut effects, &mut calls, &mut failures);
@@ -70,7 +76,7 @@ fn empty_dispatch_keeps_shared_calls_and_nonempty_dispatch_detaches_in_order() {
 
 #[test]
 fn restoring_calls_retains_new_failures_and_updated_fault_spans() {
-    let mut effects = empty_effects();
+    let mut effects = Arc::new(empty_effects());
     let mut calls = Arc::new(vec![call("base")]);
     let failure = || ComponentFailure {
         affected_span: None,
@@ -172,7 +178,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         },
@@ -188,6 +194,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
 #[test]
 fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
     with_environment(|mut environment| {
+        merge_shared_effects(&mut environment.hooks.effects, all_effects("prefix", 32));
         extend_hook_calls(&mut environment.hooks.calls, vec![call("prefix")]);
         let state = environment.hooks.transaction.savepoint().unwrap();
         let checkpoint = HookEffectsCheckpoint::capture(
@@ -199,7 +206,9 @@ fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
             &mut environment.hooks.calls,
             vec![call("suffix-1"), call("suffix-2")],
         );
+        merge_shared_effects(&mut environment.hooks.effects, all_effects("suffix", 24));
         let deferred = environment.defer_effects(&state, &checkpoint).unwrap();
+        assert_eq!(effect_lengths(&environment.hooks.effects), [1; 4]);
         assert_eq!(*environment.hooks.calls, vec![call("prefix")]);
         assert_eq!(
             deferred
@@ -210,6 +219,7 @@ fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
         );
         for _ in 0..2 {
             environment.apply_expression_effects(&deferred).unwrap();
+            assert_eq!(effect_lengths(&environment.hooks.effects), [2; 4]);
             assert_eq!(
                 *environment.hooks.calls,
                 vec![call("prefix"), call("suffix-1"), call("suffix-2")]
@@ -222,6 +232,14 @@ fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
             &mut environment.hooks.failures,
         );
         environment.apply_expression_effects(&deferred).unwrap();
+        assert_eq!(effect_lengths(&environment.hooks.effects), [2; 4]);
+        assert_eq!(environment.hooks.effects.diagnostics[1].message, "suffix");
+        assert_eq!(
+            environment.hooks.effects.context_updates[1].value,
+            Some(b"suffix".to_vec())
+        );
+        assert_eq!(environment.hooks.effects.parse_requests[1].input, "suffix");
+        assert_eq!(environment.hooks.effects.parse_results[1].nodes.len(), 24);
         assert_eq!(
             *environment.hooks.calls,
             vec![call("prefix"), call("suffix-1"), call("suffix-2")]
@@ -289,7 +307,7 @@ fn checked_dispatch_drains_calls_once_and_retains_fault_markers() {
 
 #[test]
 fn old_log_generations_live_until_their_last_checkpoint_is_dropped() {
-    let effects = empty_effects();
+    let effects = Arc::new(empty_effects());
     let mut calls = Arc::new(vec![call(&"prefix".repeat(80)); 16]);
     let mut checkpoints = Vec::new();
     let mut generations = Vec::new();
@@ -489,5 +507,140 @@ fn cancellation_releases_branch_logs_and_cleanup_errors_release_them_on_environm
             drop(environment);
             assert!(generation.upgrade().is_none());
         });
+    }
+}
+
+fn arena(marker: &str, count: u64) -> ParseResult {
+    let span = MappedSpan {
+        virtual_range: WitTextRange { start: 0, end: 1 },
+        origins: Vec::new(),
+    };
+    ParseResult {
+        host_token: 0,
+        request_id: 1,
+        parser_id: "fixture.parser".into(),
+        status: WitParseResultStatus::Success,
+        roots: (0..count).collect(),
+        nodes: (0..count)
+            .map(|node_id| ParseResultNode {
+                node_id,
+                parser_id: "fixture.parser".into(),
+                kind: "fixture".into(),
+                status: WitParseResultStatus::Success,
+                text: marker.repeat(128),
+                span: span.clone(),
+                expected_types: Vec::new(),
+                summary: None,
+                children: Vec::new(),
+                function: None,
+                attachments: Vec::new(),
+                diagnostics: Vec::new(),
+                metadata: Vec::new(),
+            })
+            .collect(),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn all_effects(marker: &str, nodes: u64) -> HookEffects {
+    let span = MappedSpan {
+        virtual_range: WitTextRange { start: 0, end: 1 },
+        origins: Vec::new(),
+    };
+    HookEffects {
+        diagnostics: vec![Diagnostic {
+            code: marker.into(),
+            message: marker.into(),
+            severity: DiagnosticSeverity::Information,
+            span: span.clone(),
+            related: Vec::new(),
+        }],
+        context_updates: vec![update(marker)],
+        parse_requests: vec![ParseRequest {
+            request_id: 1,
+            parser_id: "fixture.parser".into(),
+            input: marker.into(),
+            expected_types: Vec::new(),
+            span,
+            options: Vec::new(),
+        }],
+        parse_results: vec![arena(marker, nodes)],
+    }
+}
+
+fn effect_lengths(effects: &HookEffects) -> [usize; 4] {
+    [
+        effects.diagnostics.len(),
+        effects.context_updates.len(),
+        effects.parse_requests.len(),
+        effects.parse_results.len(),
+    ]
+}
+
+#[test]
+fn empty_effect_merge_keeps_shared_prefix_and_each_nonempty_field_detaches() {
+    for field in 0..4 {
+        let mut effects = Arc::new(all_effects("base", 64));
+        let saved = Arc::clone(&effects);
+        merge_shared_effects(&mut effects, empty_effects());
+        assert!(
+            Arc::ptr_eq(&effects, &saved),
+            "empty speculative work must not copy arenas"
+        );
+        let mut added = all_effects("added", 2);
+        if field != 0 {
+            added.diagnostics.clear();
+        }
+        if field != 1 {
+            added.context_updates.clear();
+        }
+        if field != 2 {
+            added.parse_requests.clear();
+        }
+        if field != 3 {
+            added.parse_results.clear();
+        }
+        merge_shared_effects(&mut effects, added);
+        assert!(!Arc::ptr_eq(&effects, &saved));
+        let mut expected = [1; 4];
+        expected[field] = 2;
+        assert_eq!(effect_lengths(&effects), expected);
+        assert_eq!(effect_lengths(&saved), [1; 4]);
+        assert_eq!(saved.parse_results[0].nodes.len(), 64);
+        assert_eq!(saved.parse_results[0].nodes[0].text, "base".repeat(128));
+    }
+}
+
+#[test]
+fn complete_effect_snapshots_restore_selected_arenas_after_other_branch_lengths() {
+    for count in 0..=3 {
+        let mut effects = Arc::new(all_effects("base", 64));
+        let mut calls = Arc::default();
+        let mut failures = Vec::new();
+        let base = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
+        merge_shared_effects(&mut effects, all_effects("selected", 48));
+        let selected = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
+        let saved = selected.clone();
+        base.restore(&mut effects, &mut calls, &mut failures);
+        for _ in 0..count {
+            merge_shared_effects(&mut effects, all_effects("other", 80));
+        }
+        selected.restore(&mut effects, &mut calls, &mut failures);
+        assert_eq!(effect_lengths(&effects), [2; 4]);
+        assert_eq!(effects.diagnostics[1].code, "selected");
+        assert_eq!(effects.context_updates[1].value, Some(b"selected".to_vec()));
+        assert_eq!(effects.parse_requests[1].input, "selected");
+        assert_eq!(effects.parse_results[1].nodes.len(), 48);
+        assert_eq!(
+            effects.parse_results[1].nodes[0].text,
+            "selected".repeat(128)
+        );
+        let mut exported = Arc::unwrap_or_clone(effects);
+        exported.parse_results[1].nodes[0].text = "outside".into();
+        assert_eq!(
+            saved.effects.parse_results[1].nodes[0].text,
+            "selected".repeat(128)
+        );
+        assert_eq!(base.effects.parse_results[0].nodes.len(), 64);
     }
 }

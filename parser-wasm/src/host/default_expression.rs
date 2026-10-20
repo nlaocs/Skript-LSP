@@ -208,7 +208,7 @@ fn provide_inner(
         metadata: metadata_entries(payload.metadata)?,
         effects: None,
     };
-    merge_effects(&mut environment.hooks.effects, result.effects);
+    merge_shared_effects(&mut environment.hooks.effects, result.effects);
     extend_hook_calls(&mut environment.hooks.calls, result.calls);
     Ok(Decision::Resolved(Box::new(resolution)))
 }
@@ -682,7 +682,7 @@ mod tests {
                 pending_fault: None,
                 pending_cancellation: None,
                 pending_unavailable: None,
-                effects: empty_effects(),
+                effects: Arc::new(empty_effects()),
                 calls: Arc::default(),
                 failures: Vec::new(),
             },
@@ -888,7 +888,7 @@ mod tests {
         );
         assert_eq!(span.origins.len(), 3);
         for (origin, (anchor, expansion)) in
-            span.origins.iter().zip([(54, 11), (83, 12), (150, 13)])
+            span.origins.iter().zip([(60, 11), (83, 12), (150, 13)])
         {
             assert_eq!(origin.kind, WitOriginKind::Anchored);
             assert_eq!(origin.original_range.start, anchor);

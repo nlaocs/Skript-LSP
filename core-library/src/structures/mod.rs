@@ -14,8 +14,8 @@ use crate::nlaocs::skript_parser_addon::types::{
     AddonError, AddonErrorKind, CaptureParserBinding, Diagnostic, DiagnosticSeverity, HookDecision,
     HookEffects, HookInvocation, HookOutput, HookPayload, HookPhase, InvocationContext, MappedSpan,
     MetadataEntry, ParseContext, ParseRequest, RawNodeKind, RawTreeNode, RegisteredSyntaxHandler,
-    RegisteredSyntaxHandlerTarget, SourceOrigin, StructureBodyMode, StructurePayload,
-    StructureTiming, SyntaxKind, TextRange,
+    RegisteredSyntaxHandlerTarget, StructureBodyMode, StructurePayload, StructureTiming,
+    SyntaxKind, TextRange,
 };
 use crate::{addon_error, not_applicable};
 
@@ -300,36 +300,7 @@ fn parse_context_options_with_event_classes(
 }
 
 fn mapped_subspan(parent: &MappedSpan, start: u64, end: u64) -> MappedSpan {
-    let relative_start = start.saturating_sub(parent.virtual_range.start);
-    let relative_end = end.saturating_sub(parent.virtual_range.start);
-    let parent_len = parent
-        .virtual_range
-        .end
-        .saturating_sub(parent.virtual_range.start);
-    MappedSpan {
-        virtual_range: TextRange { start, end },
-        origins: parent
-            .origins
-            .iter()
-            .map(|origin| SourceOrigin {
-                original_range: if origin
-                    .original_range
-                    .end
-                    .saturating_sub(origin.original_range.start)
-                    >= parent_len
-                {
-                    TextRange {
-                        start: origin.original_range.start.saturating_add(relative_start),
-                        end: origin.original_range.start.saturating_add(relative_end),
-                    }
-                } else {
-                    origin.original_range
-                },
-                kind: origin.kind,
-                expansion: origin.expansion,
-            })
-            .collect(),
-    }
+    crate::mapped_span::subspan(parent, TextRange { start, end })
 }
 
 pub(super) fn reject_structure(reason: impl Into<String>) -> HookOutput {

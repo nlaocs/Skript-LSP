@@ -23,6 +23,8 @@ mod function_projection_tests;
 mod public_data;
 pub mod semantic_proof;
 pub mod source_geometry;
+#[cfg(test)]
+mod source_mapping_tests;
 mod subscriptions;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
@@ -3122,34 +3124,34 @@ fn type_selector_match(
 
 #[derive(Debug, Clone)]
 struct HookEffectsCheckpoint {
-    effects: HookEffects,
+    effects: Arc<HookEffects>,
     calls: Arc<Vec<HookCall>>,
-    failures: Vec<ComponentFailure>,
+    failures_len: usize,
 }
 
 impl HookEffectsCheckpoint {
     fn capture(
-        effects: &HookEffects,
+        effects: &Arc<HookEffects>,
         calls: &Arc<Vec<HookCall>>,
         failures: &[ComponentFailure],
     ) -> Self {
         Self {
-            effects: effects.clone(),
+            effects: Arc::clone(effects),
             calls: Arc::clone(calls),
-            failures: failures.to_vec(),
+            failures_len: failures.len(),
         }
     }
 
     fn restore(
         &self,
-        effects: &mut HookEffects,
+        effects: &mut Arc<HookEffects>,
         calls: &mut Arc<Vec<HookCall>>,
         failures: &mut Vec<ComponentFailure>,
     ) {
         effects.clone_from(&self.effects);
         calls.clone_from(&self.calls);
         // Failures are observations, not adopted semantic effects.
-        debug_assert!(failures.len() >= self.failures.len());
+        debug_assert!(failures.len() >= self.failures_len);
     }
 }
 
@@ -3218,7 +3220,7 @@ struct WasmPatternHooks<'a> {
     pending_fault: Option<skript_parser::ExtensionFault>,
     pending_cancellation: Option<skript_parser::ParseCancelled>,
     pending_unavailable: Option<skript_parser::FunctionNamespaceUnavailable>,
-    effects: HookEffects,
+    effects: Arc<HookEffects>,
     calls: Arc<Vec<HookCall>>,
     failures: Vec<ComponentFailure>,
 }
@@ -3463,7 +3465,7 @@ impl WasmPatternHooks<'_> {
 
     fn into_parts(self) -> (HookEffects, Vec<HookCall>, Vec<ComponentFailure>) {
         (
-            self.effects,
+            Arc::unwrap_or_clone(self.effects),
             Arc::unwrap_or_clone(self.calls),
             self.failures,
         )
@@ -3507,7 +3509,7 @@ impl WasmPatternHooks<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
         let result = self.checked_dispatch(result)?;
-        merge_effects(&mut self.effects, result.effects);
+        merge_shared_effects(&mut self.effects, result.effects);
         extend_hook_calls(&mut self.calls, result.calls);
         self.failures.extend(result.failures);
         let HookPayload::Condition(output) = result.payload else {
@@ -3573,7 +3575,7 @@ impl WasmPatternHooks<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
         let result = self.checked_dispatch(result)?;
-        merge_effects(&mut self.effects, result.effects);
+        merge_shared_effects(&mut self.effects, result.effects);
         extend_hook_calls(&mut self.calls, result.calls);
         self.failures.extend(result.failures);
         let HookPayload::Effect(output) = result.payload else {
@@ -3839,7 +3841,7 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
             )
             .map_err(|error| self.host_error(error))?;
         let result = self.checked_dispatch(result)?;
-        merge_effects(&mut self.effects, result.effects);
+        merge_shared_effects(&mut self.effects, result.effects);
         extend_hook_calls(&mut self.calls, result.calls);
         self.failures.extend(result.failures);
 
@@ -3940,7 +3942,7 @@ impl WasmExpressionEnvironment<'_> {
                 .to_vec(),
         };
         let calls = self.hooks.calls[checkpoint.calls.len()..].to_vec();
-        let failures = self.hooks.failures[checkpoint.failures.len()..].to_vec();
+        let failures = self.hooks.failures[checkpoint.failures_len..].to_vec();
         let state = self
             .hooks
             .transaction
@@ -4120,7 +4122,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .apply_delta(&effects.state)
             .map_err(|error| self.hooks.host_error(error))?
         {
-            merge_effects(&mut self.hooks.effects, effects.effects.clone());
+            merge_shared_effects(&mut self.hooks.effects, effects.effects.clone());
             extend_hook_calls(&mut self.hooks.calls, effects.calls.clone());
             self.hooks.failures.extend(effects.failures.clone());
         }
@@ -4357,7 +4359,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let result = self.hooks.checked_dispatch(result)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
+        merge_shared_effects(&mut self.hooks.effects, result.effects);
         extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         if let HookDecision::Reject(rejection) = result.decision {
@@ -4451,7 +4453,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             let rejection_diagnostics =
                 semantic_rejection_diagnostics(&result.decision, &result.effects)?;
             let result = self.hooks.checked_dispatch(result)?;
-            merge_effects(&mut self.hooks.effects, result.effects);
+            merge_shared_effects(&mut self.hooks.effects, result.effects);
             extend_hook_calls(&mut self.hooks.calls, result.calls);
             self.hooks.failures.extend(result.failures);
             if let HookDecision::Reject(rejection) = result.decision {
@@ -4741,7 +4743,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let result = self.hooks.checked_dispatch(result)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
+        merge_shared_effects(&mut self.hooks.effects, result.effects);
         extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         self.pending_registered = Some((savepoint, effects_checkpoint));
@@ -4853,7 +4855,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
         let result = self.hooks.checked_dispatch(result)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
+        merge_shared_effects(&mut self.hooks.effects, result.effects);
         extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Section(output) = result.payload else {
@@ -4924,7 +4926,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
         let result = self.hooks.checked_dispatch(result)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
+        merge_shared_effects(&mut self.hooks.effects, result.effects);
         extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Section(output) = result.payload else {
@@ -4992,7 +4994,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let updates = result.effects.context_updates.clone();
         let result = self.hooks.checked_dispatch(result)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
+        merge_shared_effects(&mut self.hooks.effects, result.effects);
         extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Structure(output) = result.payload else {
@@ -5084,7 +5086,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let rejection_diagnostics =
             semantic_rejection_diagnostics(&result.decision, &result.effects)?;
         let result = self.hooks.checked_dispatch(result)?;
-        merge_effects(&mut self.hooks.effects, result.effects);
+        merge_shared_effects(&mut self.hooks.effects, result.effects);
         extend_hook_calls(&mut self.hooks.calls, result.calls);
         self.hooks.failures.extend(result.failures);
         let HookPayload::Structure(output) = result.payload else {
@@ -9108,7 +9110,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         };
@@ -9190,7 +9192,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         };
@@ -9302,7 +9304,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         };
@@ -9412,7 +9414,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         };
@@ -9545,7 +9547,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         };
@@ -9785,7 +9787,7 @@ impl ParserHost {
             pending_fault: None,
             pending_cancellation: None,
             pending_unavailable: None,
-            effects: empty_effects(),
+            effects: Arc::new(empty_effects()),
             calls: Arc::default(),
             failures: Vec::new(),
         };
@@ -15271,25 +15273,41 @@ fn nested_span_to_request(span: &MatchSpan, request: &ParseRequest) -> MappedSpa
             .origins
             .iter()
             .any(|origin| origin.kind == ParserOriginKind::Anchored);
+    // A flattened multi-origin span does not describe per-origin virtual offsets.
+    let whole = start == 0 && end == input_len;
+    let affine = request.span.origins.len() == 1
+        && request.span.origins[0].kind == WitOriginKind::Exact
+        && request.span.origins[0]
+            .original_range
+            .end
+            .checked_sub(request.span.origins[0].original_range.start)
+            == Some(input_len)
+        && request
+            .span
+            .virtual_range
+            .end
+            .checked_sub(request.span.virtual_range.start)
+            == Some(input_len)
+        && start <= end
+        && end <= input_len;
     let origins = request
         .span
         .origins
         .iter()
         .map(|origin| {
-            let origin_len = origin
-                .original_range
-                .end
-                .saturating_sub(origin.original_range.start);
-            let original_range = if origin_len >= input_len {
+            let original_range = if affine {
                 WitTextRange {
-                    start: origin.original_range.start.saturating_add(start),
-                    end: origin.original_range.start.saturating_add(end),
+                    start: origin.original_range.start + start,
+                    end: origin.original_range.start + end,
                 }
             } else {
                 origin.original_range
             };
+            // Native omitted captures explicitly anchor at each call-site end.
+            // An identity point without expansion remains Exact, never Anchored(None).
+            let implicit_anchor = anchored && origin.expansion.is_some();
             WitSourceOrigin {
-                original_range: if anchored {
+                original_range: if implicit_anchor {
                     WitTextRange {
                         start: original_range.end,
                         end: original_range.end,
@@ -15297,8 +15315,10 @@ fn nested_span_to_request(span: &MatchSpan, request: &ParseRequest) -> MappedSpa
                 } else {
                     original_range
                 },
-                kind: if anchored {
+                kind: if implicit_anchor {
                     WitOriginKind::Anchored
+                } else if !affine && !whole && origin.kind == WitOriginKind::Exact {
+                    WitOriginKind::Replaced
                 } else {
                     origin.kind
                 },
@@ -15415,6 +15435,19 @@ fn retain_diagnostics_only(effects: &mut HookEffects, calls: &mut Vec<HookCall>)
     effects.parse_requests.clear();
     effects.parse_results.clear();
     calls.clear();
+}
+
+/// Checkpoints share complete immutable roots, including selected branches.
+/// No-op dispatch must not clone an accumulated additional-parse arena.
+fn merge_shared_effects(target: &mut Arc<HookEffects>, source: HookEffects) {
+    if source.diagnostics.is_empty()
+        && source.context_updates.is_empty()
+        && source.parse_requests.is_empty()
+        && source.parse_results.is_empty()
+    {
+        return;
+    }
+    merge_effects(Arc::make_mut(target), source);
 }
 
 fn merge_effects(target: &mut HookEffects, source: HookEffects) {

@@ -4,7 +4,7 @@ use crate::nlaocs::skript_parser_addon::types::{
     Diagnostic, DiagnosticSeverity, DynamicMultiplicity, ExpressionExpectedType,
     ExpressionLeafCandidate, ExpressionLeafKind, ExpressionPayload, ExpressionPublicData,
     MappedSpan, MetadataEntry, ParseRequest, ParseResult, ParseResultReference, ParseResultStatus,
-    SourceOrigin, TextRange,
+    TextRange,
 };
 
 const EXPRESSION_PARSER_ID: &str = "host.expression";
@@ -280,50 +280,15 @@ fn embedded_ranges(input: &str) -> Result<Vec<std::ops::Range<usize>>, usize> {
 }
 
 fn subspan(payload: &ExpressionPayload, absolute_start: usize, absolute_end: usize) -> MappedSpan {
-    let remaining_start = payload.remaining.start;
-    let relative_start = (absolute_start as u64).saturating_sub(remaining_start);
-    let relative_end = (absolute_end as u64).saturating_sub(remaining_start);
-    let input_len = payload
-        .span
-        .virtual_range
-        .end
-        .saturating_sub(payload.span.virtual_range.start);
-    MappedSpan {
-        virtual_range: TextRange {
-            start: payload
-                .span
-                .virtual_range
-                .start
-                .saturating_add(relative_start),
-            end: payload
-                .span
-                .virtual_range
-                .start
-                .saturating_add(relative_end),
+    let base = payload.span.virtual_range.start;
+    crate::mapped_span::subspan(
+        &payload.span,
+        TextRange {
+            start: base
+                .saturating_add((absolute_start as u64).saturating_sub(payload.remaining.start)),
+            end: base.saturating_add((absolute_end as u64).saturating_sub(payload.remaining.start)),
         },
-        origins: payload
-            .span
-            .origins
-            .iter()
-            .map(|origin| SourceOrigin {
-                original_range: if origin
-                    .original_range
-                    .end
-                    .saturating_sub(origin.original_range.start)
-                    >= input_len
-                {
-                    TextRange {
-                        start: origin.original_range.start.saturating_add(relative_start),
-                        end: origin.original_range.start.saturating_add(relative_end),
-                    }
-                } else {
-                    origin.original_range
-                },
-                kind: origin.kind,
-                expansion: origin.expansion,
-            })
-            .collect(),
-    }
+    )
 }
 
 #[cfg(test)]
