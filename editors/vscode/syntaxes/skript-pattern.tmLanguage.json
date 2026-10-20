@@ -1,0 +1,11 @@
+{
+  "scopeName": "source.skript-pattern",
+  "patterns": [
+    { "name": "variable.parameter.skript-pattern", "begin": "%", "end": "%|$",
+      "beginCaptures": { "0": { "name": "punctuation.definition.parameter.begin.skript-pattern" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.parameter.end.skript-pattern" } } },
+    { "name": "string.regexp.skript-pattern", "begin": "<", "end": ">|$" },
+    { "name": "punctuation.definition.group.skript-pattern", "match": "[\\[\\]()|]" },
+    { "name": "keyword.operator.skript-pattern", "match": "[¦:!]" }
+  ]
+}

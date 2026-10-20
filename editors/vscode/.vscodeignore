@@ -1,0 +1,10 @@
+src/**
+scripts/**
+out/test/**
+**/*.map
+tsconfig.json
+package-lock.json
+.npmrc
+.gitignore
+.test-profile/**
+*.vsix

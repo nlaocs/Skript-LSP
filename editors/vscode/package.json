@@ -1,0 +1,223 @@
+{
+  "name": "skript-lsp",
+  "displayName": "Skript LSP (Prototype)",
+  "description": "A thin VS Code client for the existing Skript language server.",
+  "version": "0.1.0",
+  "publisher": "nlaocs",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nlaocs/Skript-LSP.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:skript"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The extension starts an explicitly configured native executable and optional WASM addons."
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "skript",
+        "aliases": [
+          "Skript",
+          "skript"
+        ],
+        "extensions": [
+          ".sk"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "skript-pattern",
+        "aliases": [
+          "skript-pattern"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "skript",
+        "scopeName": "source.skript",
+        "path": "./syntaxes/skript.tmLanguage.json"
+      },
+      {
+        "language": "skript-pattern",
+        "scopeName": "source.skript-pattern",
+        "path": "./syntaxes/skript-pattern.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "skriptLsp.start",
+        "title": "Skript LSP: Start"
+      },
+      {
+        "command": "skriptLsp.stop",
+        "title": "Skript LSP: Stop"
+      },
+      {
+        "command": "skriptLsp.restart",
+        "title": "Skript LSP: Restart"
+      },
+      {
+        "command": "skriptLsp.showOutput",
+        "title": "Skript LSP: Show Output"
+      }
+    ],
+    "configuration": {
+      "title": "Skript LSP",
+      "properties": {
+        "skriptLsp.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "restricted": true,
+          "description": "Native skript-lsp executable. Absolute path or relative to the selected project root. Nothing is downloaded."
+        },
+        "skriptLsp.snapshotPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "restricted": true,
+          "description": "Complete SSG export directory, absolute or relative to the selected project root."
+        },
+        "skriptLsp.addonPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "restricted": true,
+          "description": "Optional WASM addon files, in server loading order; paths use the selected project root."
+        },
+        "skriptLsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "scope": "resource",
+          "description": "Language client protocol tracing. Verbose traces contain source text."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[skript]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "semanticTokenTypes": [
+      {
+        "id": "skriptEvent",
+        "superType": "event",
+        "description": "Server-confirmed event syntax"
+      },
+      {
+        "id": "skriptCondition",
+        "superType": "keyword",
+        "description": "Server-confirmed condition syntax"
+      },
+      {
+        "id": "skriptEffect",
+        "superType": "function",
+        "description": "Server-confirmed effect syntax"
+      },
+      {
+        "id": "skriptExpression",
+        "superType": "property",
+        "description": "Server-confirmed expression syntax"
+      },
+      {
+        "id": "skriptSection",
+        "superType": "keyword",
+        "description": "Server-confirmed section syntax"
+      },
+      {
+        "id": "skriptStructure",
+        "superType": "namespace",
+        "description": "Server-confirmed structure syntax"
+      },
+      {
+        "id": "skriptLiteral",
+        "superType": "variable",
+        "description": "Server-confirmed literal value"
+      },
+      {
+        "id": "skriptInterpolationDelimiter",
+        "superType": "operator",
+        "description": "Server-confirmed interpolation delimiter"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "skript",
+        "scopes": {
+          "skriptEvent": [
+            "entity.name.type.event.skript"
+          ],
+          "skriptCondition": [
+            "keyword.control.conditional.skript"
+          ],
+          "skriptEffect": [
+            "entity.name.function.skript"
+          ],
+          "skriptExpression": [
+            "variable.other.property.skript"
+          ],
+          "skriptSection": [
+            "keyword.control.skript"
+          ],
+          "skriptStructure": [
+            "entity.name.type.skript"
+          ],
+          "skriptLiteral": [
+            "source.skript"
+          ],
+          "skriptInterpolationDelimiter": [
+            "punctuation.section.interpolation.skript"
+          ]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "check": "tsc -p . --noEmit",
+    "test": "npm run compile && node --test out/test/config.test.js out/test/grammar.test.js scripts/lifecycle.test.cjs",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --out skript-lsp-0.1.0.vsix"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/vscode": "1.100.0",
+    "@vscode/vsce": "4.0.0",
+    "typescript": "5.9.3",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.2.0"
+  }
+}

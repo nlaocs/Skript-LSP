@@ -1,0 +1,67 @@
+{
+  "scopeName": "source.skript",
+  "patterns": [
+    {
+      "name": "comment.line.number-sign.skript",
+      "match": "#.*$"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#variable"
+    },
+    {
+      "name": "constant.numeric.skript",
+      "match": "(?<![\\w.])-?\\b\\d+(?:\\.\\d+)?\\b"
+    }
+  ],
+  "repository": {
+    "string": {
+      "name": "string.quoted.double.skript",
+      "begin": "\"",
+      "end": "\"|$",
+      "patterns": [
+        {
+          "name": "constant.character.escape.skript",
+          "match": "\"\""
+        },
+        {
+          "name": "meta.interpolation.skript",
+          "begin": "%(?!%)",
+          "end": "%|(?=\"|$)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.interpolation.begin.skript"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.interpolation.end.skript"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#variable"
+            }
+          ]
+        },
+        {
+          "name": "constant.character.escape.skript",
+          "match": "%%"
+        }
+      ],
+      "applyEndPatternLast": true
+    },
+    "variable": {
+      "name": "variable.other.skript",
+      "begin": "\\{",
+      "end": "\\}|$",
+      "patterns": [
+        {
+          "include": "#variable"
+        }
+      ]
+    }
+  }
+}
