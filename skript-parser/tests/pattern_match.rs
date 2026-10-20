@@ -256,29 +256,112 @@ fn omitted_typed_captures_distinguish_defaults_from_nullable_slots() {
 }
 
 #[test]
-fn explicit_and_zero_length_nullable_resolutions_have_distinct_states() {
-    for (input, source, expected_state) in [
-        ("do 1", "do %number%", TypeCaptureState::Explicit),
-        ("do", "do %-number%", TypeCaptureState::Null),
-    ] {
+fn selected_nullable_type_captures_require_nonempty_input() {
+    for source in ["do %number%", "do %-number%"] {
+        let parsed = parse(source);
+        for input in ["do", "do 1"] {
+            let mapped = MappedSource::identity(input);
+            let result = match_pattern_candidates(
+                MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
+                &[candidate(source, &parsed, 0)],
+                &mut AcceptTypeExpressions,
+                &mut NoopPatternMatchHooks,
+                PatternMatcherConfig::default(),
+            )
+            .unwrap();
+            if input == "do" {
+                assert!(result.selected.is_none(), "{source}: {result:#?}");
+                continue;
+            }
+            let selected = result.selected.expect("nonempty typed input must match");
+            let PatternCapture::TypeExpression {
+                state,
+                value,
+                span,
+                omission,
+                ..
+            } = &selected.matched.captures[0]
+            else {
+                panic!("typed capture expected");
+            };
+            assert_eq!(*state, TypeCaptureState::Explicit);
+            assert_eq!(value, "1");
+            assert_eq!(span.local_range, TextRange::new(3, 4));
+            assert_eq!(span.mapped.virtual_range, TextRange::new(3, 4));
+            assert!(omission.is_none());
+        }
+    }
+}
+
+#[test]
+fn empty_selected_type_resolutions_are_invalid_even_when_nullable() {
+    struct EmptyTypeExpressions;
+    impl TypeExpressionResolver for EmptyTypeExpressions {
+        fn resolve(
+            &mut self,
+            request: TypeExpressionRequest<'_>,
+        ) -> Result<TypeExpressionOutcome, String> {
+            assert!(!request.candidate_ends.contains(&request.remaining.start));
+            Ok(vec![TypeExpressionResolution {
+                range: TextRange::empty(request.remaining.start),
+                alternative_index: None,
+                resolution_id: None,
+            }]
+            .into())
+        }
+    }
+    for source in ["do %number%", "do %-number%"] {
+        let input = "do";
         let mapped = MappedSource::identity(input);
         let parsed = parse(source);
-        let result = match_pattern_candidates(
+        let error = match_pattern_candidates(
             MatchInput::from_source(&mapped, TextRange::new(0, input.len())).unwrap(),
             &[candidate(source, &parsed, 0)],
-            &mut AcceptTypeExpressions,
+            &mut EmptyTypeExpressions,
             &mut NoopPatternMatchHooks,
             PatternMatcherConfig::default(),
         )
-        .unwrap();
-        let selected = result.selected.unwrap();
-        let PatternCapture::TypeExpression { state, value, .. } = &selected.matched.captures[0]
-        else {
-            panic!("typed capture expected");
-        };
-        assert_eq!(*state, expected_state);
-        assert_eq!(value.is_empty(), expected_state == TypeCaptureState::Null);
+        .unwrap_err();
+        assert!(
+            matches!(error, PatternMatchError::InvalidTypeResolution { range } if range == TextRange::empty(2)),
+            "{source}: {error:?}"
+        );
     }
+}
+
+#[test]
+fn unselected_nullable_choice_retains_null_and_exact_omission_anchor() {
+    let source = "do (done|%-number%)";
+    let selected = match_one("do done", source, &parse(source))
+        .unwrap()
+        .selected
+        .expect("the literal choice branch must match");
+    let PatternCapture::TypeExpression {
+        state,
+        value,
+        span,
+        omission,
+        alternative_index,
+        resolution_id,
+        ..
+    } = &selected.matched.captures[0]
+    else {
+        panic!("the unselected choice retains its typed slot");
+    };
+    assert_eq!(*state, TypeCaptureState::Null);
+    assert!(value.is_empty());
+    assert_eq!(
+        omission.unwrap().kind,
+        skript_parser::PatternOmissionKind::UnselectedChoice
+    );
+    assert_eq!(span.local_range, TextRange::empty(3));
+    assert_eq!(span.mapped.virtual_range, TextRange::empty(3));
+    assert_eq!(span.mapped.origins[0].original_range, TextRange::empty(3));
+    assert_eq!(
+        span.mapped.origins[0].kind,
+        skript_parser::OriginKind::Exact
+    );
+    assert!(alternative_index.is_none() && resolution_id.is_none());
 }
 
 #[test]

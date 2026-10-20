@@ -888,3 +888,120 @@ fn no_match_rolls_back_expression_hook_state_revision() {
     assert_eq!(transaction.state_revision().unwrap(), 0);
     transaction.cancel().unwrap();
 }
+
+#[test]
+fn genuine_nullable_equipment_capture_requires_input_but_armor_choice_keeps_null() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime");
+    let snapshot = ssg::load(&fixture).expect("genuine Core snapshot must load");
+    let armor = snapshot
+        .catalog()
+        .expressions()
+        .find(|expression| {
+            expression.common.element_class.as_str() == "ch.njol.skript.expressions.ExprArmorSlot"
+        })
+        .expect("genuine snapshot contains the actual ArmorSlot registration");
+    let armor_registration = armor.common.registration_id.as_str().to_owned();
+    assert!(
+        armor
+            .common
+            .patterns
+            .iter()
+            .any(|pattern| pattern.source.contains("%-*equipmentslots%"))
+    );
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(Arc::new(snapshot.catalog().clone())),
+            runtime_profile: RuntimeProfile {
+                skript_version: Some("2.15.4".to_owned()),
+                ..RuntimeProfile::default()
+            },
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    for (index, text) in ["player's", "player's armor"].into_iter().enumerate() {
+        let revision = 900 + index as u64;
+        let transaction = host
+            .begin_parse(
+                "file:///workspace",
+                "file:///workspace/expression.sk",
+                revision,
+            )
+            .unwrap();
+        let source = MappedSource::identity(text);
+        let result = host
+            .parse_expression_in_parse(
+                &transaction,
+                context(revision),
+                ExpressionParseRequest {
+                    source: &source,
+                    range: TextRange::new(0, text.len()),
+                    expected_types: vec![ExpressionExpectedType {
+                        class_name: ClassName("java.lang.Object".to_owned()),
+                        plural: true,
+                    }],
+                    context: ExpressionParseContext {
+                        event_classes: vec![ClassName(
+                            "org.bukkit.event.player.PlayerJoinEvent".to_owned(),
+                        )],
+                        ..parser_context()
+                    },
+                },
+                ExpressionParserConfig::default(),
+            )
+            .expect("a nonmatch is not a host fault");
+        assert!(result.failures.is_empty(), "{text}: {:#?}", result.failures);
+        if index == 0 {
+            assert!(
+                result.matches.selected.is_none(),
+                "a mandatory nullable slot cannot establish a Slot from no input: {:#?}",
+                result.matches
+            );
+            assert!(result.matches.alternatives.is_empty());
+        } else {
+            let node = result
+                .matches
+                .selected
+                .expect("the real armor keyword branch must still match")
+                .node;
+            let ExpressionNodeKind::Registered {
+                ref registration_id,
+                ..
+            } = node.kind
+            else {
+                panic!("registered ArmorSlot expected");
+            };
+            assert_eq!(registration_id, &armor_registration);
+            assert_eq!(
+                node.return_type.as_ref().map(ClassName::as_str),
+                Some("ch.njol.skript.util.slot.Slot")
+            );
+            assert_eq!(node.span.local_range, TextRange::new(0, text.len()));
+            assert_eq!(
+                node.span.mapped.virtual_range,
+                TextRange::new(0, text.len())
+            );
+            assert!(
+                node.span
+                    .mapped
+                    .origins
+                    .iter()
+                    .all(|origin| origin.kind == skript_parser::OriginKind::Exact
+                        && origin.original_range == TextRange::new(0, text.len()))
+            );
+            assert!(node.captures.iter().any(|capture| matches!(capture, PatternCapture::TypeExpression {
+                expression, state: skript_parser::TypeCaptureState::Null, omission: Some(omission), span, value, ..
+            } if expression.alternatives.iter().any(|alternative| alternative.name == "equipmentslot")
+                && omission.kind == skript_parser::PatternOmissionKind::UnselectedChoice
+                && span.local_range.is_empty() && span.mapped.virtual_range.is_empty() && value.is_empty())));
+            assert!(node.captures.iter().any(
+                |capture| matches!(capture, PatternCapture::TypeExpression {
+                state: skript_parser::TypeCaptureState::Explicit, span, value, ..
+            } if value == "player" && span.local_range.slice(text) == Some("player"))
+            ));
+        }
+        transaction.cancel().unwrap();
+    }
+}

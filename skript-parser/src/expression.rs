@@ -4580,13 +4580,6 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             .collect::<Vec<_>>();
         let mut resolutions = Vec::new();
         let mut failure = None;
-        if request.expression.nullable && candidate_ends.contains(&remaining.start) {
-            resolutions.push(TypeExpressionResolution {
-                range: TextRange::empty(request.remaining.start),
-                alternative_index: None,
-                resolution_id: None,
-            });
-        }
         for (alternative_index, alternative) in request.expression.alternatives.iter().enumerate() {
             let Some(value_type) = self.catalog.type_by_code_name(&alternative.name) else {
                 continue;

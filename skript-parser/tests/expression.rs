@@ -282,6 +282,116 @@ fn explicit_and_nullable_captures_never_request_a_default() {
 }
 
 #[test]
+fn nullable_type_flag_does_not_omit_a_selected_expression_capture() {
+    for (pattern, text) in [
+        ("public parent %-string%", "public parent"),
+        ("public parent %-string% tail", "public parent tail"),
+    ] {
+        let (result, environment) = default_case(pattern, text, DefaultTestOutcome::Resolved);
+        assert!(result.selected.is_none(), "{pattern}: {result:#?}");
+        assert_eq!(
+            environment.calls, 0,
+            "a mandatory selected capture is not a default request"
+        );
+        assert!(!environment.parent_saw_default);
+    }
+    let (result, environment) = default_case(
+        "public parent %-string%",
+        "public parent \"leaf\"",
+        DefaultTestOutcome::Rejected,
+    );
+    let parent = result
+        .selected
+        .expect("a nonempty nullable typed expression must match")
+        .node;
+    assert_eq!(environment.calls, 0);
+    assert_eq!(parent.children.len(), 1);
+    let skript_parser::PatternCapture::TypeExpression {
+        state,
+        value,
+        omission,
+        span,
+        ..
+    } = &parent.captures[0]
+    else {
+        panic!("explicit nullable capture expected");
+    };
+    assert_eq!(*state, skript_parser::TypeCaptureState::Explicit);
+    assert_eq!(value, "\"leaf\"");
+    assert!(omission.is_none());
+    assert_eq!(
+        span.local_range.slice("public parent \"leaf\""),
+        Some("\"leaf\"")
+    );
+}
+
+#[test]
+fn structurally_omitted_nullable_slots_keep_null_without_requesting_defaults() {
+    for (pattern, text, kind) in [
+        (
+            "public parent[ %-string%]",
+            "public parent",
+            skript_parser::PatternOmissionKind::SkippedOption,
+        ),
+        (
+            "public parent (%-string%|done)",
+            "public parent done",
+            skript_parser::PatternOmissionKind::UnselectedChoice,
+        ),
+    ] {
+        let (result, environment) = default_case(pattern, text, DefaultTestOutcome::Rejected);
+        let parent = result
+            .selected
+            .expect("structural omission must remain valid")
+            .node;
+        assert_eq!(environment.calls, 0);
+        assert!(parent.children.is_empty());
+        let skript_parser::PatternCapture::TypeExpression {
+            state,
+            value,
+            omission,
+            span,
+            ..
+        } = &parent.captures[0]
+        else {
+            panic!("omitted nullable capture expected");
+        };
+        assert_eq!(*state, skript_parser::TypeCaptureState::Null);
+        assert_eq!(omission.unwrap().kind, kind);
+        assert!(value.is_empty() && span.local_range.is_empty());
+        assert_eq!(span.mapped.virtual_range, span.local_range);
+        assert!(
+            span.mapped
+                .origins
+                .iter()
+                .all(|origin| origin.kind == skript_parser::OriginKind::Exact
+                    && origin.original_range.is_empty())
+        );
+    }
+    let (result, environment) = default_case(
+        "public parent[ %string%]",
+        "public parent",
+        DefaultTestOutcome::Resolved,
+    );
+    let parent = result
+        .selected
+        .expect("the nonnullable omitted default remains valid")
+        .node;
+    assert!(environment.calls > 0 && environment.parent_saw_default);
+    assert!(matches!(
+        parent.children[0].kind,
+        ExpressionNodeKind::Default { .. }
+    ));
+    assert!(matches!(
+        parent.captures[0],
+        skript_parser::PatternCapture::TypeExpression {
+            state: skript_parser::TypeCaptureState::Default,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn default_rejection_and_unresolved_are_distinct_failures() {
     for (outcome, expected_kind) in [
         (

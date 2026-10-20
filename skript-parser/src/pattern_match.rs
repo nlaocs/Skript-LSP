@@ -144,7 +144,8 @@ pub struct PatternCandidate<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// One prefix accepted by recursive typed-expression parsing.
+/// One nonempty prefix accepted by recursive typed-expression parsing.
+/// Structural omissions are retained separately, never as selected resolutions.
 pub struct TypeExpressionResolution {
     pub range: TextRange,
     pub alternative_index: Option<usize>,
@@ -696,7 +697,7 @@ pub enum TypeCaptureState {
     Explicit,
     /// The pattern branch omitted a non-nullable slot that needs a default.
     Omitted,
-    /// The pattern permits an absent expression through its `-` flag.
+    /// The slot was omitted instead of selected; its `-` flag suppresses a default.
     Null,
     /// A provider supplied an implicit expression for the omitted slot.
     Default,
@@ -2535,11 +2536,10 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         let capture_index = self.current_capture_index(pattern_span);
-        let mut boundaries =
-            skript_boundaries(self.input.text(), state.cursor, self.trim_range.end)
-                .into_iter()
-                .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
-                .collect::<Vec<_>>();
+        let boundaries = skript_boundaries(self.input.text(), state.cursor, self.trim_range.end)
+            .into_iter()
+            .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
+            .collect::<Vec<_>>();
         let anchored_failure_end = boundaries
             .iter()
             .copied()
@@ -2557,9 +2557,8 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         let failure_end = anchored_failure_end
             .or_else(|| boundaries.iter().copied().find(|end| *end > state.cursor));
         let failure_range = failure_end.map(|end| TextRange::new(state.cursor, end));
-        if expression.nullable && self.boundary_allows_tail(state.cursor, tail) {
-            boundaries.insert(0, state.cursor);
-        }
+        // A selected type element must parse source input. The `-` flag only
+        // suppresses defaults for slots omitted by optional/choice structure.
         let potential_range = TextRange::new(
             state.cursor,
             boundaries.iter().copied().max().unwrap_or(state.cursor),
@@ -2599,6 +2598,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         for resolution in outcome.resolutions {
             let range = resolution.range;
             if range.start != state.cursor
+                || range.is_empty()
                 || range.end > self.trim_range.end
                 || !range.is_valid_for(self.input.text())
                 || !legal.contains(&range.end)
@@ -2636,22 +2636,14 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
             next.cursor = range.end;
             next.captures.push(PatternCapture::TypeExpression {
                 capture_index,
-                state: if range.is_empty() {
-                    TypeCaptureState::Null
-                } else {
-                    TypeCaptureState::Explicit
-                },
+                state: TypeCaptureState::Explicit,
                 pattern_span,
                 expression: expression.clone(),
                 value: range
                     .slice(self.input.text())
                     .expect("validated type expression range")
                     .to_owned(),
-                span: if range.is_empty() {
-                    implicit_capture_span(self.input.map_range(range)?)
-                } else {
-                    self.input.map_range(range)?
-                },
+                span: self.input.map_range(range)?,
                 omission: None,
                 alternative_index: resolution.alternative_index,
                 resolution_id: resolution.resolution_id,
