@@ -169,6 +169,22 @@ struct Write {
     range: TextRange,
 }
 
+// A bounded view at an authenticated variable evaluation boundary, after all
+// preceding operands have already updated/invalidated the existing flow facts.
+#[derive(Clone)]
+pub(super) struct CompletionOwner {
+    pub range: TextRange,
+    pub identity: String,
+    pub parameter: usize,
+}
+struct CompletionPoint {
+    owner: CompletionOwner,
+    range: TextRange,
+    requested_types: Vec<String>,
+    types: BTreeMap<String, InferredType>,
+}
+const MAX_COMPLETION_TYPE_BINDINGS: usize = 16_384;
+
 pub(super) struct Document {
     pub uri: Uri,
     pub source_witness: String,
@@ -179,6 +195,8 @@ pub(super) struct Document {
     lines: LineIndex,
     catalog: Arc<Catalog>,
     occurrences: Vec<Occurrence>,
+    completion_points: Vec<CompletionPoint>,
+    completion_type_bindings: usize,
     writes: Vec<Write>,
     pub functions: Vec<FunctionSymbol>,
     pub dependencies: BTreeSet<Dependency>,
@@ -414,6 +432,8 @@ impl Document {
             lines,
             catalog,
             occurrences: Vec::new(),
+            completion_points: Vec::new(),
+            completion_type_bindings: 0,
             writes: Vec::new(),
             functions,
             dependencies: BTreeSet::new(),
@@ -433,6 +453,7 @@ impl Document {
             blocked,
             visiting: HashSet::new(),
             identities: HashMap::new(),
+            pending_completion_owner: None,
         };
         for root in &ast.roots {
             let mut facts = Facts::new();
@@ -441,8 +462,41 @@ impl Document {
         document
             .occurrences
             .sort_by_key(|occurrence| (occurrence.range.start, occurrence.range.end));
+        document
+            .completion_points
+            .sort_by_key(|point| (point.range.start, point.range.end));
         Ok(document)
     }
+    /// Only this exact revision's authenticated operand boundary can certify a
+    /// candidate's stored local type. No previous occurrence is extrapolated.
+    pub fn completion_input(
+        &self,
+        source: &str,
+        edit: TextRange,
+        name: &str,
+    ) -> Option<(&InferredType, &[String], &CompletionOwner)> {
+        if source != self.source.as_ref() || self.unavailable.iter().any(|r| overlaps(*r, edit)) {
+            return None;
+        }
+        let index = self
+            .completion_points
+            .binary_search_by_key(&(edit.start, edit.end), |p| (p.range.start, p.range.end))
+            .ok()?;
+        if index
+            .checked_sub(1)
+            .and_then(|i| self.completion_points.get(i))
+            .is_some_and(|p| p.range == edit)
+            || self
+                .completion_points
+                .get(index + 1)
+                .is_some_and(|p| p.range == edit)
+        {
+            return None;
+        }
+        let point = &self.completion_points[index];
+        Some((point.types.get(name)?, &point.requested_types, &point.owner))
+    }
+
     pub fn type_at(&self, position: Position) -> Option<(Range, &InferredType)> {
         let occurrence = self.at(position)?;
         if !matches!(occurrence.reference, Reference::Variable { .. }) {
@@ -735,6 +789,7 @@ struct Engine<'a> {
     blocked: Vec<TextRange>,
     visiting: HashSet<u64>,
     identities: HashMap<(u64, u64), Option<Identity>>,
+    pending_completion_owner: Option<CompletionOwner>,
 }
 impl Engine<'_> {
     fn node(&mut self, id: u64, scope: u64, facts: &mut Facts) -> Result<InferredType, String> {
@@ -742,7 +797,8 @@ impl Engine<'_> {
             return Err("cyclic semantic AST".into());
         }
         let node = *self.nodes.get(&id).ok_or("missing semantic AST node")?;
-        let answer = self.node_inner(node, scope, facts);
+        let completion_owner = self.pending_completion_owner.take();
+        let answer = self.node_inner(node, scope, facts, completion_owner);
         self.visiting.remove(&id);
         answer
     }
@@ -751,6 +807,7 @@ impl Engine<'_> {
         node: &AstNode,
         scope: u64,
         facts: &mut Facts,
+        completion_owner: Option<CompletionOwner>,
     ) -> Result<InferredType, String> {
         let Some(range) = self.exact(node) else {
             facts.clear();
@@ -777,6 +834,39 @@ impl Engine<'_> {
                         && !read.requested_types.is_empty()
                         && node.children.is_empty()
                 });
+            if let Some(read) = &read
+                && identity.key.local
+                && !identity.list
+                && let Some(owner) = completion_owner
+            {
+                let remaining = MAX_COMPLETION_TYPE_BINDINGS
+                    .saturating_sub(self.document.completion_type_bindings);
+                // Snapshot only a bounded set of types, never clone Facts or
+                // declaration/alias histories at each statement. Budget overflow
+                // yields Unknown for this boundary rather than a partial map.
+                let mut types = BTreeMap::new();
+                let mut complete = true;
+                for (key, fact) in facts.iter().filter(|(key, _)| {
+                    key.local
+                        && key.scope == identity.key.scope
+                        && key.context == identity.key.context
+                }) {
+                    if types.len() == remaining {
+                        complete = false;
+                        break;
+                    }
+                    types.insert(key.name.clone(), fact.ty.clone());
+                }
+                if complete && !types.is_empty() {
+                    self.document.completion_type_bindings += types.len();
+                    self.document.completion_points.push(CompletionPoint {
+                        owner,
+                        range,
+                        requested_types: read.requested_types.clone(),
+                        types,
+                    });
+                }
+            }
             let fact = identity
                 .key
                 .local
@@ -879,6 +969,7 @@ impl Engine<'_> {
         let mut child_types = HashMap::new();
         let ordered = prefix.unwrap_or_default();
         for child in &ordered {
+            self.pending_completion_owner = self.completion_owner(node, *child);
             child_types.insert(*child, self.node(*child, scope, facts)?);
         }
         let unlisted = nonbody
@@ -946,6 +1037,30 @@ impl Engine<'_> {
             _ => known_type(node),
         };
         Ok(ty)
+    }
+    fn completion_owner(&self, parent: &AstNode, child: u64) -> Option<CompletionOwner> {
+        if !matches!(parent.kind, SyntaxKind::Effect | SyntaxKind::Condition) {
+            return None;
+        }
+        let summary = parent.summary.as_ref()?;
+        let mut indices = parent.captures.iter().filter_map(|capture| {
+            let (index, _) = capture.name.split_once(':')?;
+            let index = index.parse::<u64>().ok()?;
+            (capture_node(parent, index, &self.nodes) == Some(child)).then_some(index)
+        });
+        let index = indices.next()?;
+        if indices.next().is_some() {
+            return None;
+        }
+        Some(CompletionOwner {
+            range: self.exact(parent)?,
+            identity: format!(
+                "{}:{}",
+                summary.registration_id.as_ref()?,
+                summary.pattern_index?
+            ),
+            parameter: usize::try_from(index).ok()?,
+        })
     }
     fn body(
         &mut self,

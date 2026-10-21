@@ -472,6 +472,7 @@ mod tests {
             limited: false,
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
+            typing: None,
         })
     }
     // Graph tests supply a confirmed executable scope; source-only views defer body classification.
@@ -656,6 +657,7 @@ mod tests {
             identity: "fixture".into(),
             detail: "fixture".into(),
             returns_value: true,
+            definition: None,
             parameters: vec![("first".into(), "Number".into(), true, false)],
         });
         assert!(query(&comment, true).is_none());
@@ -679,6 +681,7 @@ mod tests {
                 identity: "fixture".into(),
                 detail: "fixture".into(),
                 returns_value: true,
+                definition: None,
                 parameters: vec![("first".into(), "Number".into(), true, false)],
             });
             assert!(query(&document, true).is_none(), "{source}");
@@ -736,6 +739,7 @@ mod tests {
             identity: class.into(),
             detail: class.into(),
             returns_value: true,
+            definition: None,
             parameters: vec![
                 ("first".into(), class.into(), single, false),
                 ("second".into(), class.into(), true, true),
@@ -746,6 +750,7 @@ mod tests {
         index.functions = vec![function("Number", true), function("Text", true)];
         document.functions = vec![Function {
             returns_value: false,
+            definition: None,
             detail: "local void".into(),
             ..function("Number", true)
         }];

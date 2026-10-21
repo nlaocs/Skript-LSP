@@ -25,6 +25,9 @@ mod prepared;
 pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
 mod signature;
 mod structure;
+mod typing;
+#[cfg(test)]
+mod typing_tests;
 pub(super) use signature::{SignatureCapabilities, SignatureQuery};
 use structure::{EntryScope, Scope};
 
@@ -66,6 +69,7 @@ struct Function {
     detail: String,
     parameters: Vec<(String, String, bool, bool)>,
     returns_value: bool,
+    definition: Option<Arc<FunctionDefinition>>,
 }
 impl Function {
     fn shape(&self) -> Vec<(&str, bool)> {
@@ -92,6 +96,7 @@ impl Function {
                 })
                 .collect(),
             returns_value: definition.return_type.is_some(),
+            definition: Some(Arc::new(definition.clone())),
         }
     }
 }
@@ -101,12 +106,13 @@ pub(super) struct CatalogIndex {
     patterns: Vec<Pattern>,
     functions: Vec<Function>,
     limited: bool,
+    typing: Option<typing::Index>,
     raw_options: skript_parser::RawTreeOptions,
     documentation_format: lsp_types::MarkupKind,
 }
 impl CatalogIndex {
     pub fn with_documentation_format(
-        catalog: &Catalog,
+        catalog: &Arc<Catalog>,
         raw_options: skript_parser::RawTreeOptions,
         documentation_format: lsp_types::MarkupKind,
     ) -> Self {
@@ -117,6 +123,7 @@ impl CatalogIndex {
             limited: false,
             raw_options,
             documentation_format,
+            typing: Some(typing::Index::new(Arc::clone(catalog))),
         };
         let mut function_shapes = HashSet::new();
         // Iterate the actual Catalog, preserving registration and pattern order.
@@ -152,6 +159,7 @@ impl CatalogIndex {
             for (pattern_index, pattern) in common.patterns.iter().enumerate() {
                 if pattern.source.len() > MAX_TEMPLATE_BYTES {
                     index.limited = true;
+                    index.typing.as_mut().unwrap().complete_patterns = false;
                     continue;
                 }
                 let detail = match common
@@ -164,6 +172,9 @@ impl CatalogIndex {
                     None => format!("{:?} / {}", syntax.kind(), common.addon.name),
                 };
                 let identity = format!("{}:{pattern_index}", common.registration_id.as_str());
+                if let Syntax::Expression(expression) = syntax {
+                    index.typing.as_mut().unwrap().insert(&identity, expression);
+                }
                 let event_prefix = matches!(syntax, Syntax::Event(event) if event.has_on_prefix);
                 if let Some(graph) = continuation::Graph::with_prefix(
                     if event_prefix { "on " } else { "" },
@@ -179,6 +190,7 @@ impl CatalogIndex {
                     });
                 } else {
                     index.limited = true;
+                    index.typing.as_mut().unwrap().complete_patterns = false;
                 }
                 let variants = variants(
                     &pattern.parsed.elements,
@@ -372,6 +384,7 @@ struct Line {
     parent: Option<RawNodeId>,
     ancestors: Vec<RawNodeId>,
     root: bool,
+    section: bool,
     blocked: bool,
     comments: Vec<TextRange>,
 }
@@ -380,6 +393,7 @@ struct Variable {
     parent: Option<RawNodeId>,
     local: bool,
     observed: usize,
+    canonical_name: Option<String>,
 }
 pub(super) struct Document {
     source: Arc<str>,
@@ -392,6 +406,8 @@ pub(super) struct Document {
     index: Arc<CatalogIndex>,
     blocked: Vec<TextRange>,
     function_namespace_complete: bool,
+    type_context_exact: bool,
+    pub(super) semantic_types: Option<Arc<super::semantic::Document>>,
 }
 
 fn exact_native(span: &skript_parser::MappedSpan) -> Option<TextRange> {
@@ -434,6 +450,8 @@ impl Document {
             index,
             blocked: Vec::new(),
             function_namespace_complete: true,
+            type_context_exact: false,
+            semantic_types: None,
         })
     }
 
@@ -571,6 +589,28 @@ impl Document {
                 parent: line.parent,
                 local: scope == "local",
                 observed: range.start,
+                canonical_name: witnesses
+                    .unique_issuer(node)
+                    .filter(|issuer| witnesses.provider_valid(node, issuer))
+                    .and_then(|_| {
+                        let mut records = node
+                            .summary
+                            .as_ref()?
+                            .public_data
+                            .iter()
+                            .filter(|r| r.schema_id == "nlaocs.skript.variable-identity");
+                        let record = records.next()?;
+                        if records.next().is_some() || record.schema_version != 1 {
+                            return None;
+                        }
+                        let identity: super::public_data::VariableIdentity =
+                            serde_json::from_str(&record.json).ok()?;
+                        (identity.scope == "local"
+                            && identity.resolution == "static"
+                            && !identity.list
+                            && !identity.name.is_empty())
+                        .then_some(identity.name)
+                    }),
             });
         }
         variables.sort_by_key(|v| v.observed);
@@ -598,6 +638,8 @@ impl Document {
             index,
             blocked,
             function_namespace_complete: result.function_namespace_complete,
+            type_context_exact: result.source.original() == result.source.virtual_source(),
+            semantic_types: None,
         })
     }
 
@@ -646,6 +688,7 @@ impl Document {
                 parent: None,
                 ancestors: Vec::new(),
                 root: text.is_empty(),
+                section: false,
                 blocked: false,
                 comments: Vec::new(),
             };
@@ -803,17 +846,38 @@ impl Document {
                     || template.kind == SyntaxKind::Condition)
                     && template.folded.starts_with(&folded_prefix)
                 {
-                    items.push(self.template_item(
-                        template,
-                        prefix,
-                        line.code_start,
-                        word_end,
-                        line,
-                        snippets,
-                    )?);
+                    items.push(
+                        self.template_item(
+                            template,
+                            prefix,
+                            line.code_start,
+                            word_end,
+                            line,
+                            snippets,
+                        )?
+                        .0,
+                    );
                 }
             }
         }
+        let type_edit_start = variable_start.unwrap_or(word_start);
+        let type_edit_end = if let Some(start) = variable_start {
+            match cursor::variable_edit_end(&self.source[start..line.range.end], offset - start) {
+                Ok(Some(close)) => start + close,
+                Ok(None) => line.range.end,
+                Err(()) => return Ok(empty()),
+            }
+        } else {
+            word_end
+        };
+        let type_edit = TextRange::new(type_edit_start, type_edit_end);
+        // Variable replacements use their authenticated lookup proof below;
+        // grammar-hole expectations are unused when only variables are shown.
+        let expected_types = (expression && variable_start.is_none())
+            .then(|| self.expected_at(line, type_edit, references))
+            .flatten();
+        let expected = expected_types.as_deref();
+        let mut completion_type_budget = continuation::Budget::new();
         if expression {
             let start = variable_start.unwrap_or(word_start);
             let mut end = word_end;
@@ -834,7 +898,16 @@ impl Document {
                     } else {
                         parameter.source.trim_start_matches('{')
                     };
-                    if starts(search, query) && seen.insert(parameter.source.as_str()) {
+                    if starts(search, query)
+                        && (parameter.list
+                            || !self.incompatible_variable(
+                                &parameter.name,
+                                &parameter.source,
+                                type_edit,
+                                &mut completion_type_budget,
+                            ))
+                        && seen.insert(parameter.source.as_str())
+                    {
                         let mut item = self.item(
                             &parameter.source,
                             &parameter.source,
@@ -878,7 +951,17 @@ impl Document {
                 } else {
                     variable.source.trim_start_matches('{')
                 };
-                if starts(search, query) && seen.insert(variable.source.as_str()) {
+                if starts(search, query)
+                    && !variable.canonical_name.as_ref().is_some_and(|name| {
+                        self.incompatible_variable(
+                            name,
+                            &variable.source,
+                            type_edit,
+                            &mut completion_type_budget,
+                        )
+                    })
+                    && seen.insert(variable.source.as_str())
+                {
                     items.push(self.item(
                         &variable.source,
                         &variable.source,
@@ -941,6 +1024,12 @@ impl Document {
                             format!("{}(", function.name)
                         }
                     };
+                    // A name-only edit inside an existing call does not own
+                    // the complete expression. New calls have their declared
+                    // output type even before required arguments are entered.
+                    if !existing_call && self.incompatible_function(function, expected) {
+                        continue;
+                    }
                     let label = format!(
                         "{}({})",
                         function.name,
@@ -1020,7 +1109,23 @@ impl Document {
                 {
                     continue;
                 }
-                items.push(self.template_item(template, query, start, word_end, line, snippets)?);
+                let (item, whole_template) =
+                    self.template_item(template, query, start, word_end, line, snippets)?;
+                if template.kind == SyntaxKind::Expression
+                    && self.incompatible_template(
+                        template,
+                        expected,
+                        line,
+                        type_edit,
+                        &item,
+                        whole_template,
+                        references,
+                        &mut completion_type_budget,
+                    )
+                {
+                    continue;
+                }
+                items.push(item);
             }
         }
         // Some menu clients insert only up to the cursor. Keep edits in that
@@ -1117,7 +1222,7 @@ impl Document {
         word_end: usize,
         line: &Line,
         snippets: bool,
-    ) -> Result<CompletionItem, String> {
+    ) -> Result<(CompletionItem, bool), String> {
         let header = matches!(
             template.kind,
             SyntaxKind::Event | SyntaxKind::Section | SyntaxKind::Structure
@@ -1170,7 +1275,9 @@ impl Document {
             template.documentation.as_deref(),
             &self.index.documentation_format,
         ));
-        Ok(item)
+        // The definition owns the complete proposal only without a retained
+        // right suffix; render(false) itself may stop at the first slot.
+        Ok((item, !suffix))
     }
     fn item(
         &self,
@@ -1266,6 +1373,7 @@ fn raw_context(
                 parent: editing_parent,
                 ancestors,
                 root: editing_parent.is_none() && node.line.indentation.text.is_empty(),
+                section: node.kind == RawNodeKind::Section,
                 blocked: matches!(node.kind, RawNodeKind::Comment | RawNodeKind::Invalid),
                 comments: node
                     .line
@@ -1333,6 +1441,7 @@ impl Document {
                         parent: node.parent,
                         ancestors: node.parent.into_iter().collect(),
                         root: node.parent.is_none() && node.line.indentation.text.is_empty(),
+                        section: node.kind == RawNodeKind::Section,
                         blocked: false,
                         comments: Vec::new(),
                     },
@@ -1364,9 +1473,12 @@ impl Document {
                 patterns: Vec::new(),
                 raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
                 documentation_format: lsp_types::MarkupKind::PlainText,
+                typing: None,
             }),
             blocked: Vec::new(),
             function_namespace_complete: true,
+            type_context_exact: false,
+            semantic_types: None,
         }
     }
 }
@@ -1558,6 +1670,7 @@ mod tests {
             parent: document.context[&2].parent,
             local: true,
             observed: source.find("{_outer").unwrap(),
+            canonical_name: None,
         });
         let list = document
             .at(
@@ -1587,6 +1700,7 @@ mod tests {
             detail: "fixture".into(),
             parameters: vec![("argument".into(), class.into(), true, false)],
             returns_value,
+            definition: None,
         }
     }
     fn with_functions(source: &str) -> Document {
@@ -1598,6 +1712,7 @@ mod tests {
             patterns: Vec::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
+            typing: None,
         });
         document
     }
@@ -1742,6 +1857,7 @@ mod tests {
             parent: view.context[&2].parent,
             local: true,
             observed: source.find("{_money}").unwrap(),
+            canonical_name: None,
         });
         let list = view.at(Position::new(3, 13), false).unwrap();
         assert_eq!(list.items.len(), 1);
@@ -1797,6 +1913,7 @@ mod tests {
             patterns: Vec::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
+            typing: None,
         });
         let result = view.at(Position::new(1, 11), true).unwrap();
         assert_eq!(result.items.len(), 1);
@@ -1914,7 +2031,8 @@ mod tests {
                     line,
                     snippets,
                 )
-                .unwrap();
+                .unwrap()
+                .0;
             assert_eq!(edit(&item).new_text, expected);
             assert_eq!(
                 edit(&item).range.end,
@@ -1946,6 +2064,7 @@ mod tests {
             patterns: Vec::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
+            typing: None,
         });
         let list = view.at(Position::new(1, 9), false).unwrap();
         assert!(list.is_incomplete);

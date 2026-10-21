@@ -44,6 +44,7 @@ pub(super) struct Graph {
     nodes: Vec<Vec<Edge>>,
     end: usize,
     pub(super) parameters: Vec<std::ops::Range<usize>>,
+    pub(super) slot_types: Vec<Option<syntax_pattern_parser::syntax::PatternTypeExpr>>,
     slot_boundaries: HashMap<usize, Vec<char>>,
 }
 
@@ -62,6 +63,7 @@ impl Graph {
             nodes: vec![Vec::new()],
             end: 0,
             parameters: Vec::new(),
+            slot_types: Vec::new(),
             slot_boundaries: HashMap::new(),
         };
         let start = if prefix.is_empty() {
@@ -136,6 +138,10 @@ impl Graph {
                 PatternElement::TypeExpr(_) | PatternElement::Regex(_) => {
                     let parameter = self.parameters.len();
                     self.parameters.push(element.span.start..element.span.end);
+                    self.slot_types.push(match &element.value {
+                        PatternElement::TypeExpr(types) => Some(types.clone()),
+                        _ => None,
+                    });
                     self.nodes[from].push(Edge::Slot(next, parameter))
                 }
                 PatternElement::Option(elements) => {
@@ -160,6 +166,89 @@ impl Graph {
             from = next;
         }
         Some(from)
+    }
+
+    /// All complete structural paths covering an explicit editing hole. Other
+    /// slots remain opaque, so this is an over-approximation, never a selected
+    /// parser candidate. Incomplete exploration invalidates the whole proof.
+    pub(super) fn hole_slots(
+        &self,
+        input: &str,
+        hole: std::ops::Range<usize>,
+        budget: &mut Budget,
+    ) -> Result<Vec<(usize, std::ops::Range<usize>)>, ()> {
+        let mut pending = vec![(0, 0, None)];
+        let mut visited = HashSet::new();
+        let mut found = HashSet::new();
+        while let Some((node, offset, active)) = pending.pop() {
+            if !budget.spend() || visited.len() >= MAX_STATES {
+                return Err(());
+            }
+            if !visited.insert((node, offset, active)) {
+                continue;
+            }
+            if node == self.end && input[offset..].trim().is_empty() {
+                if let Some(slot) = active {
+                    found.insert(slot);
+                }
+            }
+            for edge in &self.nodes[node] {
+                match edge {
+                    Edge::Empty(next) => pending.push((*next, offset, active)),
+                    Edge::Text(text, next) => {
+                        if !budget.scan(text.len() + 1) {
+                            return Err(());
+                        }
+                        if let Ok(end) = skript_parser::match_pattern_literal(
+                            input,
+                            skript_parser::TextRange::new(0, input.len()),
+                            offset,
+                            text,
+                        ) {
+                            // Literal text must never acquire the editing hole.
+                            let active = if end <= hole.start || offset >= hole.end {
+                                active
+                            } else {
+                                // A real replacement may become fixed syntax
+                                // rather than an expression. Preserve that opaque
+                                // route so it cannot borrow a typed-slot proof.
+                                Some((usize::MAX, hole.start, hole.end))
+                            };
+                            pending.push((*next, end, active));
+                        }
+                    }
+                    Edge::Slot(next, parameter) => {
+                        if !budget.scan(input.len().saturating_sub(offset) + 1) {
+                            return Err(());
+                        }
+                        let ends =
+                            skript_parser::expression_split_boundaries(input, offset, input.len());
+                        for end in ends {
+                            let overlap = offset < hole.end && hole.start < end;
+                            let active = if matches!(active, Some((usize::MAX, _, _))) {
+                                active
+                            } else if overlap && !(offset <= hole.start && hole.end <= end) {
+                                Some((usize::MAX, hole.start, hole.end))
+                            } else if overlap {
+                                Some((*parameter, offset, end))
+                            } else {
+                                active
+                            };
+                            pending.push((*next, end, active));
+                        }
+                    }
+                }
+            }
+        }
+        if budget.exhausted() {
+            return Err(());
+        }
+        let mut found = found
+            .into_iter()
+            .map(|(parameter, start, end)| (parameter, start..end))
+            .collect::<Vec<_>>();
+        found.sort_by_key(|(parameter, range)| (*parameter, range.start, range.end));
+        Ok(found)
     }
 
     pub fn next_words(&self, committed: &str, query: &str, budget: &mut Budget) -> Frontier {

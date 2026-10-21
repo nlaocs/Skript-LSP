@@ -66,4 +66,4 @@ pub(super) fn project(
 
 #[cfg(test)]
 #[path = "parameter_tests.rs"]
-mod tests;
+pub(super) mod tests;

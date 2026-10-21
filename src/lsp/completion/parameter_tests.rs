@@ -9,7 +9,7 @@ use std::{path::Path, sync::OnceLock};
 
 const SOURCE: &str = "# 日本🦊\nfunction first(value: number, values: numbers, arg%%Name: text):\n    send {_} to console\n    if {_value} is 1:\n        send {_} to console\n    send {_arg%%%%Name} to console\nfunction second(other: text):\n    send {_}\non load:\n    send \"end\"\n";
 
-fn catalog() -> Arc<Catalog> {
+pub(in crate::lsp::completion) fn catalog() -> Arc<Catalog> {
     static CATALOG: OnceLock<Arc<Catalog>> = OnceLock::new();
     Arc::clone(CATALOG.get_or_init(|| {
         Arc::new(
@@ -40,7 +40,7 @@ fn ready(view: &PreparedDocument, position: Position) -> CompletionList {
         PreparedQuery::NeedsAnalysis => panic!("expected certified parameter proposals"),
     }
 }
-fn parse(
+pub(in crate::lsp::completion) fn parse(
     source: &str,
 ) -> (
     PreparedDocument,
@@ -49,7 +49,7 @@ fn parse(
     Vec<CompletionList>,
 ) {
     let catalog = catalog();
-    let index = Arc::new(CatalogIndex::with_documentation_format(
+    let mut index = Arc::new(CatalogIndex::with_documentation_format(
         &catalog,
         skript_parser::RawTreeOptions::for_skript_version(2, 15),
         lsp_types::MarkupKind::PlainText,
@@ -66,6 +66,7 @@ fn parse(
         },
     )
     .unwrap();
+    Arc::get_mut(&mut index).unwrap().certify_types(&host);
     let mut prepared: Option<PreparedDocument> = None;
     let mut initial = Vec::new();
     let mut observer = |event: StructurePreparationEvent<'_>| match event {
@@ -83,6 +84,9 @@ fn parse(
             )
             .unwrap();
             for position in [Position::new(2, 11), Position::new(7, 11)] {
+                if LineIndex::new(source).offset(source, position).is_none() {
+                    continue;
+                }
                 initial.push(match view.at(position, false).unwrap() {
                     PreparedQuery::Ready(list) => list,
                     PreparedQuery::NeedsAnalysis => CompletionList {
@@ -158,7 +162,16 @@ fn parse(
             &mut observer,
         )
         .unwrap();
-    let final_view = Document::from_result(&result, Arc::from(source), index).unwrap();
+    let mut final_view = Document::from_result(&result, Arc::from(source), index).unwrap();
+    final_view.semantic_types = Some(Arc::new(
+        crate::lsp::semantic::Document::from_result(
+            &result,
+            Arc::from(source),
+            "file:///workspace/parameters.sk".parse().unwrap(),
+            self::catalog(),
+        )
+        .unwrap(),
+    ));
     (prepared.unwrap(), final_view, result, initial)
 }
 fn assert_first(list: &CompletionList) {

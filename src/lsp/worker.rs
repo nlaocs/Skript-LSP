@@ -122,11 +122,13 @@ pub(super) fn parser_factory() -> Factory {
             .map_err(|error| error.to_string())?;
         host.release_document(&config.project_uri, "lsp-project-validation", 0)
             .map_err(|error| error.to_string())?;
-        let completions = Arc::new(completion::CatalogIndex::with_documentation_format(
+        let mut completions = completion::CatalogIndex::with_documentation_format(
             &catalog,
             host.raw_tree_options(),
             config.completion_format.clone(),
-        ));
+        );
+        completions.certify_types(&host);
+        let completions = Arc::new(completions);
         Ok(Box::new(ParserAnalyzer {
             project_uri: config.project_uri,
             host,
@@ -384,7 +386,10 @@ impl Analyzer for ParserAnalyzer {
                     Arc::clone(&job.source),
                     Arc::clone(&self.completions),
                 ) {
-                    Ok(snapshot) => completion = Some(snapshot),
+                    Ok(mut snapshot) => {
+                        snapshot.semantic_types = semantic.clone();
+                        completion = Some(snapshot);
+                    }
                     Err(error) => completion_error = Some(error),
                 }
                 if self.semantic_enabled {

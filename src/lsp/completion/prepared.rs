@@ -13,7 +13,7 @@ pub(in crate::lsp) struct OwnerAttempt {
 
 /// This view has no semantic reference history and cannot answer signature queries.
 pub(in crate::lsp) struct PreparedDocument {
-    document: Document,
+    pub(super) document: Document,
     owners: HashMap<RawNodeId, OwnerAttempt>,
     revoked: HashSet<RawNodeId>,
     body_scopes: HashMap<RawNodeId, Scope>,
@@ -139,6 +139,8 @@ impl PreparedDocument {
                 index,
                 blocked: Vec::new(),
                 function_namespace_complete: false,
+                type_context_exact: mapped.original() == mapped.virtual_source(),
+                semantic_types: None,
             },
             owners,
             revoked: HashSet::new(),
