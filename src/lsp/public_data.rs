@@ -1,4 +1,45 @@
 use parser_wasm::host::AstNode;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct VariableIdentity {
+    pub name: String,
+    pub scope: String,
+    pub resolution: String,
+    pub alias_key: Option<String>,
+    pub list: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ParameterBindings {
+    pub version: u32,
+    pub parameters: Vec<ParameterBinding>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ParameterBinding {
+    pub identity: VariableIdentity,
+    pub class_name: String,
+    pub single: bool,
+    pub start: u64,
+    pub end: u64,
+}
+
+/// Shared provider contract used by semantic facts and current-header completion.
+/// Repeated or unsupported records cannot certify parameter declarations.
+pub(super) fn parameter_bindings<'a>(
+    metadata: impl Iterator<Item = (&'a str, &'a str)>,
+) -> Option<ParameterBindings> {
+    let mut values =
+        metadata.filter_map(|(key, value)| (key == "skript.semantic.parameters").then_some(value));
+    let value = values.next()?;
+    if values.next().is_some() {
+        return None;
+    }
+    let data: ParameterBindings = serde_json::from_str(value).ok()?;
+    matches!(data.version, 1 | 2).then_some(data)
+}
 
 /// Meaning is supplied by the semantic provider; geometry comes only from the
 /// native capture seal. Unknown or ambiguous declarations add no coloring.

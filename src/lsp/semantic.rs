@@ -1,7 +1,10 @@
 //! Revision-local semantic facts. Provider contracts supply meaning; native AST
 //! captures and exact source projections supply geometry. No source grammar is
 //! re-parsed here, and no runtime value or old document type is assumed.
-use super::positions::LineIndex;
+use super::{
+    positions::LineIndex,
+    public_data::{VariableIdentity as IdentityData, parameter_bindings},
+};
 use lsp_types::{Location, Position, Range, Uri};
 use parser_wasm::{
     DocumentParseResult,
@@ -724,30 +727,6 @@ struct Flow {
     version: u32,
     kind: String,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct IdentityData {
-    name: String,
-    scope: String,
-    resolution: String,
-    alias_key: Option<String>,
-    list: bool,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Parameters {
-    version: u32,
-    parameters: Vec<Parameter>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Parameter {
-    identity: IdentityData,
-    class_name: String,
-    single: bool,
-    start: u64,
-    end: u64,
-}
 
 struct Engine<'a> {
     document: &'a mut Document,
@@ -1165,10 +1144,11 @@ impl Engine<'_> {
         answer
     }
     fn parameters(&mut self, node: &AstNode, scope: u64, header: TextRange, facts: &mut Facts) {
-        let Some(data) = unique_metadata(node, PARAMETERS)
-            .and_then(|json| serde_json::from_str::<Parameters>(json).ok())
-            .filter(|data| matches!(data.version, 1 | 2))
-        else {
+        let Some(data) = parameter_bindings(
+            node.metadata
+                .iter()
+                .map(|entry| (entry.key.as_str(), entry.value.as_str())),
+        ) else {
             return;
         };
         let Some(header_length) = node

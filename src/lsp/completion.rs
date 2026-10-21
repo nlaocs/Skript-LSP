@@ -20,6 +20,7 @@ use syntaxes::{Catalog, Syntax, SyntaxKind};
 
 mod continuation;
 mod cursor;
+mod parameters;
 mod prepared;
 pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
 mod signature;
@@ -386,6 +387,7 @@ pub(super) struct Document {
     context: BTreeMap<u32, Line>,
     entry_scopes: Vec<EntryScope>,
     variables: Vec<Variable>,
+    parameters: HashMap<RawNodeId, Vec<parameters::Parameter>>,
     functions: Vec<Function>,
     index: Arc<CatalogIndex>,
     blocked: Vec<TextRange>,
@@ -427,6 +429,7 @@ impl Document {
             context,
             entry_scopes: Vec::new(),
             variables: Vec::new(),
+            parameters: HashMap::new(),
             functions: Vec::new(),
             index,
             blocked: Vec::new(),
@@ -499,9 +502,44 @@ impl Document {
             let node = nodes.get(&id).ok_or("missing completion AST node")?;
             pending.extend(node.children.iter().copied());
         }
+        let witnesses = result.semantic_witnesses();
         let mut variables = Vec::new();
+        let mut parameters = HashMap::new();
         for id in reachable {
             let node = nodes[&id];
+            if node.kind == parser_wasm::host::SyntaxKind::Structure {
+                if let Some(header) = exact_node(node, &source)
+                    .filter(|range| !blocked.iter().any(|b| overlaps(*b, *range)))
+                {
+                    let row = lines.position(&source, header.start)?.line;
+                    if let Some(owner) = context
+                        .get(&row)
+                        .filter(|line| line.root && !line.blocked && header.end <= line.range.end)
+                        .and_then(|line| line.node)
+                    {
+                        if let Some(bindings) = super::public_data::parameter_bindings(
+                            node.metadata
+                                .iter()
+                                .filter(|entry| {
+                                    entry.key == "skript.semantic.parameters"
+                                        && entry.owner_component_id.as_deref().is_some_and(
+                                            |owner| witnesses.provider_valid(node, owner),
+                                        )
+                                })
+                                .map(|entry| (entry.key.as_str(), entry.value.as_str())),
+                        ) {
+                            if let Some(declarations) = parameters::project(
+                                bindings,
+                                &source,
+                                header,
+                                node.span.virtual_range.start,
+                            ) {
+                                parameters.insert(owner, declarations);
+                            }
+                        }
+                    }
+                }
+            }
             if node.kind
                 != parser_wasm::bindings::nlaocs::skript_parser_addon::types::SyntaxKind::Expression
                 || node.summary.as_ref().is_none_or(|s| s.kind != "variable")
@@ -555,6 +593,7 @@ impl Document {
             context,
             entry_scopes,
             variables,
+            parameters,
             functions,
             index,
             blocked,
@@ -655,9 +694,6 @@ impl Document {
         } else {
             None
         };
-        if variable_start.is_some() && !references {
-            return Ok(empty());
-        }
         let mut frontier_limited = prefix.len() > MAX_CONTINUATION_BYTES;
         if variable_start.is_none()
             && word_start > line.code_start
@@ -781,17 +817,52 @@ impl Document {
         if expression {
             let start = variable_start.unwrap_or(word_start);
             let mut end = word_end;
-            if variable_start.is_some() {
-                let suffix = &self.source[offset..line.range.end];
-                if let Some(close) = suffix.find('}') {
-                    if !suffix[..close].contains(['{', '%']) {
-                        end = offset + close + 1;
-                    }
+            if let Some(start) = variable_start {
+                match cursor::variable_edit_end(&self.source[start..line.range.end], offset - start)
+                {
+                    Ok(Some(close)) => end = start + close,
+                    Ok(None) => end = line.range.end,
+                    Err(()) => return Ok(empty()),
                 }
             }
             let query = &self.source[start..offset];
             let mut seen = HashSet::new();
-            for variable in &self.variables {
+            for owner in &line.ancestors {
+                for parameter in self.parameters.get(owner).into_iter().flatten() {
+                    let search = if variable_start.is_some() {
+                        parameter.source.as_str()
+                    } else {
+                        parameter.source.trim_start_matches('{')
+                    };
+                    if starts(search, query) && seen.insert(parameter.source.as_str()) {
+                        let mut item = self.item(
+                            &parameter.source,
+                            &parameter.source,
+                            &format!(
+                                "declared parameter: {} ({})",
+                                parameter.class_name,
+                                if parameter.single { "single" } else { "plural" }
+                            ),
+                            &format!("parameter:{}:{}", owner.get(), parameter.source),
+                            CompletionItemKind::VARIABLE,
+                            TextRange::new(start, end),
+                            false,
+                        )?;
+                        item.data = Some(serde_json::json!({"declaredType": {
+                            "className": parameter.class_name, "single": parameter.single,
+                        }, "parameterDeclaration": {
+                            "rawNodeId": owner.get(), "list": parameter.list,
+                            "name": parameter.name, "scope": "local",
+                            "range": self.lines.range(&self.source, parameter.range)?,
+                        }}));
+                        items.push(item);
+                        if items.len().saturating_sub(generated_continuations) >= MAX_ITEMS {
+                            break;
+                        }
+                    }
+                }
+            }
+            for variable in self.variables.iter().filter(|_| references) {
                 if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
                     break;
                 }
@@ -1275,6 +1346,7 @@ impl Document {
             context,
             entry_scopes: Vec::new(),
             variables: Vec::new(),
+            parameters: HashMap::new(),
             functions: Vec::new(),
             index: Arc::new(CatalogIndex {
                 templates: vec![Template {

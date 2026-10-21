@@ -47,6 +47,7 @@ impl PreparedDocument {
             .collect::<HashMap<_, _>>();
         let mut entry_scopes = Vec::new();
         let mut owners = HashMap::new();
+        let mut parameters = HashMap::new();
         for header in headers {
             let candidate = header.candidate;
             let Some(raw) = tree.get(candidate.raw_node_id) else {
@@ -73,6 +74,26 @@ impl PreparedDocument {
                     attempt_id: header.attempt_id,
                 },
             );
+            if let Some(bindings) = super::super::public_data::parameter_bindings(
+                candidate.metadata.iter().filter_map(|(key, value)| {
+                    let (owner, key) = key.split_once('/')?;
+                    (!owner.is_empty()).then_some((key, value.as_str()))
+                }),
+            ) {
+                if let Some(declarations) = parameters::project(
+                    bindings,
+                    &source,
+                    exact_native(&raw.line.span).unwrap(),
+                    raw.line
+                        .span
+                        .virtual_range
+                        .start
+                        .try_into()
+                        .map_err(|_| "parameter header offset overflow")?,
+                ) {
+                    parameters.insert(raw.id, declarations);
+                }
+            }
             match header.body_mode {
                 StructureBodyMode::Trigger => {
                     scopes.insert(raw.id, Scope::Statements);
@@ -113,6 +134,7 @@ impl PreparedDocument {
                 context,
                 entry_scopes,
                 variables: Vec::new(),
+                parameters,
                 functions: Vec::new(),
                 index,
                 blocked: Vec::new(),
@@ -193,6 +215,16 @@ impl PreparedDocument {
                 self.body_scopes.insert(*id, scope);
             }
         }
+        self.document
+            .parameters
+            .retain(|id, _| !region.contains(id));
+        self.document.parameters.extend(
+            prepared
+                .document
+                .parameters
+                .into_iter()
+                .filter(|(id, _)| region.contains(id)),
+        );
         self.owners.insert(root, owner);
         // Drop scopes belonging only to superseded attempts, preserving declaration order.
         let used = self
@@ -284,6 +316,9 @@ impl PreparedDocument {
             return false;
         }
         let region = self.region(attempt.root);
+        self.document
+            .parameters
+            .retain(|id, _| !region.contains(id));
         for id in region {
             if self.body_scopes.contains_key(&id) {
                 self.body_scopes.insert(id, Scope::Pending);

@@ -252,6 +252,13 @@ pattern sourceは1024 byteまでとし、文頭テンプレートの選択肢を
 同名・同shapeの文書内関数によるshadowを維持し、戻り値のないshadowからCatalogの式候補を復活させない。
 引数型に合うoverloadの選択は行わない。単独Function呼び出し文のparser制約も変わらない。
 
+宣言引数はproviderの skript.semantic.parameters v1/v2契約から得る。
+所有rootとExactなheader範囲に結び付け、最初の参照前からその本文・確定した子scopeだけで候補にする。
+宣言型・single/list・定義位置は declaredType と parameterDeclaration に保持するが、本文での現在値の型とは扱わない。
+未知型も除外せず、pluralのruntime名とpercent escapeを保つ。異なる関数や関数外へ持ち出さない。
+finalでは現在のprovider証明を要求する。本文の混合provider等でこの証明を満たさない場合は候補を確定しない。
+braceや改行を含むruntime名の挿入は未対応で、動的・入れ子名の安全な置換範囲を推測しない。
+
 静的変数名は最終ASTのExpression、公開variable schema、子なし、原文一致のExact originを確認した参照履歴から得る。
 localはカーソルより前に同じRawTree bodyまたはその祖先bodyで観測した参照だけを示し、兄弟bodyへ持ち出さない。
 参照履歴候補そのものは宣言やruntime値を保証しない。解析済み変数には独立した現在のflow推論を説明へ添えられる。
@@ -285,12 +292,12 @@ completionの説明形式は`completionItem.documentationFormat`の対応する�
 ### 本文解析を待たない構造内の仮候補
 
 clientが `capabilities.experimental.skriptCompletionRefresh = true` を送る場合、serverは同じcapabilityを返し、同じ全文解析のText/Tree macroと全rootのEnterBodyが終わった段階を補完に公開する。依存解析で処理した別のopen文書も、producerではなく実際のsourceへ配信する。nativeが一意な入れ子sectionのEnterBodyを受理した後は、その現在のTrigger/Conditions本文scopeを小さなdeltaで追加する。未確定・曖昧な親を越えてscopeを推測しない。
-別のparse、旧revisionのAST、型・変数・文書関数の履歴は使わない。SSGと実際のowner hookのbody mode、凍結したEntryValidatorを使い、native parserと同じ宣言index選択・重複判定を共有する。
+別のparse、旧revisionのAST、型・変数・文書関数の履歴は使わない。現在の一意なheaderが宣言した引数は同じ契約で仮候補に含め、ownerのretry／撤回で置換・失効させる。SSGと実際のowner hookのbody mode、凍結したEntryValidatorを使い、native parserと同じ宣言index選択・重複判定を共有する。
 候補は成功した意味解析の証明ではない。各itemのdetailとdocumentationの先頭にprovisionalと明示し、dataの `completionPhase: "prepared"`、`ownerAttempt`（raw node・registration・pattern・native内のattempt ID）と `completionTicket` に出所を付ける。
 未確定の本文・guard・後続hookにより仮候補が取り消されることがある。応答は常に `isIncomplete=true` とする。
 
 このviewは現在の原文との一致とExactなSourceMap射影を要求する。曖昧なheader、未知のnested section、参照だけの補完は最新の全文解析を待つ。
-Rawな値のsectionを実行文として扱わない。256KiBを超える文書もこの経路を使わない。hover・診断・semantic tokens・signatureは従来の最終解析を使い、仮候補から型や署名を返さない。
+Rawな値のsectionを実行文として扱わない。256KiBを超える文書もこの経路を使わない。hover・診断・semantic tokens・signatureは従来の最終解析を使い、仮候補から現在値の型flowや署名を確定しない。引数候補が保持する型はheaderの宣言型である。
 特殊な構文名や実装classによる補完側の例外は設けない。
 
 EnterBody後に本文・ExitBodyがownerを拒否またはfaultにした時点で、そのownerの仮候補を失効させる。別ownerへのfallbackを待たず、通常の補完要求は最終解析待ちに戻す。

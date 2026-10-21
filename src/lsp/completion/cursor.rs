@@ -80,3 +80,28 @@ impl Iterator for LexicalCursor<'_> {
         })
     }
 }
+
+/// A lexical edit boundary, not a claim about a variable's value. Closed
+/// names keep the full right suffix for the shared exact-suffix adapter.
+/// With no closing brace, opaque syntax to the right is not safely replaceable;
+/// nested syntax already in the typed prefix may still be completed at EOL.
+pub(super) fn variable_edit_end(text: &str, cursor: usize) -> Result<Option<usize>, ()> {
+    if !text.starts_with('{') {
+        return Err(());
+    }
+    let mut opaque_suffix = false;
+    for event in LexicalCursor::new(text) {
+        if event.offset == 0 {
+            continue;
+        }
+        if event.offset >= cursor
+            && (event.character == '{' || event.character == '%' && event.after_depth > event.depth)
+        {
+            opaque_suffix = true;
+        }
+        if event.character == '}' && event.after_depth == 1 {
+            return Ok(Some(event.offset + 1));
+        }
+    }
+    if opaque_suffix { Err(()) } else { Ok(None) }
+}
