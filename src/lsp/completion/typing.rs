@@ -11,13 +11,18 @@ use skript_parser::{
 use syntax_pattern_parser::syntax::PatternTypeExpr;
 use syntaxes::{ClassName, Multiplicity, ResolutionState, ReturnTypeState};
 
-const HOLE: &str = "\u{fffc}";
+pub(super) const HOLE: &str = "\u{fffc}";
 const MAX_DEPTH: usize = 12;
 
 struct Output {
     definition: String,
     registration: String,
     actual: Actual,
+    capture_routes: Option<Vec<skript_parser::RegisteredCaptureBinding>>,
+    declared: Option<ClassName>,
+    declared_state: ReturnTypeState,
+    possible: Vec<ClassName>,
+    possible_state: syntaxes::PossibleReturnTypesState,
     section_expression: bool,
 }
 struct Actual {
@@ -41,6 +46,7 @@ pub(super) struct Index {
     outputs: HashMap<String, Output>,
     pub(super) complete_patterns: bool,
     closed: bool,
+    candidate_bindings_closed: bool,
     static_locals_stable: bool,
     function_policy: Option<FunctionVersionPolicy>,
     certificate: Option<parser_wasm::host::CompletionTypeCertificate>,
@@ -52,6 +58,7 @@ impl Index {
             outputs: HashMap::new(),
             complete_patterns: true,
             closed: false,
+            candidate_bindings_closed: false,
             static_locals_stable: false,
             function_policy: None,
             certificate: None,
@@ -73,6 +80,11 @@ impl Index {
             Output {
                 definition: expression.common.definition_id.0.clone(),
                 registration: expression.common.registration_id.0.clone(),
+                capture_routes: None,
+                declared: expression.return_type.clone(),
+                declared_state: expression.return_type_state,
+                possible: expression.possible_return_types.clone(),
+                possible_state: expression.possible_return_types_state,
                 section_expression: expression.section_expression,
                 actual: Actual {
                     classes,
@@ -87,6 +99,57 @@ impl Index {
         );
     }
 }
+impl Index {
+    /// Display snapshot declarations separately from the current provider proof.
+    /// A revoked proof must never leave a previously narrowed type in the menu.
+    pub(super) fn output_description(&self, identity: &str) -> String {
+        let Some(output) = self.outputs.get(identity) else {
+            return "return: unknown; cardinality: unknown".into();
+        };
+        let actual = &output.actual;
+        let proven = self.closed && self.current() && actual.complete && !actual.classes.is_empty();
+        let classes = |values: &[ClassName]| {
+            values
+                .iter()
+                .map(ClassName::as_str)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        let ty = if proven {
+            classes(&actual.classes)
+        } else {
+            let mut value = match output.declared_state {
+                ReturnTypeState::Dynamic => "dynamic".to_owned(),
+                _ => "unknown".to_owned(),
+            };
+            if let Some(declared) = &output.declared {
+                value.push_str(&format!(
+                    " (snapshot {:?}: {})",
+                    output.declared_state,
+                    declared.as_str()
+                ));
+            }
+            if !output.possible.is_empty() {
+                value.push_str(&format!(
+                    "; snapshot possibilities {:?}: {}",
+                    output.possible_state,
+                    classes(&output.possible)
+                ));
+            }
+            value
+        };
+        let cardinality = if proven { actual.multiplicity } else { None };
+        format!(
+            "return: {ty}; cardinality: {}",
+            match cardinality {
+                Some(Multiplicity::Single) => "single",
+                Some(Multiplicity::Multiple) => "plural",
+                Some(Multiplicity::Both) => "single or plural",
+                None => "unknown",
+            }
+        )
+    }
+}
 impl CatalogIndex {
     pub(in crate::lsp) fn certify_types(&mut self, host: &parser_wasm::host::ParserHost) {
         let Some(index) = &mut self.typing else {
@@ -95,10 +158,13 @@ impl CatalogIndex {
         // Unadvertised document-dependent registrations make the Catalog an
         // incomplete description of possible parent grammars.
         index.closed = host.completion_catalog_patterns_are_closed();
+        index.candidate_bindings_closed = host.completion_candidate_bindings_are_closed();
         index.static_locals_stable = host.completion_static_local_substitution_is_stable();
         index.function_policy = Some(host.function_policy());
         index.certificate = Some(host.completion_type_certificate());
         for output in index.outputs.values_mut() {
+            output.capture_routes = host
+                .completion_expression_capture_bindings(&output.definition, &output.registration);
             if let Some(classes) =
                 host.completion_output_bound(&output.definition, &output.registration)
             {
@@ -198,6 +264,15 @@ impl Document {
         edit: TextRange,
         references: bool,
     ) -> Option<Vec<ExpressionExpectedType>> {
+        self.expected_at_with_budget(line, edit, references, &mut continuation::Budget::new())
+    }
+    pub(super) fn expected_at_with_budget(
+        &self,
+        line: &Line,
+        edit: TextRange,
+        references: bool,
+        budget: &mut continuation::Budget,
+    ) -> Option<Vec<ExpressionExpectedType>> {
         let index = self.index.typing.as_ref()?;
         if !index.current() || !index.closed || !self.type_context_exact || line.root {
             return None;
@@ -220,28 +295,46 @@ impl Document {
         if !index.complete_patterns {
             return None;
         }
-        let original = &self.source[line.code_start..end];
-        if original.contains(HOLE) {
-            return None;
-        }
-        let mut text = String::with_capacity(original.len() + HOLE.len());
-        text.push_str(&self.source[line.code_start..edit.start]);
-        text.push_str(HOLE);
-        text.push_str(&self.source[edit.end..end]);
-        let text = native_trim_end(&text);
-        let text = if line.section {
-            native_trim_end(text.strip_suffix(':')?)
-        } else {
-            text
-        };
+        let text = self.editing_hole(line, edit)?;
         self.hole_expectations(
-            text,
+            &text,
             line.scope,
             line.section,
             references,
             0,
-            &mut continuation::Budget::new(),
+            budget,
+            &mut HashSet::new(),
         )
+        .filter(|types| !types.is_empty())
+    }
+    pub(super) fn editing_hole(&self, line: &Line, edit: TextRange) -> Option<String> {
+        let end = line
+            .comments
+            .iter()
+            .map(|r| r.start)
+            .min()
+            .unwrap_or(line.range.end);
+        if edit.start < line.code_start
+            || edit.end > end
+            || end - line.code_start > MAX_CONTINUATION_BYTES
+        {
+            return None;
+        }
+        let original = self.source.get(line.code_start..end)?;
+        if original.contains(HOLE) {
+            return None;
+        }
+        let mut text = String::new();
+        text.push_str(self.source.get(line.code_start..edit.start)?);
+        text.push_str(HOLE);
+        text.push_str(self.source.get(edit.end..end)?);
+        let trimmed = native_trim_end(&text);
+        let result = if line.section {
+            native_trim_end(trimmed.strip_suffix(':')?)
+        } else {
+            trimmed
+        };
+        Some(result.to_owned())
     }
     fn hole_expectations(
         &self,
@@ -251,6 +344,7 @@ impl Document {
         references: bool,
         depth: usize,
         budget: &mut continuation::Budget,
+        path: &mut HashSet<(String, u8, bool)>,
     ) -> Option<Vec<ExpressionExpectedType>> {
         if depth >= MAX_DEPTH || !budget.scan(text.len() + 1) {
             return None;
@@ -265,6 +359,7 @@ impl Document {
             references,
             depth,
             budget,
+            path,
         )
     }
     fn expression_context_types(
@@ -277,8 +372,54 @@ impl Document {
         references: bool,
         depth: usize,
         budget: &mut continuation::Budget,
+        path: &mut HashSet<(String, u8, bool)>,
+    ) -> Option<Vec<ExpressionExpectedType>> {
+        let key = (
+            text.to_owned(),
+            if matches!(scope, Scope::Expressions) {
+                0
+            } else if matches!(scope, Scope::Conditions) {
+                1
+            } else {
+                2
+            },
+            section,
+        );
+        if !path.insert(key.clone()) {
+            return self
+                .index
+                .typing
+                .as_ref()?
+                .candidate_bindings_closed
+                .then(Vec::new);
+        }
+        let result = self.expression_context_types_inner(
+            text, hole, candidate, scope, section, references, depth, budget, path,
+        );
+        path.remove(&key);
+        result
+    }
+    fn expression_context_types_inner(
+        &self,
+        text: &str,
+        hole: std::ops::Range<usize>,
+        candidate: Option<&str>,
+        scope: Scope,
+        section: bool,
+        references: bool,
+        depth: usize,
+        budget: &mut continuation::Budget,
+        path: &mut HashSet<(String, u8, bool)>,
     ) -> Option<Vec<ExpressionExpectedType>> {
         let index = self.index.typing.as_ref()?;
+        // Interpolation and unfinished native frames are not Catalog slot paths.
+        if !matches!(lexical_context(text.get(..hole.start)?), Lexical::Code(_))
+            || text.contains('%')
+            || text.starts_with('(')
+            || (text.contains('(') && !text.ends_with(')'))
+        {
+            return None;
+        }
         if !budget.scan(
             text.len()
                 .saturating_mul(index.catalog.operators().len() + 1),
@@ -359,6 +500,7 @@ impl Document {
                                     references,
                                     depth + 1,
                                     budget,
+                                    path,
                                 )?);
                             }
                         }
@@ -395,10 +537,60 @@ impl Document {
                 }
             };
             for (parameter, range) in slots {
-                let types = pattern.graph.slot_types.get(parameter)?.as_ref()?;
+                let types = if let Some(types) = pattern.graph.slot_types.get(parameter)?.as_ref() {
+                    if !types.allow_expressions
+                        && matches!(scope, Scope::Expressions)
+                        && index.candidate_bindings_closed
+                    {
+                        // A native literals-only slot cannot bind the proposed
+                        // registered Expression node. Its literal interpretation
+                        // is a different candidate, not a return-type escape.
+                        continue;
+                    }
+                    expected_types(&index.catalog, types)?
+                } else {
+                    if !matches!(scope, Scope::Expressions) {
+                        return None;
+                    }
+                    let routes = index
+                        .outputs
+                        .get(&pattern.identity)?
+                        .capture_routes
+                        .as_ref()?;
+                    let Some(route) = routes.iter().find(|r| r.capture_index == parameter) else {
+                        // Another opaque whole-range leaf is not a binding site
+                        // for the proposal's own definition.
+                        continue;
+                    };
+                    if route.parser_id != "host.expression" {
+                        return None;
+                    }
+                    let (_, expressions) = skript_parser::capture_expression_flags(route).ok()?;
+                    if !expressions {
+                        continue;
+                    }
+                    let captured = native_trim(text.get(range.clone())?);
+                    if captured != candidate.unwrap_or(HOLE) {
+                        if candidate.is_some() {
+                            return None;
+                        }
+                        expected.extend(self.hole_expectations(
+                            captured,
+                            Scope::Expressions,
+                            false,
+                            references,
+                            depth + 1,
+                            budget,
+                            path,
+                        )?);
+                        found = true;
+                        continue;
+                    }
+                    skript_parser::capture_expression_expected_types(route).ok()?
+                };
                 let captured = native_trim(text.get(range.clone())?);
                 if captured == candidate.unwrap_or(HOLE) {
-                    expected.extend(expected_types(&index.catalog, types)?);
+                    expected.extend(types);
                 } else {
                     if candidate.is_some() {
                         return None;
@@ -406,7 +598,10 @@ impl Document {
                     // An outer slot's expected type does not describe the
                     // expression nested inside it. No recognized inner grammar
                     // means Unknown, even when the outer type is exact.
-                    if range.start == 0 && range.end == text.len() {
+                    if range.start == 0
+                        && range.end == text.len()
+                        && !index.candidate_bindings_closed
+                    {
                         return None;
                     }
                     expected.extend(self.hole_expectations(
@@ -416,13 +611,21 @@ impl Document {
                         references,
                         depth + 1,
                         budget,
+                        path,
                     )?);
                 }
                 found = true;
             }
         }
-        if !found || expected.is_empty() || budget.exhausted() {
+        if budget.exhausted() {
             return None;
+        }
+        if !found || expected.is_empty() {
+            // Some(empty) means no declared place for this proposal node; it
+            // does not mean the surrounding text is rejected by the language.
+            // None remains unknown (intrinsic/routing/provider/limit evidence).
+            return (matches!(scope, Scope::Expressions) && index.candidate_bindings_closed)
+                .then(Vec::new);
         }
         expected.sort_by(|a, b| {
             a.class_name
@@ -483,6 +686,7 @@ impl Document {
             references,
             0,
             budget,
+            &mut HashSet::new(),
         )
     }
     pub(super) fn incompatible_template(
@@ -738,4 +942,270 @@ fn expected_types(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::super::parameters::tests::{catalog, parse};
+    use super::*;
+
+    fn fixture(unknown: bool) -> Document {
+        fixture_source(unknown, "on load:\n    consume wrap p\n")
+    }
+    fn fixture_source(unknown: bool, source: &str) -> Document {
+        let (early, mut view, _, _) = parse(source);
+        drop(early);
+        let rules = catalog();
+        let index = Arc::get_mut(&mut view.index).unwrap();
+        index.patterns.clear();
+        let definition = rules.expressions().next().unwrap();
+        for (id, pattern, kind) in [
+            ("parent", "consume %objects%", SyntaxKind::Effect),
+            ("self", "<.+>", SyntaxKind::Expression),
+            ("exit", "wrap %numbers%", SyntaxKind::Expression),
+        ] {
+            let parsed =
+                syntax_pattern_parser::syntax::parse(pattern, rules.plural_rules()).unwrap();
+            index.patterns.push(Pattern {
+                documentation: None,
+                kind,
+                label: pattern.into(),
+                detail: id.into(),
+                identity: id.into(),
+                graph: continuation::Graph::new(&parsed.elements).unwrap(),
+            });
+            if kind == SyntaxKind::Expression {
+                index.typing.as_mut().unwrap().insert(id, definition);
+            }
+        }
+        let typing = index.typing.as_mut().unwrap();
+        typing.outputs.get_mut("self").unwrap().capture_routes =
+            Some(vec![skript_parser::RegisteredCaptureBinding {
+                capture_index: 0,
+                parser_id: "host.expression".into(),
+                required: true,
+                options: std::collections::BTreeMap::from([(
+                    "expression.expected-types".into(),
+                    "java.lang.Object[]".into(),
+                )]),
+            }]);
+        if unknown {
+            let parsed =
+                syntax_pattern_parser::syntax::parse("<.*>", rules.plural_rules()).unwrap();
+            index.patterns.push(Pattern {
+                documentation: None,
+                kind: SyntaxKind::Expression,
+                label: "<.*>".into(),
+                detail: "unknown".into(),
+                identity: "unknown".into(),
+                graph: continuation::Graph::new(&parsed.elements).unwrap(),
+            });
+            typing.insert("unknown", definition);
+            typing.outputs.get_mut("unknown").unwrap().capture_routes =
+                Some(vec![skript_parser::RegisteredCaptureBinding {
+                    capture_index: 0,
+                    parser_id: "private.fixture.parser".into(),
+                    required: true,
+                    options: Default::default(),
+                }]);
+        }
+        view
+    }
+    fn query(view: &Document) -> Option<Vec<ExpressionExpectedType>> {
+        let start = view.source.rfind('p').unwrap();
+        view.expected_at(&view.context[&1], TextRange::new(start, start + 1), true)
+    }
+    #[test]
+    fn recursive_route_explores_typed_exit_but_unknown_exit_invalidates_proof() {
+        let view = fixture(false);
+        let types = query(&view).unwrap();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].class_name.as_str(), "java.lang.Number");
+        assert!(types[0].plural);
+        assert!(query(&fixture(true)).is_none());
+    }
+    #[test]
+    fn regex_wrapper_keeps_its_typed_exit_and_other_root_union() {
+        let mut view = fixture_source(false, "on load:\n    consume prefix wrap p\n");
+        let rules = catalog();
+        let index = Arc::get_mut(&mut view.index).unwrap();
+        let wrapper = index
+            .patterns
+            .iter_mut()
+            .find(|p| p.identity == "self")
+            .unwrap();
+        let parsed =
+            syntax_pattern_parser::syntax::parse("prefix <.+>", rules.plural_rules()).unwrap();
+        wrapper.label = "prefix <.+>".into();
+        wrapper.graph = continuation::Graph::new(&parsed.elements).unwrap();
+        let number = query(&view).unwrap();
+        assert_eq!(
+            number
+                .iter()
+                .map(|t| t.class_name.as_str())
+                .collect::<Vec<_>>(),
+            ["java.lang.Number"]
+        );
+        let index = Arc::get_mut(&mut view.index).unwrap();
+        let label = "consume prefix wrap %strings%";
+        let parsed = syntax_pattern_parser::syntax::parse(label, rules.plural_rules()).unwrap();
+        index.patterns.push(Pattern {
+            documentation: None,
+            kind: SyntaxKind::Effect,
+            label: label.into(),
+            detail: "another root exit".into(),
+            identity: "other-parent".into(),
+            graph: continuation::Graph::new(&parsed.elements).unwrap(),
+        });
+        let union = query(&view).unwrap();
+        assert_eq!(
+            union
+                .iter()
+                .map(|t| t.class_name.as_str())
+                .collect::<Vec<_>>(),
+            ["java.lang.Number", "java.lang.String"]
+        );
+    }
+    #[test]
+    fn missing_child_closure_and_exhausted_budget_do_not_close_a_cycle() {
+        let mut view = fixture(false);
+        Arc::get_mut(&mut view.index)
+            .unwrap()
+            .typing
+            .as_mut()
+            .unwrap()
+            .candidate_bindings_closed = false;
+        assert!(query(&view).is_none());
+        let view = fixture(false);
+        let mut budget = continuation::Budget::new();
+        assert!(!budget.scan(usize::MAX));
+        let start = view.source.rfind('p').unwrap();
+        assert!(
+            view.expected_at_with_budget(
+                &view.context[&1],
+                TextRange::new(start, start + 1),
+                true,
+                &mut budget
+            )
+            .is_none()
+        );
+    }
+    #[test]
+    fn interpolation_and_unfinished_native_frames_keep_unknown() {
+        for line in [
+            "send \"a %p%\" to p",
+            "send \"a\" to call(p",
+            "send \"a\" to (p",
+        ] {
+            let source = format!("on load:\n    {line}\n");
+            let (_, view, _, _) = parse(&source);
+            let start = source.rfind('p').unwrap();
+            assert!(
+                view.expected_at(&view.context[&1], TextRange::new(start, start + 1), true)
+                    .is_none(),
+                "{line}"
+            );
+        }
+    }
+    #[test]
+    fn displayed_dynamic_partial_union_and_cardinality_are_distinct() {
+        let rules = catalog();
+        let mut definition = rules.expressions().next().unwrap().clone();
+        definition.return_type = Some(ClassName("java.lang.Object".into()));
+        definition.return_type_state = ReturnTypeState::Dynamic;
+        definition.possible_return_types = vec![
+            ClassName("java.lang.Number".into()),
+            ClassName("java.lang.String".into()),
+        ];
+        definition.possible_return_types_state = syntaxes::PossibleReturnTypesState::Partial;
+        let mut index = Index::new(rules);
+        index.insert("display", &definition);
+        let dynamic = index.output_description("display");
+        assert!(dynamic.starts_with("return: dynamic"), "{dynamic}");
+        assert!(
+            dynamic.contains("possibilities Partial: java.lang.Number | java.lang.String"),
+            "{dynamic}"
+        );
+        assert!(dynamic.ends_with("cardinality: unknown"), "{dynamic}");
+        index.closed = true;
+        let output = index.outputs.get_mut("display").unwrap();
+        output.actual = Actual {
+            classes: definition.possible_return_types,
+            complete: true,
+            multiplicity: Some(Multiplicity::Both),
+        };
+        assert_eq!(
+            index.output_description("display"),
+            "return: java.lang.Number | java.lang.String; cardinality: single or plural"
+        );
+        let output = index.outputs.get_mut("display").unwrap();
+        output.actual.complete = false;
+        output.declared_state = ReturnTypeState::Unresolved;
+        assert!(
+            index
+                .output_description("display")
+                .starts_with("return: unknown")
+        );
+    }
+    #[test]
+    fn ambiguous_complete_slot_guidance_does_not_assert_parameter_zero() {
+        let (early, mut view, _, _) = parse("on load:\n    test p\n");
+        drop(early);
+        let rules = catalog();
+        let index = Arc::get_mut(&mut view.index).unwrap();
+        index.patterns.clear();
+        let label = "test [%strings%] [%strings%]";
+        let parsed = syntax_pattern_parser::syntax::parse(label, rules.plural_rules()).unwrap();
+        index.patterns.push(Pattern {
+            documentation: None,
+            kind: SyntaxKind::Effect,
+            label: label.into(),
+            detail: "ambiguous editing slots".into(),
+            identity: "optional".into(),
+            graph: continuation::Graph::new(&parsed.elements).unwrap(),
+        });
+        let position = view
+            .lines
+            .position(&view.source, view.source.len() - 1)
+            .unwrap();
+        let SignatureQuery::Ready(Some(help)) = view.signature_at(position, true).unwrap() else {
+            panic!("missing guidance")
+        };
+        assert_eq!(help.signatures[0].label, label);
+        assert!(help.signatures[0].parameters.is_none());
+        assert!(help.signatures[0].active_parameter.is_none());
+    }
+    #[test]
+    fn full_recipient_slot_precedes_opaque_prefix_guidance_without_deleting_valid_connect() {
+        for recipient in ["\"a\"", "all players"] {
+            let source = format!("on load:\n    send {recipient} to p\n");
+            let (_, view, _, _) = parse(&source);
+            let position = view.lines.position(&source, source.len() - 1).unwrap();
+            let SignatureQuery::Ready(Some(help)) = view.signature_at(position, true).unwrap()
+            else {
+                panic!("missing recipient guidance")
+            };
+            assert!(
+                help.signatures[0].label.contains("%audiences%"),
+                "{}",
+                help.signatures[0].label
+            );
+            assert_eq!(help.signatures[0].active_parameter, Some(1));
+            let list = view.at(position, false).unwrap();
+            assert!(
+                list.items.iter().any(|item| item.label == "proxy"),
+                "a valid alternative grammar is not a type mismatch"
+            );
+            assert!(
+                list.items
+                    .iter()
+                    .find(|item| item.label == "proxy")
+                    .unwrap()
+                    .detail
+                    .as_deref()
+                    .unwrap()
+                    .contains("arguments unverified")
+            );
+        }
+    }
 }

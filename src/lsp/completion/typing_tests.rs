@@ -988,24 +988,13 @@ fn adopted_capture_resolves_overlapping_object_and_audience_slots() {
                 .is_some_and(|d| d["syntaxKind"] == "Expression")),
         "{names:?}"
     );
-    // Header-only preparation has no adopted body yet. It remains conservative,
-    // and never waits for final analysis just to obtain this stronger proof.
-    assert!(
+    // No adopted AST is needed when the provider closes the child positions
+    // of a proposal. Another opaque leaf does not own this proposal node.
+    assert_eq!(
         early
             .document
-            .expected_at(&early.document.context[&p.line], edit, false)
-            .is_none()
-    );
-    let source = "on load:\n    send \"test\" to p\n";
-    let (_, view, _, _) = parse(source);
-    let p = position(source, "to p");
-    assert!(
-        view.expected_at(
-            &view.context[&p.line],
-            TextRange::new(source.rfind('p').unwrap(), source.rfind('p').unwrap() + 1),
-            true
-        )
-        .is_none()
+            .expected_at(&early.document.context[&p.line], edit, false),
+        Some(expected("net.kyori.adventure.audience.Audience", true))
     );
 }
 
@@ -1144,7 +1133,7 @@ fn native_result_typing_keeps_call_effect_barriers_and_unknown_results() {
 #[test]
 fn adopted_context_does_not_survive_rewritten_native_facts_or_an_edit() {
     let source = "on load:\n    send \"test\" to player\n";
-    let (_, view, mut result, _) = parse(source);
+    let (early, view, mut result, _) = parse(source);
     let start = source.rfind("player").unwrap();
     let edit = TextRange::new(start, start + 6);
     let line = &view.context[&1];
@@ -1166,10 +1155,20 @@ fn adopted_context_does_not_survive_rewritten_native_facts_or_an_edit() {
     effect.summary.as_mut().unwrap().pattern_index = Some(99);
     let rewritten =
         Document::from_result(&result, Arc::from(source), Arc::clone(&view.index)).unwrap();
+    // The altered AST no longer certifies this capture. Current source grammar
+    // can independently recover the same expected slot without adopting it.
     assert!(
-        rewritten
-            .expected_at(&rewritten.context[&1], edit, true)
-            .is_none()
+        !rewritten
+            .accepted_slots
+            .contains_key(&(edit.start, edit.end))
+    );
+    let fallback = early
+        .document
+        .expected_at(&early.document.context[&1], edit, false);
+    assert!(fallback.is_some());
+    assert_eq!(
+        rewritten.expected_at(&rewritten.context[&1], edit, true),
+        fallback
     );
 }
 
@@ -1258,4 +1257,69 @@ fn native_parser_accepts_string_to_world_audience_conversion_in_the_adopted_slot
         "java.lang.String"
     );
     assert!(!view.incompatible_function(function, Some(expected)));
+}
+
+#[test]
+fn partially_typed_recipient_filters_its_own_definition_early_and_final() {
+    for prefix in ["p", "pl", "pla", "play", "player"] {
+        let source = format!(
+            "on load:\n    make player invisible\n    send \"a\" to {prefix}\nfunction player_number() :: number:\n    return 1\nfunction player_entity() :: player:\n    return player\nfunction player_unknown() :: object:\n    return player\n"
+        );
+        let (early, final_view, _, _) = parse(&source);
+        let start = source.find(" to ").unwrap() + 4;
+        let p = LineIndex::new(&source)
+            .position(&source, start + prefix.len())
+            .unwrap();
+        let edit = TextRange::new(start, start + prefix.len());
+        for (view, references) in [(&early.document, false), (&final_view, true)] {
+            assert_eq!(
+                view.expected_at(&view.context[&p.line], edit, references),
+                Some(expected("net.kyori.adventure.audience.Audience", true)),
+                "{prefix}"
+            );
+            let list = view.at_with_references(p, false, references).unwrap();
+            let names = labels(&list);
+            assert!(!names.contains(&"pi"), "{prefix}: {names:?}");
+            assert!(
+                !names.iter().any(|n| n.starts_with("product(")
+                    || n.starts_with("permutations(")
+                    || n.starts_with("player_number(")),
+                "{prefix}: {names:?}"
+            );
+            if references {
+                assert!(
+                    names.iter().any(|n| n.starts_with("player_entity(")),
+                    "{names:?}"
+                );
+                assert!(
+                    names.iter().any(|n| n.starts_with("player_unknown(")),
+                    "{names:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn expression_return_detail_reaches_preview_without_claiming_cardinality() {
+    let source = "on load:\n    send pi\n";
+    let (early, view, _, _) = parse(source);
+    let p = position(source, "send pi");
+    for list in [
+        view.at(p, false).unwrap(),
+        match early.at(p, false).unwrap() {
+            PreparedQuery::Ready(list) => list,
+            _ => panic!("prepared"),
+        },
+    ] {
+        let pi = list.items.iter().find(|i| i.label == "pi").unwrap();
+        let detail = pi.detail.as_ref().unwrap();
+        assert!(detail.contains("return: java.lang.Double"), "{detail}");
+        assert!(detail.contains("cardinality: unknown"), "{detail}");
+        assert!(
+            serde_json::to_string(&pi.documentation)
+                .unwrap()
+                .contains("return: java.lang.Double")
+        );
+    }
 }

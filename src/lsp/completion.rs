@@ -16,7 +16,7 @@ use std::{
     sync::Arc,
 };
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
-use syntaxes::{Catalog, Syntax, SyntaxKind};
+use syntaxes::{Catalog, ClassName, Syntax, SyntaxKind};
 
 mod continuation;
 mod cursor;
@@ -791,9 +791,9 @@ impl Document {
                     .then(a.3.cmp(&b.3))
                     .then(a.2.cmp(&b.2))
             });
-            for (fixed, slots, _, keyword, pattern) in continuations {
+            for (_fixed, _slots, _, keyword, pattern) in continuations {
                 let detail = format!(
-                    "{}; continuation: {fixed} fixed characters, {slots} structural argument(s)",
+                    "{}; alternative grammar continuation (arguments unverified)",
                     pattern.detail
                 );
                 let mut item = self.item(
@@ -1052,10 +1052,29 @@ impl Document {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
+                    let return_detail = function
+                        .definition
+                        .as_ref()
+                        .map(|definition| {
+                            format!(
+                                "return: {} (declared; {}); {}",
+                                definition
+                                    .return_type
+                                    .as_ref()
+                                    .map_or("unknown", ClassName::as_str),
+                                if definition.return_type_is_single {
+                                    "single"
+                                } else {
+                                    "plural"
+                                },
+                                function.detail
+                            )
+                        })
+                        .unwrap_or_else(|| format!("return: unknown; {}", function.detail));
                     let mut item = self.item(
                         &label,
                         &insertion,
-                        &function.detail,
+                        &return_detail,
                         &function.identity,
                         CompletionItemKind::FUNCTION,
                         TextRange::new(word_start, word_end),
@@ -1211,6 +1230,13 @@ impl Document {
             || self.index.limited
             || frontier_limited
             || !references;
+        if expected.is_some() {
+            items.sort_by_key(|item| {
+                item.data
+                    .as_ref()
+                    .is_some_and(|d| d["continuation"] == true)
+            });
+        }
         items.truncate(MAX_ITEMS);
         for (index, item) in items.iter_mut().enumerate() {
             item.sort_text = Some(format!("{index:06}"));
@@ -1266,10 +1292,23 @@ impl Document {
             insertion = insertion.trim_end().to_owned();
         }
         let label = preview(&template.parts);
+        let detail = if template.kind == SyntaxKind::Expression {
+            format!(
+                "{}; {}",
+                self.index
+                    .typing
+                    .as_ref()
+                    .map(|i| i.output_description(&template.identity))
+                    .unwrap_or_else(|| "return: unknown; cardinality: unknown".into()),
+                template.detail
+            )
+        } else {
+            template.detail.clone()
+        };
         let mut item = self.item(
             &label,
             &insertion,
-            &template.detail,
+            &detail,
             &template.identity,
             CompletionItemKind::SNIPPET,
             TextRange::new(start, end),
@@ -1281,7 +1320,7 @@ impl Document {
         item.documentation = Some(super::hover_text::completion(
             &template.label,
             Some(&label),
-            &template.detail,
+            &detail,
             &template.identity,
             template.documentation.as_deref(),
             &self.index.documentation_format,

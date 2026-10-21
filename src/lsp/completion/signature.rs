@@ -223,6 +223,10 @@ impl Document {
         if !matches!(lexical_context(prefix), Lexical::Code(_)) {
             return Ok(SignatureQuery::Ready(None));
         }
+        // Prefer a complete current grammar containing the edited slot over
+        // a prefix which has only consumed opaque arguments. This is display
+        // guidance, not acceptance or a negative type proof for another branch.
+        let mut complete = self.complete_slot_signatures(line, offset, references, &mut budget);
         let mut start = 0;
         let mut selected = Vec::new();
         for depth in 0..16 {
@@ -328,7 +332,126 @@ impl Document {
             }
             start = next;
         }
-        Ok(SignatureQuery::Ready(help(selected)))
+        for signature in selected {
+            if complete.len() == MAX_SIGNATURES {
+                break;
+            }
+            if !complete
+                .iter()
+                .any(|s| s.label == signature.label && s.documentation == signature.documentation)
+            {
+                complete.push(signature);
+            }
+        }
+        Ok(SignatureQuery::Ready(help(complete)))
+    }
+    fn complete_slot_signatures(
+        &self,
+        line: &Line,
+        offset: usize,
+        references: bool,
+        budget: &mut continuation::Budget,
+    ) -> Vec<SignatureInformation> {
+        let prefix = &self.source[line.code_start..offset];
+        let start = prefix
+            .char_indices()
+            .rev()
+            .find(|(_, c)| !word(*c))
+            .map_or(line.code_start, |(i, c)| line.code_start + i + c.len_utf8());
+        let end = self.source[offset..line.range.end]
+            .char_indices()
+            .find(|(_, c)| !word(*c))
+            .map_or(line.range.end, |(i, _)| offset + i);
+        let edit = TextRange::new(start, end);
+        if self
+            .expected_at_with_budget(line, edit, references, budget)
+            .is_none()
+        {
+            return Vec::new();
+        }
+        let Some(input) = self.editing_hole(line, edit) else {
+            return Vec::new();
+        };
+        let hole = start - line.code_start..start - line.code_start + typing::HOLE.len();
+        let domain = skript_parser::BodySyntaxDomain::for_node(
+            if matches!(line.scope, Scope::Conditions) {
+                skript_parser::SectionBodyMode::Conditions
+            } else {
+                skript_parser::SectionBodyMode::Trigger
+            },
+            if line.section {
+                RawNodeKind::Section
+            } else {
+                RawNodeKind::Simple
+            },
+        );
+        let mut output = Vec::new();
+        for pattern in &self.index.patterns {
+            if !budget.scan(1) || output.len() == MAX_SIGNATURES {
+                break;
+            }
+            if !domain.includes(pattern.kind, false) {
+                continue;
+            }
+            let Ok(slots) = pattern.graph.hole_slots(&input, hole.clone(), budget) else {
+                return Vec::new();
+            };
+            let active = slots
+                .into_iter()
+                .filter(|(parameter, range)| {
+                    range == &hole
+                        && pattern
+                            .graph
+                            .slot_types
+                            .get(*parameter)
+                            .is_some_and(Option::is_some)
+                })
+                .map(|(parameter, _)| parameter)
+                .collect::<HashSet<_>>();
+            if active.is_empty() {
+                continue;
+            }
+            if !budget.scan(
+                pattern
+                    .label
+                    .len()
+                    .saturating_mul(pattern.graph.parameters.len() + 2),
+            ) {
+                return Vec::new();
+            }
+            let active = (active.len() == 1).then(|| *active.iter().next().unwrap());
+            let parameters = active.and_then(|active| {
+                let result = pattern
+                    .graph
+                    .parameters
+                    .iter()
+                    .map(|r| {
+                        Some(parameter(
+                            pattern
+                                .label
+                                .get(..r.start)?
+                                .encode_utf16()
+                                .count()
+                                .try_into()
+                                .ok()?,
+                            pattern
+                                .label
+                                .get(..r.end)?
+                                .encode_utf16()
+                                .count()
+                                .try_into()
+                                .ok()?,
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                result.get(active)?;
+                Some(result)
+            });
+            output.push(SignatureInformation {label:pattern.label.clone(),
+                documentation:Some(Documentation::String(format!("{}; current editing slot; operand types and addon guards are not fully checked",pattern.detail))),
+                active_parameter:parameters.as_ref().and(active.map(|a|a as u32)),parameters});
+        }
+        output
     }
 }
 
