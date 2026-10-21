@@ -99,6 +99,14 @@ pub(crate) fn parse_arithmetic<E: ExpressionParseEnvironment>(
     Ok(Vec::new())
 }
 
+pub(crate) fn has_operator_shape(
+    catalog: &syntaxes::Catalog,
+    input: &str,
+    range: TextRange,
+) -> bool {
+    !root_candidates(input, range, catalog.operators()).is_empty()
+}
+
 fn parse_operation<E: ExpressionParseEnvironment>(
     session: &mut ExpressionSession<'_, E>,
     range: TextRange,

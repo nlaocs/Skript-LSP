@@ -1482,7 +1482,9 @@ fn candidate_has_matching_literal_anchor(
         leading_tail_prefixes(&pattern.parsed.elements)
             .into_iter()
             .filter(|prefix| prefix.text.chars().any(|character| character != ' '))
-            .any(|prefix| match_literal_at(input, complete, complete.start, &prefix.text).is_ok())
+            .any(|prefix| {
+                match_pattern_literal(input, complete, complete.start, &prefix.text).is_ok()
+            })
     })
 }
 
@@ -2394,19 +2396,23 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         let transitions = if let Some(value) = self.transitions.get(&key) {
             value.clone()
         } else {
-            let value =
-                match match_literal_at(self.input.text(), self.trim_range, state.cursor, literal) {
-                    Ok(end) => vec![CachedTransition::Literal { end }],
-                    Err(offset) => {
-                        self.failure.record(
-                            offset,
-                            PatternFailureReason::Literal {
-                                expected: literal.to_owned(),
-                            },
-                        );
-                        Vec::new()
-                    }
-                };
+            let value = match match_pattern_literal(
+                self.input.text(),
+                self.trim_range,
+                state.cursor,
+                literal,
+            ) {
+                Ok(end) => vec![CachedTransition::Literal { end }],
+                Err(offset) => {
+                    self.failure.record(
+                        offset,
+                        PatternFailureReason::Literal {
+                            expected: literal.to_owned(),
+                        },
+                    );
+                    Vec::new()
+                }
+            };
             self.transitions.insert(key, value.clone());
             value
         };
@@ -2446,7 +2452,9 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         } else {
             let regex = self.regex(pattern, pattern_span)?;
             let mut values = Vec::new();
-            for end in skript_boundaries(self.input.text(), state.cursor, self.trim_range.end) {
+            for end in
+                expression_split_boundaries(self.input.text(), state.cursor, self.trim_range.end)
+            {
                 if self.environment.cancellation_requested() {
                     return Err(crate::ParseCancelled.into());
                 }
@@ -2561,10 +2569,11 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         tail: &[TailPrefix],
     ) -> Result<Vec<MatchState>, PatternMatchError> {
         let capture_index = self.current_capture_index(pattern_span);
-        let boundaries = skript_boundaries(self.input.text(), state.cursor, self.trim_range.end)
-            .into_iter()
-            .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
-            .collect::<Vec<_>>();
+        let boundaries =
+            expression_split_boundaries(self.input.text(), state.cursor, self.trim_range.end)
+                .into_iter()
+                .filter(|boundary| self.boundary_allows_tail(*boundary, tail))
+                .collect::<Vec<_>>();
         let anchored_failure_end = boundaries
             .iter()
             .copied()
@@ -2830,7 +2839,7 @@ impl<'input, 'candidate, 'ext, E: PatternMatchEnvironment>
         {
             return false;
         }
-        match_literal_at(self.input.text(), self.trim_range, boundary, &prefix.text).is_ok()
+        match_pattern_literal(self.input.text(), self.trim_range, boundary, &prefix.text).is_ok()
     }
 
     fn regex(
@@ -2998,7 +3007,9 @@ enum ScopeDecision {
     Failed,
 }
 
-pub(crate) fn java_trim_range(input: &str) -> TextRange {
+/// Native Java-style trim boundaries (code points at most U+0020).
+/// Editor proofs must preserve other Unicode whitespace inside parser input.
+pub fn java_trim_range(input: &str) -> TextRange {
     let start = input
         .char_indices()
         .find_map(|(index, ch)| ((ch as u32) > 0x20).then_some(index))
@@ -3011,7 +3022,8 @@ pub(crate) fn java_trim_range(input: &str) -> TextRange {
     TextRange::new(start, end)
 }
 
-fn match_literal_at(
+/// Native literal and boundary-space matching, shared with bounded editor proofs.
+pub fn match_pattern_literal(
     input: &str,
     complete: TextRange,
     mut cursor: usize,
@@ -3051,8 +3063,8 @@ fn char_eq_ignore_case(left: char, right: char) -> bool {
 }
 
 /// Returns legal expression split points in Skript traversal order.
-fn skript_boundaries(input: &str, start: usize, end: usize) -> Vec<usize> {
-    if start >= end {
+pub fn expression_split_boundaries(input: &str, start: usize, end: usize) -> Vec<usize> {
+    if start >= end || input.get(start..end).is_none() {
         return Vec::new();
     }
     let mut boundaries = Vec::new();

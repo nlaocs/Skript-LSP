@@ -118,6 +118,52 @@ impl FunctionDefinition {
         }
     }
 
+    /// Current complete call argument ranges using the native named/optional
+    /// argument binder. A plural list signature requires whole-list resolution
+    /// and deliberately provides no positional editing proof.
+    pub fn argument_expectations(
+        &self,
+        input: &str,
+        policy: crate::FunctionVersionPolicy,
+    ) -> Option<Vec<(TextRange, ExpressionExpectedType)>> {
+        let call = parse_call_syntax(
+            input,
+            TextRange::new(0, input.len()),
+            &[input.len()],
+            policy,
+        )?;
+        if call.name != self.name
+            || self.is_list_signature()
+            || call.arguments.len() > self.parameters.len()
+            || (!self.allows_named_arguments()
+                && call.arguments.iter().any(|a| a.kind == ArgumentKind::Named))
+        {
+            return None;
+        }
+        let mapped = map_exact_arguments(&self.parameters, &call.arguments)?;
+        Some(
+            mapped
+                .into_iter()
+                .zip(&self.parameters)
+                .flat_map(|(argument, parameter)| {
+                    argument
+                        .values
+                        .into_iter()
+                        .map(|range| {
+                            (
+                                range,
+                                ExpressionExpectedType {
+                                    class_name: parameter.parameter_type.clone(),
+                                    plural: !parameter.single,
+                                },
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
+        )
+    }
+
     pub(crate) fn shape(&self) -> Vec<(ClassName, bool)> {
         self.parameters
             .iter()

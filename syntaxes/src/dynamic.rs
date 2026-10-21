@@ -330,6 +330,27 @@ impl DynamicSyntaxRegistry {
         }
     }
 
+    /// Whether initialization added or overrode a requested kind's grammar.
+    /// Read-only negative evidence; document-time promises are separate.
+    pub fn initial_affects_kinds(
+        &self,
+        kinds: &[SyntaxKind],
+    ) -> Result<bool, DynamicRegistryError> {
+        let inner = self.lock()?;
+        Ok(inner
+            .initial
+            .values()
+            .flat_map(|layer| layer.items.values())
+            .any(|item| {
+                match item {
+                    StoredItem::Definition(value) => kinds.contains(&value.kind),
+                    // An override targets an indirect reference, not a kind.
+                    // Without resolving its full overlay, absence is unproven.
+                    StoredItem::Override(_) => true,
+                }
+            }))
+    }
+
     /// Starts a transactional update to the component initialization baseline.
     pub fn begin_initial_update(
         &self,

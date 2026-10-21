@@ -853,6 +853,39 @@ fn section_expression_pattern_candidate<'a>(
     }
 }
 
+/// Native grammar entry selected by a raw body node and its semantic body mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodySyntaxDomain {
+    TriggerItem,
+    Condition,
+    Section,
+    Unclaimed,
+}
+impl BodySyntaxDomain {
+    pub fn for_node(mode: SectionBodyMode, kind: RawNodeKind) -> Self {
+        match (mode, kind) {
+            (SectionBodyMode::Trigger, RawNodeKind::Simple) => Self::TriggerItem,
+            (SectionBodyMode::Conditions, RawNodeKind::Simple) => Self::Condition,
+            (SectionBodyMode::Trigger, RawNodeKind::Section) => Self::Section,
+            _ => Self::Unclaimed,
+        }
+    }
+    pub fn includes(self, kind: SyntaxKind, section_expression: bool) -> bool {
+        match self {
+            Self::TriggerItem => matches!(kind, SyntaxKind::Effect | SyntaxKind::Condition),
+            Self::Condition => kind == SyntaxKind::Condition,
+            Self::Section => {
+                kind == SyntaxKind::Section
+                    || (kind == SyntaxKind::Expression && section_expression)
+            }
+            Self::Unclaimed => false,
+        }
+    }
+    pub fn allows_function_call(self) -> bool {
+        self == Self::TriggerItem
+    }
+}
+
 pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
     session: &mut ExpressionSession<'_, E>,
     tree: &RawTree,
@@ -868,6 +901,7 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
         let Some(child) = tree.get(*id) else {
             continue;
         };
+        let domain = BodySyntaxDomain::for_node(body_mode, child.kind);
         match child.kind {
             RawNodeKind::Blank | RawNodeKind::Comment => {
                 body.push(SectionBodyNode::Trivia(child.id));
@@ -882,8 +916,8 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                     )?);
                     continue;
                 };
-                match body_mode {
-                    SectionBodyMode::Trigger => {
+                match domain {
+                    BodySyntaxDomain::TriggerItem => {
                         let effect_matches = recover_body_fault(
                             session,
                             child,
@@ -965,7 +999,7 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                         extend_match_diagnostics(session, child, false, false, &mut diagnostics)?;
                         body.push(SectionBodyNode::Effect(Box::new(effect_matches)));
                     }
-                    SectionBodyMode::Conditions => {
+                    BodySyntaxDomain::Condition => {
                         let matches = recover_body_fault(
                             session,
                             child,
@@ -995,10 +1029,11 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                             matches: Box::new(matches),
                         });
                     }
+                    _ => unreachable!("Simple body grammar"),
                 }
             }
             RawNodeKind::Section => {
-                if body_mode == SectionBodyMode::Conditions {
+                if domain != BodySyntaxDomain::Section {
                     preceding_sections.clear();
                     body.push(SectionBodyNode::Unclaimed(child.id));
                     diagnostics.push(section_diagnostic(

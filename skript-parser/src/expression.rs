@@ -32,6 +32,9 @@ use syntaxes::{
 };
 use thiserror::Error;
 
+mod compatibility;
+pub use compatibility::*;
+
 mod preparation;
 pub use preparation::ExpressionPreparationCache;
 
@@ -3651,18 +3654,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         return_type: Option<&ClassName>,
         expected_types: &[ExpressionExpectedType],
     ) -> bool {
-        expected_types.is_empty()
-            || return_type.is_some_and(|return_type| {
-                expected_types.iter().any(|expected| {
-                    let from = return_type.as_str();
-                    let to = expected.class_name.as_str();
-                    // Skript can attempt Object conversions using the runtime value. Static
-                    // candidates must first be narrowed by CoreLibrary or an addon, otherwise
-                    // a generic Object candidate hides a known Player, Number, and so on.
-                    to == "java.lang.Object"
-                        || (from != "java.lang.Object" && self.catalog.can_convert(from, to))
-                })
-            })
+        expression_return_type_matches(self.catalog, return_type, expected_types)
     }
 
     fn expression_types_match(
@@ -3684,11 +3676,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         multiplicity: Option<Multiplicity>,
         expected_types: &[ExpressionExpectedType],
     ) -> bool {
-        expected_types.is_empty()
-            || expected_types.iter().any(|expected| match multiplicity {
-                None | Some(Multiplicity::Both | Multiplicity::Single) => true,
-                Some(Multiplicity::Multiple) => expected.plural,
-            })
+        expression_multiplicity_matches(multiplicity, expected_types)
     }
 
     fn validate_prefix_request(

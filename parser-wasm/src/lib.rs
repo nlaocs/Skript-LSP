@@ -41,6 +41,32 @@ pub const CAPABILITY_INCREMENTAL_STRUCTURE_HEADER: &str = "parser.incremental-st
 /// Component-wide deterministic project semantic promise; see the WIT manifest contract.
 pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-semantics";
 
+/// Opt-in v1 editing contract for Expression/Condition/Effect/Section grammars.
+/// For exact unchanged source, the initialized Catalog exhausts registered
+/// pattern languages and native typed-slot requirements of these four kinds.
+/// Matching hooks, capture routing, macros and additional parses must not
+/// broaden/reinterpret them or introduce document-dependent patterns/overrides.
+/// Native variable/literal/function/group/list/arithmetic parsing is unchanged;
+/// opaque/intrinsic expression forms still require an independent editing proof.
+/// Structure registrations and ordinary Function declarations are independent.
+/// Static expression types/cardinality may change only via declared registered
+/// semantic handlers; Dynamic/Unresolved metadata is never a negative proof.
+/// Every loaded component must opt in. Absence/future versions mean Unknown.
+pub const CAPABILITY_COMPLETION_CATALOG_PATTERNS: &str = "parser.completion-catalog-patterns";
+
+/// Opt-in v1 editing contract for changing only an authenticated static scalar
+/// local Variable identity within a fixed native registration/pattern/capture.
+/// Its read syntax context, leaf type/shape and parent evaluation prefix up to
+/// that lookup do not depend on the scalar identity. Only identity/value may
+/// change. The host must separately prove that replacement cannot select another
+/// Catalog parent, literal/regex route or capture. This does not promise a
+/// type or preservation after the lookup, and never covers lists, interpolation
+/// or source transformations. Every loaded component must opt in; unknown/future
+/// versions provide no evidence. A current authenticated lookup and current flow
+/// facts are still required; header types alone are insufficient.
+pub const CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION: &str =
+    "parser.completion-static-local-substitution";
+
 /// Permits discarding the entire guest Store after observed cancellation.
 /// Initialization is deterministic and uses immutable Catalog queries only;
 /// StateStore/dynamic call attempts are rejected. Losing guest memory/globals

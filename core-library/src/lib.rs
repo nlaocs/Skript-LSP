@@ -163,6 +163,16 @@ impl addon::Guest for CoreLibrary {
                     minimum_version: 1,
                     required: false,
                 },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_COMPLETION_CATALOG_PATTERNS.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
             ],
             subscriptions: vec![
                 HookSubscription {
@@ -898,7 +908,7 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 14);
+        assert_eq!(manifest.capabilities.len(), 16);
         assert!(
             manifest
                 .capabilities

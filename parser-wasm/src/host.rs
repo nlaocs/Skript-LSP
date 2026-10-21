@@ -8936,6 +8936,83 @@ impl ParserHost {
             })
     }
 
+    /// Negative grammar proof for bounded editor pattern queries. This is not
+    /// implied by project stability or by a particular component's identity.
+    pub fn completion_catalog_patterns_are_closed(&self) -> bool {
+        let kinds = [
+            CatalogSyntaxKind::Expression,
+            CatalogSyntaxKind::Condition,
+            CatalogSyntaxKind::Effect,
+            CatalogSyntaxKind::Section,
+        ];
+        !self.components.is_empty()
+            && self.components.iter().all(|entry| {
+                !entry.disabled
+                    && !entry.unloaded
+                    && component_promises(
+                        &entry.manifest.capabilities,
+                        crate::CAPABILITY_COMPLETION_CATALOG_PATTERNS,
+                    )
+            })
+            && !self.registry.subscriptions.iter().any(|entry| {
+                entry.subscription.phase == HookPhase::Matching
+                    && entry.subscription.mode != HookMode::Observe
+            })
+            && self
+                .dynamic_syntax_registry
+                .as_ref()
+                .is_some_and(|registry| matches!(registry.initial_affects_kinds(&kinds), Ok(false)))
+    }
+
+    /// Whether exact scalar replacement within a proven fixed native parent
+    /// preserves its incoming operand facts. Separate from grammar
+    /// completeness, project stability, and runtime getter preservation.
+    pub fn completion_static_local_substitution_is_stable(&self) -> bool {
+        self.completion_catalog_patterns_are_closed()
+            && self.components.iter().all(|entry| {
+                component_promises(
+                    &entry.manifest.capabilities,
+                    crate::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION,
+                )
+            })
+    }
+
+    /// Effective native function grammar, shared with editor argument queries.
+    pub fn function_policy(&self) -> FunctionVersionPolicy {
+        function_policy_for_runtime(self.config.runtime_profile.skript_version.as_deref())
+    }
+
+    /// Whether a loaded semantic provider may replace this registration's types.
+    /// This is a conservative selector query: pattern, tag and mark restrictions
+    /// are deliberately not used to prove absence before a candidate is parsed.
+    pub fn registered_syntax_may_resolve(
+        &self,
+        kind: CatalogSyntaxKind,
+        definition_id: &str,
+        registration_id: &str,
+    ) -> bool {
+        self.components
+            .iter()
+            .filter(|entry| !entry.unloaded)
+            .any(|entry| {
+                entry
+                    .manifest
+                    .registered_syntax_handlers
+                    .iter()
+                    .any(|handler| {
+                        handler.phase != HookPhase::DefaultExpression
+                            && catalog_syntax_kind(handler.kind) == kind
+                            && registered_handler_target_matches(
+                                entry,
+                                handler,
+                                definition_id,
+                                registration_id,
+                                None,
+                            )
+                    })
+            })
+    }
+
     /// Default lexical options from the effective runtime, after explicit host
     /// settings and enabled snapshot plugins have been reconciled.
     pub fn raw_tree_options(&self) -> skript_parser::RawTreeOptions {
@@ -12566,6 +12643,8 @@ pub fn host_capabilities() -> Vec<Capability> {
         crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
         crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
+        crate::CAPABILITY_COMPLETION_CATALOG_PATTERNS,
+        crate::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION,
         CAPABILITY_CONDITION_PARSER,
         CAPABILITY_EFFECT_PARSER,
         CAPABILITY_SECTION_PARSER,
@@ -16413,6 +16492,120 @@ mod tests {
                 .iter()
                 .all(|entry| entry.owner_component_id.is_some())
         );
+    }
+
+    #[test]
+    fn completion_proofs_require_exact_opt_in_and_unmodified_catalog_grammars() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime");
+        let catalog = Arc::new(ssg::load(fixture).unwrap().into_catalog());
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            HostConfig {
+                syntax_catalog: Some(Arc::clone(&catalog)),
+                ..core_test_config()
+            },
+        )
+        .unwrap();
+        assert!(host.completion_catalog_patterns_are_closed());
+        assert!(host.completion_static_local_substitution_is_stable());
+        let substitution = crate::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION;
+        let original = host.components[0].manifest.capabilities.clone();
+        for version in [None, Some(0), Some(2)] {
+            host.components[0].manifest.capabilities = original.clone();
+            if let Some(version) = version {
+                host.components[0]
+                    .manifest
+                    .capabilities
+                    .iter_mut()
+                    .find(|c| c.id == substitution)
+                    .unwrap()
+                    .minimum_version = version;
+            } else {
+                host.components[0]
+                    .manifest
+                    .capabilities
+                    .retain(|c| c.id != substitution);
+            }
+            assert!(!host.completion_static_local_substitution_is_stable());
+            assert!(host.completion_catalog_patterns_are_closed());
+        }
+        host.components[0].manifest.capabilities = original;
+        let id = crate::CAPABILITY_COMPLETION_CATALOG_PATTERNS;
+        let requirements = host.components[0].manifest.capabilities.clone();
+        for version in [None, Some(0), Some(2)] {
+            host.components[0].manifest.capabilities = requirements.clone();
+            if let Some(version) = version {
+                host.components[0]
+                    .manifest
+                    .capabilities
+                    .iter_mut()
+                    .find(|c| c.id == id)
+                    .unwrap()
+                    .minimum_version = version;
+            } else {
+                host.components[0]
+                    .manifest
+                    .capabilities
+                    .retain(|c| c.id != id);
+            }
+            assert!(!host.completion_catalog_patterns_are_closed());
+        }
+        host.components[0].manifest.capabilities = requirements;
+        host.components[0].disabled = true;
+        assert!(!host.completion_catalog_patterns_are_closed());
+        host.components[0].disabled = false;
+        host.components[0].unloaded = true;
+        assert!(!host.completion_catalog_patterns_are_closed());
+        host.components[0].unloaded = false;
+        let mut hook = subscription(
+            "editing-matching",
+            HookTarget::ParseStage,
+            0,
+            HookMode::Observe,
+        );
+        hook.phase = HookPhase::Matching;
+        host.registry.subscriptions.push(RegisteredSubscription {
+            component_index: 0,
+            load_order: 0,
+            declaration_order: 0,
+            subscription: hook,
+        });
+        assert!(host.completion_catalog_patterns_are_closed());
+        host.registry
+            .subscriptions
+            .last_mut()
+            .unwrap()
+            .subscription
+            .mode = HookMode::Transform;
+        assert!(!host.completion_catalog_patterns_are_closed());
+        host.registry.subscriptions.pop();
+        let registry = host.dynamic_syntax_registry.as_ref().unwrap();
+        let mut update = registry
+            .begin_initial_update("editing-fixture", 99)
+            .unwrap();
+        update
+            .register(syntaxes::DynamicSyntaxInput {
+                local_id: "editor-effect".into(),
+                kind: CatalogSyntaxKind::Effect,
+                patterns: vec!["editing %objects%".into()],
+                priority: 0,
+                before: vec![],
+                after: vec![],
+                return_type: None,
+                return_multiplicity: None,
+                structure_node_type: None,
+                structure_body_mode: None,
+                entry_validator: None,
+                handler: "editing-handler".into(),
+                metadata: Default::default(),
+            })
+            .unwrap();
+        update.commit().unwrap();
+        assert!(!host.completion_catalog_patterns_are_closed());
     }
 
     fn core_test_config() -> HostConfig {
