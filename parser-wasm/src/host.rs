@@ -13,6 +13,8 @@ mod capture_view_tests;
 #[cfg(test)]
 mod checkpoint_tests;
 mod default_expression;
+mod hook_calls;
+use hook_calls::HookCallLog;
 mod incremental;
 #[cfg(test)]
 mod incremental_equivalence_tests;
@@ -3125,19 +3127,19 @@ fn type_selector_match(
 #[derive(Debug, Clone)]
 struct HookEffectsCheckpoint {
     effects: Arc<HookEffects>,
-    calls: Arc<Vec<HookCall>>,
+    calls: HookCallLog,
     failures_len: usize,
 }
 
 impl HookEffectsCheckpoint {
     fn capture(
         effects: &Arc<HookEffects>,
-        calls: &Arc<Vec<HookCall>>,
+        calls: &HookCallLog,
         failures: &[ComponentFailure],
     ) -> Self {
         Self {
             effects: Arc::clone(effects),
-            calls: Arc::clone(calls),
+            calls: calls.clone(),
             failures_len: failures.len(),
         }
     }
@@ -3145,7 +3147,7 @@ impl HookEffectsCheckpoint {
     fn restore(
         &self,
         effects: &mut Arc<HookEffects>,
-        calls: &mut Arc<Vec<HookCall>>,
+        calls: &mut HookCallLog,
         failures: &mut Vec<ComponentFailure>,
     ) {
         effects.clone_from(&self.effects);
@@ -3155,17 +3157,8 @@ impl HookEffectsCheckpoint {
     }
 }
 
-fn extend_hook_calls(calls: &mut Arc<Vec<HookCall>>, added: Vec<HookCall>) {
-    // Empty dispatch results must not detach a shared checkpoint.
-    if !added.is_empty() {
-        let was_shared = Arc::strong_count(calls) > 1;
-        let calls = Arc::make_mut(calls);
-        // Checkpoints retain each detached Vec, including its unused capacity.
-        if was_shared {
-            calls.reserve_exact(added.len());
-        }
-        calls.extend(added);
-    }
+fn extend_hook_calls(calls: &mut HookCallLog, added: Vec<HookCall>) {
+    calls.extend(added);
 }
 
 struct PatternMatchFrame {
@@ -3221,7 +3214,7 @@ struct WasmPatternHooks<'a> {
     pending_cancellation: Option<skript_parser::ParseCancelled>,
     pending_unavailable: Option<skript_parser::FunctionNamespaceUnavailable>,
     effects: Arc<HookEffects>,
-    calls: Arc<Vec<HookCall>>,
+    calls: HookCallLog,
     failures: Vec<ComponentFailure>,
 }
 
@@ -3466,7 +3459,7 @@ impl WasmPatternHooks<'_> {
     fn into_parts(self) -> (HookEffects, Vec<HookCall>, Vec<ComponentFailure>) {
         (
             Arc::unwrap_or_clone(self.effects),
-            Arc::unwrap_or_clone(self.calls),
+            self.calls.into_vec(),
             self.failures,
         )
     }
@@ -3941,7 +3934,7 @@ impl WasmExpressionEnvironment<'_> {
                 [checkpoint.effects.parse_results.len()..]
                 .to_vec(),
         };
-        let calls = self.hooks.calls[checkpoint.calls.len()..].to_vec();
+        let calls = self.hooks.calls.suffix(checkpoint.calls.len());
         let failures = self.hooks.failures[checkpoint.failures_len..].to_vec();
         let state = self
             .hooks
@@ -9136,7 +9129,7 @@ impl ParserHost {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         };
         let result = run_pattern_matcher(input, candidates, resolver, &mut hooks, config);
@@ -9218,7 +9211,7 @@ impl ParserHost {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -9330,7 +9323,7 @@ impl ParserHost {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -9440,7 +9433,7 @@ impl ParserHost {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
@@ -9573,7 +9566,7 @@ impl ParserHost {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         };
         let mut observe = |event: skript_parser::StructurePreparationEvent<'_>| {
@@ -9813,7 +9806,7 @@ impl ParserHost {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {

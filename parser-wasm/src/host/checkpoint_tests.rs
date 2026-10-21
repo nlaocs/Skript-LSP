@@ -23,7 +23,7 @@ fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() 
         Arc::make_mut(&mut effects)
             .context_updates
             .push(update("base"));
-        let mut calls = Arc::new(vec![call("base")]);
+        let mut calls = HookCallLog::from(vec![call("base")]);
         let mut failures = Vec::new();
         let base = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
 
@@ -33,10 +33,10 @@ fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() 
         extend_hook_calls(&mut calls, vec![call("selected-1"), call("selected-2")]);
         let selected = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
         let selected_clone = selected.clone();
-        assert!(Arc::ptr_eq(&calls, &selected.calls));
+        assert!(calls.shares_tail(&selected.calls));
 
         base.restore(&mut effects, &mut calls, &mut failures);
-        assert_eq!(*calls, vec![call("base")]);
+        assert_eq!(calls.suffix(0), vec![call("base")]);
         Arc::make_mut(&mut effects)
             .context_updates
             .push(update("other"));
@@ -44,7 +44,7 @@ fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() 
 
         selected.restore(&mut effects, &mut calls, &mut failures);
         assert_eq!(
-            *calls,
+            calls.suffix(0),
             vec![call("base"), call("selected-1"), call("selected-2")]
         );
         assert_eq!(effects.context_updates.len(), 2);
@@ -52,32 +52,35 @@ fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() 
         extend_hook_calls(&mut calls, vec![call("later")]);
         selected_clone.restore(&mut effects, &mut calls, &mut failures);
         assert_eq!(
-            *calls,
+            calls.suffix(0),
             vec![call("base"), call("selected-1"), call("selected-2")]
         );
-        assert_eq!(*base.calls, vec![call("base")]);
+        assert_eq!(base.calls.suffix(0), vec![call("base")]);
     }
 }
 
 #[test]
 fn empty_dispatch_keeps_shared_calls_and_nonempty_dispatch_detaches_in_order() {
-    let mut calls = Arc::new(vec![call("first")]);
-    let saved = Arc::clone(&calls);
+    let mut calls = HookCallLog::from(vec![call("first")]);
+    let saved = calls.clone();
     extend_hook_calls(&mut calls, Vec::new());
-    assert!(Arc::ptr_eq(&calls, &saved));
+    assert!(calls.shares_tail(&saved));
     extend_hook_calls(&mut calls, vec![call("second"), call("third")]);
-    assert!(!Arc::ptr_eq(&calls, &saved));
-    assert_eq!(*saved, vec![call("first")]);
-    assert_eq!(*calls, vec![call("first"), call("second"), call("third")]);
-    let owned = Arc::unwrap_or_clone(calls);
+    assert!(!calls.shares_tail(&saved));
+    assert_eq!(saved.suffix(0), vec![call("first")]);
+    assert_eq!(
+        calls.suffix(0),
+        vec![call("first"), call("second"), call("third")]
+    );
+    let owned = calls.into_vec();
     assert_eq!(owned, vec![call("first"), call("second"), call("third")]);
-    assert_eq!(Arc::unwrap_or_clone(saved), vec![call("first")]);
+    assert_eq!(saved.into_vec(), vec![call("first")]);
 }
 
 #[test]
 fn restoring_calls_retains_new_failures_and_updated_fault_spans() {
     let mut effects = Arc::new(empty_effects());
-    let mut calls = Arc::new(vec![call("base")]);
+    let mut calls = HookCallLog::from(vec![call("base")]);
     let failure = || ComponentFailure {
         affected_span: None,
         component_id: "faulty".into(),
@@ -96,7 +99,7 @@ fn restoring_calls_retains_new_failures_and_updated_fault_spans() {
     failures.push(failure());
     extend_hook_calls(&mut calls, vec![call("discarded")]);
     base.restore(&mut effects, &mut calls, &mut failures);
-    assert_eq!(*calls, vec![call("base")]);
+    assert_eq!(calls.suffix(0), vec![call("base")]);
     assert_eq!(failures.len(), 2);
     let span = failures[0].affected_span.as_ref().unwrap();
     assert_eq!((span.virtual_range.start, span.virtual_range.end), (2, 5));
@@ -109,16 +112,16 @@ fn restoring_calls_retains_new_failures_and_updated_fault_spans() {
 
 #[test]
 fn shared_write_followed_by_unique_appends_preserves_both_logs() {
-    let mut calls = Arc::new(vec![call("base")]);
-    let saved = Arc::clone(&calls);
+    let mut calls = HookCallLog::from(vec![call("base")]);
+    let saved = calls.clone();
     extend_hook_calls(&mut calls, vec![call("selected")]);
-    assert!(!Arc::ptr_eq(&calls, &saved));
+    assert!(!calls.shares_tail(&saved));
     for subscription in ["later-1", "later-2", "later-3"] {
         extend_hook_calls(&mut calls, vec![call(subscription)]);
     }
-    assert_eq!(*saved, vec![call("base")]);
+    assert_eq!(saved.suffix(0), vec![call("base")]);
     assert_eq!(
-        *calls,
+        calls.suffix(0),
         vec![
             call("base"),
             call("selected"),
@@ -130,12 +133,14 @@ fn shared_write_followed_by_unique_appends_preserves_both_logs() {
 }
 
 #[test]
-fn write_with_only_a_weak_observer_preserves_log_contents() {
-    let mut calls = Arc::new(vec![call("base")]);
-    let observer = Arc::downgrade(&calls);
+fn append_preserves_prefix_until_the_last_log_owner_drops() {
+    let mut calls = HookCallLog::from(vec![call("base")]);
+    let observer = calls.observer();
     extend_hook_calls(&mut calls, vec![call("later")]);
+    assert!(observer.upgrade().is_some());
+    assert_eq!(calls.suffix(0), vec![call("base"), call("later")]);
+    drop(calls);
     assert!(observer.upgrade().is_none());
-    assert_eq!(*calls, vec![call("base"), call("later")]);
 }
 
 fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
@@ -179,7 +184,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
             pending_cancellation: None,
             pending_unavailable: None,
             effects: Arc::new(empty_effects()),
-            calls: Arc::default(),
+            calls: HookCallLog::default(),
             failures: Vec::new(),
         },
         pending_leaf: None,
@@ -209,7 +214,7 @@ fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
         merge_shared_effects(&mut environment.hooks.effects, all_effects("suffix", 24));
         let deferred = environment.defer_effects(&state, &checkpoint).unwrap();
         assert_eq!(effect_lengths(&environment.hooks.effects), [1; 4]);
-        assert_eq!(*environment.hooks.calls, vec![call("prefix")]);
+        assert_eq!(environment.hooks.calls.suffix(0), vec![call("prefix")]);
         assert_eq!(
             deferred
                 .downcast_ref::<DeferredExpressionEffects>()
@@ -221,7 +226,7 @@ fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
             environment.apply_expression_effects(&deferred).unwrap();
             assert_eq!(effect_lengths(&environment.hooks.effects), [2; 4]);
             assert_eq!(
-                *environment.hooks.calls,
+                environment.hooks.calls.suffix(0),
                 vec![call("prefix"), call("suffix-1"), call("suffix-2")]
             );
         }
@@ -241,14 +246,14 @@ fn deferred_call_suffix_applies_once_and_reapplies_after_rollback() {
         assert_eq!(environment.hooks.effects.parse_requests[1].input, "suffix");
         assert_eq!(environment.hooks.effects.parse_results[1].nodes.len(), 24);
         assert_eq!(
-            *environment.hooks.calls,
+            environment.hooks.calls.suffix(0),
             vec![call("prefix"), call("suffix-1"), call("suffix-2")]
         );
-        let saved = Arc::clone(&environment.hooks.calls);
+        let saved = environment.hooks.calls.clone();
         let (_, mut exported, _) = environment.into_parts();
         exported.push(call("outside"));
         assert_eq!(
-            *saved,
+            saved.suffix(0),
             vec![call("prefix"), call("suffix-1"), call("suffix-2")]
         );
     });
@@ -278,9 +283,9 @@ fn checked_dispatch_drains_calls_once_and_retains_fault_markers() {
         };
         let result = environment.hooks.checked_dispatch(dispatch(None)).unwrap();
         assert!(result.calls.is_empty());
-        let saved = Arc::clone(&environment.hooks.calls);
+        let saved = environment.hooks.calls.clone();
         extend_hook_calls(&mut environment.hooks.calls, result.calls);
-        assert!(Arc::ptr_eq(&saved, &environment.hooks.calls));
+        assert!(saved.shares_tail(&environment.hooks.calls));
         let fault = skript_parser::ExtensionFault {
             component_id: "component".into(),
             subscription_id: "dispatch".into(),
@@ -299,7 +304,7 @@ fn checked_dispatch_drains_calls_once_and_retains_fault_markers() {
         assert!(environment.hooks.checked_dispatch(failed).is_err());
         assert_eq!(environment.hooks.pending_fault.as_ref(), Some(&fault));
         assert_eq!(environment.hooks.failures.len(), 1);
-        assert_eq!(*saved, vec![call("dispatch")]);
+        assert_eq!(saved.suffix(0), vec![call("dispatch")]);
         let (_, exported, _) = environment.into_parts();
         assert_eq!(exported, vec![call("dispatch"), call("dispatch")]);
     });
@@ -308,26 +313,29 @@ fn checked_dispatch_drains_calls_once_and_retains_fault_markers() {
 #[test]
 fn old_log_generations_live_until_their_last_checkpoint_is_dropped() {
     let effects = Arc::new(empty_effects());
-    let mut calls = Arc::new(vec![call(&"prefix".repeat(80)); 16]);
+    let mut calls = HookCallLog::from(vec![call(&"prefix".repeat(80)); 16]);
     let mut checkpoints = Vec::new();
     let mut generations = Vec::new();
     for index in 0..48 {
         checkpoints.push(HookEffectsCheckpoint::capture(&effects, &calls, &[]));
-        let generation = Arc::downgrade(&calls);
-        // A checkpoint is a strong owner, so make_mut must clone this generation.
+        let generation = calls.observer();
+        // Appending shares this prefix with the next chunk and the checkpoint.
         extend_hook_calls(&mut calls, vec![call(&format!("branch-{index}"))]);
         assert!(generation.upgrade().is_some());
         generations.push(generation);
     }
     let retained = checkpoints[7].clone();
-    let latest = Arc::downgrade(&calls);
+    let latest = calls.observer();
     drop(calls);
     assert!(latest.upgrade().is_none());
-    for (index, checkpoint) in checkpoints.into_iter().enumerate() {
+    for (index, checkpoint) in checkpoints.into_iter().enumerate().rev() {
         assert_eq!(checkpoint.calls.len(), 16 + index);
-        assert_eq!(checkpoint.calls[0].subscription_id, "prefix".repeat(80));
+        assert_eq!(
+            checkpoint.calls.suffix(0)[0].subscription_id,
+            "prefix".repeat(80)
+        );
         drop(checkpoint);
-        assert_eq!(generations[index].upgrade().is_some(), index == 7);
+        assert_eq!(generations[index].upgrade().is_some(), index <= 7);
     }
     assert_eq!(retained.calls.len(), 23);
     drop(retained);
@@ -346,16 +354,16 @@ fn branch_restore_retains_saved_generations_until_the_matcher_frame_finishes() {
         hooks.begin_match_frame().unwrap();
         extend_hook_calls(&mut hooks.calls, vec![call("a")]);
         let branch_a = hooks.checkpoint_branch_state().unwrap().unwrap();
-        let generation_a = Arc::downgrade(&hooks.calls);
+        let generation_a = hooks.calls.observer();
         extend_hook_calls(&mut hooks.calls, vec![call("b")]);
         hooks.checkpoint_branch_state().unwrap();
-        let generation_b = Arc::downgrade(&hooks.calls);
+        let generation_b = hooks.calls.observer();
         hooks.restore_branch_state(branch_a).unwrap();
-        assert_eq!(*hooks.calls, vec![call("base"), call("a")]);
+        assert_eq!(hooks.calls.suffix(0), vec![call("base"), call("a")]);
         assert!(generation_a.upgrade().is_some());
         assert!(generation_b.upgrade().is_some());
         hooks.finish_match_frame(false).unwrap();
-        assert_eq!(*hooks.calls, vec![call("base")]);
+        assert_eq!(hooks.calls.suffix(0), vec![call("base")]);
         assert!(hooks.frames.is_empty());
         assert!(hooks.branch_states.is_empty());
         assert!(generation_a.upgrade().is_none());
@@ -377,7 +385,7 @@ fn exported_candidate_state_keeps_its_log_alive_after_the_environment_is_dropped
                 &environment.hooks.failures,
             ),
         });
-        generation = Some(Arc::downgrade(&environment.hooks.calls));
+        generation = Some(environment.hooks.calls.observer());
         exported = environment.take_pattern_candidate_state();
         assert!(environment.hooks.last_candidate.is_none());
     });
@@ -391,7 +399,8 @@ fn exported_candidate_state_keeps_its_log_alive_after_the_environment_is_dropped
             .downcast_ref::<SavedPatternCandidate>()
             .unwrap()
             .effects
-            .calls[0],
+            .calls
+            .suffix(0)[0],
         call("selected")
     );
     assert!(generation.upgrade().is_some());
@@ -404,7 +413,7 @@ struct CancelInsideFrame<'a, 'host> {
     token: DocumentCancellationToken,
     close_transaction: bool,
     injected: bool,
-    generation: Option<std::sync::Weak<Vec<HookCall>>>,
+    generation: Option<std::sync::Weak<hook_calls::Chunk>>,
 }
 
 impl PatternMatchHooks for CancelInsideFrame<'_, '_> {
@@ -420,7 +429,7 @@ impl PatternMatchHooks for CancelInsideFrame<'_, '_> {
                 .prepare_nested_scope(PatternHookScope::Pattern)
                 .unwrap();
             self.hooks.checkpoint_branch_state().unwrap();
-            self.generation = Some(Arc::downgrade(&self.hooks.calls));
+            self.generation = Some(self.hooks.calls.observer());
             extend_hook_calls(&mut self.hooks.calls, vec![call("later")]);
             assert!(self.generation.as_ref().unwrap().upgrade().is_some());
             self.token.cancel();
@@ -498,7 +507,7 @@ fn cancellation_releases_branch_logs_and_cleanup_errors_release_them_on_environm
                 assert!(generation.upgrade().is_some());
             } else {
                 assert!(skript_parser::parse_cancellation(&error).is_some());
-                assert_eq!(*environment.hooks.calls, vec![call("base")]);
+                assert_eq!(environment.hooks.calls.suffix(0), vec![call("base")]);
                 assert!(environment.hooks.frames.is_empty());
                 assert!(environment.hooks.branch_states.is_empty());
                 assert!(environment.hooks.scope_frames.is_empty());
@@ -615,7 +624,7 @@ fn empty_effect_merge_keeps_shared_prefix_and_each_nonempty_field_detaches() {
 fn complete_effect_snapshots_restore_selected_arenas_after_other_branch_lengths() {
     for count in 0..=3 {
         let mut effects = Arc::new(all_effects("base", 64));
-        let mut calls = Arc::default();
+        let mut calls = HookCallLog::default();
         let mut failures = Vec::new();
         let base = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
         merge_shared_effects(&mut effects, all_effects("selected", 48));

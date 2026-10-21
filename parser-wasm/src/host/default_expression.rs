@@ -683,7 +683,7 @@ mod tests {
                 pending_cancellation: None,
                 pending_unavailable: None,
                 effects: Arc::new(empty_effects()),
-                calls: Arc::default(),
+                calls: HookCallLog::default(),
                 failures: Vec::new(),
             },
             pending_leaf: None,
