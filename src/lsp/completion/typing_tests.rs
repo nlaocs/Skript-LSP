@@ -365,7 +365,8 @@ fn registered_expression_candidates_use_native_slot_types_early_and_final() {
         "{:?}",
         labels(&list)
     );
-    // Dynamic literal metadata cannot be treated as a static negative proof.
+    // This suffix-preserving edit inserts only "max". Its expression extent
+    // is unknown even if a displayed full literal has a certified output class.
     let source = "on load:\n    teleport max to {_destination}\n";
     let (_, view, _, _) = parse(source);
     let list = view.at(position(source, "teleport max"), false).unwrap();
@@ -401,10 +402,10 @@ fn function_cardinality_and_converters_reuse_the_native_rules() {
 }
 
 #[test]
-fn actual_scalar_replacement_checks_passive_literal_and_regex_parent_competitors() {
+fn adopted_variable_type_is_not_borrowed_from_other_parent_patterns() {
     let source =
         "function check_types(arg_text: text, arg_number: number):\n    {_arg_} matches \"x\"\n";
-    for (competing, reachable) in [
+    for (competing, _reachable) in [
         ("{_arg_number} matches %strings%", true),
         ("<.+> matches %strings%", true),
         ("{_%objects%} matches %strings%", true),
@@ -428,11 +429,11 @@ fn actual_scalar_replacement_checks_passive_literal_and_regex_parent_competitors
                 identity: "fixture:passive:0".into(),
                 graph: continuation::Graph::new(&parsed.elements).unwrap(),
             });
-        // A balanced native Variable cannot end before its closing brace;
-        // an extra literal closing brace is an unreachable negative control.
+        // Another parent interpretation does not change this variable proposal
+        // or the current adopted capture. It can offer a separate syntax item.
         assert_eq!(
             declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"),
-            reachable,
+            false,
             "{competing}"
         );
     }
@@ -562,7 +563,7 @@ fn new_required_calls_use_their_declared_type_but_name_only_existing_calls_keep_
 }
 
 #[test]
-fn ambiguous_parent_keeps_current_known_variable_instead_of_selecting_a_capture() {
+fn adopted_audience_capture_filters_a_known_number_variable() {
     let source = "function typed(arg_number: number):\n    send \"ready\" to {_arg_}\n";
     let (_, view, _, _) = parse(source);
     let start = source.find("{_arg_}").unwrap();
@@ -578,7 +579,7 @@ fn ambiguous_parent_keeps_current_known_variable_instead_of_selecting_a_capture(
         if classes.contains("java.lang.Number"))
     );
     assert!(
-        declaration_labels(&view.at(position(source, "{_arg_"), false).unwrap())
+        !declaration_labels(&view.at(position(source, "{_arg_"), false).unwrap())
             .contains(&"{_arg_number}")
     );
 }
@@ -913,4 +914,348 @@ fn prefix_using_a_right_suffix_does_not_confuse_an_inner_slot_with_the_proposals
             matches!(&proposal.text_edit, Some(CompletionTextEdit::Edit(e)) if e.new_text == "name")
         );
     }
+}
+
+#[test]
+fn adopted_capture_resolves_overlapping_object_and_audience_slots() {
+    let source = "on load:\n    send \"test\" to player\n";
+    let (early, view, result, _) = parse(source);
+    assert!(
+        result.syntax.diagnostics.is_empty(),
+        "{:?}",
+        result.syntax.diagnostics
+    );
+    let start = source.rfind("player").unwrap();
+    let p = LineIndex::new(source).position(source, start + 6).unwrap();
+    let edit = TextRange::new(start, start + "player".len());
+    let adopted_expected = view
+        .expected_at(&view.context[&p.line], edit, true)
+        .unwrap();
+    assert_eq!(
+        adopted_expected,
+        expected("net.kyori.adventure.audience.Audience", true)
+    );
+    // Query the actual reported word end. Middle-word suffix preservation may
+    // independently suppress a new call; do not attribute that to type filtering.
+    for name in ["product", "permutations"] {
+        let candidate = view
+            .index
+            .functions
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap();
+        assert!(
+            view.incompatible_function(candidate, Some(&adopted_expected)),
+            "{name}"
+        );
+    }
+    let candidate = view
+        .index
+        .functions
+        .iter()
+        .find(|f| f.name == "player")
+        .unwrap();
+    assert!(!view.incompatible_function(candidate, Some(&adopted_expected)));
+    let pi = view
+        .index
+        .templates
+        .iter()
+        .find(|t| t.kind == SyntaxKind::Expression && t.folded == "pi")
+        .unwrap();
+    let (item, whole) = view
+        .template_item(pi, "pi", start, start + 6, &view.context[&p.line], false)
+        .unwrap();
+    assert!(view.incompatible_template(
+        pi,
+        Some(&adopted_expected),
+        &view.context[&p.line],
+        edit,
+        &item,
+        whole,
+        true,
+        &mut continuation::Budget::new()
+    ));
+    let list = view.at(p, false).unwrap();
+    let names = labels(&list);
+    assert!(names.iter().any(|n| n.starts_with("player(")), "{names:?}");
+    for name in ["product(", "permutations("] {
+        assert!(!names.iter().any(|n| n.starts_with(name)), "{names:?}");
+    }
+    assert!(
+        !list.items.iter().any(|i| i.label == "pi"
+            && i.data
+                .as_ref()
+                .is_some_and(|d| d["syntaxKind"] == "Expression")),
+        "{names:?}"
+    );
+    // Header-only preparation has no adopted body yet. It remains conservative,
+    // and never waits for final analysis just to obtain this stronger proof.
+    assert!(
+        early
+            .document
+            .expected_at(&early.document.context[&p.line], edit, false)
+            .is_none()
+    );
+    let source = "on load:\n    send \"test\" to p\n";
+    let (_, view, _, _) = parse(source);
+    let p = position(source, "to p");
+    assert!(
+        view.expected_at(
+            &view.context[&p.line],
+            TextRange::new(source.rfind('p').unwrap(), source.rfind('p').unwrap() + 1),
+            true
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn provider_guaranteed_literal_class_filters_without_claiming_cardinality() {
+    let source = "on load:\n    kill pi\n";
+    let (early, view, _, _) = parse(source);
+    let p = position(source, "kill pi");
+    for list in [
+        view.at(p, false).unwrap(),
+        match early.at(p, false).unwrap() {
+            PreparedQuery::Ready(l) => l,
+            _ => panic!("prepared"),
+        },
+    ] {
+        assert!(
+            !list.items.iter().any(|i| i.label == "pi"
+                && i.data
+                    .as_ref()
+                    .is_some_and(|d| d["syntaxKind"] == "Expression")),
+            "{:?}",
+            labels(&list)
+        );
+    }
+    let source = "on load:\n    broadcast pi\n";
+    let (_, view, _, _) = parse(source);
+    let list = view.at(position(source, "broadcast pi"), false).unwrap();
+    assert!(labels(&list).contains(&"pi"), "{:?}", labels(&list));
+}
+
+#[test]
+fn native_function_result_assignment_reaches_hover_and_variable_type_filter() {
+    use crate::lsp::semantic::InferredType;
+    for alias in ["string", "text"] {
+        let source = format!(
+            "function test() :: {alias}:\n    return \"test\"\nfunction inspect(arg_number: number):\n    set {{_aaa}} to test()\n    {{_aaa}} matches \"x\"\n"
+        );
+        let (_, view, result, _) = parse(&source);
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{:?}",
+            result.syntax.diagnostics
+        );
+        let p = position(&source, "{_aaa");
+        let (_, ty) = view.semantic_types.as_ref().unwrap().type_at(p).unwrap();
+        assert!(
+            matches!(ty, InferredType::Values { classes, multiple: false, maybe_unset: true } if classes == &std::collections::BTreeSet::from(["java.lang.String".into()])),
+            "{alias}: {ty:?}"
+        );
+        let list = view.at(p, false).unwrap();
+        assert!(declaration_labels(&list).contains(&"{_aaa}"));
+        // Recipients are observed before message conversion callbacks. This
+        // checks the known String at the adopted Audience lookup.
+        let source = source.replace("{_aaa} matches \"x\"", "send \"test\" to {_a}");
+        let (early, view, _, _) = parse(&source);
+        let start = source.rfind("{_a}").unwrap();
+        let edit = TextRange::new(start, start + "{_a}".len());
+        let input = view
+            .semantic_types
+            .as_ref()
+            .unwrap()
+            .completion_input(&source, edit, "aaa");
+        assert!(
+            input.is_some(),
+            "missing current operand for {alias}; current variable: {:?}",
+            view.semantic_types
+                .as_ref()
+                .unwrap()
+                .type_at(position(&source, "{_a"))
+        );
+        assert!(
+            matches!(input.unwrap().0, InferredType::Values { classes, .. } if classes.contains("java.lang.String")),
+            "{:?}",
+            input.map(|(ty, requested, _)| (ty, requested))
+        );
+        assert!(
+            view.accepted_slots.contains_key(&(edit.start, edit.end)),
+            "no adopted capture: {:?}",
+            view.accepted_slots
+        );
+        // The snapshot converts String -> World, and World implements Audience.
+        // Retention here is compatibility, not a missing assignment type proof.
+        assert!(catalog().can_convert("java.lang.String", "net.kyori.adventure.audience.Audience"));
+        let list = view.at(position(&source, "{_a"), false).unwrap();
+        assert!(
+            declaration_labels(&list).contains(&"{_aaa}"),
+            "{:?}",
+            declaration_labels(&list)
+        );
+        let PreparedQuery::Ready(list) = early.at(position(&source, "{_a"), false).unwrap() else {
+            panic!("prepared")
+        };
+        assert!(
+            declaration_labels(&list).contains(&"{_arg_number}"),
+            "early facts are not guessed"
+        );
+    }
+}
+
+#[test]
+fn native_result_typing_keeps_call_effect_barriers_and_unknown_results() {
+    use crate::lsp::semantic::InferredType;
+    for (result_type, middle, known) in [
+        ("text", "", true),
+        ("object", "", false),
+        ("text", "    execute console command \"noop\"\n", false),
+        ("text", "    set {_aaa} to 1\n", false),
+        (
+            "text",
+            "    if chance of 50%:\n        set {_aaa} to 1\n",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "function result() :: {result_type}:\n    return \"value\"\nfunction inspect(arg_number: number):\n    set {{_aaa}} to result()\n{middle}    {{_aaa}} matches \"x\"\n"
+        );
+        let (_, view, _, _) = parse(&source);
+        let p = position(&source, "{_aaa");
+        let (_, ty) = view.semantic_types.as_ref().unwrap().type_at(p).unwrap();
+        assert_eq!(
+            matches!(ty, InferredType::Values { classes, .. } if classes.len() == 1 && classes.contains("java.lang.String")),
+            known,
+            "{result_type} {middle}: {ty:?}"
+        );
+        // A native call can run arbitrary function code: no old parameter fact
+        // is retained merely because its result has a known immutable type.
+        let source = source.replace("{_aaa} matches \"x\"", "{_arg_} matches \"x\"");
+        let (_, view, _, _) = parse(&source);
+        assert!(
+            declaration_labels(&view.at(position(&source, "{_arg_"), false).unwrap())
+                .contains(&"{_arg_number}")
+        );
+    }
+}
+
+#[test]
+fn adopted_context_does_not_survive_rewritten_native_facts_or_an_edit() {
+    let source = "on load:\n    send \"test\" to player\n";
+    let (_, view, mut result, _) = parse(source);
+    let start = source.rfind("player").unwrap();
+    let edit = TextRange::new(start, start + 6);
+    let line = &view.context[&1];
+    assert!(view.expected_at(line, edit, true).is_some());
+    assert!(
+        Document::from_result(
+            &result,
+            Arc::from(source.replace("test", "edit")),
+            Arc::clone(&view.index)
+        )
+        .is_err()
+    );
+    let effect = result
+        .ast
+        .nodes
+        .iter_mut()
+        .find(|n| n.kind == parser_wasm::host::SyntaxKind::Effect)
+        .unwrap();
+    effect.summary.as_mut().unwrap().pattern_index = Some(99);
+    let rewritten =
+        Document::from_result(&result, Arc::from(source), Arc::clone(&view.index)).unwrap();
+    assert!(
+        rewritten
+            .expected_at(&rewritten.context[&1], edit, true)
+            .is_none()
+    );
+}
+
+#[test]
+fn revoked_provider_proof_reaches_old_prepared_and_final_documents() {
+    use parser_wasm::host::{HostConfig, ParserHost};
+    let source = "on load:\n    kill p\n";
+    let (mut early, mut view, result, _) = parse(source);
+    let rules = catalog();
+    let mut host = ParserHost::new(
+        crate::core_library_component(),
+        HostConfig {
+            syntax_catalog: Some(Arc::clone(&rules)),
+            runtime_profile: parser_wasm::RuntimeProfile {
+                skript_version: Some("2.15.4".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut index = CatalogIndex::with_documentation_format(
+        &rules,
+        host.raw_tree_options(),
+        lsp_types::MarkupKind::PlainText,
+    );
+    index.certify_types(&host);
+    let index = Arc::new(index);
+    early.document.index = Arc::clone(&index);
+    view.index = Arc::clone(&index);
+    let p = position(source, "kill p");
+    let is_pi = |list: &CompletionList| list.items.iter().any(|i| i.label == "pi");
+    assert!(!is_pi(&view.at(p, false).unwrap()));
+    let PreparedQuery::Ready(list) = early.at(p, false).unwrap() else {
+        panic!("prepared")
+    };
+    assert!(!is_pi(&list));
+    // Even an unsuccessful provider-set update revokes old certificates. A
+    // real disable uses the same gate (tested with a recoverable host fault).
+    assert!(host.load_addon(&[]).is_err());
+    assert!(is_pi(&view.at(p, false).unwrap()));
+    let PreparedQuery::Ready(list) = early.at(p, false).unwrap() else {
+        panic!("prepared")
+    };
+    assert!(is_pi(&list));
+    let next = Document::from_result(&result, Arc::from(source), index).unwrap();
+    assert!(is_pi(&next.at(p, false).unwrap()));
+}
+
+#[test]
+fn native_parser_accepts_string_to_world_audience_conversion_in_the_adopted_slot() {
+    let source = "function recipient() :: string:\n    return \"world\"\non load:\n    send \"test\" to recipient()\n";
+    let (_, view, result, _) = parse(source);
+    assert!(
+        result.syntax.diagnostics.is_empty(),
+        "{:?}",
+        result.syntax.diagnostics
+    );
+    let start = source.rfind("recipient()").unwrap();
+    let expected = view
+        .accepted_slots
+        .get(&(start, start + "recipient()".len()))
+        .expect("the native parser adopted the complete function call capture");
+    assert_eq!(expected.len(), 1);
+    assert_eq!(
+        expected[0].class_name.as_str(),
+        "net.kyori.adventure.audience.Audience"
+    );
+    let rules = catalog();
+    assert!(rules.can_convert("java.lang.String", "org.bukkit.World"));
+    assert!(rules.is_class_assignable("org.bukkit.World", "net.kyori.adventure.audience.Audience"));
+    let function = view
+        .functions
+        .iter()
+        .find(|f| f.name == "recipient")
+        .unwrap();
+    assert_eq!(
+        function
+            .definition
+            .as_ref()
+            .unwrap()
+            .return_type
+            .as_ref()
+            .unwrap()
+            .as_str(),
+        "java.lang.String"
+    );
+    assert!(!view.incompatible_function(function, Some(expected)));
 }

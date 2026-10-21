@@ -4,6 +4,7 @@
 //! interpretation of identical inserted text does not change that definition.
 //! Completion selection does not constrain the native parser's eventual choice.
 use super::*;
+use parser_wasm::host::source_geometry;
 use skript_parser::{
     ExpressionExpectedType, FunctionVersionPolicy, expression_types_are_incompatible,
 };
@@ -42,6 +43,7 @@ pub(super) struct Index {
     closed: bool,
     static_locals_stable: bool,
     function_policy: Option<FunctionVersionPolicy>,
+    certificate: Option<parser_wasm::host::CompletionTypeCertificate>,
 }
 impl Index {
     pub(super) fn new(catalog: Arc<Catalog>) -> Self {
@@ -52,7 +54,11 @@ impl Index {
             closed: false,
             static_locals_stable: false,
             function_policy: None,
+            certificate: None,
         }
+    }
+    pub(super) fn current(&self) -> bool {
+        self.certificate.as_ref().is_none_or(|c| c.is_current())
     }
     pub(super) fn insert(&mut self, identity: &str, expression: &syntaxes::Expression) {
         let (classes, complete) = match expression.return_type_state {
@@ -91,14 +97,99 @@ impl CatalogIndex {
         index.closed = host.completion_catalog_patterns_are_closed();
         index.static_locals_stable = host.completion_static_local_substitution_is_stable();
         index.function_policy = Some(host.function_policy());
+        index.certificate = Some(host.completion_type_certificate());
         for output in index.outputs.values_mut() {
-            output.actual.complete &= !host.registered_syntax_may_resolve(
-                SyntaxKind::Expression,
-                &output.definition,
-                &output.registration,
-            );
+            if let Some(classes) =
+                host.completion_output_bound(&output.definition, &output.registration)
+            {
+                output.actual.classes = classes.into_iter().map(ClassName).collect();
+                output.actual.complete = true;
+                // An output-class bound does not certify runtime cardinality.
+                output.actual.multiplicity = None;
+            } else {
+                output.actual.complete &= !host.registered_syntax_may_resolve(
+                    SyntaxKind::Expression,
+                    &output.definition,
+                    &output.registration,
+                );
+            }
         }
     }
+}
+// Current adopted syntax supplies a stronger context than competing lexical
+// hole paths (a broad object slot can also consume a narrower trailing slot).
+// This index never survives a source change and never fixes the parser's choice
+// after an edit. Incomplete/ambiguous captures fall back to the conservative graph.
+pub(super) fn accepted_slots(
+    witnesses: &parser_wasm::host::semantic_proof::SemanticWitnesses<'_>,
+    nodes: &HashMap<u64, &AstNode>,
+    reachable: &HashSet<u64>,
+    index: &CatalogIndex,
+    source: &str,
+    blocked: &[TextRange],
+) -> HashMap<(usize, usize), Vec<ExpressionExpectedType>> {
+    let Some(typing) = &index.typing else {
+        return HashMap::new();
+    };
+    let patterns = index
+        .patterns
+        .iter()
+        .map(|p| (p.identity.as_str(), p))
+        .collect::<HashMap<_, _>>();
+    let mut slots = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for id in reachable {
+        let parent = nodes[id];
+        if !witnesses.native_valid(parent) || exact_node(parent, source).is_none() {
+            continue;
+        }
+        let Some(summary) = &parent.summary else {
+            continue;
+        };
+        let Some(identity) = summary
+            .registration_id
+            .as_ref()
+            .zip(summary.pattern_index)
+            .map(|(id, pattern)| format!("{id}:{pattern}"))
+        else {
+            continue;
+        };
+        let Some(pattern) = patterns.get(identity.as_str()) else {
+            continue;
+        };
+        for (parameter, types) in pattern.graph.slot_types.iter().enumerate() {
+            let Some(expected) = types
+                .as_ref()
+                .and_then(|t| expected_types(&typing.catalog, t))
+            else {
+                continue;
+            };
+            let Some(child) = super::super::semantic::capture_node(parent, parameter as u64, nodes)
+                .and_then(|id| nodes.get(&id).copied())
+            else {
+                continue;
+            };
+            if !witnesses.native_valid(child) {
+                continue;
+            }
+            let Some(range) = exact_node(child, source) else {
+                continue;
+            };
+            let native = format!("{}{parameter}", source_geometry::PATTERN_CAPTURE_PREFIX);
+            if !parent.captures.iter().any(|c| c.name == native && matches!(&c.value,
+                parser_wasm::bindings::nlaocs::skript_parser_addon::types::CaptureValue::Span(span)
+                    if span.virtual_range.start == child.span.virtual_range.start && span.virtual_range.end == child.span.virtual_range.end))
+                || blocked.iter().any(|b| overlaps(*b, range)) { continue; }
+            let key = (range.start, range.end);
+            if slots.insert(key, expected).is_some() {
+                ambiguous.insert(key);
+            }
+        }
+    }
+    for key in ambiguous {
+        slots.remove(&key);
+    }
+    slots
 }
 impl Document {
     pub(super) fn expected_at(
@@ -108,7 +199,7 @@ impl Document {
         references: bool,
     ) -> Option<Vec<ExpressionExpectedType>> {
         let index = self.index.typing.as_ref()?;
-        if !index.closed || !index.complete_patterns || !self.type_context_exact || line.root {
+        if !index.current() || !index.closed || !self.type_context_exact || line.root {
             return None;
         }
         let end = line
@@ -121,6 +212,12 @@ impl Document {
             || edit.end > end
             || end - line.code_start > MAX_CONTINUATION_BYTES
         {
+            return None;
+        }
+        if let Some(expected) = self.accepted_slots.get(&(edit.start, edit.end)) {
+            return Some(expected.clone());
+        }
+        if !index.complete_patterns {
             return None;
         }
         let original = &self.source[line.code_start..end];
@@ -345,7 +442,12 @@ impl Document {
         budget: &mut continuation::Budget,
     ) -> Option<Vec<ExpressionExpectedType>> {
         let index = self.index.typing.as_ref()?;
-        if !index.closed || !index.complete_patterns || !self.type_context_exact || line.root {
+        if !index.current()
+            || !index.closed
+            || !index.complete_patterns
+            || !self.type_context_exact
+            || line.root
+        {
             return None;
         }
         let end = line
@@ -407,6 +509,9 @@ impl Document {
         let Some((index, expected)) = self.index.typing.as_ref().zip(expected) else {
             return false;
         };
+        if !index.current() {
+            return false;
+        }
         let Some(output) = index
             .outputs
             .get(&template.identity)
@@ -446,6 +551,9 @@ impl Document {
         let Some((index, expected)) = self.index.typing.as_ref().zip(expected) else {
             return false;
         };
+        if !index.current() {
+            return false;
+        }
         let Some(definition) = &function.definition else {
             return false;
         };
@@ -472,7 +580,7 @@ impl Document {
             .index
             .typing
             .as_ref()
-            .filter(|i| i.static_locals_stable && self.type_context_exact)
+            .filter(|i| i.current() && i.static_locals_stable && self.type_context_exact)
         else {
             return false;
         };
@@ -492,14 +600,17 @@ impl Document {
         else {
             return false;
         };
-        let expected = requested
-            .iter()
-            .cloned()
-            .map(|name| ExpressionExpectedType {
-                class_name: ClassName(name),
-                plural: true,
-            })
-            .collect::<Vec<_>>();
+        let adopted = self.accepted_slots.get(&(edit.start, edit.end));
+        let expected = adopted.cloned().unwrap_or_else(|| {
+            requested
+                .iter()
+                .cloned()
+                .map(|name| ExpressionExpectedType {
+                    class_name: ClassName(name),
+                    plural: true,
+                })
+                .collect::<Vec<_>>()
+        });
         // `multiple` is OR-joined across flow branches: true is not proof that
         // every runtime path is plural. Preserve that uncertainty here.
         expression_types_are_incompatible(
@@ -508,7 +619,7 @@ impl Document {
             true,
             (!*multiple).then_some(Multiplicity::Single),
             &expected,
-        ) && self.variable_parent_unchanged(edit, candidate, owner, budget)
+        ) && (adopted.is_some() || self.variable_parent_unchanged(edit, candidate, owner, budget))
     }
     fn variable_parent_unchanged(
         &self,

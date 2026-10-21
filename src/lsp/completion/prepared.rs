@@ -140,6 +140,7 @@ impl PreparedDocument {
                 blocked: Vec::new(),
                 function_namespace_complete: false,
                 type_context_exact: mapped.original() == mapped.virtual_source(),
+                accepted_slots: HashMap::new(),
                 semantic_types: None,
             },
             owners,

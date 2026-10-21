@@ -1,7 +1,7 @@
 //! Bounded pattern continuations, input templates and current-revision history.
 //!
 //! These are editing suggestions, not successful parse candidates. Expected
-//! types, execution scopes and addon guards are deliberately not reconstructed.
+//! types use native contracts; execution scopes and addon guards are not guessed.
 use super::{positions::LineIndex, public_data::variable_details};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionList, CompletionTextEdit, Documentation,
@@ -407,6 +407,7 @@ pub(super) struct Document {
     blocked: Vec<TextRange>,
     function_namespace_complete: bool,
     type_context_exact: bool,
+    accepted_slots: HashMap<(usize, usize), Vec<skript_parser::ExpressionExpectedType>>,
     pub(super) semantic_types: Option<Arc<super::semantic::Document>>,
 }
 
@@ -451,6 +452,7 @@ impl Document {
             blocked: Vec::new(),
             function_namespace_complete: true,
             type_context_exact: false,
+            accepted_slots: HashMap::new(),
             semantic_types: None,
         })
     }
@@ -521,6 +523,8 @@ impl Document {
             pending.extend(node.children.iter().copied());
         }
         let witnesses = result.semantic_witnesses();
+        let accepted_slots =
+            typing::accepted_slots(&witnesses, &nodes, &reachable, &index, &source, &blocked);
         let mut variables = Vec::new();
         let mut parameters = HashMap::new();
         for id in reachable {
@@ -639,6 +643,7 @@ impl Document {
             blocked,
             function_namespace_complete: result.function_namespace_complete,
             type_context_exact: result.source.original() == result.source.virtual_source(),
+            accepted_slots,
             semantic_types: None,
         })
     }
@@ -652,6 +657,7 @@ impl Document {
         snippets: bool,
         references: bool,
     ) -> Result<CompletionList, String> {
+        let certified_types = self.index.typing.as_ref().is_some_and(|i| i.current());
         let offset = self
             .lines
             .offset(&self.source, position)
@@ -1209,6 +1215,11 @@ impl Document {
         for (index, item) in items.iter_mut().enumerate() {
             item.sort_text = Some(format!("{index:06}"));
         }
+        // A provider can fail on the analysis thread while this menu is built.
+        // Retry once without negative type filtering if its shared proof expired.
+        if certified_types && self.index.typing.as_ref().is_some_and(|i| !i.current()) {
+            return self.at_with_references(position, snippets, references);
+        }
         Ok(CompletionList {
             is_incomplete,
             items,
@@ -1478,6 +1489,7 @@ impl Document {
             blocked: Vec::new(),
             function_namespace_complete: true,
             type_context_exact: false,
+            accepted_slots: HashMap::new(),
             semantic_types: None,
         }
     }
