@@ -602,13 +602,13 @@ impl StateStore {
                 document_id: document_id.to_owned(),
                 document_revision,
                 document_lifetime,
-                writes: BTreeMap::new(),
-                read_write_set: StateReadWriteSet::default(),
-                base_revisions: BTreeMap::new(),
-                current_revisions: BTreeMap::new(),
+                writes: Arc::default(),
+                read_write_set: Arc::default(),
+                base_revisions: Arc::default(),
+                current_revisions: Arc::default(),
                 overlay_revision: 0,
                 next_overlay_revision: 1,
-                applied_deltas: BTreeSet::new(),
+                applied_deltas: Arc::default(),
                 next_delta_id: 0,
                 observations: observation::ReadObservations::default(),
                 closed: false,
@@ -664,14 +664,14 @@ struct ParseTransactionInner {
     document_id: String,
     document_revision: u64,
     document_lifetime: Arc<()>,
-    writes: BTreeMap<Address, Option<StateValue>>,
-    read_write_set: StateReadWriteSet,
-    base_revisions: BTreeMap<RevisionKey, u64>,
-    current_revisions: BTreeMap<RevisionKey, u64>,
+    writes: Arc<BTreeMap<Address, Option<StateValue>>>,
+    read_write_set: Arc<StateReadWriteSet>,
+    base_revisions: Arc<BTreeMap<RevisionKey, u64>>,
+    current_revisions: Arc<BTreeMap<RevisionKey, u64>>,
     overlay_revision: u64,
     // Not rolled back: different speculative writes must not share memo keys.
     next_overlay_revision: u64,
-    applied_deltas: BTreeSet<u64>,
+    applied_deltas: Arc<BTreeSet<u64>>,
     next_delta_id: u64,
     // Observed reads and mutation attempts are not rewound by candidate rollback.
     observations: observation::ReadObservations,
@@ -706,8 +706,8 @@ impl ParseTransactionInner {
             return Ok(*revision);
         }
         let revision = store.committed_revision(&self.project_uri, key)?;
-        self.base_revisions.insert(key.clone(), revision);
-        self.current_revisions.insert(key.clone(), revision);
+        Arc::make_mut(&mut self.base_revisions).insert(key.clone(), revision);
+        Arc::make_mut(&mut self.current_revisions).insert(key.clone(), revision);
         Ok(revision)
     }
 }
@@ -848,14 +848,15 @@ impl ParseTransaction {
             observed_revisions: delta.observed_revisions.clone(),
         };
         invocation.merge_into(&mut inner)?;
-        inner.applied_deltas.extend(delta.nested.iter().copied());
-        inner.applied_deltas.insert(delta.id);
+        let applied = Arc::make_mut(&mut inner.applied_deltas);
+        applied.extend(delta.nested.iter().copied());
+        applied.insert(delta.id);
         Ok(true)
     }
 
     /// Returns dependencies accumulated by every accepted invocation so far.
     pub fn read_write_set(&self) -> Result<StateReadWriteSet, StateError> {
-        Ok(self.lock()?.read_write_set.clone())
+        Ok(self.lock()?.read_write_set.as_ref().clone())
     }
 
     /// Commits a current parse revision and durable scopes atomically.
@@ -878,7 +879,7 @@ impl ParseTransaction {
                 latest,
             });
         }
-        for (key, expected) in &parse.base_revisions {
+        for (key, expected) in parse.base_revisions.iter() {
             if matches!(key.scope, StateScope::Invocation | StateScope::Parse) {
                 continue;
             }
@@ -893,7 +894,7 @@ impl ParseTransaction {
         parse.closed = true;
         Ok(CommitSummary {
             writes: committed,
-            read_write_set: parse.read_write_set.clone(),
+            read_write_set: parse.read_write_set.as_ref().clone(),
         })
     }
 
@@ -902,7 +903,7 @@ impl ParseTransaction {
         let mut inner = self.lock()?;
         inner.ensure_open()?;
         inner.closed = true;
-        inner.writes.clear();
+        inner.writes = Arc::default();
         Ok(())
     }
 
@@ -936,14 +937,16 @@ impl ParseTransaction {
 
 #[derive(Debug, Clone)]
 /// Opaque snapshot of a parse overlay used for candidate rollback.
+/// Collections are shared until changed, so read-only probes do not copy the
+/// entire accepted prefix. Each branch still owns its writes and delta receipts.
 pub struct StateSavepoint {
     transaction_id: Arc<()>,
-    writes: BTreeMap<Address, Option<StateValue>>,
-    read_write_set: StateReadWriteSet,
-    base_revisions: BTreeMap<RevisionKey, u64>,
-    current_revisions: BTreeMap<RevisionKey, u64>,
+    writes: Arc<BTreeMap<Address, Option<StateValue>>>,
+    read_write_set: Arc<StateReadWriteSet>,
+    base_revisions: Arc<BTreeMap<RevisionKey, u64>>,
+    current_revisions: Arc<BTreeMap<RevisionKey, u64>>,
     overlay_revision: u64,
-    applied_deltas: BTreeSet<u64>,
+    applied_deltas: Arc<BTreeSet<u64>>,
 }
 
 /// A speculative subtree's State changes, independent of unselected siblings.
@@ -1174,7 +1177,7 @@ impl InvocationTransaction {
                         &key.namespace,
                     )?
                 };
-                for (address, value) in &parse.writes {
+                for (address, value) in parse.writes.iter() {
                     if address.scope == key.scope && address.namespace == key.namespace {
                         apply_overlay(&mut values, &address.key, value);
                     }
@@ -1200,22 +1203,43 @@ impl InvocationTransaction {
             if address.scope == StateScope::Invocation {
                 continue;
             }
-            parse.writes.insert(address, value);
+            if parse.writes.get(&address) != Some(&value) {
+                Arc::make_mut(&mut parse.writes).insert(address, value);
+            }
         }
-        parse.read_write_set.reads.extend(self.reads);
-        parse.read_write_set.writes.extend(self.write_set);
+        // Read-only candidates commonly repeat dependencies already present in
+        // the overlay. Keep shared savepoints intact unless the set changes.
+        if !self.reads.is_subset(&parse.read_write_set.reads)
+            || !self.write_set.is_subset(&parse.read_write_set.writes)
+        {
+            let dependencies = Arc::make_mut(&mut parse.read_write_set);
+            dependencies.reads.extend(self.reads);
+            dependencies.writes.extend(self.write_set);
+        }
         for (key, revision) in self.observed_revisions {
-            parse.base_revisions.entry(key.clone()).or_insert(revision);
-            parse
+            if !parse.base_revisions.contains_key(&key) {
+                Arc::make_mut(&mut parse.base_revisions).insert(key.clone(), revision);
+            }
+            let public = key.public();
+            if !parse
                 .read_write_set
                 .namespace_revisions
-                .entry(key.public())
-                .or_insert(revision);
-            parse.current_revisions.entry(key).or_insert(revision);
+                .contains_key(&public)
+            {
+                Arc::make_mut(&mut parse.read_write_set)
+                    .namespace_revisions
+                    .insert(public, revision);
+            }
+            if !parse.current_revisions.contains_key(&key) {
+                Arc::make_mut(&mut parse.current_revisions).insert(key, revision);
+            }
         }
-        for key in touched {
-            let revision = parse.current_revisions.entry(key).or_insert(0);
-            *revision = revision.saturating_add(1);
+        if !touched.is_empty() {
+            let revisions = Arc::make_mut(&mut parse.current_revisions);
+            for key in touched {
+                let revision = revisions.entry(key).or_insert(0);
+                *revision = revision.saturating_add(1);
+            }
         }
         if overlay_changed {
             parse.overlay_revision = parse.next_overlay_revision;
@@ -1328,7 +1352,7 @@ impl InvocationTransaction {
                 &namespace_key,
             )?
         };
-        for (address, value) in &parse.writes {
+        for (address, value) in parse.writes.iter() {
             if address.scope == scope && address.namespace == namespace_key {
                 apply_overlay(&mut values, &address.key, value);
             }

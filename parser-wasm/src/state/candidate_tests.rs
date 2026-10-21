@@ -455,3 +455,78 @@ fn divergent_same_key_branches_receive_distinct_revisions_after_rollback() {
     );
     parse.cancel().expect("parse must cancel");
 }
+
+#[test]
+fn retained_savepoints_restore_nonempty_branches_and_dependencies() {
+    let directory = TempDir::new().expect("temporary directory must exist");
+    let store = make_store(directory.path(), StateQuotas::default().max_namespace_bytes);
+    register_namespaces(&store);
+    let parse = begin(&store, DOCUMENT, 1);
+    for index in 0..24 {
+        put(
+            &parse,
+            StateScope::Document,
+            &format!("prefix-{index}"),
+            "kept",
+        );
+    }
+    let prefix = parse.savepoint().unwrap();
+    let prefix_dependencies = parse.read_write_set().unwrap();
+    let prefix_revision = parse.state_revision().unwrap();
+
+    read_and_commit(&parse, StateScope::Project, OTHER, "left-read");
+    put(&parse, StateScope::Document, "prefix-0", "left");
+    let left_delta = parse.defer_since(&prefix).unwrap();
+    assert!(parse.apply_delta(&left_delta).unwrap());
+    let left = parse.savepoint().unwrap();
+    let left_dependencies = parse.read_write_set().unwrap();
+    let left_revision = parse.state_revision().unwrap();
+
+    parse.rollback_to(&prefix).unwrap();
+    read_and_commit(&parse, StateScope::Project, SHARED, "right-read");
+    put(&parse, StateScope::Document, "right-only", "right");
+    let right = parse.savepoint().unwrap();
+    let right_dependencies = parse.read_write_set().unwrap();
+    let right_revision = parse.state_revision().unwrap();
+    assert_ne!(left_revision, right_revision);
+
+    // Retained snapshots can be restored repeatedly and in either order.
+    // Later writes, dependency merges, and delta receipts belong to that branch.
+    for _ in 0..3 {
+        parse.rollback_to(&left).unwrap();
+        assert_eq!(parse.read_write_set().unwrap(), left_dependencies);
+        assert_eq!(parse.state_revision().unwrap(), left_revision);
+        assert_eq!(
+            visible(&parse, StateScope::Document, "prefix-0"),
+            Some(value("left"))
+        );
+        assert_eq!(visible(&parse, StateScope::Document, "right-only"), None);
+        assert!(!parse.apply_delta(&left_delta).unwrap());
+
+        parse.rollback_to(&right).unwrap();
+        assert_eq!(parse.read_write_set().unwrap(), right_dependencies);
+        assert_eq!(parse.state_revision().unwrap(), right_revision);
+        assert_eq!(
+            visible(&parse, StateScope::Document, "prefix-0"),
+            Some(value("kept"))
+        );
+        assert_eq!(
+            visible(&parse, StateScope::Document, "right-only"),
+            Some(value("right"))
+        );
+    }
+
+    parse.rollback_to(&prefix).unwrap();
+    assert_eq!(parse.read_write_set().unwrap(), prefix_dependencies);
+    assert_eq!(parse.state_revision().unwrap(), prefix_revision);
+    assert!(parse.apply_delta(&left_delta).unwrap());
+    let committed = parse.commit().unwrap();
+    assert_eq!(committed.writes, 24);
+    let next = begin(&store, DOCUMENT, 2);
+    assert_eq!(
+        visible(&next, StateScope::Document, "prefix-0"),
+        Some(value("left"))
+    );
+    assert_eq!(visible(&next, StateScope::Document, "right-only"), None);
+    next.cancel().unwrap();
+}

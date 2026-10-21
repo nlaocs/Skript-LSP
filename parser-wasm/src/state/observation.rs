@@ -391,7 +391,7 @@ impl InvocationTransaction {
                     &namespace,
                 )?
             };
-            for (address, value) in &parse.writes {
+            for (address, value) in parse.writes.iter() {
                 if address.scope == observation.key.scope && address.namespace == namespace {
                     apply_overlay(&mut values, &address.key, value);
                 }
