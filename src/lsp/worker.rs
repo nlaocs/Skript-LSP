@@ -328,7 +328,7 @@ impl Analyzer for ParserAnalyzer {
         } else {
             Default::default()
         };
-        let analysis_metrics = json!({"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
+        let analysis_metrics = json!({"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"headerEligible":incremental.header_eligible,"headerHits":incremental.header_hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
         let mut hover = None;

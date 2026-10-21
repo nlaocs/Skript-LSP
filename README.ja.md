@@ -37,7 +37,7 @@ FunctionやExpressionList結果はUnknownになり得て、型付きparameter/re
 opaque処理より前の安全な読取を示すもので、Effect/Condition全体のpure宣言ではありません。
 未知のconverter・callback・alias・control flowでは、外側の要求型を借りず事実を忘れます。
 
-Addon契約はWIT `nlaocs:skript-parser-addon@0.41.0`、ABI `23.0`です。componentはこの契約で
+Addon契約はWIT `nlaocs:skript-parser-addon@0.42.0`、ABI `24.0`です。componentはこの契約で
 再buildしてください。incremental処理は明示的にopt-inした意味hookの返却値だけを検証して再利用し、
 native matchingと現在のtransactionは再実行します。以前のAST全体は移植しません。WASMの強制的な
 取消には別の安全性opt-inが必要です。snapshotに保存済みliteral defaultの実値がない場合、

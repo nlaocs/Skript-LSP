@@ -19,6 +19,11 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 use crate::{addon_error, not_applicable};
 
+/// Audited header-local handlers; impure/default-parsing invocations still miss.
+pub(crate) fn incremental_header_handlers() -> Vec<String> {
+    vec![struct_function::HANDLER_ID.to_owned()]
+}
+
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     let mut handlers = Vec::new();
     struct_aliases::register(&mut handlers);

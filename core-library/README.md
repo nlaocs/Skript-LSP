@@ -18,7 +18,7 @@ Older schema-7 snapshots remain readable. Where authoritative cloner/`beforeChan
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.41.0` and ABI `23.0`
+- WIT package `nlaocs:skript-parser-addon@0.42.0` and ABI `24.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list

@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.41.0;
+package nlaocs:skript-parser-addon@0.42.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -380,6 +380,19 @@ interface types {
         /// execute against the current revision. This is semantic invocation reuse,
         /// not authority to transplant an earlier AST, effects delta, or source IDs.
         incremental-local-subscriptions: list<string>,
+        /// parser.incremental-structure-header v1 promise for the listed registered
+        /// handler IDs. Every component Enter invocation for a matching candidate
+        /// depends only on the physical header line,
+        /// candidate/context, immutable Catalog/runtime/handler world and observed
+        /// State reads. Body/source outside that line, invocation/revision/context
+        /// IDs and guest history are nonsemantic. Opaque metadata/context values
+        /// must be position independent or header relative. Function declaration
+        /// source is an immutable input echo; its typed span lies in the header.
+        /// The host rebinds typed source/span/context fields and replays current
+        /// declaration registration and validation. State mutation attempts,
+        /// diagnostics, AdditionalParse, attachments and nonexact mappings miss.
+        /// Empty opts out. Existing incremental-local-syntax v1 is unchanged.
+        incremental-header-handlers: list<string>,
         registered-syntax-handlers: list<registered-syntax-handler>,
         catalog-annotations: list<catalog-annotation>,
         state-namespaces: list<state-namespace-declaration>,

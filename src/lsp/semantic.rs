@@ -250,6 +250,18 @@ impl Document {
                         .get("function.name.end")?
                         .parse::<usize>()
                         .ok()?;
+                    let (start, end) = match declaration
+                        .metadata
+                        .get("function.name.range-version")
+                        .map(String::as_str)
+                    {
+                        None | Some("1") => (start, end),
+                        Some("2") => (
+                            declaration.span.start.checked_add(start)?,
+                            declaration.span.start.checked_add(end)?,
+                        ),
+                        _ => return None,
+                    };
                     if start < declaration.span.start
                         || end > declaration.span.end
                         || start >= end
@@ -1155,7 +1167,15 @@ impl Engine<'_> {
     fn parameters(&mut self, node: &AstNode, scope: u64, header: TextRange, facts: &mut Facts) {
         let Some(data) = unique_metadata(node, PARAMETERS)
             .and_then(|json| serde_json::from_str::<Parameters>(json).ok())
-            .filter(|data| data.version == 1)
+            .filter(|data| matches!(data.version, 1 | 2))
+        else {
+            return;
+        };
+        let Some(header_length) = node
+            .span
+            .virtual_range
+            .end
+            .checked_sub(node.span.virtual_range.start)
         else {
             return;
         };
@@ -1170,15 +1190,27 @@ impl Engine<'_> {
                 || !names.insert(identity.key.clone())
                 || parameter.class_name.is_empty()
                 || parameter.start >= parameter.end
-                || parameter.start < node.span.virtual_range.start
-                || parameter.end > node.span.virtual_range.end
+                || (data.version == 1
+                    && (parameter.start < node.span.virtual_range.start
+                        || parameter.end > node.span.virtual_range.end))
+                || (data.version == 2 && parameter.end > header_length)
             {
                 return;
             }
-            let Ok(start) = usize::try_from(parameter.start - node.span.virtual_range.start) else {
+            let relative_start = if data.version == 1 {
+                parameter.start - node.span.virtual_range.start
+            } else {
+                parameter.start
+            };
+            let relative_end = if data.version == 1 {
+                parameter.end - node.span.virtual_range.start
+            } else {
+                parameter.end
+            };
+            let Ok(start) = usize::try_from(relative_start) else {
                 return;
             };
-            let Ok(end) = usize::try_from(parameter.end - node.span.virtual_range.start) else {
+            let Ok(end) = usize::try_from(relative_end) else {
                 return;
             };
             let Some(start) = header.start.checked_add(start) else {

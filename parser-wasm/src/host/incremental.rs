@@ -3,6 +3,7 @@
 use super::*;
 use crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation;
 use crate::state::{StateObservationCheckpoint, StateReadCertificate};
+mod header;
 
 const MAX_ENTRIES: usize = 4_096;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -22,6 +23,10 @@ enum AuthenticatedInputView {
 pub struct IncrementalMetrics {
     pub eligible: u64,
     pub hits: u64,
+    /// Explicit Structure Enter invocations eligible for header-local reuse.
+    pub header_eligible: u64,
+    /// Header semantic calls skipped after current dependency validation.
+    pub header_hits: u64,
     pub misses: u64,
     pub dependency_misses: u64,
     pub stored: u64,
@@ -183,26 +188,30 @@ impl ParserHost {
             return Ok(None);
         };
         let entry = &self.components[component];
-        if !matches!(
-            invocation.phase,
-            HookPhase::Expression
-                | HookPhase::DefaultExpression
-                | HookPhase::Effect
-                | HookPhase::Condition
-        ) || invocation.context.document_id != active.document
+        let header = header::eligible(entry, invocation);
+        if (!header
+            && !matches!(
+                invocation.phase,
+                HookPhase::Expression
+                    | HookPhase::DefaultExpression
+                    | HookPhase::Effect
+                    | HookPhase::Condition
+            ))
+            || invocation.context.document_id != active.document
             || invocation.context.document_revision != active.revision
             || invocation.context.expansion.is_some()
             || !invocation.parse_results.is_empty()
             || !self.active_parse_requests.is_empty()
-            || !entry
-                .manifest
-                .incremental_local_subscriptions
-                .iter()
-                .any(|id| id == &invocation.context.subscription_id)
-            || !entry.manifest.capabilities.iter().any(|capability| {
-                capability.id == "parser.incremental-local-syntax"
-                    && capability.minimum_version == 1
-            })
+            || (!header
+                && (!entry
+                    .manifest
+                    .incremental_local_subscriptions
+                    .iter()
+                    .any(|id| id == &invocation.context.subscription_id)
+                    || !entry.manifest.capabilities.iter().any(|capability| {
+                        capability.id == "parser.incremental-local-syntax"
+                            && capability.minimum_version == 1
+                    })))
         {
             return Ok(None);
         }
@@ -238,7 +247,9 @@ impl ParserHost {
             }
             _ => return Ok(None),
         };
-        if !payload_is_data_only(&invocation.payload) {
+        if (header && !matches!(input_view, AuthenticatedInputView::FullSource))
+            || !payload_is_data_only(&invocation.payload)
+        {
             return Ok(None);
         }
         if self.incremental.active.as_ref().unwrap().world.is_none() {
@@ -280,7 +291,7 @@ impl ParserHost {
             .collect::<Vec<_>>();
         // Only full-source transport can contain contract-independent bytes
         // outside the current line. Exact span/line input remains byte-for-byte.
-        let old_input = if matches!(input_view, AuthenticatedInputView::FullSource) {
+        let old_input = if !header && matches!(input_view, AuthenticatedInputView::FullSource) {
             payload_input_mut(&mut invocation.payload)
                 .map(|input| mem::replace(input, source[line_start..full_line_end].to_owned()))
         } else {
@@ -293,7 +304,27 @@ impl ParserHost {
         // Exhaustive transport destructuring makes a future invocation-field
         // addition require an explicit key decision. Receipt aliases are kept,
         // but per-parse host numbers are normalized and restored before use.
-        let key = {
+        let key = if header {
+            let mut context = invocation.context.clone();
+            context.syntax_context = 0;
+            let target = invocation.target.clone();
+            super::semantic_proof::with_payload_receipts_normalized(
+                &mut invocation.payload,
+                |payload| {
+                    let HookPayload::Structure(value) = payload else {
+                        unreachable!()
+                    };
+                    header::key_payload(value).map(|payload| {
+                        format!(
+                            "header|{component}|{availability:?}|{context:?}|{:?}|{}|{payload}",
+                            target,
+                            &source[line_start..full_line_end]
+                        )
+                    })
+                },
+            )
+            .flatten()
+        } else {
             let HookInvocation {
                 context,
                 target,
@@ -315,6 +346,9 @@ impl ParserHost {
         }
         let active = self.incremental.active.as_mut().unwrap();
         active.metrics.eligible = active.metrics.eligible.saturating_add(1);
+        if header && key.is_some() {
+            active.metrics.header_eligible += 1;
+        }
         Ok(key.filter(|key| key.len() <= MAX_BYTES / 4))
     }
 
@@ -346,6 +380,10 @@ impl ParserHost {
             active.metrics.misses += 1;
             return Ok(None);
         }
+        if !header::restore_output(payload, &mut output) {
+            active.metrics.misses += 1;
+            return Ok(None);
+        }
         if !state.replay_read_certificate(&cached.reads)? {
             active.metrics.misses += 1;
             active.metrics.dependency_misses += 1;
@@ -359,6 +397,9 @@ impl ParserHost {
                 .to_owned();
         }
         active.metrics.hits += 1;
+        if matches!(payload, HookPayload::Structure(_)) {
+            active.metrics.header_hits += 1;
+        }
         insert_pending(active, key.to_owned(), cached.clone());
         Ok(Some(output))
     }
@@ -375,7 +416,8 @@ impl ParserHost {
         if impure
             || matches!(&output.decision, HookDecision::Reject(rejection) if !rejection.diagnostics.is_empty())
             || !output.effects.diagnostics.is_empty()
-            || !output.effects.context_updates.is_empty()
+            || (!matches!(payload, HookPayload::Structure(_))
+                && !output.effects.context_updates.is_empty())
             || !output.effects.parse_requests.is_empty()
             || !output.effects.parse_results.is_empty()
         {
@@ -385,13 +427,18 @@ impl ParserHost {
             return Ok(());
         };
         let mut output = output.clone();
+        if !header::normalize_output(payload, &mut output) {
+            return Ok(());
+        }
         if let Some(replacement) = output.replacement.as_mut() {
             if mem::discriminant(replacement) != mem::discriminant(payload)
                 || !payload_is_data_only(replacement)
             {
                 return Ok(());
             }
-            if let Some(input) = payload_input_mut(replacement) {
+            if !matches!(payload, HookPayload::Structure(_))
+                && let Some(input) = payload_input_mut(replacement)
+            {
                 if Some(input.as_str()) != payload_input(payload) {
                     return Ok(());
                 }
@@ -441,6 +488,7 @@ fn payload_input(payload: &HookPayload) -> Option<&str> {
         HookPayload::RegisteredExpression(value) => Some(&value.input),
         HookPayload::Effect(value) => Some(&value.input),
         HookPayload::Condition(value) => Some(&value.input),
+        HookPayload::Structure(value) => Some(&value.input),
         _ => None,
     }
 }
@@ -451,6 +499,7 @@ fn payload_input_mut(payload: &mut HookPayload) -> Option<&mut String> {
         HookPayload::RegisteredExpression(value) => Some(&mut value.input),
         HookPayload::Effect(value) => Some(&mut value.input),
         HookPayload::Condition(value) => Some(&mut value.input),
+        HookPayload::Structure(value) => Some(&mut value.input),
         _ => None,
     }
 }
@@ -462,6 +511,7 @@ fn exact_local_span(payload: &HookPayload) -> Option<(usize, usize)> {
         HookPayload::DefaultExpression(value) => &value.span,
         HookPayload::Effect(value) => &value.span,
         HookPayload::Condition(value) => &value.candidate.span,
+        HookPayload::Structure(value) => &value.candidate.span,
         _ => return None,
     };
     let [origin] = span.origins.as_slice() else {
@@ -499,6 +549,11 @@ fn payload_is_data_only(payload: &HookPayload) -> bool {
                         capture.attachments.is_empty() && capture.diagnostics.is_empty()
                     })
                 })
+        }
+        HookPayload::Structure(value) => {
+            value.candidate.parsed_captures.is_empty()
+                && value.candidate.entries.is_empty()
+                && value.candidate.child_node_ids.is_empty()
         }
         HookPayload::DefaultExpression(_) | HookPayload::Condition(_) => true,
         _ => false,

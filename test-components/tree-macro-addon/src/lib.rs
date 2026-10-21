@@ -55,6 +55,8 @@ fn empty_selector() -> HookSelector {
 impl addon::Guest for TreeMacroAddon {
     fn manifest() -> ComponentManifest {
         ComponentManifest {
+            incremental_header_handlers: Vec::new(),
+
             incremental_local_subscriptions: Vec::new(),
             component_id: COMPONENT_ID.to_owned(),
             component_version: env!("CARGO_PKG_VERSION").to_owned(),

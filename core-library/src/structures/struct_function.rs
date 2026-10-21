@@ -48,7 +48,7 @@ pub(super) fn resolve(
         payload.candidate.metadata.push(MetadataEntry {
             key: "skript.semantic.parameters".into(),
             value: serde_json::to_string(&ParameterBindings {
-                version: 1,
+                version: 2,
                 parameters: parsed.bindings,
             })
             .expect("Function parameter bindings are serializable"),
@@ -139,7 +139,7 @@ struct ParameterBinding {
     identity: crate::public_data::VariableIdentityData,
     class_name: String,
     single: bool,
-    /// Absolute virtual UTF-8 name range; consumers map only exact current header geometry.
+    /// Header-relative UTF-8 name range; consumers map exact current header geometry.
     start: u64,
     end: u64,
 }
@@ -187,7 +187,7 @@ fn parse_declaration(payload: &StructurePayload) -> Result<ParsedFunctionDeclara
     }
     let close = matching_parenthesis(signature, open)?;
     let parameter_offset = header.len() - signature.len() + open + 1;
-    let (parameters, defaults, bindings) = parse_parameters_with_defaults(
+    let (parameters, defaults, mut bindings) = parse_parameters_with_defaults(
         &signature[open + 1..close],
         &payload.type_options,
         // Skript switched from Functions.parseSignature to FunctionParser in 2.14.
@@ -195,6 +195,12 @@ fn parse_declaration(payload: &StructurePayload) -> Result<ParsedFunctionDeclara
         u64::try_from(start + parameter_offset)
             .map_err(|_| "Function parameter offset does not fit u64".to_owned())?,
     )?;
+    // Provider-owned metadata uses header-relative coordinates; typed declaration
+    // source/span are rebound independently by the generic host cache contract.
+    for binding in &mut bindings {
+        binding.start -= range.start;
+        binding.end -= range.start;
+    }
     let return_suffix = &signature[close + 1..];
     let (return_source, return_syntax) = parse_return_source(return_suffix)?;
     validate_return_syntax(return_syntax)?;
@@ -232,13 +238,18 @@ fn parse_declaration(payload: &StructurePayload) -> Result<ParsedFunctionDeclara
                     owner_component_id: None,
                 },
                 MetadataEntry {
+                    key: "function.name.range-version".into(),
+                    value: "2".into(),
+                    owner_component_id: None,
+                },
+                MetadataEntry {
                     key: "function.name.start".into(),
-                    value: name_start.to_string(),
+                    value: (name_start - start).to_string(),
                     owner_component_id: None,
                 },
                 MetadataEntry {
                     key: "function.name.end".into(),
-                    value: name_end.to_string(),
+                    value: (name_end - start).to_string(),
                     owner_component_id: None,
                 },
             ],

@@ -980,3 +980,27 @@ fn rewritten_final_forest_cannot_export_pre_macro_function_registrations() {
             .is_empty()
     );
 }
+
+#[test]
+fn header_relative_parameter_contract_survives_utf8_prefix_and_rejects_bad_ranges() {
+    for malformed in [false, true] {
+        let mut fixture = Fixture::new(
+            "# \u{65e5}\u{672c}\u{8a9e}\u{1f98a}\nfunction value: number:\n    inspect {_value}",
+        );
+        let read = fixture.read(2, "{_value}", "value", true, false);
+        let root = fixture.container(1, SyntaxKind::Structure, &[read], None);
+        fixture.nodes[root as usize].metadata.push(metadata(PARAMETERS, json!({"version":2,"parameters":[{
+            "identity":{"scope":"local","resolution":"static","name":"value","aliasKey":"value","list":false,"casePolicy":"unknown"},
+            "className":"java.lang.Number","single":true,"start":9,"end":if malformed {999} else {14}
+        }]})));
+        let document = fixture.finish(&[root]);
+        if malformed {
+            assert_eq!(inferred(&document, 2, 13), InferredType::Unknown);
+        } else {
+            assert_eq!(
+                document.definitions_at(Position::new(2, 13), &[])[0].range,
+                Range::new(Position::new(1, 9), Position::new(1, 14))
+            );
+        }
+    }
+}

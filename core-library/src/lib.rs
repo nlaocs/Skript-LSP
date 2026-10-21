@@ -80,6 +80,7 @@ impl addon::Guest for CoreLibrary {
             // immutable runtime/Catalog facts. Context effects, diagnostics, and
             // AdditionalParse outputs are excluded individually by the host.
             // RegisteredExpression stays off: some resolvers inspect full input.
+            incremental_header_handlers: structures::incremental_header_handlers(),
             incremental_local_subscriptions: vec![
                 EFFECT_SUBSCRIPTION_ID.to_owned(),
                 CONDITION_SUBSCRIPTION_ID.to_owned(),
@@ -146,6 +147,11 @@ impl addon::Guest for CoreLibrary {
                     id: parser_wasm::CAPABILITY_DEFAULT_EXPRESSION.to_owned(),
                     minimum_version: 1,
                     required: true,
+                },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER.to_owned(),
+                    minimum_version: 1,
+                    required: false,
                 },
                 CapabilityRequirement {
                     id: parser_wasm::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX.to_owned(),
@@ -892,7 +898,7 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 13);
+        assert_eq!(manifest.capabilities.len(), 14);
         assert!(
             manifest
                 .capabilities

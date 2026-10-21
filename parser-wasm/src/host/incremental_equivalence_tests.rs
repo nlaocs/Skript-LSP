@@ -174,6 +174,10 @@ fn compare_case(
         .manifest
         .incremental_local_subscriptions
         .clear();
+    clean_host.components[0]
+        .manifest
+        .incremental_header_handlers
+        .clear();
     let clean_before = guest_calls(&clean_host);
     let clean = run(&mut clean_host, current, 2);
     let clean_calls = guest_calls(&clean_host) - clean_before;
@@ -274,4 +278,59 @@ fn real_core_cache_uses_current_parse_private_aliases_and_owner_validation() {
     let before = "command /incremental:\n    trigger:\n        send 1 to console\n";
     let current = "command /incremental:\n    permission: fixture.one\n    permission: fixture.two\n    trigger:\n        send 1 to console\n";
     compare_case("current-entry-rejection", before, current, None);
+}
+
+#[test]
+fn real_core_header_reuse_rebinds_shifted_utf8_function_declarations() {
+    let before = "function sample(n: number) :: number:\n    return {_n}\non load:\n    send sample(1) to console\n";
+    let current = format!(
+        "# \u{65e5}\u{672c}\u{8a9e}\u{1f98a}\n\n{}",
+        before.replace("sample(1)", "sample(2)")
+    );
+    let (metrics, ast) = compare_case(
+        "header-shifted-utf8-declaration",
+        before,
+        &current,
+        Some(true),
+    );
+    assert!(
+        metrics.header_eligible > 0,
+        "actual Core header contract must be selected: {metrics:?}"
+    );
+    assert!(
+        metrics.header_hits > 0,
+        "actual Function/WASM Enter calls must be skipped: {metrics:?}"
+    );
+    assert!(
+        ast.contains("skript.semantic.parameters"),
+        "parameter metadata must survive current replay"
+    );
+}
+
+#[test]
+fn real_core_header_replay_runs_current_duplicate_registration_validation() {
+    let before =
+        "function sample(n: number) :: number:\n    return {_n}\non load:\n    send 1 to console\n";
+    let current = format!("{before}function sample(n: number) :: number:\n    return {{_n}}\n");
+    let (metrics, _) = compare_case(
+        "header-current-duplicate-declaration",
+        before,
+        &current,
+        None,
+    );
+    assert!(
+        metrics.header_hits > 0,
+        "unchanged first declaration must hit before duplicate validation: {metrics:?}"
+    );
+}
+
+#[test]
+fn real_core_function_default_continuations_are_not_header_cached() {
+    let before = "function sample(n: number = 1) :: number:\n    return {_n}\non load:\n    send sample() to console\n# old\n";
+    let current = before.replace("# old", "# new");
+    let (metrics, _) = compare_case("header-default-additional-parse", before, &current, None);
+    assert_eq!(
+        metrics.header_hits, 0,
+        "AdditionalParse-bearing header must execute with current resources: {metrics:?}"
+    );
 }

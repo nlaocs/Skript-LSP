@@ -8648,28 +8648,53 @@ fn registered_handler_matches(
     {
         return false;
     }
+    registered_handler_target_matches(
+        component,
+        handler,
+        syntax.definition_id,
+        syntax.registration_id,
+        syntax.dynamic_handler,
+    )
+}
+
+/// Shared authoritative target matching for normal dispatch and opt-in scope.
+fn registered_handler_target_matches(
+    component: &ComponentEntry,
+    handler: &crate::bindings::nlaocs::skript_parser_addon::types::RegisteredSyntaxHandler,
+    definition_id: &str,
+    registration_id: &str,
+    dynamic_handler: Option<&str>,
+) -> bool {
     let binding = component
         .registered_handler_bindings
         .iter()
         .find(|binding| binding.handler_id == handler.handler_id);
     handler.targets.iter().any(|target| match target {
         RegisteredSyntaxHandlerTarget::DynamicHandler(handler_id) => {
-            syntax.dynamic_handler == Some(handler_id.as_str())
+            dynamic_handler == Some(handler_id.as_str())
         }
-        RegisteredSyntaxHandlerTarget::Definition(_) => binding.is_some_and(|binding| {
-            binding
-                .definition_ids
-                .iter()
-                .any(|id| id == syntax.definition_id)
-        }),
-        RegisteredSyntaxHandlerTarget::Registration(_)
-        | RegisteredSyntaxHandlerTarget::ParserClass(_)
+        RegisteredSyntaxHandlerTarget::Definition(id) => {
+            id == definition_id
+                && binding.is_some_and(|binding| {
+                    binding.definition_ids.iter().any(|id| id == definition_id)
+                })
+        }
+        RegisteredSyntaxHandlerTarget::Registration(id) => {
+            id == registration_id
+                && binding.is_some_and(|binding| {
+                    binding
+                        .registration_ids
+                        .iter()
+                        .any(|id| id == registration_id)
+                })
+        }
+        RegisteredSyntaxHandlerTarget::ParserClass(_)
         | RegisteredSyntaxHandlerTarget::ClassSuffix(_)
         | RegisteredSyntaxHandlerTarget::SuperClass(_) => binding.is_some_and(|binding| {
             binding
                 .registration_ids
                 .iter()
-                .any(|id| id == syntax.registration_id)
+                .any(|id| id == registration_id)
         }),
     })
 }
@@ -12545,6 +12570,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_DEFAULT_EXPRESSION,
         crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
+        crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
         crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
         CAPABILITY_CONDITION_PARSER,
@@ -13102,6 +13128,23 @@ fn validate_manifest(
                     "subscription {} has a blank selector metadata key",
                     subscription.id
                 ),
+            });
+        }
+    }
+    let mut header_handlers = BTreeSet::new();
+    for id in &manifest.incremental_header_handlers {
+        if !component_promises(
+            &manifest.capabilities,
+            crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
+        ) || !header_handlers.insert(id)
+            || !manifest.registered_syntax_handlers.iter().any(|handler| {
+                handler.handler_id == *id
+                    && handler.kind == SyntaxKind::Structure
+                    && handler.phase == HookPhase::Structure
+            })
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!("invalid incremental Structure header handler {id}"),
             });
         }
     }
@@ -17689,6 +17732,7 @@ mod tests {
                 CAPABILITY_EXPRESSION_PARSER,
                 CAPABILITY_DEFAULT_EXPRESSION,
                 crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
+                crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
                 crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
                 crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
                 CAPABILITY_CONDITION_PARSER,
@@ -17774,6 +17818,7 @@ mod tests {
     fn reports_abi_mismatches_as_typed_compatibility_errors() {
         use crate::bindings::nlaocs::skript_parser_addon::types::AbiVersion as WitAbiVersion;
         let manifest = ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.incompatible".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -17810,6 +17855,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.text-macro-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -17868,6 +17914,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.tree-macro-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -17926,6 +17973,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.expression-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -18030,6 +18078,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.effect-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -18087,6 +18136,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.section-contract".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -18685,6 +18735,7 @@ mod tests {
             }],
         };
         let manifest = |annotations| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "fixture.annotation-addon".to_owned(),
             component_version: "1.0.0".to_owned(),
@@ -18750,6 +18801,7 @@ mod tests {
             context_requirements: Vec::new(),
         };
         let manifest = |handlers| ComponentManifest {
+            incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "fixture.handler-addon".to_owned(),
             component_version: "1.0.0".to_owned(),

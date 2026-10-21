@@ -131,7 +131,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(23, 0)
+        parser_wasm::AbiVersion::new(24, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -148,7 +148,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.41.0")
+        Some("0.42.0")
     );
 
     let world = package
@@ -305,6 +305,8 @@ fn host_bindings_expose_typed_hook_contract() {
         },
     };
     let manifest = ComponentManifest {
+        incremental_header_handlers: Vec::new(),
+
         incremental_local_subscriptions: Vec::new(),
         component_id: "test.component".to_owned(),
         component_version: "1.2.3".to_owned(),

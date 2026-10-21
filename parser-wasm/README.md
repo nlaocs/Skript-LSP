@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.41.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.42.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -101,7 +101,8 @@ multiple targets for each registered semantic handler, including dynamic
   and BlockData lookups changed it to 0.38.0; structured Function leaf calls changed
   it to 0.39.0; Function bindings on final AST and additional-parse nodes changed
   it to 0.40.0. Native omission provenance and the opt-in incremental
-  subscription manifest changed it to 0.41.0. The manifest's current `abi` value is 23.0 and
+  subscription manifest changed it to 0.41.0; explicit header-local Structure
+  handler promises changed it to 0.42.0. The manifest's current `abi` value is 24.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -123,7 +124,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 23.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 24.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts
@@ -1059,3 +1060,25 @@ cargo test -p parser-wasm --locked
 
 The complete workspace check also verifies that host-only dependencies are not
 accidentally required by guest components.
+
+### Header-local Structure Enter reuse
+
+ABI 24 / WIT 0.42 adds `incremental-header-handlers` and the independent optional
+`parser.incremental-structure-header` v1 promise. It does not widen the existing
+local-syntax v1 contract. Listed registered handlers promise header-line-local,
+position-independent (or provider-defined header-relative) opaque metadata and
+context values; current context, immutable Catalog/runtime, ordered handler and
+dynamic bindings, component availability, and observed State reads remain inputs.
+The host normalizes only typed node/context IDs, exact header ranges and immutable
+source echoes. Typed Function declarations are rebound to the current source and
+registered in the current native registry, including duplicate validation. No old
+AST, state delta, receipt or function registration is transplanted.
+
+V1 deliberately misses on State mutation attempts, diagnostics, AdditionalParse,
+attachments/parsed captures, expansion or nonexact/cross-line mapping, and section
+stack context. Cache publication still requires a committed fault-free parse.
+Core currently opts in its Function header owner; command registration writes
+Parse state and therefore misses by the shared runtime rule. Native matching and
+current Structure payload construction still run; header hit counts and observed
+header preparation latency must be reported separately. Guest components built
+against ABI 23 / WIT 0.41 must be rebuilt.

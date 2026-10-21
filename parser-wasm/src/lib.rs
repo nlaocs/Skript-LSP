@@ -31,10 +31,12 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(23, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(24, 0);
 
 /// Explicit immutable/local semantic hook result contract for incremental analysis.
 pub const CAPABILITY_INCREMENTAL_LOCAL_SYNTAX: &str = "parser.incremental-local-syntax";
+/// Explicit immutable Structure Enter hook reuse contract, separate from local syntax v1.
+pub const CAPABILITY_INCREMENTAL_STRUCTURE_HEADER: &str = "parser.incremental-structure-header";
 
 /// Component-wide deterministic project semantic promise; see the WIT manifest contract.
 pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-semantics";

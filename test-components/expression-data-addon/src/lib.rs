@@ -222,6 +222,8 @@ fn parser_requirements() -> Vec<ParserCapabilityRequirement> {
 impl addon::Guest for ExpressionDataAddon {
     fn manifest() -> ComponentManifest {
         let mut manifest = ComponentManifest {
+            incremental_header_handlers: Vec::new(),
+
             incremental_local_subscriptions: Vec::new(),
             component_id: COMPONENT_ID.to_owned(),
             component_version: env!("CARGO_PKG_VERSION").to_owned(),

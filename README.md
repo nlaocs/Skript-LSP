@@ -49,7 +49,7 @@ can expose a safe lookup before opaque work; they do not make an entire Effect
 or Condition pure. Unknown converters, callbacks, aliases and control flow clear
 facts rather than borrowing the enclosing requested type.
 
-The addon contract is WIT `nlaocs:skript-parser-addon@0.41.0`, ABI `23.0`; rebuild
+The addon contract is WIT `nlaocs:skript-parser-addon@0.42.0`, ABI `24.0`; rebuild
 components against that contract. Incremental work reuses only explicitly opted-in,
 validated semantic hook responses. Native matching and current transactions still
 run; an earlier full AST is never transplanted. Abrupt WASM cancellation requires

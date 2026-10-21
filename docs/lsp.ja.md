@@ -82,7 +82,7 @@ clientがdynamic watcher登録に対応する場合、`**/*.sk`のcreate/change/
 
 ## Incremental処理とAddon契約
 
-公開WITは`nlaocs:skript-parser-addon@0.41.0`、ABIは`23.0`である。旧ABIのcomponentは再buildする。
+公開WITは`nlaocs:skript-parser-addon@0.42.0`、ABIは`24.0`である。旧ABIのcomponentは再buildする。
 `parser.incremental-local-syntax` v1とmanifestの`incremental-local-subscriptions`へ
 明示したhookだけが再利用候補になる。現在payload/context、物理source行、不変Catalog/runtime/binding、
 観測したStateのget/scan値が返却値を完全に決め、guest履歴や未観測の入力へ依存しないという契約である。
@@ -284,9 +284,9 @@ completionの説明形式は`completionItem.documentationFormat`の対応する�
 
 ### 本文解析を待たない構造内の仮候補
 
-clientが `capabilities.experimental.skriptCompletionRefresh = true` を送る場合、serverは同じcapabilityを返し、同じ全文解析のText/Tree macroと全rootのEnterBodyが終わった段階を補完に公開する。
+clientが `capabilities.experimental.skriptCompletionRefresh = true` を送る場合、serverは同じcapabilityを返し、同じ全文解析のText/Tree macroと全rootのEnterBodyが終わった段階を補完に公開する。依存解析で処理した別のopen文書も、producerではなく実際のsourceへ配信する。nativeが一意な入れ子sectionのEnterBodyを受理した後は、その現在のTrigger/Conditions本文scopeを小さなdeltaで追加する。未確定・曖昧な親を越えてscopeを推測しない。
 別のparse、旧revisionのAST、型・変数・文書関数の履歴は使わない。SSGと実際のowner hookのbody mode、凍結したEntryValidatorを使い、native parserと同じ宣言index選択・重複判定を共有する。
-候補は成功した意味解析の証明ではない。各itemのdetailとdocumentationの先頭にprovisionalと明示し、dataの `completionPhase: "prepared"`、`ownerAttempt`（raw node・registration・pattern）と `completionTicket` に出所を付ける。
+候補は成功した意味解析の証明ではない。各itemのdetailとdocumentationの先頭にprovisionalと明示し、dataの `completionPhase: "prepared"`、`ownerAttempt`（raw node・registration・pattern・native内のattempt ID）と `completionTicket` に出所を付ける。
 未確定の本文・guard・後続hookにより仮候補が取り消されることがある。応答は常に `isIncomplete=true` とする。
 
 このviewは現在の原文との一致とExactなSourceMap射影を要求する。曖昧なheader、未知のnested section、参照だけの補完は最新の全文解析を待つ。
@@ -294,10 +294,10 @@ Rawな値のsectionを実行文として扱わない。256KiBを超える文書�
 特殊な構文名や実装classによる補完側の例外は設けない。
 
 EnterBody後に本文・ExitBodyがownerを拒否またはfaultにした時点で、そのownerの仮候補を失効させる。別ownerへのfallbackを待たず、通常の補完要求は最終解析待ちに戻す。
-失効・最終解析・worker failureではopt-in clientへ `skript/completionRefresh` notificationを送る。paramsは `uri, version, generation, revision, ticket, position, phase`、phaseは `revoked | final | failed` である。
+失効・最終解析・worker failureではopt-in clientへ `skript/completionRefresh` notificationを送る。paramsは `uri, version, generation, revision, ticket, position, phase`、phaseは `revoked | prepared | analysis-restarted | final | failed` である。
 これはLSP標準のrefresh要求ではない。既に送ったrequestに二度目の応答を送らず、clientが表示中の同じticket・文書版・位置を確認して補完を再要求する。
 clientは失効したitemを先に除去し、閉じたmenuを再び開かない。非opt-in clientは構造内の要求を従来どおり全文解析まで保持する。
-編集中・close/reopenのgeneration/revision/versionと取消tokenを全progress eventでも確認し、古い結果は公開しない。
+編集中・close/reopenのgeneration/revision/versionと取消tokenを全progress eventでも確認し、古い結果は公開しない。source epoch・原文の同一性・producer revision・worker全体で単調増加するnative revisionも照合する。解析開始は旧viewを破棄し、abortはtombstoneを残して同じ試行の遅延通知による復活を防ぐ。親の失効は全raw子孫に及び、重複投影で表示行が除外されてもscopeを残さない。
 
 ## 引数案内
 
@@ -351,7 +351,7 @@ tooltip内の説明とpatternは内容に合わせた安全なMarkdown fenceで�
 `details.incremental`は直近document parseのeligible・hits・misses・dependencyMisses・stored・discardedを示す。
 project全体の総hook数やclient描画の短縮時間とは区別する。
 `skript-lsp completion timing`の`source`は`syntax`、`prepared`、`analysis`を示す。
-`skript-lsp preparation timing`は現在のjobの`prepareMs`を示す。本文解析完了時間ではない。
+`skript-lsp preparation timing`は通知先のuri/version、nativeRevision、phaseとproducer job開始からの`prepareMs`を示す。本文解析完了時間ではない。入れ子通知は通常の深さ優先解析がそのsectionへ到達してから発生するため、先行する本文の待機は残る。
 `skript-lsp signature timing`も同じ区分で`queryMs`、`waitMs`、署名数を記録する。
 `queryMs`は候補検索と応答構築で、即時経路では必要なnative context作成も含む。
 `waitMs`は受信後から解析済み候補検索を始めるまでの待機で、失敗した即時試行も含む。即時応答では0になる。
