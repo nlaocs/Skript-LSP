@@ -246,7 +246,7 @@ fn document_definitions_reuse_the_registered_function_call_ast() {
     let selected = result.selected.expect("local Function must parse").node;
     assert!(matches!(
         selected.kind,
-        ExpressionNodeKind::Function { ref parser_id } if parser_id == "document.function"
+        ExpressionNodeKind::NativeFunction { ref parser_id } if parser_id == "document.function"
     ));
     let call = selected
         .function

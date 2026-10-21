@@ -423,9 +423,7 @@ impl ParserHost {
                         return Err(error);
                     }
                     if error.disables_component() {
-                        self.components[candidate.component_index].disabled = true;
-                        self.components[candidate.component_index].disabled_reason =
-                            Some(error.clone());
+                        self.disable_component(candidate.component_index, &error);
                     }
                     pipeline.calls.push(AstMacroCall {
                         component_id: component_id.clone(),

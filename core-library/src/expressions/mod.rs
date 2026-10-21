@@ -88,6 +88,11 @@ pub(crate) enum SemanticResolution {
     Reject(String),
 }
 
+pub(crate) fn completion_annotations()
+-> Vec<crate::nlaocs::skript_parser_addon::types::CatalogAnnotation> {
+    simple_literal::completion_annotations()
+}
+
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     let mut handlers = Vec::new();
     context_validation::register(&mut handlers);

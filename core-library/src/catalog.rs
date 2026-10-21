@@ -947,6 +947,21 @@ pub(crate) fn identity_delta_types_for_summary(
     identity_delta_classes()
 }
 fn default_clone_input(summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary) -> bool {
+    // This discriminator is minted only by the native binder, and capture
+    // summaries cannot be rewritten by registered hooks. A provider's Function
+    // leaf does not receive it. The audited runtime ExprFunctionCall inherits
+    // default beforeChange; identity still requires closed ClassInfo evidence.
+    if summary.kind == "function" {
+        let mut markers = summary
+            .metadata
+            .iter()
+            .filter(|entry| entry.key == "parser.native-function-value-input");
+        return pinned_runtime()
+            && markers
+                .next()
+                .is_some_and(|entry| entry.owner_component_id.is_none() && entry.value == "1")
+            && markers.next().is_none();
+    }
     let entries = summary
         .metadata
         .iter()
@@ -1157,6 +1172,99 @@ fn accepted_change_type(class_name: String) -> AcceptedChangeType {
             multiple: false,
         }
     }
+}
+
+// Manifest work shares the ordinary guest fuel limit. Probe bounded record
+// prefixes, then fetch only small records required by the provider's classifier.
+// Each bound is independent: registrations outside these limits remain Unknown.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn expression_bound_sources(matches: fn(&[u8]) -> bool) -> Option<Vec<u8>> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+    const MAX_RECORDS: u64 = 1_024;
+    const PREFIX: u32 = 512;
+    const MAX_BYTES: u32 = 64 * 1024;
+    let source = catalog_data::source().ok()??;
+    let mut bytes = vec![b'['];
+    for index in 0..MAX_RECORDS {
+        let Some(prefix) = catalog_data::read_record(
+            &source.source_digest,
+            &source.snapshot_id,
+            "Expressions.json",
+            index,
+            0,
+            PREFIX,
+        )
+        .ok()?
+        else {
+            break;
+        };
+        if prefix.offset != 0 || prefix.bytes.len() > PREFIX as usize {
+            return None;
+        }
+        if prefix.total_length > MAX_BYTES as u64
+            || bytes
+                .len()
+                .checked_add(usize::try_from(prefix.total_length).ok()?)?
+                + 2
+                > MAX_BYTES as usize
+        {
+            continue;
+        }
+        // Source records are normalized JSON objects. Probe both ends without
+        // assuming field order; only a later full record can certify a bound.
+        let hinted = if matches(&prefix.bytes) {
+            true
+        } else if prefix.total_length > PREFIX as u64 {
+            let offset = prefix.total_length.saturating_sub(PREFIX as u64);
+            let tail = catalog_data::read_record(
+                &source.source_digest,
+                &source.snapshot_id,
+                "Expressions.json",
+                index,
+                offset,
+                PREFIX,
+            )
+            .ok()??;
+            if tail.offset != offset
+                || tail.total_length != prefix.total_length
+                || tail.bytes.len() > PREFIX as usize
+            {
+                return None;
+            }
+            matches(&tail.bytes)
+        } else {
+            false
+        };
+        if !hinted {
+            continue;
+        }
+        let record = if prefix.bytes.len() as u64 == prefix.total_length {
+            prefix
+        } else {
+            catalog_data::read_record(
+                &source.source_digest,
+                &source.snapshot_id,
+                "Expressions.json",
+                index,
+                0,
+                MAX_BYTES,
+            )
+            .ok()??
+        };
+        if record.offset != 0 || record.bytes.len() as u64 != record.total_length {
+            return None;
+        }
+        if bytes.len() > 1 {
+            bytes.push(b',');
+        }
+        bytes.extend_from_slice(&record.bytes);
+    }
+    bytes.push(b']');
+    Some(bytes)
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn expression_bound_sources(_matches: fn(&[u8]) -> bool) -> Option<Vec<u8>> {
+    None
 }
 
 #[cfg(target_arch = "wasm32")]

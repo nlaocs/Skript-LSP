@@ -512,6 +512,7 @@ fn restarted_manifest_or_handler_mismatch_disables_without_running_the_old_bindi
     for tamper_handlers in [false, true] {
         let mut host = restart_test_host(None).unwrap();
         let index = text_component_index(&host);
+        let certificate = host.completion_type_certificate();
         host.components[index].restart_pending = true;
         if tamper_handlers {
             host.components[index]
@@ -538,6 +539,7 @@ fn restarted_manifest_or_handler_mismatch_disables_without_running_the_old_bindi
             ),
             "{error:?}"
         );
+        assert!(!certificate.is_current());
         assert!(host.components[index].disabled);
         assert!(host.components[index].restart_pending);
         assert!(host.components[index].store.data().invocation.is_none());
@@ -566,17 +568,20 @@ fn restart_safe_initialization_rejects_ignored_state_and_dynamic_calls() {
 fn cancellation_during_restart_initialization_stays_pending_then_recovers() {
     let mut host = restart_test_host(None).unwrap();
     let index = text_component_index(&host);
+    let certificate = host.completion_type_certificate();
     let token = DocumentCancellationToken::new();
     host.native_cancellation = Some(token.clone());
     host.components[index].restart_pending = true;
     host.components[index].cancel_during_restart_initialize = Some(token);
     let error = host.ensure_component_ready(index).unwrap_err();
     assert!(matches!(error, HostError::Cancelled(_)), "{error:?}");
+    assert!(certificate.is_current());
     assert!(host.components[index].restart_pending);
     assert!(!host.components[index].disabled);
     assert!(host.components[index].store.data().epoch_cancelled);
     host.native_cancellation = Some(DocumentCancellationToken::new());
     host.ensure_component_ready(index).unwrap();
+    assert!(certificate.is_current());
     assert!(!host.components[index].restart_pending);
     assert!(!host.components[index].disabled);
     host.expand_text(TEST_PROJECT, restart_text_request(1, "healthy"))
@@ -587,6 +592,7 @@ fn cancellation_during_restart_initialization_stays_pending_then_recovers() {
 fn restart_quota_fault_is_not_relabelled_as_cancellation() {
     let mut host = restart_test_host(None).unwrap();
     let index = text_component_index(&host);
+    let certificate = host.completion_type_certificate();
     host.components[index].restart_pending = true;
     host.config.fuel_per_call = 1;
     let error = host.ensure_component_ready(index).unwrap_err();
@@ -594,6 +600,7 @@ fn restart_quota_fault_is_not_relabelled_as_cancellation() {
         matches!(error, HostError::FuelExhausted { .. }),
         "{error:?}"
     );
+    assert!(!certificate.is_current());
     assert!(host.components[index].disabled);
     assert!(host.components[index].restart_pending);
 }

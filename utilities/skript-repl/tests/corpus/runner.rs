@@ -967,7 +967,8 @@ fn project_expression(node: &ExpressionNode, catalog: &Catalog) -> Result<Value,
         ExpressionNodeKind::Literal { parser_id } => {
             json!({"kind": "literal", "parser": parser_id})
         }
-        ExpressionNodeKind::Function { parser_id } => {
+        ExpressionNodeKind::Function { parser_id }
+        | ExpressionNodeKind::NativeFunction { parser_id } => {
             json!({"kind": "function", "parser": parser_id})
         }
         ExpressionNodeKind::Custom { parser_id } => json!({"kind": "custom", "parser": parser_id}),

@@ -8142,7 +8142,8 @@ fn expression_node_identity(node: &ExpressionNode) -> (&'static str, Option<&str
         ExpressionNodeKind::Registered { .. } => ("registered-expression", None),
         ExpressionNodeKind::Variable { parser_id } => ("variable", Some(parser_id)),
         ExpressionNodeKind::Literal { parser_id } => ("literal", Some(parser_id)),
-        ExpressionNodeKind::Function { parser_id } => ("function", Some(parser_id)),
+        ExpressionNodeKind::Function { parser_id }
+        | ExpressionNodeKind::NativeFunction { parser_id } => ("function", Some(parser_id)),
         ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None),
         ExpressionNodeKind::Custom { parser_id } => ("custom", Some(parser_id)),
     }
@@ -8848,6 +8849,16 @@ fn shared_host_runtime(epoch_tick: Duration) -> Result<Arc<SharedHostRuntime>, H
     Ok(runtime)
 }
 
+/// Read-only, revocable certification of the provider set used by completion.
+/// Old document Arcs observe revocation immediately, including during a parse.
+#[derive(Clone)]
+pub struct CompletionTypeCertificate(Arc<AtomicBool>);
+impl CompletionTypeCertificate {
+    pub fn is_current(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
 /// Wasmtime component registry and orchestrator for all parser extension stages.
 ///
 /// Construction loads and negotiates the mandatory CoreLibrary first. Optional
@@ -8875,6 +8886,7 @@ fn shared_host_runtime(epoch_tick: Duration) -> Result<Arc<SharedHostRuntime>, H
 /// # let _ = create_host;
 /// ~~~
 pub struct ParserHost {
+    completion_types: CompletionTypeCertificate,
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
@@ -9013,6 +9025,108 @@ impl ParserHost {
             })
     }
 
+    pub fn completion_type_certificate(&self) -> CompletionTypeCertificate {
+        self.completion_types.clone()
+    }
+    fn revoke_completion_types(&mut self) {
+        self.completion_types.0.store(false, Ordering::Release);
+        self.completion_types = CompletionTypeCertificate(Arc::new(AtomicBool::new(true)));
+    }
+    fn disable_component(&mut self, index: usize, error: &HostError) {
+        self.revoke_completion_types();
+        let entry = &mut self.components[index];
+        entry.disabled = true;
+        entry.disabled_reason = Some(error.clone());
+    }
+
+    /// A provider-owned, Catalog-bound upper bound for all successful outputs of
+    /// one registration. This is read-only metadata; it does not execute hooks.
+    /// A competing semantic provider or unavailable claimant invalidates it.
+    pub fn completion_output_bound(
+        &self,
+        definition: &str,
+        registration: &str,
+    ) -> Option<Vec<String>> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Bound {
+            version: u32,
+            handler_id: String,
+            classes: Vec<String>,
+        }
+        let mut claim = None;
+        for (component_index, component) in self.components.iter().enumerate() {
+            for annotation in &component.manifest.catalog_annotations {
+                if !matches!(&annotation.target, CatalogAnnotationTarget::Registration(id) if id == registration)
+                {
+                    continue;
+                }
+                for metadata in &annotation.metadata {
+                    if metadata.key != "parser.completion.output-bound" {
+                        continue;
+                    }
+                    if claim.is_some()
+                        || component.disabled
+                        || component.unloaded
+                        || component.restart_pending
+                        || metadata.owner_component_id.as_deref()
+                            != Some(component.manifest.component_id.as_str())
+                    {
+                        return None;
+                    }
+                    let bound: Bound = serde_json::from_str(&metadata.value).ok()?;
+                    if bound.version != 1
+                        || bound.classes.is_empty()
+                        || bound.classes.len() > 64
+                        || bound.classes.iter().any(|c| c.trim().is_empty())
+                    {
+                        return None;
+                    }
+                    claim = Some((component_index, bound));
+                }
+            }
+        }
+        let (claimant, bound) = claim?;
+        let mut bound_handler = false;
+        for (component_index, component) in self
+            .components
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.unloaded)
+        {
+            // Other components may transform a broad registered-expression hook
+            // without advertising one narrow handler. Do not assume it is inert.
+            if component_index != claimant
+                && component
+                    .manifest
+                    .subscriptions
+                    .iter()
+                    .any(|s| s.phase == HookPhase::Expression && s.mode == HookMode::Transform)
+            {
+                return None;
+            }
+            for handler in &component.manifest.registered_syntax_handlers {
+                if handler.phase == HookPhase::DefaultExpression
+                    || catalog_syntax_kind(handler.kind) != CatalogSyntaxKind::Expression
+                    || !registered_handler_target_matches(
+                        component,
+                        handler,
+                        definition,
+                        registration,
+                        None,
+                    )
+                {
+                    continue;
+                }
+                if component_index != claimant || handler.handler_id != bound.handler_id {
+                    return None;
+                }
+                bound_handler = true;
+            }
+        }
+        bound_handler.then_some(bound.classes)
+    }
+
     /// Default lexical options from the effective runtime, after explicit host
     /// settings and enabled snapshot plugins have been reconciled.
     pub fn raw_tree_options(&self) -> skript_parser::RawTreeOptions {
@@ -9058,6 +9172,7 @@ impl ParserHost {
             catalog_source_available,
         );
         let mut host = Self {
+            completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
             runtime,
             config,
             native_cancellation: None,
@@ -10093,6 +10208,7 @@ impl ParserHost {
             return Ok(false);
         };
         entry.unloaded = true;
+        self.revoke_completion_types();
         if let Some(registry) = &self.dynamic_syntax_registry {
             registry.remove_component(component_id)?;
         }
@@ -10485,9 +10601,7 @@ impl ParserHost {
                         return Err(error);
                     }
                     if error.disables_component() {
-                        self.components[candidate.component_index].disabled = true;
-                        self.components[candidate.component_index].disabled_reason =
-                            Some(error.clone());
+                        self.disable_component(candidate.component_index, &error);
                     }
                     calls.push(TextMacroCall {
                         component_id: component_id.clone(),
@@ -11059,9 +11173,7 @@ impl ParserHost {
                         return Err(error);
                     }
                     if error.disables_component() {
-                        self.components[candidate.component_index].disabled = true;
-                        self.components[candidate.component_index].disabled_reason =
-                            Some(error.clone());
+                        self.disable_component(candidate.component_index, &error);
                     }
                     pipeline.calls.push(TreeMacroCall {
                         component_id: component_id.clone(),
@@ -11928,9 +12040,7 @@ impl ParserHost {
                             return Err(error);
                         }
                         if error.disables_component() {
-                            self.components[candidate.component_index].disabled = true;
-                            self.components[candidate.component_index].disabled_reason =
-                                Some(error.clone());
+                            self.disable_component(candidate.component_index, &error);
                         }
                         failures.push(ComponentFailure {
                             affected_span: None,
@@ -12199,14 +12309,15 @@ impl ParserHost {
         if let Err(error) = &result
             && !matches!(error, HostError::Cancelled(_))
         {
-            let entry = &mut self.components[component_index];
-            entry.disabled = true;
-            entry.disabled_reason = Some(error.clone());
+            self.disable_component(component_index, error);
         }
         result
     }
 
     fn restart_cancelled_component(&mut self, component_index: usize) -> Result<(), HostError> {
+        // A restart-safe component must retain the exact manifest (including
+        // bounds) and resolved bindings. Failure revokes through disable_component;
+        // an ordinary cancelled attempt does not change immutable Catalog facts.
         let entry = &mut self.components[component_index];
         let component_id = entry.manifest.component_id.clone();
         if entry.disabled || entry.unloaded {
@@ -12338,6 +12449,7 @@ impl ParserHost {
         bytes: &[u8],
         mandatory_core: bool,
     ) -> Result<ComponentInfo, HostError> {
+        self.revoke_completion_types();
         if bytes.is_empty() && mandatory_core {
             return Err(HostError::CoreLibraryMissing);
         }
@@ -15125,7 +15237,9 @@ impl<'a> ParseResultArena<'a> {
             ),
             ExpressionNodeKind::Variable { .. } => ("variable", None, None, None),
             ExpressionNodeKind::Literal { .. } => ("literal", None, None, None),
-            ExpressionNodeKind::Function { .. } => ("function", None, None, None),
+            ExpressionNodeKind::Function { .. } | ExpressionNodeKind::NativeFunction { .. } => {
+                ("function", None, None, None)
+            }
             ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None),
             ExpressionNodeKind::Custom { .. } => ("custom", None, None, None),
         };
@@ -19247,6 +19361,87 @@ mod tests {
         assert_eq!(
             result.nodes[0].attachments[0].owner_component_id,
             "fixture.provider"
+        );
+    }
+
+    #[test]
+    fn completion_bound_requires_one_current_owner_and_the_exact_handler() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{
+            CatalogAnnotation, MetadataEntry, RegisteredSyntaxHandler,
+        };
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            core_test_config(),
+        )
+        .unwrap();
+        let component = &mut host.components[0];
+        component.manifest.registered_syntax_handlers = vec![RegisteredSyntaxHandler {
+            handler_id: "fixture.bound".into(),
+            kind: SyntaxKind::Expression,
+            phase: HookPhase::Expression,
+            targets: vec![RegisteredSyntaxHandlerTarget::Definition(
+                "fixture.definition".into(),
+            )],
+            pattern_indices: Vec::new(),
+            pattern_sources: Vec::new(),
+            required_tags: Vec::new(),
+            forbidden_tags: Vec::new(),
+            marks: Vec::new(),
+            capture_parsers: Vec::new(),
+            context_requirements: Vec::new(),
+        }];
+        component.registered_handler_bindings = vec![WitRegisteredHandlerBinding {
+            handler_id: "fixture.bound".into(),
+            definition_ids: vec!["fixture.definition".into()],
+            registration_ids: vec!["fixture.registration".into()],
+        }];
+        component.manifest.catalog_annotations = vec![CatalogAnnotation {
+            target: CatalogAnnotationTarget::Registration("fixture.registration".into()),
+            metadata: vec![MetadataEntry {
+                owner_component_id: Some(component.manifest.component_id.clone()),
+                key: "parser.completion.output-bound".into(),
+                value: r#"{"version":1,"handlerId":"fixture.bound","classes":["example.Value"]}"#
+                    .into(),
+            }],
+        }];
+        assert_eq!(
+            host.completion_output_bound("fixture.definition", "fixture.registration"),
+            Some(vec!["example.Value".into()])
+        );
+        assert!(
+            host.completion_output_bound("fixture.definition", "other.registration")
+                .is_none()
+        );
+        let certificate = host.completion_type_certificate();
+        assert!(certificate.is_current());
+        host.disable_component(
+            0,
+            &HostError::Runtime {
+                component_id: "nlaocs.core-library".into(),
+                operation: "fixture failure",
+                message: "recoverable provider fault".into(),
+            },
+        );
+        assert!(!certificate.is_current());
+        assert!(
+            host.completion_output_bound("fixture.definition", "fixture.registration")
+                .is_none()
+        );
+        host.components[0].disabled = false;
+        host.components[0].manifest.registered_syntax_handlers[0].handler_id = "different".into();
+        assert!(
+            host.completion_output_bound("fixture.definition", "fixture.registration")
+                .is_none()
+        );
+        host.components[0].manifest.registered_syntax_handlers[0].handler_id =
+            "fixture.bound".into();
+        host.components[0].manifest.catalog_annotations[0].metadata[0].owner_component_id = None;
+        assert!(
+            host.completion_output_bound("fixture.definition", "fixture.registration")
+                .is_none()
         );
     }
 

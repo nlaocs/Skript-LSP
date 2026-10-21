@@ -259,6 +259,22 @@ fn capture_views_preserve_grouped_summary_defaults_and_function_values() {
             omitted: false,
         }],
     });
+    function
+        .metadata
+        .insert("parser.native-function-value-input".into(), "1".into());
+    assert!(
+        !expression_semantic_summary(&function)
+            .metadata
+            .contains_key("parser.native-function-value-input"),
+        "a provider Function leaf cannot mint the native fact"
+    );
+    let mut native = function.clone();
+    native.kind = ExpressionNodeKind::NativeFunction {
+        parser_id: "native.binder".into(),
+    };
+    let summary = expression_semantic_summary(&native);
+    assert_eq!(summary.kind, "function");
+    assert_eq!(summary.metadata["parser.native-function-value-input"], "1");
     let root = node(vec![group, default, function]);
     assert_equivalent(&root);
     let views = root.parsed_capture_refs().collect::<Vec<_>>();

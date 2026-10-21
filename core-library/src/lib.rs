@@ -267,7 +267,7 @@ impl addon::Guest for CoreLibrary {
                 handlers.extend(types::handlers());
                 handlers
             },
-            catalog_annotations: Vec::new(),
+            catalog_annotations: expressions::completion_annotations(),
             state_namespaces: vec![
                 StateNamespaceDeclaration {
                     name: "commands".to_owned(),

@@ -1510,7 +1510,9 @@ fn collect_expression_node_colors(
         ExpressionNodeKind::Literal { parser_id } => {
             literal_source_color(parser_id, &expression.metadata)
         }
-        ExpressionNodeKind::Function { .. } => SourceColor::Function,
+        ExpressionNodeKind::Function { .. } | ExpressionNodeKind::NativeFunction { .. } => {
+            SourceColor::Function
+        }
         _ => SourceColor::Expression,
     };
     push_source_color_span(spans, match_span(&expression.span), color, depth);
@@ -2108,7 +2110,8 @@ fn expression_report(
             },
             None,
         ),
-        ExpressionNodeKind::Function { parser_id } => {
+        ExpressionNodeKind::Function { parser_id }
+        | ExpressionNodeKind::NativeFunction { parser_id } => {
             let function = node.function.as_ref();
             (
                 ExpressionIdentityReport::Function {
@@ -3438,7 +3441,9 @@ mod tests {
             ExpressionNodeKind::Literal { parser_id } => {
                 literal_source_color(parser_id, &expression.metadata)
             }
-            ExpressionNodeKind::Function { .. } => SourceColor::Function,
+            ExpressionNodeKind::Function { .. } | ExpressionNodeKind::NativeFunction { .. } => {
+                SourceColor::Function
+            }
             _ => SourceColor::Expression,
         };
         push_source_color_span(spans, match_span(&expression.span), color, depth);

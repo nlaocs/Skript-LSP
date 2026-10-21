@@ -1437,7 +1437,10 @@ fn overloaded_function_accepts_multiple_arithmetic_arguments() {
         .expect("vector(x, y, z) must accept arithmetic arguments");
 
     let vector = selected.expressions().next().expect("vector Expression");
-    assert!(matches!(vector.kind, ExpressionNodeKind::Function { .. }));
+    assert!(matches!(
+        vector.kind,
+        ExpressionNodeKind::NativeFunction { .. }
+    ));
     assert_eq!(vector.function.as_ref().unwrap().arguments.len(), 3);
     assert_eq!(vector.children.len(), 3);
     assert!(vector.children.iter().all(|child| matches!(

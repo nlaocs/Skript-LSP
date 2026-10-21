@@ -570,7 +570,8 @@ fn expression_syntax_identity(expression: &ExpressionNode) -> (SyntaxKind, Strin
                 },
                 |registration_id| (SyntaxKind::Type, registration_id),
             ),
-        ExpressionNodeKind::Function { parser_id } => {
+        ExpressionNodeKind::Function { parser_id }
+        | ExpressionNodeKind::NativeFunction { parser_id } => {
             (SyntaxKind::Function, format!("parser:function.{parser_id}"))
         }
         ExpressionNodeKind::Arithmetic {

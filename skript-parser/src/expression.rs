@@ -160,6 +160,11 @@ pub enum ExpressionNodeKind {
     Function {
         parser_id: String,
     },
+    /// Constructed by the native function binder, never by a provider leaf.
+    /// Its runtime wrapper is the ordinary Skript function-call expression.
+    NativeFunction {
+        parser_id: String,
+    },
     Arithmetic {
         operator: String,
         operation_registration_id: String,
@@ -798,7 +803,12 @@ pub(crate) fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptur
         delegated.possible_return_types = node.possible_return_types.clone();
         delegated.possible_return_types_state = node.possible_return_types_state;
         delegated.multiplicity = node.multiplicity;
-        delegated.metadata.extend(node.metadata.clone());
+        delegated.metadata.extend(
+            node.metadata
+                .iter()
+                .filter(|(key, _)| key.as_str() != "parser.native-function-value-input")
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
         return delegated;
     }
     let (kind, definition_id, registration_id, element_class, pattern_index) = match &node.kind {
@@ -820,10 +830,16 @@ pub(crate) fn expression_semantic_summary(node: &ExpressionNode) -> ParsedCaptur
         ExpressionNodeKind::Variable { .. } => ("variable", None, None, None, None),
         ExpressionNodeKind::Literal { .. } => ("literal", None, None, None, None),
         ExpressionNodeKind::Function { .. } => ("function", None, None, None, None),
+        ExpressionNodeKind::NativeFunction { .. } => ("function", None, None, None, None),
         ExpressionNodeKind::Arithmetic { .. } => ("arithmetic", None, None, None, None),
         ExpressionNodeKind::Custom { .. } => ("custom", None, None, None, None),
     };
     let mut metadata = node.metadata.clone();
+    // Protected native fact: provider leaf metadata cannot mint or override it.
+    metadata.remove("parser.native-function-value-input");
+    if matches!(node.kind, ExpressionNodeKind::NativeFunction { .. }) {
+        metadata.insert("parser.native-function-value-input".into(), "1".into());
+    }
     if matches!(node.kind, ExpressionNodeKind::List { .. }) {
         metadata.insert(
             "parser.expression-list.all-variables".to_owned(),

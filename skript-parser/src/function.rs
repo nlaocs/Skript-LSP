@@ -751,7 +751,7 @@ fn build_candidate<E: ExpressionParseEnvironment>(
         candidate: Some(ExpressionCandidate {
             node: ExpressionNode {
                 effects: None,
-                kind: ExpressionNodeKind::Function {
+                kind: ExpressionNodeKind::NativeFunction {
                     parser_id: definition.parser_id.clone(),
                 },
                 function: Some(FunctionCall {

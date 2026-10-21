@@ -81,7 +81,7 @@ fn parses_catalog_function_identity_and_nested_arguments() {
         .node;
     assert!(matches!(
         selected.kind,
-        ExpressionNodeKind::Function { ref parser_id } if parser_id == "core.function"
+        ExpressionNodeKind::NativeFunction { ref parser_id } if parser_id == "core.function"
     ));
     let call = selected.function.expect("Function must be structured");
     assert_eq!(call.name, "sin");
@@ -91,7 +91,7 @@ fn parses_catalog_function_identity_and_nested_arguments() {
     assert_eq!(call.arguments[0].child_count, 1);
     assert!(matches!(
         selected.children[0].kind,
-        ExpressionNodeKind::Function { .. }
+        ExpressionNodeKind::NativeFunction { .. }
     ));
     assert_eq!(selected.children[0].function.as_ref().unwrap().name, "abs");
 }
