@@ -12,7 +12,7 @@ const TEXT: &[u8] = include_bytes!("../../artifacts/text-macro-addon.wasm");
 const PROJECT: &str = "file:///public-type-certificate";
 const DOCUMENT: &str = "file:///public-type-certificate/test.sk";
 
-fn host(cancellable: bool) -> ParserHost {
+fn core_host(cancellable: bool) -> ParserHost {
     let catalog = ssg::load(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
@@ -34,7 +34,10 @@ fn host(cancellable: bool) -> ParserHost {
         config.call_timeout = Duration::from_secs(3);
         config.epoch_tick = Duration::from_millis(1);
     }
-    let mut host = ParserHost::new(CORE, config).unwrap();
+    ParserHost::new(CORE, config).unwrap()
+}
+fn host(cancellable: bool) -> ParserHost {
+    let mut host = core_host(cancellable);
     host.load_addon(TEXT).unwrap();
     host
 }
@@ -108,4 +111,60 @@ fn public_document_cancellation_recovers_without_revoking_unchanged_type_provide
     assert!(healthy.calls.iter().all(|c| c.accepted));
     assert!(certificate.is_current());
     assert!(host.components().iter().all(|c| !c.disabled));
+}
+
+#[test]
+fn public_candidate_binding_routes_require_all_provider_opt_in() {
+    let mut host = core_host(false);
+    assert!(host.completion_candidate_bindings_are_closed());
+    let catalog = ssg::load(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
+    )
+    .unwrap()
+    .into_catalog();
+    let entity = catalog
+        .expressions()
+        .find(|d| d.common.element_class.as_str() == "ch.njol.skript.expressions.ExprEntity")
+        .unwrap();
+    let routes = host
+        .completion_expression_capture_bindings(
+            entity.common.definition_id.as_str(),
+            entity.common.registration_id.as_str(),
+        )
+        .unwrap();
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0].capture_index, 0);
+    assert_eq!(routes[0].parser_id, "host.expression");
+    let expected = skript_parser::capture_expression_expected_types(&routes[0]).unwrap();
+    assert_eq!(expected.len(), 1);
+    assert_eq!(
+        expected[0].class_name.as_str(),
+        "ch.njol.skript.entity.EntityData"
+    );
+    let leaf = catalog
+        .expressions()
+        .find(|d| {
+            d.common.element_class.as_str() == "ch.njol.skript.expressions.ExprEventExpression"
+        })
+        .unwrap();
+    assert!(
+        host.completion_expression_capture_bindings(
+            leaf.common.definition_id.as_str(),
+            leaf.common.registration_id.as_str()
+        )
+        .unwrap()
+        .is_empty()
+    );
+    let certificate = host.completion_type_certificate();
+    host.load_addon(TEXT).unwrap();
+    assert!(!certificate.is_current());
+    assert!(!host.completion_candidate_bindings_are_closed());
+    assert!(
+        host.completion_expression_capture_bindings(
+            entity.common.definition_id.as_str(),
+            entity.common.registration_id.as_str()
+        )
+        .is_none()
+    );
 }

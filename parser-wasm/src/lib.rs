@@ -54,6 +54,17 @@ pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-sem
 /// Every loaded component must opt in. Absence/future versions mean Unknown.
 pub const CAPABILITY_COMPLETION_CATALOG_PATTERNS: &str = "parser.completion-catalog-patterns";
 
+/// Opt-in v1 closure of the child positions belonging to an editing proposal.
+/// A proposal names its own definition, not another leaf which happens to consume
+/// identical source. Nested proposal nodes in registered expressions can occur
+/// only in native typed captures or declared capture_parsers. Other expression
+/// leaves consume their whole range; Custom/additional-parse hooks must not add
+/// undeclared proposal child positions. Native intrinsic/group/list/arithmetic
+/// and interpolation paths still require independent evidence. This is not a
+/// promise that a different whole-range interpretation rejects the source.
+/// Every component must opt in; provider failure/unknown versions revoke proof.
+pub const CAPABILITY_COMPLETION_CANDIDATE_BINDINGS: &str = "parser.completion-candidate-bindings";
+
 /// Opt-in v1 editing contract for changing only an authenticated static scalar
 /// local Variable identity within a fixed native registration/pattern/capture.
 /// Its read syntax context, leaf type/shape and parent evaluation prefix up to

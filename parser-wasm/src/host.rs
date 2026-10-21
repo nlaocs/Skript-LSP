@@ -8976,6 +8976,69 @@ impl ParserHost {
                 .is_some_and(|registry| matches!(registry.initial_affects_kinds(&kinds), Ok(false)))
     }
 
+    /// Whether Catalog captures exhaust nested positions of a proposed node.
+    /// Separate from acceptance of the same source by a different opaque leaf.
+    pub fn completion_candidate_bindings_are_closed(&self) -> bool {
+        self.completion_catalog_patterns_are_closed()
+            && self.components.iter().all(|entry| {
+                component_promises(
+                    &entry.manifest.capabilities,
+                    crate::CAPABILITY_COMPLETION_CANDIDATE_BINDINGS,
+                )
+            })
+    }
+
+    /// Conservative union of declared capture routes for this registration.
+    /// Pattern/tag restrictions are ignored so an unobserved branch cannot hide
+    /// a child position. Conflicting routes and unknown providers remain unknown.
+    pub fn completion_expression_capture_bindings(
+        &self,
+        definition: &str,
+        registration: &str,
+    ) -> Option<Vec<RegisteredCaptureBinding>> {
+        if !self.completion_candidate_bindings_are_closed() {
+            return None;
+        }
+        let mut bindings = BTreeMap::new();
+        for component in self.components.iter().filter(|c| !c.unloaded) {
+            for handler in &component.manifest.registered_syntax_handlers {
+                if handler.phase == HookPhase::DefaultExpression
+                    || catalog_syntax_kind(handler.kind) != CatalogSyntaxKind::Expression
+                    || !registered_handler_target_matches(
+                        component,
+                        handler,
+                        definition,
+                        registration,
+                        None,
+                    )
+                {
+                    continue;
+                }
+                for binding in &handler.capture_parsers {
+                    let capture_index = usize::try_from(binding.capture_index).ok()?;
+                    let route = RegisteredCaptureBinding {
+                        capture_index,
+                        parser_id: binding.parser_id.clone(),
+                        required: binding.required,
+                        options: binding
+                            .options
+                            .iter()
+                            .map(|m| (m.key.clone(), m.value.clone()))
+                            .collect(),
+                    };
+                    if bindings
+                        .get(&capture_index)
+                        .is_some_and(|old| old != &route)
+                    {
+                        return None;
+                    }
+                    bindings.insert(capture_index, route);
+                }
+            }
+        }
+        Some(bindings.into_values().collect())
+    }
+
     /// Whether exact scalar replacement within a proven fixed native parent
     /// preserves its incoming operand facts. Separate from grammar
     /// completeness, project stability, and runtime getter preservation.
@@ -12756,6 +12819,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
         crate::CAPABILITY_COMPLETION_CATALOG_PATTERNS,
+        crate::CAPABILITY_COMPLETION_CANDIDATE_BINDINGS,
         crate::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION,
         CAPABILITY_CONDITION_PARSER,
         CAPABILITY_EFFECT_PARSER,

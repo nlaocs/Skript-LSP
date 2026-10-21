@@ -318,7 +318,8 @@ pub(crate) fn capture_context(
     Ok(changed.then_some(next))
 }
 
-pub(crate) fn capture_expression_expected_types(
+/// The native typed Expression requirements declared by a capture parser.
+pub fn capture_expression_expected_types(
     binding: &RegisteredCaptureBinding,
 ) -> Result<Vec<ExpressionExpectedType>, String> {
     let Some(value) = binding.options.get(CAPTURE_EXPRESSION_EXPECTED_TYPES) else {
@@ -364,7 +365,8 @@ pub(crate) fn capture_expression_time_state(
     }
 }
 
-pub(crate) fn capture_expression_flags(
+/// The native literal/expression modes declared by a capture parser.
+pub fn capture_expression_flags(
     binding: &RegisteredCaptureBinding,
 ) -> Result<(bool, bool), String> {
     match binding

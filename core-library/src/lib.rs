@@ -169,6 +169,11 @@ impl addon::Guest for CoreLibrary {
                     required: false,
                 },
                 CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_COMPLETION_CANDIDATE_BINDINGS.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
+                CapabilityRequirement {
                     id: parser_wasm::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION.to_owned(),
                     minimum_version: 1,
                     required: false,
