@@ -236,7 +236,7 @@ pub fn parse_section_with_snapshot<E: ExpressionParseEnvironment>(
         request.context,
         expression,
     );
-    parse_section_with_session(
+    let parsed = parse_section_with_session(
         &mut session,
         request.tree,
         request.node,
@@ -244,7 +244,11 @@ pub fn parse_section_with_snapshot<E: ExpressionParseEnvironment>(
         &[],
         None,
         root_lifecycle,
-    )
+    );
+    if parsed.is_err() {
+        session.invalidate_editing_preparations();
+    }
+    parsed
 }
 
 fn validate_section_node(
@@ -287,7 +291,9 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     let initial_context = session.context().clone();
     let raw_children = raw_child_summaries(session, tree, node)?;
     let mut diagnostics = Vec::new();
-    for matched in ranked {
+    let candidate_count = ranked.len();
+    for (candidate_index, matched) in ranked.into_iter().enumerate() {
+        let unique_preparation = candidate_index + 1 == candidate_count;
         session.check_cancelled()?;
         session.replace_context(initial_context.clone());
         let local = matched.matched.span.local_range;
@@ -300,6 +306,10 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             failure = crate::choose_failure_trace(failure, Some(restricted));
             continue;
         }
+        let preparation_attempt = session.next_editing_attempt()?;
+        let preparation_registration = matched.registration_id.clone();
+        let preparation_pattern = matched.pattern_index;
+        let mut prepared = false;
         session
             .begin_semantic_candidate()
             .map_err(|message| session.environment_error(message))?;
@@ -356,7 +366,21 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             ));
             candidate.body_context = child_context.clone();
             let saved_context = session.replace_context(child_context);
-            let body = parse_section_body(session, tree, node, body_mode, depth + 1);
+            if unique_preparation {
+                session.publish_section_preparation(tree, &candidate, preparation_attempt);
+                prepared = true;
+            }
+            let body = session.with_prepared_owner(preparation_attempt, |session| {
+                if unique_preparation {
+                    parse_section_body(session, tree, node, body_mode, depth + 1)
+                } else {
+                    // Later candidates may declare different body semantics. Neither
+                    // this attempt nor a descendant can certify an editing layout yet.
+                    session.without_editing_preparation(|session| {
+                        parse_section_body(session, tree, node, body_mode, depth + 1)
+                    })
+                }
+            });
             let child_context = session.replace_context(saved_context);
             let (body, child_diagnostics) = body?;
             candidate.body = body;
@@ -402,9 +426,16 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         let accepted = attempt
             .as_ref()
             .is_ok_and(|attempt| matches!(attempt, Some(Ok((_candidate, _diagnostics)))));
-        session
-            .finish_semantic_candidate(accepted)
-            .map_err(|message| session.environment_error(message))?;
+        let finished = session.finish_semantic_candidate(accepted);
+        if prepared && (!accepted || finished.is_err()) {
+            session.publish_preparation(crate::StructurePreparationEvent::Invalidated {
+                attempt_id: preparation_attempt,
+                raw_node_id: node.id,
+                registration_id: &preparation_registration,
+                pattern_index: preparation_pattern,
+            });
+        }
+        finished.map_err(|message| session.environment_error(message))?;
         match attempt? {
             Some(Ok((candidate, child_diagnostics))) => {
                 diagnostics.extend(child_diagnostics);
@@ -423,8 +454,11 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     }
 
     session.replace_context(initial_context);
-    let (body, child_diagnostics) =
-        parse_section_body(session, tree, node, SectionBodyMode::Trigger, depth + 1)?;
+    // Unknown parents are editor recovery only. A child accepted while walking
+    // this fallback must not certify a body through an unconfirmed ancestor.
+    let (body, child_diagnostics) = session.without_editing_preparation(|session| {
+        parse_section_body(session, tree, node, SectionBodyMode::Trigger, depth + 1)
+    })?;
     diagnostics.push(section_diagnostic(
         session,
         node,

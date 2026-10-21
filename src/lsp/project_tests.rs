@@ -179,7 +179,7 @@ fn actual_unopened_function_is_parsed_imported_and_jump_targets_current_source()
     let (mut host, catalog) = host();
     let mut index = ProjectIndex::new();
     let current = snapshot.open[0].uri.clone();
-    let mut preparations = 0;
+    let mut preparations = Vec::new();
     let analyzed = index
         .analyze(
             &mut host,
@@ -188,13 +188,39 @@ fn actual_unopened_function_is_parsed_imported_and_jump_targets_current_source()
             &snapshot,
             &current,
             Default::default(),
-            &mut |_| preparations += 1,
+            &mut |event| {
+                if matches!(
+                    &event.stage,
+                    PreparationStage::Native(StructurePreparationEvent::Headers { .. })
+                ) {
+                    preparations.push((
+                        event.source.uri,
+                        event.source.generation,
+                        event.source.source_epoch,
+                        event.native_revision,
+                    ));
+                }
+            },
         )
         .unwrap();
     assert_eq!(analyzed.scanned_documents, 2);
-    assert_eq!(
-        preparations, 0,
-        "the retained stable current result needs no provisional reparse"
+    assert!(
+        preparations
+            .iter()
+            .any(|(uri, generation, source_epoch, _)| uri == &current
+                && *generation == 1
+                && *source_epoch == 1),
+        "a retained result must still have published its own source preparation during discovery"
+    );
+    assert!(
+        preparations
+            .iter()
+            .any(
+                |(uri, generation, source_epoch, _)| uri == &path_uri(&definition).unwrap()
+                    && *generation == 0
+                    && *source_epoch == 0
+            ),
+        "closed dependency events retain their own source identity rather than borrowing the current document"
     );
     let call = analyzed
         .result
@@ -1254,6 +1280,8 @@ fn producer_cancellation_and_final_membership_failure_discard_staged_side_result
         let config = DocumentParserConfig::default();
         let cancellation = config.cancellation.clone();
         let mut observed = false;
+        let mut side_prepared = false;
+        let mut aborted = Vec::new();
         let result = index.analyze(
             &mut host,
             Arc::clone(&catalog),
@@ -1262,7 +1290,23 @@ fn producer_cancellation_and_final_membership_failure_discard_staged_side_result
             &snapshot.open[1].uri,
             config,
             &mut |event| {
-                if matches!(event, StructurePreparationEvent::Headers { .. }) && !observed {
+                if matches!(&event.stage, PreparationStage::Aborted) {
+                    aborted.push(event.source.uri.clone());
+                }
+                if matches!(
+                    &event.stage,
+                    PreparationStage::Native(StructurePreparationEvent::Headers { .. })
+                ) && event.source.uri == snapshot.open[0].uri
+                {
+                    side_prepared = true;
+                }
+                if matches!(
+                    &event.stage,
+                    PreparationStage::Native(StructurePreparationEvent::Headers { .. })
+                ) && event.source.uri == snapshot.open[1].uri
+                    && side_prepared
+                    && !observed
+                {
                     observed = true;
                     if cancel {
                         cancellation.cancel();
@@ -1285,8 +1329,86 @@ fn producer_cancellation_and_final_membership_failure_discard_staged_side_result
             assert!(!local.current_semantic.project_complete);
         }
         assert!(
+            aborted.contains(&snapshot.open[0].uri),
+            "the side document's provisional information must be withdrawn with its failed producer"
+        );
+        assert!(
             index.handoff.is_none(),
             "no staged data may escape a cancelled or incomplete producer"
         );
     }
+}
+
+#[test]
+fn each_project_source_has_its_own_started_native_attempt_during_convergence() {
+    let (_root, snapshot) = function_handoff_fixture();
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    let mut active = BTreeMap::<String, u64>::new();
+    let mut starts = BTreeMap::<String, Vec<u64>>::new();
+    let mut headers = BTreeMap::<String, Vec<u64>>::new();
+    let result = index
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &snapshot,
+            &snapshot.open[1].uri,
+            Default::default(),
+            &mut |event| {
+                let source = snapshot
+                    .open
+                    .iter()
+                    .find(|source| source.uri == event.source.uri)
+                    .expect("only the two in-memory project sources participate");
+                assert_eq!(event.source.generation, source.generation);
+                assert_eq!(event.source.source_epoch, source.source_epoch);
+                assert_eq!(event.source.source, source.source);
+                let key = source.uri.as_str().to_owned();
+                match event.stage {
+                    PreparationStage::Started => {
+                        if let Some(previous) = active.insert(key.clone(), event.native_revision) {
+                            assert!(
+                                event.native_revision > previous,
+                                "each retry has a fresh native attempt"
+                            );
+                        }
+                        starts.entry(key).or_default().push(event.native_revision);
+                    }
+                    PreparationStage::Native(native) => {
+                        assert_eq!(
+                            active.get(&key),
+                            Some(&event.native_revision),
+                            "native information cannot escape its source's Started fence"
+                        );
+                        if let StructurePreparationEvent::Headers { source: mapped, .. } = native {
+                            assert_eq!(mapped.original(), event.source.source.as_ref());
+                            headers.entry(key).or_default().push(event.native_revision);
+                        }
+                    }
+                    PreparationStage::Aborted => {
+                        assert_eq!(active.remove(&key), Some(event.native_revision));
+                    }
+                }
+            },
+        )
+        .unwrap();
+    assert!(result.parsed_documents >= 2);
+    for source in &snapshot.open {
+        let key = source.uri.as_str();
+        assert!(!starts[key].is_empty());
+        assert!(
+            !headers[key].is_empty(),
+            "side-document headers reach the completion observer"
+        );
+        assert!(
+            headers[key]
+                .iter()
+                .all(|revision| starts[key].contains(revision))
+        );
+    }
+    assert!(
+        starts.values().any(|attempts| attempts.len() > 1),
+        "the fixture must exercise a convergence retry"
+    );
 }

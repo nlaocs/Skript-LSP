@@ -1774,3 +1774,565 @@ fn later_structure_fault_does_not_revive_an_entry_rejection() {
             .is_none()
     );
 }
+
+mod editing_preparation {
+    use super::*;
+    use skript_parser::{
+        RawNodeId, SectionBodyMode, SectionChildrenDecision, SectionChildrenRequest,
+        SectionExitDecision, StructureBodyMode, StructureHookDecision, StructurePreparationEvent,
+    };
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum Notice {
+        Root(u64, RawNodeId, bool),
+        Section {
+            attempt: u64,
+            parent: Option<u64>,
+            node: RawNodeId,
+            registration: String,
+            mode: SectionBodyMode,
+        },
+        Invalidated(u64),
+        Effect,
+        Condition,
+    }
+
+    #[derive(Default)]
+    struct Environment {
+        notices: Vec<Notice>,
+        conditions: bool,
+        reject_root: bool,
+        reject_outer_section: bool,
+        cancel_after_section: bool,
+        cancelled: bool,
+        fail_finish_after_section: bool,
+        finish_error_pending: bool,
+        mixed_section_modes: bool,
+        first_section_conditions: bool,
+        reject_first_section: bool,
+        entered_modes: Vec<(String, SectionBodyMode)>,
+    }
+
+    impl PatternMatchEnvironment for Environment {
+        fn resolve_type(
+            &mut self,
+            _: TypeExpressionRequest<'_>,
+        ) -> Result<TypeExpressionOutcome, String> {
+            Ok(TypeExpressionOutcome::default())
+        }
+        fn dispatch_hook(&mut self, _: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+            Ok(PatternHookControl::Continue)
+        }
+        fn cancellation_requested(&mut self) -> bool {
+            self.cancelled
+        }
+    }
+
+    impl ExpressionParseEnvironment for Environment {
+        fn state_revision(&self) -> Result<u64, String> {
+            Ok(0)
+        }
+        fn parse_expression_leaf(
+            &mut self,
+            _: ExpressionLeafRequest<'_>,
+        ) -> Result<ExpressionLeafParse, String> {
+            Ok(ExpressionLeafParse::default())
+        }
+        fn enter_structure(
+            &mut self,
+            request: StructureHookRequest<'_>,
+        ) -> Result<StructureHookDecision, String> {
+            Ok(StructureHookDecision::Accept {
+                context: request.context.clone(),
+                body_mode: StructureBodyMode::Trigger,
+                entry_body_modes: BTreeMap::new(),
+                metadata: request.candidate.metadata.clone(),
+            })
+        }
+        fn exit_structure(
+            &mut self,
+            request: StructureHookRequest<'_>,
+        ) -> Result<StructureExitDecision, String> {
+            if self.reject_root && request.candidate.matched.registration_id == "registration:first"
+            {
+                return Ok(StructureExitDecision::Reject {
+                    reason: "retry root".into(),
+                    diagnostics: Vec::new(),
+                });
+            }
+            Ok(StructureExitDecision::Accept)
+        }
+        fn enter_section_children(
+            &mut self,
+            request: SectionChildrenRequest<'_>,
+        ) -> Result<SectionChildrenDecision, String> {
+            let conditions =
+                if self.mixed_section_modes && request.registration_id.starts_with("gate:") {
+                    (request.registration_id == "gate:first") == self.first_section_conditions
+                } else {
+                    self.conditions
+                };
+            let body_mode = if conditions {
+                SectionBodyMode::Conditions
+            } else {
+                SectionBodyMode::Trigger
+            };
+            self.entered_modes
+                .push((request.registration_id.to_owned(), body_mode));
+            Ok(SectionChildrenDecision::Accept {
+                context: request.context.clone(),
+                body_mode,
+                metadata: request.metadata.clone(),
+            })
+        }
+        fn exit_section_children(
+            &mut self,
+            request: SectionChildrenRequest<'_>,
+        ) -> Result<SectionExitDecision, String> {
+            if (self.reject_outer_section && request.context.section_stack.len() == 1)
+                || (self.reject_first_section && request.registration_id == "gate:first")
+            {
+                return Ok(SectionExitDecision::Reject {
+                    reason: "reject outer section".into(),
+                    diagnostics: Vec::new(),
+                });
+            }
+            Ok(SectionExitDecision::Accept {
+                context: request.context.clone(),
+                metadata: request.metadata.clone(),
+            })
+        }
+        fn finish_semantic_candidate(&mut self, _: bool) -> Result<(), String> {
+            if std::mem::take(&mut self.finish_error_pending) {
+                return Err("injected semantic finish failure".into());
+            }
+            Ok(())
+        }
+        fn resolve_effect_candidate(
+            &mut self,
+            _: skript_parser::EffectSemanticRequest<'_>,
+        ) -> Result<skript_parser::EffectSemanticDecision, String> {
+            self.notices.push(Notice::Effect);
+            Ok(skript_parser::EffectSemanticDecision::UseCandidate)
+        }
+        fn resolve_condition_candidate(
+            &mut self,
+            _: skript_parser::ConditionSemanticRequest<'_>,
+        ) -> Result<skript_parser::ConditionSemanticDecision, String> {
+            self.notices.push(Notice::Condition);
+            Ok(skript_parser::ConditionSemanticDecision::UseCandidate)
+        }
+        fn structure_preparation(&mut self, event: StructurePreparationEvent<'_>) {
+            match event {
+                StructurePreparationEvent::Headers { headers, .. } => {
+                    self.notices.extend(headers.into_iter().map(|header| {
+                        Notice::Root(
+                            header.attempt_id,
+                            header.candidate.raw_node_id,
+                            header.ambiguous,
+                        )
+                    }));
+                }
+                StructurePreparationEvent::StructureHeader { header, .. } => {
+                    self.notices.push(Notice::Root(
+                        header.attempt_id,
+                        header.candidate.raw_node_id,
+                        header.ambiguous,
+                    ));
+                }
+                StructurePreparationEvent::SectionHeader {
+                    source,
+                    tree,
+                    candidate,
+                    attempt_id,
+                    parent_attempt_id,
+                } => {
+                    assert!(candidate.body.is_empty(), "body must still be pending");
+                    let raw = tree.get(candidate.raw_node_id).unwrap();
+                    assert_eq!(
+                        raw.line.raw_text,
+                        raw.line
+                            .span
+                            .virtual_range
+                            .slice(source.virtual_source())
+                            .unwrap()
+                            .trim_end_matches('\n')
+                            .trim_end_matches('\r')
+                    );
+                    assert_eq!(
+                        candidate
+                            .body_context
+                            .section_stack
+                            .last()
+                            .unwrap()
+                            .raw_node_id,
+                        candidate.raw_node_id
+                    );
+                    self.notices.push(Notice::Section {
+                        attempt: attempt_id,
+                        parent: parent_attempt_id,
+                        node: candidate.raw_node_id,
+                        registration: candidate.matched.registration_id.clone(),
+                        mode: candidate.body_mode,
+                    });
+                    if self.cancel_after_section {
+                        self.cancelled = true;
+                    }
+                    if self.fail_finish_after_section {
+                        self.finish_error_pending = true;
+                    }
+                }
+                StructurePreparationEvent::Invalidated { attempt_id, .. } => {
+                    self.notices.push(Notice::Invalidated(attempt_id))
+                }
+            }
+        }
+    }
+
+    fn syntaxes() -> Vec<Syntax> {
+        vec![
+            structure(0, "root", NodeType::Section, None),
+            Syntax::Section(syntaxes::Section {
+                common: common_structure(1, "gate", "gate", "gate"),
+                loop_section: false,
+                effect_section: false,
+            }),
+            Syntax::Effect(syntaxes::Effect {
+                common: common_structure(2, "effect", "effect", "effect"),
+            }),
+            Syntax::Condition(syntaxes::Condition {
+                common: common_structure(3, "condition", "condition", "condition"),
+            }),
+        ]
+    }
+
+    fn run(
+        catalog: &Catalog,
+        input: &str,
+        environment: &mut Environment,
+    ) -> Result<StructureDocument, skript_parser::StructureParseError> {
+        let source = MappedSource::identity(input);
+        let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+        parse_structures(
+            catalog,
+            StructureParseRequest {
+                source: &source,
+                tree: &tree,
+                context: ExpressionParseContext::default(),
+            },
+            environment,
+            StructureParserConfig::default(),
+        )
+    }
+
+    #[test]
+    fn nested_preparation_uses_accepted_body_semantics_before_parsing_children() {
+        for conditions in [false, true] {
+            let mut environment = Environment {
+                conditions,
+                ..Default::default()
+            };
+            let child = if conditions { "condition" } else { "effect" };
+            run(
+                &catalog(syntaxes()),
+                &format!("# 日本語🙂\r\nroot:\r\n    gate:\r\n        {child}\r\n"),
+                &mut environment,
+            )
+            .unwrap();
+            let Notice::Root(root_attempt, _, false) = environment.notices[0] else {
+                panic!("unique root owner")
+            };
+            let Notice::Section {
+                attempt,
+                parent: Some(parent),
+                mode,
+                ..
+            } = environment.notices[1]
+            else {
+                panic!("section must precede body hooks")
+            };
+            assert_eq!(parent, root_attempt);
+            assert_ne!(attempt, root_attempt);
+            assert_eq!(
+                mode,
+                if conditions {
+                    SectionBodyMode::Conditions
+                } else {
+                    SectionBodyMode::Trigger
+                }
+            );
+            assert_eq!(
+                environment.notices[2],
+                if conditions {
+                    Notice::Condition
+                } else {
+                    Notice::Effect
+                }
+            );
+            assert!(
+                !environment
+                    .notices
+                    .iter()
+                    .any(|notice| matches!(notice, Notice::Invalidated(_)))
+            );
+        }
+    }
+
+    #[test]
+    fn parent_rejection_and_same_pattern_retry_keep_distinct_attempts() {
+        let mut syntaxes = syntaxes();
+        let mut roots = alternative_structure_catalog().syntaxes().to_vec();
+        syntaxes.remove(0);
+        roots.extend(syntaxes);
+        let mut environment = Environment {
+            reject_root: true,
+            ..Default::default()
+        };
+        run(
+            &catalog(roots),
+            "lifecycle structure:\n    gate:\n        effect\n",
+            &mut environment,
+        )
+        .unwrap();
+        let sections = environment
+            .notices
+            .iter()
+            .filter_map(|notice| match notice {
+                Notice::Section {
+                    attempt,
+                    parent,
+                    node,
+                    registration,
+                    ..
+                } => Some((*attempt, *parent, *node, registration)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].2, sections[1].2);
+        assert_eq!(sections[0].3, sections[1].3);
+        assert_ne!(sections[0].0, sections[1].0);
+        assert_ne!(sections[0].1, sections[1].1);
+        assert!(
+            environment
+                .notices
+                .contains(&Notice::Invalidated(sections[0].1.unwrap()))
+        );
+        let roots = environment
+            .notices
+            .iter()
+            .filter_map(|notice| match notice {
+                Notice::Root(attempt, _, ambiguous) => Some((*attempt, *ambiguous)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(roots.len(), 2);
+        assert!(roots[0].1, "initial competing roots must remain ambiguous");
+        assert!(
+            !roots[1].1,
+            "after rejection the final root attempt is unique"
+        );
+    }
+
+    #[test]
+    fn rejected_parent_revokes_the_attempt_linking_accepted_descendants() {
+        let mut environment = Environment {
+            reject_outer_section: true,
+            ..Default::default()
+        };
+        run(
+            &catalog(syntaxes()),
+            "root:\n    gate:\n        gate:\n            effect\n",
+            &mut environment,
+        )
+        .unwrap();
+        let sections = environment
+            .notices
+            .iter()
+            .filter_map(|notice| match notice {
+                Notice::Section {
+                    attempt, parent, ..
+                } => Some((*attempt, *parent)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sections.len(),
+            2,
+            "fallback recovery must not republish descendants"
+        );
+        assert_eq!(sections[1].1, Some(sections[0].0));
+        assert!(
+            environment
+                .notices
+                .contains(&Notice::Invalidated(sections[0].0))
+        );
+    }
+
+    #[test]
+    fn unknown_parent_recovery_cannot_certify_an_accepted_descendant() {
+        let mut environment = Environment::default();
+        run(
+            &catalog(syntaxes()),
+            "root:\n    unknown parent:\n        gate:\n            effect\n",
+            &mut environment,
+        )
+        .unwrap();
+        assert!(
+            !environment
+                .notices
+                .iter()
+                .any(|notice| matches!(notice, Notice::Section { .. }))
+        );
+        assert!(
+            environment.notices.contains(&Notice::Effect),
+            "editor recovery still parses child effects"
+        );
+    }
+
+    #[test]
+    fn cancellation_and_semantic_finish_failure_revoke_all_published_owners() {
+        for cancel in [false, true] {
+            let mut environment = Environment {
+                cancel_after_section: cancel,
+                fail_finish_after_section: !cancel,
+                ..Default::default()
+            };
+            let input = if cancel {
+                "root:\n    gate:\n        effect\n"
+            } else {
+                "root:\n    gate:\n"
+            };
+            let result = run(&catalog(syntaxes()), input, &mut environment);
+            assert!(result.is_err(), "{result:?}");
+            let published = environment
+                .notices
+                .iter()
+                .filter_map(|notice| match notice {
+                    Notice::Root(id, ..) | Notice::Section { attempt: id, .. } => Some(*id),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(published.len(), 2);
+            for attempt in published {
+                assert!(
+                    environment.notices.contains(&Notice::Invalidated(attempt)),
+                    "orphaned attempt {attempt}: {:?}",
+                    environment.notices
+                );
+            }
+        }
+    }
+
+    fn competing_section_catalog() -> Catalog {
+        let mut syntaxes = syntaxes();
+        let Syntax::Section(first) = &mut syntaxes[1] else {
+            unreachable!()
+        };
+        first.common.registration_id = RegistrationId("gate:first".into());
+        first.common.definition_id = DefinitionId("gate:first".into());
+        let mut fallback = first.clone();
+        fallback.common.registration_id = RegistrationId("gate:last".into());
+        fallback.common.definition_id = DefinitionId("gate:last".into());
+        fallback.common.registration_order = 4;
+        syntaxes.push(Syntax::Section(fallback));
+        syntaxes.push(Syntax::Section(syntaxes::Section {
+            common: common_structure(5, "leaf", "leaf", "leaf"),
+            loop_section: false,
+            effect_section: false,
+        }));
+        catalog(syntaxes)
+    }
+
+    #[test]
+    fn competing_section_body_modes_do_not_certify_a_parent_or_its_descendants() {
+        let mut environment = Environment {
+            mixed_section_modes: true,
+            ..Default::default()
+        };
+        let result = run(
+            &competing_section_catalog(),
+            "root:\n    gate:\n        leaf:\n            effect\n",
+            &mut environment,
+        )
+        .unwrap();
+        assert!(selected(&result).body != StructureBody::None);
+        assert!(
+            environment
+                .entered_modes
+                .contains(&("gate:first".into(), SectionBodyMode::Trigger))
+        );
+        assert!(
+            environment
+                .entered_modes
+                .contains(&("leaf".into(), SectionBodyMode::Trigger)),
+            "child semantics still run normally"
+        );
+        assert!(
+            !environment
+                .notices
+                .iter()
+                .any(|notice| matches!(notice, Notice::Section { .. })),
+            "ambiguous parent must block its descendants too: {:?}",
+            environment.notices
+        );
+        assert!(environment.notices.contains(&Notice::Effect));
+    }
+
+    #[test]
+    fn unique_section_retry_publishes_its_actual_body_mode_and_descendant_chain() {
+        let mut environment = Environment {
+            mixed_section_modes: true,
+            first_section_conditions: true,
+            reject_first_section: true,
+            ..Default::default()
+        };
+        run(
+            &competing_section_catalog(),
+            "root:\n    gate:\n        leaf:\n            effect\n",
+            &mut environment,
+        )
+        .unwrap();
+        assert_eq!(
+            environment.entered_modes[0],
+            ("gate:first".into(), SectionBodyMode::Conditions)
+        );
+        assert_eq!(
+            environment.entered_modes[1],
+            ("gate:last".into(), SectionBodyMode::Trigger)
+        );
+        let sections = environment
+            .notices
+            .iter()
+            .filter_map(|notice| match notice {
+                Notice::Section {
+                    attempt,
+                    parent,
+                    registration,
+                    mode,
+                    ..
+                } => Some((*attempt, *parent, registration.as_str(), *mode)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sections.len(),
+            2,
+            "only the unique accepted retry and its child are public"
+        );
+        assert_eq!(
+            (sections[0].2, sections[0].3),
+            ("gate:last", SectionBodyMode::Trigger)
+        );
+        assert_eq!(sections[1].2, "leaf");
+        assert_eq!(sections[1].1, Some(sections[0].0));
+        let Notice::Root(root_attempt, _, false) = environment.notices[0] else {
+            panic!("unique root")
+        };
+        assert_eq!(sections[0].1, Some(root_attempt));
+        assert!(
+            sections[0].0 > root_attempt + 1,
+            "the unpublished failed attempt still consumes its distinct ID"
+        );
+    }
+}

@@ -46,9 +46,16 @@ pub enum StructureBodyMode {
     Trigger,
 }
 
+/// Monotonic editing-owner identity within one native Structure parse run.
+///
+/// A caller must also retain its document revision and parse-run identity.
+pub type PreparationAttemptId = u64;
+
 /// One current-source header attempt, before body validation and final adoption.
 #[derive(Debug)]
 pub struct StructureHeaderPreparation<'a> {
+    /// Unique identity of this header attempt, including retries of the same pattern.
+    pub attempt_id: PreparationAttemptId,
     /// Header accepted by the current ordered semantic hooks.
     pub candidate: &'a StructureCandidate,
     /// Body parser declared by those hooks, not a completed body result.
@@ -69,8 +76,32 @@ pub enum StructurePreparationEvent<'a> {
         /// Provisional owners, without types, variable history, or final adoption.
         headers: Vec<StructureHeaderPreparation<'a>>,
     },
-    /// A previously prepared attempt was rejected or faulted; discard its proposals.
+    /// A later Structure enter hook accepted a new attempt after an earlier rejection.
+    StructureHeader {
+        /// Current mapped source and original-source identity.
+        source: &'a MappedSource,
+        /// The same current indentation tree used by the active parser.
+        tree: &'a RawTree,
+        /// Provisional owner after its enter hook, before body validation.
+        header: StructureHeaderPreparation<'a>,
+    },
+    /// A Section enter hook accepted this exact candidate and its body semantics.
+    SectionHeader {
+        /// Current mapped source and original-source identity.
+        source: &'a MappedSource,
+        /// The same current indentation tree used by the active parser.
+        tree: &'a RawTree,
+        /// Header, semantic body mode, and context before any child is parsed.
+        candidate: &'a crate::SectionCandidate,
+        /// Fresh attempt, even when node, registration, and pattern are unchanged.
+        attempt_id: PreparationAttemptId,
+        /// Exact active parent attempt; an uncertified parent cannot be bypassed.
+        parent_attempt_id: Option<PreparationAttemptId>,
+    },
+    /// A prepared Structure or Section attempt failed; revoke its descendants too.
     Invalidated {
+        /// Exact attempt being revoked, not merely its source location.
+        attempt_id: PreparationAttemptId,
         /// Root containing the affected layout.
         raw_node_id: RawNodeId,
         /// Exact registration of the rejected attempt.
@@ -321,6 +352,7 @@ struct PendingStructure {
     parent_context: ExpressionParseContext,
     context: ExpressionParseContext,
     body_mode: StructureBodyMode,
+    preparation_attempt: PreparationAttemptId,
 }
 
 struct ParsedStructureBody {
@@ -373,14 +405,28 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         request.context,
         expression,
     );
-    let mut roots = Vec::with_capacity(request.tree.roots.len());
+    let parsed =
+        parse_structures_with_session(&mut session, request.source, request.tree, headers_only);
+    if parsed.is_err() {
+        session.invalidate_editing_preparations();
+    }
+    parsed
+}
+
+fn parse_structures_with_session<E: ExpressionParseEnvironment>(
+    mut session: &mut ExpressionSession<'_, E>,
+    source: &MappedSource,
+    tree: &RawTree,
+    headers_only: bool,
+) -> Result<StructureDocument, StructureParseError> {
+    let mut roots = Vec::with_capacity(tree.roots.len());
     let mut diagnostics = Vec::new();
     let mut pending = Vec::new();
 
     // Skript initializes every top-level Structure before loading any body.
-    for node_id in &request.tree.roots {
+    for node_id in &tree.roots {
         session.check_cancelled()?;
-        let Some(node) = request.tree.get(*node_id) else {
+        let Some(node) = tree.get(*node_id) else {
             continue;
         };
         match node.kind {
@@ -392,7 +438,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 let checkpoint = session
                     .begin_recovery_scope()
                     .map_err(|message| session.environment_error(message))?;
-                let header = parse_structure_header(&mut session, request.tree, node);
+                let header = parse_structure_header(&mut session, tree, node);
                 session
                     .finish_recovery_scope(checkpoint, header.is_ok())
                     .map_err(|message| session.environment_error(message))?;
@@ -441,6 +487,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                         parent_context,
                         context,
                         body_mode,
+                        preparation_attempt: session.next_editing_attempt()?,
                     });
                 }
             }
@@ -463,19 +510,18 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 return None;
             };
             Some(StructureHeaderPreparation {
+                attempt_id: item.preparation_attempt,
                 candidate: matches.selected.as_ref()?,
                 body_mode: item.body_mode,
                 ambiguous: !matches.alternatives.is_empty(),
             })
         })
         .collect();
-    session
-        .environment_mut()
-        .structure_preparation(StructurePreparationEvent::Headers {
-            source: request.source,
-            tree: request.tree,
-            headers: prepared_headers,
-        });
+    session.publish_preparation(StructurePreparationEvent::Headers {
+        source,
+        tree,
+        headers: prepared_headers,
+    });
 
     if headers_only {
         return Ok(StructureDocument { roots, diagnostics });
@@ -486,7 +532,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         let Some(StructureDocumentNode::Structure(matches)) = roots.get_mut(item.root_index) else {
             continue;
         };
-        let Some(node) = request.tree.get(item.node_id) else {
+        let Some(node) = tree.get(item.node_id) else {
             continue;
         };
         let Some(selected) = matches.selected.take() else {
@@ -506,6 +552,12 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         while !candidates.is_empty() {
             session.check_cancelled()?;
             let (mut candidate, initialized) = candidates.remove(0);
+            let retry = initialized.is_none();
+            let preparation_attempt = if retry {
+                session.next_editing_attempt()?
+            } else {
+                item.preparation_attempt
+            };
             session.replace_context(document_context.clone());
             session
                 .begin_semantic_candidate()
@@ -520,7 +572,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                     let hook_context = session.context().clone();
                     let enter = StructureHookRequest {
                         input: session.source().virtual_source(),
-                        tree: request.tree,
+                        tree,
                         timing: StructureHookTiming::EnterBody,
                         candidate: &candidate,
                         context: &hook_context,
@@ -549,19 +601,34 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                         }
                     }
                 };
+                if retry {
+                    session.publish_preparation(StructurePreparationEvent::StructureHeader {
+                        source,
+                        tree,
+                        header: StructureHeaderPreparation {
+                            attempt_id: preparation_attempt,
+                            candidate: &candidate,
+                            body_mode,
+                            ambiguous: !candidates.is_empty(),
+                        },
+                    });
+                }
                 let validator = candidate.entry_validator.clone();
                 let saved_context = session.replace_context(context);
-                let parsed = parse_structure_body(
-                    &mut session,
-                    request.tree,
-                    node,
-                    body_mode,
-                    validator.as_ref(),
-                    &candidate.entry_body_modes,
-                    1,
-                )?;
-                candidate.body = parsed.body;
+                let parsed = session.with_prepared_owner(preparation_attempt, |session| {
+                    parse_structure_body(
+                        session,
+                        tree,
+                        node,
+                        body_mode,
+                        validator.as_ref(),
+                        &candidate.entry_body_modes,
+                        1,
+                    )
+                });
                 let child_context = session.replace_context(saved_context);
+                let parsed = parsed?;
+                candidate.body = parsed.body;
                 if !parsed.entries_valid {
                     candidate.entry_validation_failed = true;
                     return Ok((
@@ -572,7 +639,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
                 }
                 let exit = StructureHookRequest {
                     input: session.source().virtual_source(),
-                    tree: request.tree,
+                    tree,
                     timing: StructureHookTiming::ExitBody,
                     candidate: &candidate,
                     context: &child_context,
@@ -594,18 +661,16 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
             let accepted = attempt
                 .as_ref()
                 .is_ok_and(|(_, _, rejection)| rejection.is_none());
-            session
-                .finish_semantic_candidate(accepted)
-                .map_err(|message| session.environment_error(message))?;
-            if !accepted {
-                session.environment_mut().structure_preparation(
-                    StructurePreparationEvent::Invalidated {
-                        raw_node_id: provisional_candidate.raw_node_id,
-                        registration_id: &provisional_candidate.matched.registration_id,
-                        pattern_index: provisional_candidate.matched.pattern_index,
-                    },
-                );
+            let finished = session.finish_semantic_candidate(accepted);
+            if !accepted || finished.is_err() {
+                session.publish_preparation(StructurePreparationEvent::Invalidated {
+                    attempt_id: preparation_attempt,
+                    raw_node_id: provisional_candidate.raw_node_id,
+                    registration_id: &provisional_candidate.matched.registration_id,
+                    pattern_index: provisional_candidate.matched.pattern_index,
+                });
             }
+            finished.map_err(|message| session.environment_error(message))?;
             session.replace_context(document_context.clone());
             let (candidate, body_diagnostics, rejection) = match attempt {
                 Ok(value) => value,

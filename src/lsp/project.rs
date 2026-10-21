@@ -35,6 +35,55 @@ pub(super) struct ProjectSnapshot {
     pub root: PathBuf,
     pub open: Vec<ProjectSource>,
 }
+/// A native parse attempt belongs to its source, including side documents in a batch.
+pub(super) struct Preparation<'a> {
+    pub source: ProjectSource,
+    pub native_revision: u64,
+    pub stage: PreparationStage<'a>,
+}
+pub(super) enum PreparationStage<'a> {
+    Started,
+    Native(StructurePreparationEvent<'a>),
+    Aborted,
+}
+
+type PreparationObserver<'a> = dyn for<'p> FnMut(Preparation<'p>) + 'a;
+type PreparedAttempts = BTreeMap<String, (ProjectSource, u64)>;
+
+fn track_preparation(
+    event: Preparation<'_>,
+    attempts: &mut PreparedAttempts,
+    observer: &mut PreparationObserver<'_>,
+) {
+    match &event.stage {
+        PreparationStage::Started => {
+            attempts.insert(
+                event.source.uri.as_str().to_owned(),
+                (event.source.clone(), event.native_revision),
+            );
+        }
+        PreparationStage::Aborted => {
+            if attempts
+                .get(event.source.uri.as_str())
+                .is_some_and(|(_, revision)| *revision == event.native_revision)
+            {
+                attempts.remove(event.source.uri.as_str());
+            }
+        }
+        PreparationStage::Native(_) => {}
+    }
+    observer(event);
+}
+fn abort_preparation(attempts: &mut PreparedAttempts, observer: &mut PreparationObserver<'_>) {
+    for (_, (source, native_revision)) in std::mem::take(attempts) {
+        observer(Preparation {
+            source,
+            native_revision,
+            stage: PreparationStage::Aborted,
+        });
+    }
+}
+
 #[derive(Debug)]
 pub(super) enum ProjectError {
     Cancelled,
@@ -513,7 +562,7 @@ impl ProjectIndex {
         mut config: DocumentParserConfig,
         imported: Vec<ImportedFunction>,
         _epoch: u64,
-        observer: Option<&mut dyn for<'p> FnMut(StructurePreparationEvent<'p>)>,
+        observer: Option<&mut PreparationObserver<'_>>,
     ) -> Result<(DocumentParseResult, Cached, u64), ProjectError> {
         if config.cancellation.is_cancelled() {
             return Err(ProjectError::Cancelled);
@@ -531,10 +580,49 @@ impl ProjectIndex {
             revision,
             Arc::clone(&source.view.source),
         );
-        let result = match observer {
-            Some(observer) => host.parse_document_with_preparation(request, config, observer),
+        let mut observer = observer;
+        if let Some(observer) = observer.as_mut() {
+            observer(Preparation {
+                source: source.view.clone(),
+                native_revision: revision,
+                stage: PreparationStage::Started,
+            });
+        }
+        let parsed = match observer.as_mut() {
+            Some(observer) => host.parse_document_with_preparation(request, config, &mut |event| {
+                observer(Preparation {
+                    source: source.view.clone(),
+                    native_revision: revision,
+                    stage: PreparationStage::Native(event),
+                });
+            }),
             None => host.parse_document(request, config),
-        }?;
+        };
+        let result = match parsed {
+            Ok(result) => result,
+            Err(error) => {
+                if let Some(observer) = observer.as_mut() {
+                    observer(Preparation {
+                        source: source.view.clone(),
+                        native_revision: revision,
+                        stage: PreparationStage::Aborted,
+                    });
+                }
+                return Err(error.into());
+            }
+        };
+        if result.execution_status != parser_wasm::DocumentExecutionStatus::Complete
+            || !result.fault_regions.is_empty()
+            || !result.component_failures.is_empty()
+        {
+            if let Some(observer) = observer.as_mut() {
+                observer(Preparation {
+                    source: source.view.clone(),
+                    native_revision: revision,
+                    stage: PreparationStage::Aborted,
+                });
+            }
+        }
         let semantic = Arc::new(semantic::Document::from_result(
             &result,
             Arc::clone(&source.view.source),
@@ -585,29 +673,39 @@ impl ProjectIndex {
         snapshot: &ProjectSnapshot,
         current_uri: &Uri,
         config: DocumentParserConfig,
-        observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
+        observer: &mut PreparationObserver<'_>,
     ) -> Result<ProjectAnalysis, ProjectError> {
-        match self.analyze_complete(
+        let mut attempts = PreparedAttempts::new();
+        let result = self.analyze_complete(
             host,
             Arc::clone(&catalog),
             project_uri,
             snapshot,
             current_uri,
             config.clone(),
-            observer,
-        ) {
-            Err(ProjectError::Incomplete(reason)) => self.analyze_local(
-                host,
-                catalog,
-                project_uri,
-                snapshot,
-                current_uri,
-                config,
-                observer,
-                reason,
-            ),
+            &mut |event| track_preparation(event, &mut attempts, observer),
+        );
+        let result = match result {
+            Err(ProjectError::Incomplete(reason)) => {
+                // A failed discovery/final witness cannot lend proposals to the local fallback.
+                abort_preparation(&mut attempts, observer);
+                self.analyze_local(
+                    host,
+                    catalog,
+                    project_uri,
+                    snapshot,
+                    current_uri,
+                    config,
+                    &mut |event| track_preparation(event, &mut attempts, observer),
+                    reason,
+                )
+            }
             result => result,
+        };
+        if result.is_err() {
+            abort_preparation(&mut attempts, observer);
         }
+        result
     }
     fn analyze_complete(
         &mut self,
@@ -617,7 +715,7 @@ impl ProjectIndex {
         snapshot: &ProjectSnapshot,
         current_uri: &Uri,
         config: DocumentParserConfig,
-        observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
+        observer: &mut PreparationObserver<'_>,
     ) -> Result<ProjectAnalysis, ProjectError> {
         // Take before discovery so cancelled, failed and incomplete passes cannot
         // leave a result available for a later job. Host/index/catalog share the
@@ -767,7 +865,7 @@ impl ProjectIndex {
                     config.clone(),
                     imported,
                     snapshot.epoch,
-                    None,
+                    Some(observer),
                 )?;
                 let parsed = ParsedResult {
                     result,
@@ -907,7 +1005,7 @@ impl ProjectIndex {
         snapshot: &ProjectSnapshot,
         current_uri: &Uri,
         mut config: DocumentParserConfig,
-        observer: &mut dyn for<'p> FnMut(StructurePreparationEvent<'p>),
+        observer: &mut PreparationObserver<'_>,
         reason: String,
     ) -> Result<ProjectAnalysis, ProjectError> {
         if config.cancellation.is_cancelled() {

@@ -70,6 +70,8 @@ fn capture_headers(event: StructurePreparationEvent<'_>, output: &mut Vec<Header
                     .collect(),
             });
         }
+        StructurePreparationEvent::StructureHeader { .. }
+        | StructurePreparationEvent::SectionHeader { .. } => {}
         StructurePreparationEvent::Invalidated { .. } => {
             panic!("valid document must not invalidate an accepted header")
         }
@@ -507,11 +509,14 @@ impl ExpressionParseEnvironment for LifecycleEnvironment {
                 raw_node_id,
                 registration_id,
                 pattern_index,
+                ..
             } => {
                 self.events.push(format!("invalidated:{registration_id}"));
                 self.invalidated
                     .push((raw_node_id, registration_id.to_owned(), pattern_index));
             }
+            StructurePreparationEvent::StructureHeader { .. }
+            | StructurePreparationEvent::SectionHeader { .. } => {}
         }
     }
 }

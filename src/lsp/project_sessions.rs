@@ -54,6 +54,7 @@ impl Documents {
             document.completion = None;
             document.syntax_completion = None;
             document.prepared_completion = None;
+            document.prepared_state = None;
             document.completion_ready = false;
             jobs.push(Job {
                 uri,

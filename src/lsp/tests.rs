@@ -78,11 +78,30 @@ impl Analyzer for TestAnalyzer {
         if self.preparation_enabled {
             let view = completion::PreparedDocument::test_fixture(Arc::clone(&job.source));
             let owner = view.owner_at(Position::new(1, 0)).cloned();
-            publish(worker::Preparation::Ready(Box::new(view)));
+            let source = job
+                .project
+                .as_ref()
+                .and_then(|snapshot| snapshot.open.iter().find(|source| source.uri == job.uri))
+                .cloned()
+                .unwrap_or_else(|| project::ProjectSource {
+                    uri: job.uri.clone(),
+                    generation: job.generation,
+                    source_epoch: job.revision,
+                    source: Arc::clone(&job.source),
+                });
+            let mut emit = |update| {
+                publish(worker::Preparation {
+                    source: source.clone(),
+                    native_revision: job.revision,
+                    update,
+                })
+            };
+            emit(worker::PreparationUpdate::Started);
+            emit(worker::PreparationUpdate::Ready(Box::new(view)));
             if job.source.starts_with("hold-revoke") {
                 self.started.send(-job.version).unwrap();
                 self.proceed.recv_timeout(TIMEOUT).unwrap();
-                publish(worker::Preparation::Invalidated(owner.unwrap()));
+                emit(worker::PreparationUpdate::Invalidated(owner.unwrap()));
             }
         }
         self.analyze(job)

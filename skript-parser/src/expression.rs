@@ -1585,6 +1585,10 @@ pub(crate) struct ExpressionSession<'a, E> {
     frame_depths: Vec<usize>,
     next_resolution_id: u64,
     candidates_seen: usize,
+    next_editing_attempt: crate::PreparationAttemptId,
+    prepared_owner_stack: Vec<crate::PreparationAttemptId>,
+    editing_preparations: BTreeMap<crate::PreparationAttemptId, (crate::RawNodeId, String, usize)>,
+    preparation_suppression: usize,
 }
 
 /// Parses one complete Expression from an SSG catalog and extension environment.
@@ -1817,6 +1821,10 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             frame_depths: Vec::new(),
             next_resolution_id: 0,
             candidates_seen: 0,
+            next_editing_attempt: 1,
+            prepared_owner_stack: Vec::new(),
+            editing_preparations: BTreeMap::new(),
+            preparation_suppression: 0,
         }
     }
 
@@ -2003,6 +2011,117 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     ) -> Result<Option<ExpressionEffects>, String> {
         self.pop_candidate_scope(CandidateScope::Expression)?;
         self.environment.defer_expression_candidate(accepted)
+    }
+
+    pub(crate) fn next_editing_attempt(
+        &mut self,
+    ) -> Result<crate::PreparationAttemptId, ExpressionParseError> {
+        let id = self.next_editing_attempt;
+        self.next_editing_attempt = id.checked_add(1).ok_or_else(|| {
+            self.environment_error("editing preparation attempt identity overflow".to_owned())
+        })?;
+        Ok(id)
+    }
+
+    pub(crate) fn with_prepared_owner<T>(
+        &mut self,
+        attempt: crate::PreparationAttemptId,
+        parse: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.prepared_owner_stack.push(attempt);
+        let result = parse(self);
+        let closed = self.prepared_owner_stack.pop();
+        debug_assert_eq!(closed, Some(attempt));
+        result
+    }
+
+    pub(crate) fn without_editing_preparation<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.preparation_suppression += 1;
+        let result = parse(self);
+        self.preparation_suppression -= 1;
+        result
+    }
+
+    pub(crate) fn publish_section_preparation(
+        &mut self,
+        tree: &crate::RawTree,
+        candidate: &crate::SectionCandidate,
+        attempt_id: crate::PreparationAttemptId,
+    ) {
+        let source = self.source;
+        self.publish_preparation(crate::StructurePreparationEvent::SectionHeader {
+            source,
+            tree,
+            candidate,
+            attempt_id,
+            parent_attempt_id: self.prepared_owner_stack.last().copied(),
+        });
+    }
+
+    pub(crate) fn publish_preparation(&mut self, event: crate::StructurePreparationEvent<'_>) {
+        use crate::StructurePreparationEvent;
+        if self.preparation_suppression != 0 {
+            return;
+        }
+        match &event {
+            StructurePreparationEvent::Headers { headers, .. } => {
+                for header in headers {
+                    self.editing_preparations.insert(
+                        header.attempt_id,
+                        (
+                            header.candidate.raw_node_id,
+                            header.candidate.matched.registration_id.clone(),
+                            header.candidate.matched.pattern_index,
+                        ),
+                    );
+                }
+            }
+            StructurePreparationEvent::StructureHeader { header, .. } => {
+                self.editing_preparations.insert(
+                    header.attempt_id,
+                    (
+                        header.candidate.raw_node_id,
+                        header.candidate.matched.registration_id.clone(),
+                        header.candidate.matched.pattern_index,
+                    ),
+                );
+            }
+            StructurePreparationEvent::SectionHeader {
+                candidate,
+                attempt_id,
+                ..
+            } => {
+                self.editing_preparations.insert(
+                    *attempt_id,
+                    (
+                        candidate.raw_node_id,
+                        candidate.matched.registration_id.clone(),
+                        candidate.matched.pattern_index,
+                    ),
+                );
+            }
+            StructurePreparationEvent::Invalidated { attempt_id, .. } => {
+                self.editing_preparations.remove(attempt_id);
+            }
+        }
+        self.environment.structure_preparation(event);
+    }
+
+    pub(crate) fn invalidate_editing_preparations(&mut self) {
+        for (attempt_id, (raw_node_id, registration_id, pattern_index)) in
+            std::mem::take(&mut self.editing_preparations)
+        {
+            self.environment
+                .structure_preparation(crate::StructurePreparationEvent::Invalidated {
+                    attempt_id,
+                    raw_node_id,
+                    registration_id: &registration_id,
+                    pattern_index,
+                });
+        }
     }
 
     pub(crate) fn begin_semantic_candidate(&mut self) -> Result<(), String> {

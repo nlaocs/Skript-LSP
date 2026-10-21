@@ -21,7 +21,7 @@ use syntaxes::{Catalog, Syntax, SyntaxKind};
 mod continuation;
 mod cursor;
 mod prepared;
-pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery};
+pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
 mod signature;
 mod structure;
 pub(super) use signature::{SignatureCapabilities, SignatureQuery};

@@ -7,6 +7,7 @@ mod hover;
 mod hover_text;
 mod inlay;
 mod positions;
+mod preparation;
 mod project;
 mod project_sessions;
 mod public_data;
@@ -275,6 +276,7 @@ struct Document {
     completion: Option<completion::Document>,
     syntax_completion: Option<completion::Document>,
     prepared_completion: Option<Box<completion::PreparedDocument>>,
+    prepared_state: Option<preparation::State>,
     prepared_ticket: Option<CompletionTicket>,
     next_completion_ticket: u64,
     completion_ready: bool,
@@ -689,6 +691,7 @@ impl Documents {
                 completion: None,
                 syntax_completion: None,
                 prepared_completion: None,
+                prepared_state: None,
                 prepared_ticket: None,
                 next_completion_ticket: 0,
                 completion_ready: false,
@@ -742,6 +745,7 @@ impl Documents {
         document.completion = None;
         document.syntax_completion = None;
         document.prepared_completion = None;
+        document.prepared_state = None;
         document.prepared_ticket = None;
         document.completion_ready = false;
         document.source = Arc::from(source);
@@ -844,23 +848,24 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                         return Err(error);
                     }
                     Event::Preparation(job, preparation, prepare_ms) => {
-                        if shutdown || !documents.current(&job) || job.control.token.is_cancelled() { continue; }
-                        let document = documents.open.get_mut(&job.uri).unwrap();
-                        match preparation {
-                            worker::Preparation::Ready(prepared) => {
-                                document.prepared_completion = Some(prepared);
-                                document.prepare_completion_requests(&connection, completion_snippets)?;
-                            }
-                            worker::Preparation::Invalidated(owner) => {
-                                if document.prepared_completion.as_mut().is_some_and(|view| view.revoke(&owner)) {
-                                    if document.prepared_ticket.as_ref().is_some_and(|ticket| ticket.owner.as_ref() == Some(&owner)) {
-                                        document.refresh_completion(&connection, &job.uri, "revoked")?;
-                                    }
-                                }
-                            }
-                            worker::Preparation::Unavailable(error) => { log(&connection, format!("prepared completion unavailable: {error}"))?; }
+                        if shutdown { continue; }
+                        let uri=preparation.source.uri.clone();
+                        let native_revision=preparation.native_revision;
+                        let phase=match &preparation.update {
+                            worker::PreparationUpdate::Started=>"started",
+                            worker::PreparationUpdate::Ready(_)=>"headers",
+                            worker::PreparationUpdate::Structure(..)=>"structure",
+                            worker::PreparationUpdate::Section(_)=>"section",
+                            worker::PreparationUpdate::Invalidated(_)=>"invalidated",
+                            worker::PreparationUpdate::Aborted=>"aborted",
+                            worker::PreparationUpdate::Unavailable(_)=>"unavailable",
+                        };
+                        let unavailable=match &preparation.update { worker::PreparationUpdate::Unavailable(error)=>Some(error.clone()), _=>None };
+                        if documents.prepare_completion(&job, preparation, &connection, completion_snippets)? {
+                            if let Some(error)=unavailable { log(&connection,format!("prepared completion unavailable: {error}"))?; }
+                            let document=&documents.open[&uri];
+                            log(&connection, format!("skript-lsp preparation timing {}", json!({"uri":uri,"version":document.version,"revision":document.revision,"nativeRevision":native_revision,"phase":phase,"prepareMs":prepare_ms})))?;
                         }
-                        log(&connection, format!("skript-lsp preparation timing {}", json!({"uri":job.uri,"version":job.version,"revision":job.revision,"prepareMs":prepare_ms})))?;
                     }
                     Event::Finished(job, analysis, metrics) => {
                         if shutdown { continue; }
@@ -876,6 +881,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             document.tokens = Some(SemanticTokens::default());
                             document.completion_ready = true;
                             document.prepared_completion = None;
+                            document.prepared_state = None;
                             if !job.control.token.is_cancelled() {
                                 if let Outcome::Diagnostics(diagnostics, status) = analysis.outcome {
                                     if status != "fatal" {

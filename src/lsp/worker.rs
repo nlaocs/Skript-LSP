@@ -154,39 +154,109 @@ impl Analyzer for ParserAnalyzer {
         let started = Instant::now();
         let prepare = self.prepare_completion;
         let index = Arc::clone(&self.completions);
-        let mut observer = |event: skript_parser::StructurePreparationEvent<'_>| {
+        let mut published = BTreeMap::new();
+        let mut observer = |event: super::project::Preparation<'_>| {
             if !prepare || job.control.token.is_cancelled() {
                 return;
             }
-            match event {
-                skript_parser::StructurePreparationEvent::Headers {
-                    source,
-                    tree,
-                    headers,
-                } => {
-                    match completion::PreparedDocument::new(
-                        Arc::clone(&job.source),
-                        Arc::clone(&index),
-                        source,
-                        tree,
-                        &headers,
-                    ) {
-                        Ok(document) => publish(Preparation::Ready(Box::new(document))),
-                        Err(error) => publish(Preparation::Unavailable(error)),
-                    }
+            let source = event.source;
+            if job.project.as_ref().is_some_and(|snapshot| {
+                !snapshot.open.iter().any(|open| {
+                    open.uri == source.uri
+                        && open.generation == source.generation
+                        && open.source_epoch == source.source_epoch
+                        && open.source == source.source
+                })
+            }) {
+                return; // Closed sources have no protocol document or completion request.
+            }
+            let native_revision = event.native_revision;
+            let update = match event.stage {
+                super::project::PreparationStage::Started => {
+                    published.insert(source.uri.clone(), (source.clone(), native_revision));
+                    PreparationUpdate::Started
                 }
-                skript_parser::StructurePreparationEvent::Invalidated {
-                    raw_node_id,
-                    registration_id,
-                    pattern_index,
-                } => {
-                    publish(Preparation::Invalidated(completion::OwnerAttempt {
+                super::project::PreparationStage::Aborted => {
+                    if published
+                        .get(&source.uri)
+                        .is_some_and(|(_, revision)| *revision == native_revision)
+                    {
+                        published.remove(&source.uri);
+                    }
+                    PreparationUpdate::Aborted
+                }
+                super::project::PreparationStage::Native(event) => match event {
+                    skript_parser::StructurePreparationEvent::Headers {
+                        source: mapped,
+                        tree,
+                        headers,
+                    } => {
+                        match completion::PreparedDocument::new(
+                            Arc::clone(&source.source),
+                            Arc::clone(&index),
+                            mapped,
+                            tree,
+                            &headers,
+                        ) {
+                            Ok(document) => PreparationUpdate::Ready(Box::new(document)),
+                            Err(error) => PreparationUpdate::Unavailable(error),
+                        }
+                    }
+                    skript_parser::StructurePreparationEvent::StructureHeader {
+                        source: mapped,
+                        tree,
+                        header,
+                    } => {
+                        let raw = header.candidate.raw_node_id;
+                        match completion::PreparedDocument::new(
+                            Arc::clone(&source.source),
+                            Arc::clone(&index),
+                            mapped,
+                            tree,
+                            &[header],
+                        ) {
+                            Ok(document) => PreparationUpdate::Structure(raw, Box::new(document)),
+                            Err(error) => PreparationUpdate::Unavailable(error),
+                        }
+                    }
+                    skript_parser::StructurePreparationEvent::SectionHeader {
+                        source: mapped,
+                        tree,
+                        candidate,
+                        attempt_id,
+                        parent_attempt_id,
+                    } => {
+                        match completion::PreparedSection::new(
+                            &source.source,
+                            mapped,
+                            tree,
+                            candidate,
+                            attempt_id,
+                            parent_attempt_id,
+                        ) {
+                            Ok(Some(section)) => PreparationUpdate::Section(section),
+                            Ok(None) => return,
+                            Err(error) => PreparationUpdate::Unavailable(error),
+                        }
+                    }
+                    skript_parser::StructurePreparationEvent::Invalidated {
+                        raw_node_id,
+                        registration_id,
+                        pattern_index,
+                        attempt_id,
+                    } => PreparationUpdate::Invalidated(completion::OwnerAttempt {
                         root: raw_node_id,
                         registration: registration_id.into(),
                         pattern: pattern_index,
-                    }));
-                }
-            }
+                        attempt_id,
+                    }),
+                },
+            };
+            publish(Preparation {
+                source,
+                native_revision,
+                update,
+            });
         };
         let config = DocumentParserConfig {
             cancellation: job.control.token.clone(),
@@ -207,6 +277,17 @@ impl Analyzer for ParserAnalyzer {
                 analysis.result
             })
         } else {
+            let source = super::project::ProjectSource {
+                uri: job.uri.clone(),
+                generation: job.generation,
+                source_epoch: job.revision,
+                source: Arc::clone(&job.source),
+            };
+            observer(super::project::Preparation {
+                source: source.clone(),
+                native_revision: job.revision,
+                stage: super::project::PreparationStage::Started,
+            });
             self.host
                 .parse_document_with_preparation(
                     DocumentParseRequest::new(
@@ -216,10 +297,30 @@ impl Analyzer for ParserAnalyzer {
                         Arc::clone(&job.source),
                     ),
                     config,
-                    &mut observer,
+                    &mut |event| {
+                        observer(super::project::Preparation {
+                            source: source.clone(),
+                            native_revision: job.revision,
+                            stage: super::project::PreparationStage::Native(event),
+                        })
+                    },
                 )
                 .map_err(super::project::ProjectError::from)
         };
+        drop(observer);
+        if !result.as_ref().is_ok_and(|result| {
+            result.execution_status == parser_wasm::DocumentExecutionStatus::Complete
+                && result.fault_regions.is_empty()
+                && result.component_failures.is_empty()
+        }) {
+            for (_, (source, native_revision)) in published {
+                publish(Preparation {
+                    source,
+                    native_revision,
+                    update: PreparationUpdate::Aborted,
+                });
+            }
+        }
         // A transferred result runs no native parse. Do not attribute the
         // producer's last hook-cache counters to this consumer job.
         let incremental = if parsed_document {
@@ -380,9 +481,18 @@ fn document_key(uri: &str) -> String {
     // Unicode filenames. The host accepts opaque IDs; protocol URIs stay intact.
     format!("lsp-document:{:x}", Sha256::digest(uri.as_bytes()))
 }
-pub(super) enum Preparation {
+pub(super) struct Preparation {
+    pub source: super::project::ProjectSource,
+    pub native_revision: u64,
+    pub update: PreparationUpdate,
+}
+pub(super) enum PreparationUpdate {
+    Started,
     Ready(Box<completion::PreparedDocument>),
+    Structure(skript_parser::RawNodeId, Box<completion::PreparedDocument>),
+    Section(completion::PreparedSection),
     Invalidated(completion::OwnerAttempt),
+    Aborted,
     Unavailable(String),
 }
 pub(super) enum Event {
