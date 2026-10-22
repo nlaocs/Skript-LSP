@@ -77,10 +77,12 @@ struct Function {
 }
 impl Function {
     fn shape(&self) -> Vec<(&str, bool)> {
+        self.shape_iter().collect()
+    }
+    fn shape_iter(&self) -> impl Iterator<Item = (&str, bool)> {
         self.parameters
             .iter()
             .map(|(_, class, single, _)| (class.as_str(), *single))
-            .collect()
     }
     fn from_definition(definition: &FunctionDefinition) -> Self {
         Self {
@@ -990,10 +992,9 @@ impl Document {
                         continue;
                     }
                     if index >= self.functions.len()
-                        && self
-                            .functions
-                            .iter()
-                            .any(|f| f.name == function.name && f.shape() == function.shape())
+                        && self.functions.iter().any(|f| {
+                            f.name == function.name && f.shape_iter().eq(function.shape_iter())
+                        })
                     {
                         continue;
                     }

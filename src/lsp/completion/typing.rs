@@ -785,7 +785,7 @@ impl Document {
         };
         expression_types_are_incompatible(
             &index.catalog,
-            &definition.return_type.iter().cloned().collect::<Vec<_>>(),
+            definition.return_type.as_slice(),
             true,
             Some(if definition.return_type_is_single {
                 Multiplicity::Single
