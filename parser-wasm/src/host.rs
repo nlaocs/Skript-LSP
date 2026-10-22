@@ -11,6 +11,8 @@ mod cancellation_tests;
 #[cfg(test)]
 mod capture_view_tests;
 #[cfg(test)]
+mod catalog_measurement;
+#[cfg(test)]
 mod checkpoint_tests;
 mod default_expression;
 mod hook_calls;
@@ -1037,6 +1039,8 @@ struct StoreData {
     invocation: Option<InvocationTransaction>,
     #[cfg(test)]
     guest_hook_calls: u64,
+    #[cfg(test)]
+    catalog_measurement: Option<catalog_measurement::Probe>,
     incremental_impure_call: bool,
     epoch_clock: Option<Arc<EpochClock>>,
     cancellation: Option<DocumentCancellationToken>,
@@ -1111,6 +1115,11 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
         class_name: String,
     ) -> Result<Option<WitExpressionTypeOption>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self
+            .catalog_measurement
+            .as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::TypeForClass));
         let catalog = self.catalog()?;
         Ok(catalog
             .type_by_class_name(&class_name)
@@ -1195,6 +1204,11 @@ impl wit_catalog_data::Host for StoreData {
     fn source(
         &mut self,
     ) -> Result<Option<wit_catalog_data::CatalogSource>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self
+            .catalog_measurement
+            .as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::Source));
         let catalog = self.catalog()?;
         Ok(catalog
             .source()
@@ -1240,6 +1254,11 @@ impl wit_catalog_data::Host for StoreData {
         offset: u64,
         limit: u32,
     ) -> Result<wit_catalog_data::CatalogRecordPage, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self
+            .catalog_measurement
+            .as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::RecordsByRegistrationId));
         let catalog = self.catalog()?;
         let records = catalog
             .source()
@@ -1299,6 +1318,11 @@ impl wit_catalog_data::Host for StoreData {
         offset: u64,
         max_bytes: u32,
     ) -> Result<Option<wit_catalog_data::CatalogChunk>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let mut measurement = self
+            .catalog_measurement
+            .as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::ReadRecord));
         let catalog = self.catalog()?;
         let Some(source) = catalog.source() else {
             return Ok(None);
@@ -1319,13 +1343,18 @@ impl wit_catalog_data::Host for StoreData {
         let Some(record) = source.record(&document, index) else {
             return Ok(None);
         };
-        catalog_chunk(
+        let result = catalog_chunk(
             &record.json,
             offset,
             max_bytes,
             self.max_catalog_response_bytes,
         )
-        .map(Some)
+        .map(Some);
+        #[cfg(test)]
+        if let (Some(measurement), Ok(Some(chunk))) = (measurement.as_mut(), &result) {
+            measurement.returned_bytes(chunk.bytes.len());
+        }
+        result
     }
 
     fn class_known(&mut self, class_name: String) -> Result<bool, wit_catalog_data::CatalogError> {
@@ -1484,6 +1513,11 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
         class_name: String,
     ) -> Result<Option<wit_catalog_data::TypeChangeContract>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self
+            .catalog_measurement
+            .as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::ChangeContractForType));
         let catalog = self.catalog()?;
         // Classes.getSuperClassInfo first tries an exact class and then the first
         // registered assignable ClassInfo. Catalog type order preserves registration order.
@@ -13925,6 +13959,8 @@ fn create_store(
             invocation: None,
             #[cfg(test)]
             guest_hook_calls: 0,
+            #[cfg(test)]
+            catalog_measurement: None,
             incremental_impure_call: false,
             epoch_clock: None,
             cancellation: None,

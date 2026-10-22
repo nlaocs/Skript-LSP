@@ -152,3 +152,7 @@ mod tests {
         assert!(!supports_skript_version("unknown"));
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_measurement.rs"]
+mod measurement;
