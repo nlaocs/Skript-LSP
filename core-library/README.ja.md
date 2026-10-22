@@ -36,13 +36,14 @@ CoreLibraryと外部componentは現在のWIT/ABIで再buildしてください。
 既存host方針ではCore IDのwall-clock deadlineを`u64::MAX / 2` ticksへ緩める例外が残り、
 既定fuel上限20Mは維持します。Coreに短いwall-clock取消時間を保証するものではありません。
 
-型flowは、要求型への変換前に変数へ保存された型を扱います。汎用engineはunion・list要素・
-parameter・到達書込を表現できますが、精度には現在のproviderの根拠が必要です。現在のCoreが
-証明するのはprimitive scalarの生成と、安全な継承`beforeChange` clone/set経路です。任意の
-FunctionやExpressionList結果はUnknownになり得て、型付きparameter/returnにも未設定の可能性を残します。
-戻り値classだけでは非空性や他localの不変性を証明しません。nativeの評価順付きearly operand契約は
-opaque処理より前の安全な読取を示すもので、Effect/Condition全体のpure宣言ではありません。
-未知のconverter・callback・alias・control flowでは、外側の要求型を借りず事実を忘れます。
+型flowは、要求型への変換前に変数へ保存された型を扱う。引数の宣言型、parse contextの要求型、
+地点ごとの現在値の推論は別の事実である。providerの根拠に基づき、primitiveの生成、parameter binding、
+採用した関数の戻り値型、安全な継承`beforeChange` clone/set経路を扱う。戻り値classの宣言だけでは
+非空性や他localの不変性を証明せず、未解決のFunction/ExpressionList結果はUnknownになり得る。
+型付きparameter/returnにも未設定の可能性を残す。評価順と文字列化の根拠は安全なoperandで型を保持する
+ための情報で、処理全体のpure宣言ではない。未知の変換・副作用・alias・制御flowでは、要求型を借りず
+影響する事実を忘れる。補間内の後続読取でUnknownになる制約も残るが、標準Numberの文字列化が
+無関係なlocalを書き換えると実証したものではない。
 
 runtime依存のType parserは`catalog-data`の索引queryを利用します。特にBlockData検証では、WASM内へ
 JSON全体を読み込まず、hostがcacheしたschema 7 registryから要求されたnamespaced blockだけを取得します。
@@ -143,7 +144,8 @@ Expressionのcontractからowned `change-contract`を公開します。`EffChang
 EventValueのchanger情報が欠けている場合もunresolvedです。metadata envelopeはschema versionを持ち、
 対象Expression identityへ結び付きます。Property候補はSSGの登録、owner、handler、type、source identityを保持し、
 先行Addon hookが候補indexを選択できます。明示選択のない複数Property登録は、無関係なAddonを合成せず拒否します。生changer lookupには
-record数・byte数上限とbounded cacheがあります。variableの型履歴は意図的に後続実装へ残しています。
+record数・byte数上限とbounded cacheがあります。現在の変数型flowは、採用済みの公開metadataをLSPが消費します。
+このvariable parser自体が実行時の値や任意の型履歴を保持するものではありません。
 
 `EffExit`と`EffContinue`はcallerが渡したdepth数値ではなく、parser所有のSection stackを使います。
 frame identityとmetadataから全Section、loop、conditional chainを区別し、要求された個数または序数を

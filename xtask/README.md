@@ -38,6 +38,8 @@ artifacts/effect-addon.wasm
 artifacts/expression-data-addon-a.wasm
 artifacts/expression-data-addon-b.wasm
 artifacts/matching-addon.wasm
+artifacts/function-addon.wasm
+artifacts/type-parser-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm
 artifacts/ast-macro-addon.wasm
@@ -51,9 +53,10 @@ Both commands use the same `ComponentSpec` pipeline:
 
 1. run Cargo for `wasm32-unknown-unknown`
 2. use the optimized `core-library` workspace profile
-3. respect `CARGO_TARGET_DIR` and place core-library intermediates in the
-   `core-library-component` directory; build the test component variants together
-   in the shared `test-components` directory
+3. respect `CARGO_TARGET_DIR`: use `core-library-component` for CoreLibrary and
+   `test-components` for the group of nine test packages; build the two
+   expression-data variants sequentially in the shared
+   `expression-data-addon-component` directory
 4. read the raw core Wasm module
 5. use `wit-component::ComponentEncoder` to embed component metadata
 6. validate the encoded Component

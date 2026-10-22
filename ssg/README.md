@@ -12,10 +12,10 @@ inspect Java classes, or generate snapshots.
 
 ## Supported Format
 
-The archive reader `load` accepts SSG schema versions 3 through 7. Complete inventories are
-schema-specific:
+The archive reader `load` accepts SSG schema versions 3 through 7. This is archive
+compatibility, not a promise that every old export can initialize the current parser.
 
-Runtime parser consumers should use `load_for_parsing`. It requires the current
+Runtime parser consumers, including the stdio LSP, use `load_for_parsing`. It requires the current
 schema 7 and validates CoreLibrary's required metadata in the same verified raw
 documents before conversion. An enabled Type parser needs `parserClass`;
 EntityData needs registered parser patterns and, when it declares a supplier,
@@ -24,6 +24,8 @@ Required classes must be nonblank and collected in ClassHierarchy. Missing/null 
 different from present empty arrays. Optional data for unrelated Types remains
 optional. Rejection identifies the source field and requests a complete SSG
 regeneration; newer schema versions require a compatible reader/tool.
+
+Complete file inventories are schema-specific:
 
 - schemas 3 and 4 have `Manifest.json` plus 18 data files; use
   `LEGACY_DATA_FILES` and `LEGACY_ALL_FILES` for their inventories

@@ -37,6 +37,8 @@ artifacts/effect-addon.wasm
 artifacts/expression-data-addon-a.wasm
 artifacts/expression-data-addon-b.wasm
 artifacts/matching-addon.wasm
+artifacts/function-addon.wasm
+artifacts/type-parser-addon.wasm
 artifacts/text-macro-addon.wasm
 artifacts/tree-macro-addon.wasm
 artifacts/ast-macro-addon.wasm
@@ -51,9 +53,9 @@ parser hostのintegration testがこれらのartifactを埋め込みます。
 
 1. `wasm32-unknown-unknown`向けにCargoを実行する
 2. workspaceの最適化済み`core-library` profileを使用する
-3. `CARGO_TARGET_DIR`を尊重し、core-libraryの中間fileは
-   `core-library-component` directoryへ配置し、test componentは
-   共有の`test-components` directoryでまとめてbuildする
+3. `CARGO_TARGET_DIR`を尊重し、CoreLibraryは`core-library-component`、
+   9つのtest packageの一括buildは`test-components`を使う。
+   expression-dataの2 variantは共通の`expression-data-addon-component`で順番にbuildする
 4. raw core Wasm moduleを読む
 5. `wit-component::ComponentEncoder`でcomponent metadataを埋め込む
 6. encode済みComponentを検証する

@@ -43,16 +43,18 @@ The existing host policy gives the Core ID a `u64::MAX / 2`-tick wall-clock
 exemption; the default 20M fuel limit remains, so no short wall-clock cancellation
 bound is claimed for Core.
 
-Local flow describes a variable's stored type before any requested-type conversion.
-The generic engine can represent unions, list elements, parameters and reaching
-writes, but actual precision requires current provider evidence. Core currently
-proves primitive scalar constructors and safe inherited `beforeChange` clone/set
-paths; arbitrary Function or ExpressionList results can remain Unknown, and typed
-parameters/returns may be unset. A result class alone proves neither nonempty
-values nor preservation of other locals. Native ordered early-operand contracts
-can expose a safe lookup before opaque work; they do not make an entire Effect
-or Condition pure. Unknown converters, callbacks, aliases and control flow clear
-facts rather than borrowing the enclosing requested type.
+Local flow describes a variable's stored type before requested-type conversion.
+Declared parameter types, parse-context expectations, and inferred current values
+are separate facts. Provider evidence supports primitive constructors, parameter
+bindings, selected function return types, and safe inherited `beforeChange`
+clone/set paths. A declared return class does not prove a nonempty value or the
+preservation of other locals; unresolved Function/ExpressionList results can
+remain Unknown, and typed parameters/returns may be unset. Ordered evaluation
+and stringification evidence can preserve facts at a safe operand without making
+the whole operation pure. Unknown conversions, effects, aliases, and control flow
+invalidate affected facts rather than borrowing the requested type. Some later
+interpolation reads still become Unknown conservatively; this is a contract
+limitation, not evidence that ordinary Number formatting writes unrelated locals.
 
 Runtime-backed Type parsers use indexed `catalog-data` queries. In particular,
 BlockData validation reads only the requested namespaced block from the host's
@@ -175,8 +177,9 @@ schema-versioned and bound to its Expression identity. Property candidates keep
 their SSG registration, owner, handler, type, and source identities. An earlier
 addon hook may select candidate indexes; CoreLibrary refuses an ambiguity with
 no explicit selection instead of merging unrelated addons. Raw changer lookups
-are bounded by record/byte limits and a bounded cache. Variable type history
-remains intentionally deferred.
+are bounded by record/byte limits and a bounded cache. The LSP consumes adopted
+public metadata for current variable type flow; this variable parser does not
+retain runtime values or an arbitrary variable-type history.
 
 `EffExit` and `EffContinue` use the parser-owned Section stack rather than a
 caller-provided depth counter. They distinguish every Section, loops, and

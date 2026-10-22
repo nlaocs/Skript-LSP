@@ -11,7 +11,17 @@ snapshotの生成は行いません。
 
 ## 対応format
 
-SSG schema version 3から7に対応しています。完全なfile inventoryはschemaごとに異なります。
+archive readerの`load`はSSG schema version 3から7に対応します。これは保存形式の互換性であり、
+すべての旧exportで現在のparserを初期化できるという保証ではありません。
+
+stdio LSPを含むruntime parserは`load_for_parsing`を使います。現行schema 7を要求し、変換前の検証済みraw
+documentでCoreLibraryに必要なmetadataも確認します。有効なType parserには`parserClass`が必要です。
+EntityDataには登録parser pattern、supplierを宣言する場合にはtyped literal、そのliteralには表すentity classが必要です。
+必要なclassは空文字でなくClassHierarchyに収録されていることを確認します。missing/nullと、存在する空配列は区別します。
+無関係なTypeの任意情報まで必須にせず、不足時は該当fieldを示して完全なSSG exportの再生成を求めます。
+新しいschemaには対応するreader/toolが必要です。
+
+完全なfile inventoryはschemaごとに異なります。
 
 - schema 3と4は`Manifest.json`と18個のdata fileで構成され、inventoryは
   `LEGACY_DATA_FILES`と`LEGACY_ALL_FILES`で取得できます
