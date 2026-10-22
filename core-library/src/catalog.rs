@@ -984,10 +984,6 @@ fn default_clone_input(summary: &crate::nlaocs::skript_parser_addon::types::Pars
         .filter(|entry| entry.key == crate::public_data::CHANGE_INPUT_METADATA_KEY)
         .collect::<Vec<_>>();
     matches!(summary.kind.as_str(), "literal" | "variable")
-        && !summary
-            .public_data
-            .iter()
-            .any(|data| data.schema_id == crate::public_data::INTERPOLATION_SCHEMA_ID)
         && entries.len() == 1
         && entries[0].owner_component_id.as_deref() == Some(crate::COMPONENT_ID)
         && serde_json::from_str::<serde_json::Value>(&entries[0].value)
@@ -1716,6 +1712,24 @@ mod tests {
             metadata: vec![marker],
         };
         assert!(default_clone_input(&value));
+        let mut interpolation = value.clone();
+        interpolation.public_data.push(
+            crate::nlaocs::skript_parser_addon::types::ExpressionPublicData {
+                schema_id: crate::public_data::INTERPOLATION_SCHEMA_ID.into(),
+                schema_version: 1,
+                json: "{}".into(),
+            },
+        );
+        assert!(
+            default_clone_input(&interpolation),
+            "the explicit method witness applies after interpolation evaluation"
+        );
+        interpolation.kind = "variable".into();
+        interpolation.metadata.clear();
+        assert!(
+            !default_clone_input(&interpolation),
+            "unmarked dynamic names have no default method witness"
+        );
         let mut changed = value.clone();
         changed.metadata[0].owner_component_id = Some("foreign".into());
         assert!(!default_clone_input(&changed));

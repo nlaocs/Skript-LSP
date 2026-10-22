@@ -683,6 +683,11 @@ fn current_parameter_values_follow_certified_return_and_formatter_boundaries() {
         ("return {_value}", Some("java.lang.String"), true),
         ("return \"%{_value}%\"", Some("java.lang.String"), true),
         (
+            "set {_value} to \"%{_value}%\"\n    return {_value}",
+            Some("java.lang.String"),
+            false,
+        ),
+        (
             "set {_value} to 3\n    return \"%{_value}%\"",
             Some("java.lang.Long"),
             false,

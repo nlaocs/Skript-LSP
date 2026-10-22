@@ -152,6 +152,10 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                 .push(crate::public_data::preserve_evaluation_context());
             leaf.metadata
                 .push(crate::public_data::non_empty_value_result());
+            // VariableString implements Expression without overriding beforeChange.
+            // This certifies the clone AFTER evaluation, not child/formatter purity.
+            leaf.metadata
+                .push(crate::public_data::default_clone_change_input());
             let preserve_types = crate::catalog::stringification_preserving_classes();
             leaf.metadata.push(MetadataEntry {
                 key: crate::public_data::OPERAND_EVALUATION_METADATA_KEY.into(),
