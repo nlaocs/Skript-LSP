@@ -29,7 +29,6 @@ use worker::{Control, Event, Factory, Job, Outcome, Worker};
 
 #[derive(Debug)]
 struct ProjectConfig {
-    analysis_workers: usize,
     project_uri: String,
     project_root: PathBuf,
     watch_files: bool,
@@ -51,12 +50,6 @@ struct InitializationOptions {
     snapshot_path: PathBuf,
     #[serde(default)]
     addon_paths: Vec<PathBuf>,
-    #[serde(default = "serial_analysis_workers")]
-    analysis_workers: usize,
-}
-
-fn serial_analysis_workers() -> usize {
-    1
 }
 
 impl ProjectConfig {
@@ -156,9 +149,6 @@ impl ProjectConfig {
                 .ok_or("initializationOptions.snapshotPath is required")?,
         )
         .map_err(|error| error.to_string())?;
-        if !(1..=4).contains(&options.analysis_workers) {
-            return Err("initializationOptions.analysisWorkers must be between 1 and 4".into());
-        }
         if options.snapshot_path.as_os_str().is_empty() {
             return Err("snapshotPath must not be empty".into());
         }
@@ -183,7 +173,6 @@ impl ProjectConfig {
             completion_snippets,
             completion_refresh,
             signature_capabilities,
-            analysis_workers: options.analysis_workers,
         })
     }
 }

@@ -28,7 +28,6 @@ fn analyzer() -> ParserAnalyzer {
         semantic_enabled: true,
         completions,
         prepare_completion: false,
-        analysis_workers: 1,
         project: super::super::project::ProjectIndex::default(),
     }
 }
@@ -605,25 +604,4 @@ fn actual_imported_void_statement_preserves_lsp_identity_and_is_a_flow_barrier()
         }
     }
     assert_eq!(function_tokens, vec![(2, 4, "imported_void".len() as u32)]);
-}
-
-#[test]
-fn isolated_body_preparation_preserves_all_current_lsp_annotations() {
-    let source = "function value() :: string:\n    return \"text\"\non join:\n    set {_value} to value()\n    send {_value}\non load:\n    if 1 is 2:\n        send \"Unicode: 日本語 😀\"\n    else:\n        send 2\ncommand /same:\n    trigger:\n        send 3\ncommand /same:\n    trigger:\n        send 4\n";
-    let mut serial = analyzer();
-    let baseline = analyze(&mut serial, &source, 1);
-    for workers in [2, 4] {
-        let mut parallel = analyzer();
-        parallel.analysis_workers = workers;
-        let result = analyze(&mut parallel, &source, 1);
-        assert_eq!(diagnostics(&result), diagnostics(&baseline));
-        assert_eq!(
-            result.analysis_metrics["bodyPreparation"]["spawned"],
-            workers - 1
-        );
-        assert_eq!(
-            annotation_outputs(&result, &source),
-            annotation_outputs(&baseline, &source)
-        );
-    }
 }

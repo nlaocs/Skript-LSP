@@ -527,14 +527,7 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
         return Ok(StructureDocument { roots, diagnostics });
     }
 
-    let body_count = pending.len();
-    for (body_index, item) in pending.into_iter().enumerate() {
-        if !session
-            .environment_mut()
-            .prepare_structure_body(body_index, body_count)
-        {
-            continue;
-        }
+    for item in pending {
         session.check_cancelled()?;
         let Some(StructureDocumentNode::Structure(matches)) = roots.get_mut(item.root_index) else {
             continue;

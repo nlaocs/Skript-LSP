@@ -615,31 +615,3 @@ fn instantiate_cancellation_and_resource_markers_keep_their_typed_causes() {
     assert!(matches!(error, HostError::Cancelled(_)));
     assert!(!error.disables_component());
 }
-
-#[test]
-fn isolated_initialization_rejects_ignored_state_attempt_but_does_not_relax_restart() {
-    let config = HostConfig::default();
-    let runtime = SharedHostRuntime::new(config.epoch_tick).unwrap();
-    let mut store = create_store(
-        &runtime.engine,
-        &config,
-        build_type_user_input_matchers(None),
-    );
-    store.data_mut().initializing = true;
-    assert!(store.data_mut().invocation().is_err());
-    assert!(store.data().initialization_state_call_attempted);
-    assert!(matches!(
-        validate_isolated_preparation_initialization(&store, "test.isolated", true),
-        Err(HostError::InitializationRejected { .. })
-    ));
-    assert!(validate_isolated_preparation_initialization(&store, "test.isolated", false).is_ok());
-    store.data_mut().initialization_state_call_attempted = false;
-    store.data_mut().initialization_host_call_attempted = false;
-    assert!(store.data_mut().dynamic_update().is_err());
-    assert!(store.data().initialization_host_call_attempted);
-    assert!(validate_isolated_preparation_initialization(&store, "test.isolated", true).is_ok());
-    assert!(matches!(
-        validate_restart_initialization_for(&store, "test.isolated", true),
-        Err(HostError::InitializationRejected { .. })
-    ));
-}

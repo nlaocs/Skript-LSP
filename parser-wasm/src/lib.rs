@@ -87,16 +87,6 @@ pub const CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION: &str =
 pub const CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE: &str =
     "parser.epoch-cancellation-restart-safe";
 
-/// Optional v1 contract for a fresh, isolated invocation-preparation instance.
-/// Manifest/initialization are deterministic from the immutable Catalog, runtime
-/// and ordered handler bindings. Initialization may register deterministic owned
-/// dynamic definitions, but may not access StateStore or external side effects.
-/// The fresh instance and its isolated host state can be discarded at any phase.
-/// Only separately opted-in incremental read-only responses may be borrowed;
-/// current inputs/state and ordinary output validation must still run. This does
-/// not authorize adopting a worker AST or restarting the authoritative instance.
-pub const CAPABILITY_ISOLATED_PREPARATION_SAFE: &str = "parser.isolated-preparation-safe";
-
 /// Capability ID for typed parser hook subscription and dispatch.
 pub const CAPABILITY_HOOKS: &str = "parser.hooks";
 /// Capability ID for transactional scoped addon state.
