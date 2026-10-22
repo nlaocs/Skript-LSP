@@ -201,6 +201,8 @@ pub(super) struct Document {
     lines: LineIndex,
     catalog: Arc<Catalog>,
     occurrences: Vec<Occurrence>,
+    // Lexical declaration information, never a replacement for current flow facts.
+    declared_parameters: HashMap<VariableKey, InferredType>,
     completion_points: Vec<CompletionPoint>,
     completion_type_bindings: usize,
     writes: Vec<Write>,
@@ -472,6 +474,7 @@ impl Document {
             lines,
             catalog,
             occurrences: Vec::new(),
+            declared_parameters: HashMap::new(),
             completion_points: Vec::new(),
             completion_type_bindings: 0,
             writes: Vec::new(),
@@ -549,10 +552,19 @@ impl Document {
     }
     pub fn hover(&self, position: Position) -> Option<(Range, String)> {
         let (range, ty) = self.type_at(position)?;
-        Some((
-            range,
-            format!("Inferred type: {}", ty.description(&self.catalog)),
-        ))
+        let occurrence = self.at(position)?;
+        let Reference::Variable { identity, .. } = &occurrence.reference else {
+            return None;
+        };
+        let mut description = String::new();
+        if let Some(declared) = self.declared_parameters.get(&identity.key) {
+            description.push_str(&format!(
+                "Declared parameter type: {}\n",
+                declared.description(&self.catalog)
+            ));
+        }
+        description.push_str(&format!("Inferred type: {}", ty.description(&self.catalog)));
+        Some((range, description))
     }
     /// Project documents must all be current published generations. The caller
     /// removes invalidated documents before passing this read-only set.
@@ -1348,6 +1360,11 @@ impl Engine<'_> {
             if end > header.end || self.document.source.get(start..end).is_none() {
                 return;
             }
+            let declared = InferredType::Values {
+                classes: BTreeSet::from([parameter.class_name.clone()]),
+                multiple: !parameter.single,
+                maybe_unset: false,
+            };
             let ty = if parameter.class_name == "java.lang.Object" {
                 InferredType::Unknown
             } else {
@@ -1357,9 +1374,12 @@ impl Engine<'_> {
                     maybe_unset: true,
                 }
             };
-            accepted.push((identity, TextRange::new(start, end), ty));
+            accepted.push((identity, TextRange::new(start, end), ty, declared));
         }
-        for (identity, range, ty) in accepted {
+        for (identity, range, ty, declared) in accepted {
+            self.document
+                .declared_parameters
+                .insert(identity.key.clone(), declared);
             facts.insert(
                 identity.key.clone(),
                 Fact {

@@ -125,11 +125,11 @@ impl Document {
         };
         let addition = if *format == MarkupKind::Markdown {
             format!(
-                "**Inferred type**\n\n{}",
+                "**Variable type**\n\n{}",
                 hover_text::code_block(&description, "text")
             )
         } else {
-            format!("Inferred type\n{description}")
+            format!("Variable type\n{description}")
         };
         let (content, range) = match native {
             Some(lsp_types::Hover {

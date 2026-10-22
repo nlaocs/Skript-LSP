@@ -563,3 +563,115 @@ fn complex_variable_suffixes_never_receive_partial_parameter_edits() {
         check(&final_view.at(at, false).unwrap());
     }
 }
+
+#[test]
+fn declared_parameter_hover_is_separate_from_current_values_and_scoped() {
+    for (kind, class, reference, plural) in [
+        ("number", "java.lang.Number", "{_arg2}", false),
+        ("text", "java.lang.String", "{_arg2}", false),
+        ("string", "java.lang.String", "{_arg2}", false),
+        ("numbers", "java.lang.Number", "{_arg2::*}", true),
+        ("object", "java.lang.Object", "{_arg2}", false),
+    ] {
+        let source = "# 日本語 😀\nfunction first(arg1: number, arg2: $TYPE) :: text:\n    return \"%{_arg1}%, %$REF%\"\nfunction second(arg2: number) :: text:\n    return \"%{_arg2}%\"\non load:\n    send {_arg2}\n"
+            .replace("$TYPE", kind).replace("$REF", reference);
+        let (_, final_view, result, _) = parse(&source);
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{kind}: {:?}",
+            result.syntax.diagnostics
+        );
+        let document = final_view.semantic_types.as_ref().unwrap();
+        let at = position(&source, reference, 2);
+        let (_, description) = document.hover(at).expect("parameter read hover");
+        let name = catalog()
+            .type_by_class_name(class)
+            .unwrap()
+            .code_name
+            .as_str()
+            .to_owned();
+        let declared = format!(
+            "Declared parameter type: {name}{}",
+            if plural { " (list elements)" } else { "" }
+        );
+        assert!(description.contains(&declared), "{kind}: {description}");
+        assert!(
+            description.contains("Inferred type: unknown"),
+            "opaque runtime boundary must not become a declared-value fact: {description}"
+        );
+        assert!(matches!(
+            document.type_at(at).unwrap().1,
+            crate::lsp::semantic::InferredType::Unknown
+        ));
+        let number_at = position(&source, "{_arg1}", 2);
+        assert!(
+            document
+                .hover(number_at)
+                .unwrap()
+                .1
+                .contains("Declared parameter type: number")
+        );
+        let second_start = source.find("function second").unwrap();
+        let second_offset = second_start + source[second_start..].find("{_arg2}").unwrap() + 2;
+        let second_at = LineIndex::new(&source)
+            .position(&source, second_offset)
+            .unwrap();
+        assert!(
+            document
+                .hover(second_at)
+                .unwrap()
+                .1
+                .contains("Declared parameter type: number")
+        );
+        let outside = LineIndex::new(&source)
+            .position(&source, source.rfind("{_arg2}").unwrap() + 2)
+            .unwrap();
+        assert!(
+            !document
+                .hover(outside)
+                .unwrap()
+                .1
+                .contains("Declared parameter type")
+        );
+    }
+}
+
+#[test]
+fn parameter_declaration_does_not_override_reassignment_or_survive_a_new_declaration() {
+    let source =
+        "function first(value: text) :: text:\n    set {_value} to 3\n    return \"%{_value}%\"\n";
+    let (_, final_view, _, _) = parse(source);
+    let document = final_view.semantic_types.as_ref().unwrap();
+    let write = position(source, "{_value}", 2);
+    let (_, description) = document.hover(write).unwrap();
+    assert!(
+        description.contains("Declared parameter type: string"),
+        "{description}"
+    );
+    let crate::lsp::semantic::InferredType::Values { classes, .. } =
+        document.type_at(write).unwrap().1
+    else {
+        panic!("known write must remain known")
+    };
+    assert!(classes.contains("java.lang.Long"), "{classes:?}");
+    let read = LineIndex::new(source)
+        .position(source, source.rfind("{_value}").unwrap() + 2)
+        .unwrap();
+    let (_, description) = document.hover(read).unwrap();
+    assert!(
+        description.contains("Declared parameter type: string")
+            && description.contains("Inferred type: unknown")
+    );
+    let changed = source.replace("value: text", "value: number");
+    let (_, changed_view, _, _) = parse(&changed);
+    let changed_at = position(&changed, "{_value}", 2);
+    let description = changed_view
+        .semantic_types
+        .as_ref()
+        .unwrap()
+        .hover(changed_at)
+        .unwrap()
+        .1;
+    assert!(description.contains("Declared parameter type: number"));
+    assert!(!description.contains("Declared parameter type: string"));
+}
