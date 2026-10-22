@@ -414,6 +414,33 @@ mod tests {
         let items = document.at(Position::new(2, 4), true).unwrap().items;
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].label, "name");
+        for format in [
+            lsp_types::MarkupKind::PlainText,
+            lsp_types::MarkupKind::Markdown,
+        ] {
+            Arc::get_mut(&mut document.index)
+                .unwrap()
+                .documentation_format = format.clone();
+            let entry = document
+                .at(Position::new(2, 4), true)
+                .unwrap()
+                .items
+                .remove(0);
+            let text = match (&format, entry.documentation.as_ref().unwrap()) {
+                (lsp_types::MarkupKind::PlainText, lsp_types::Documentation::String(text)) => text,
+                (
+                    lsp_types::MarkupKind::Markdown,
+                    lsp_types::Documentation::MarkupContent(content),
+                ) => &content.value,
+                _ => panic!("entry documentation honors format"),
+            };
+            assert!(
+                text.contains("Structure entry") && text.contains("name") && text.contains("owner"),
+                "{text}"
+            );
+            assert_eq!(entry.text_edit, items[0].text_edit);
+            assert_eq!(entry.data, items[0].data);
+        }
     }
 
     #[test]

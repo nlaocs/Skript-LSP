@@ -1,8 +1,15 @@
 //! Presentation of SSG documentation; decoded text is never reparsed as HTML.
 use lsp_types::MarkupKind;
-use syntaxes::Documentation;
+use syntaxes::{Catalog, Documentation};
 
 const LIMIT: usize = 32768;
+
+/// Display lookup only: no inheritance, conversion or inferred type selection.
+pub(super) fn type_name(catalog: &Catalog, class: &str) -> String {
+    catalog
+        .type_by_class_name(class)
+        .map_or_else(|| class.to_owned(), |ty| ty.code_name.as_str().to_owned())
+}
 
 pub(super) fn render(
     title: &str,
@@ -10,123 +17,197 @@ pub(super) fn render(
     documentation: Option<&Documentation>,
     format: &MarkupKind,
 ) -> String {
+    let body = documentation.map(|doc| documentation_body(doc, format));
+    render_cached(title, fields, body.as_ref(), format)
+}
+
+/// Compose cached, already sanitized body text without decoding it again.
+pub(super) fn render_cached(
+    title: &str,
+    fields: &[(&str, String)],
+    body: Option<&DocumentationBody>,
+    format: &MarkupKind,
+) -> String {
     let markdown = *format == MarkupKind::Markdown;
     let mut output = if markdown {
-        format!("### {}\n\n", escape(&bounded(title, 1024)))
+        format!("**{}**\n\n", escape(&bounded(title, 1024)))
     } else {
         format!("{}\n", bounded(title, 1024))
     };
-    for (label, value) in fields {
-        let value = bounded(value, 8192);
-        let field = if markdown && *label == "Pattern" {
-            format!(
-                "\n**Pattern:**\n\n{}\n\n",
-                code_block(&value, "skript-pattern")
-            )
-        } else if markdown {
-            format!("- **{}:** {}\n", escape(label), inline_code(&value))
-        } else {
-            format!("{label}: {value}\n")
-        };
-        if !append(&mut output, &field) {
-            return output;
-        }
-    }
-    if let Some(documentation) = documentation {
-        let mut raw = String::new();
-        let mut truncated = false;
-        for line in &documentation.description {
-            if raw.len() + line.len() + 1 > LIMIT {
-                truncated = true;
-                break;
+    // Implementation identities are useful, but should not precede user facts.
+    for definition in [false, true] {
+        if definition {
+            if let Some(body) = body {
+                for block in &body.blocks {
+                    if !append(&mut output, block) {
+                        return output;
+                    }
+                }
             }
-            if !raw.is_empty() {
-                raw.push('\n');
-            }
-            raw.push_str(line);
-        }
-        let description = html(&raw, markdown);
-        if !description.is_empty() && !append(&mut output, &format!("\n{description}\n")) {
-            return output;
-        }
-        if truncated {
-            if !append(&mut output, "\n… (description omitted beyond limit)\n") {
-                return output;
-            }
-        }
-        let (examples, truncated) = examples(&documentation.examples);
-        if !examples.is_empty() {
-            if !append(
-                &mut output,
-                if markdown {
-                    "\n### Examples\n"
-                } else {
-                    "\nExamples:\n"
-                },
-            ) {
-                return output;
-            }
-            for example in examples {
-                let block = if markdown {
-                    code_block(&bounded(&example, 16384), "skript")
-                } else {
-                    example
-                };
-                if !append(&mut output, &format!("\n{block}\n")) {
+            if fields.iter().any(|(label, _)| definition_field(label)) {
+                if !append(&mut output, &section("Definition", markdown)) {
                     return output;
                 }
             }
         }
-        if truncated {
-            append(&mut output, "\n… (examples omitted beyond limit)\n");
+        for (label, value) in fields {
+            if definition_field(label) != definition {
+                continue;
+            }
+            let value = bounded(value, 8192);
+            let field = if markdown && matches!(*label, "Pattern" | "Template") {
+                format!(
+                    "\n**{}:**\n\n{}\n\n",
+                    label,
+                    code_block(&value, "skript-pattern")
+                )
+            } else if markdown {
+                format!("- **{}:** {}\n", escape(label), inline_code(&value))
+            } else {
+                format!("{label}: {value}\n")
+            };
+            if !append(&mut output, &field) {
+                return output;
+            }
         }
     }
     output.trim_end().to_owned()
 }
 
+fn definition_field(label: &str) -> bool {
+    matches!(
+        label,
+        "Addon"
+            | "Java class"
+            | "Qualified Java class"
+            | "Value class"
+            | "Snapshot value classes"
+            | "Registration"
+            | "Entry class"
+            | "Structure registration"
+            | "Declaration index"
+            | "Since"
+            | "Requires"
+    )
+}
+
+fn section(label: &str, markdown: bool) -> String {
+    if markdown {
+        format!("\n\n**{label}**\n\n")
+    } else {
+        format!("\n{label}:\n")
+    }
+}
+
+/// Immutable catalog bodies are prepared once, not once per proposal.
+#[derive(Default)]
+pub(super) struct DocumentationBody {
+    blocks: Vec<String>,
+    bytes: usize,
+}
+impl DocumentationBody {
+    fn append(&mut self, block: &str) -> bool {
+        if self.bytes + block.len() > LIMIT - 64 {
+            self.blocks
+                .push("\n\n… (additional content omitted)\n".into());
+            return false;
+        }
+        self.bytes += block.len();
+        self.blocks.push(block.into());
+        true
+    }
+    #[cfg(test)]
+    pub(super) fn text(text: &str) -> Self {
+        let mut body = Self::default();
+        body.append(text);
+        body
+    }
+}
+
+pub(super) fn documentation_body(
+    documentation: &Documentation,
+    format: &MarkupKind,
+) -> DocumentationBody {
+    let markdown = *format == MarkupKind::Markdown;
+    let mut output = DocumentationBody::default();
+    let mut raw = String::new();
+    let mut truncated = false;
+    for line in &documentation.description {
+        if raw.len() + line.len() + 1 > LIMIT {
+            truncated = true;
+            break;
+        }
+        if !raw.is_empty() {
+            raw.push('\n');
+        }
+        raw.push_str(line);
+    }
+    let description = html(&raw, markdown);
+    if !description.is_empty()
+        && !output.append(&format!(
+            "{}{description}\n",
+            section("Description", markdown)
+        ))
+    {
+        return output;
+    }
+    if truncated && !output.append("\n… (description omitted beyond limit)\n") {
+        return output;
+    }
+    let (examples, truncated) = examples(&documentation.examples);
+    if !examples.is_empty() {
+        if !output.append(&section("Examples", markdown)) {
+            return output;
+        }
+        for example in examples {
+            let block = if markdown {
+                code_block(&bounded(&example, 16384), "skript")
+            } else {
+                example
+            };
+            if !output.append(&format!("\n{block}\n")) {
+                return output;
+            }
+        }
+    }
+    if truncated {
+        output.append("\n… (examples omitted beyond limit)\n");
+    }
+    output
+}
+
 /// Completion previews are pattern templates; only published examples are code.
 pub(super) fn completion(
+    title: &str,
     syntax: &str,
     template: Option<&str>,
-    detail: &str,
+    fields: &[(&str, String)],
     identity: &str,
-    documentation: Option<&str>,
+    documentation: Option<&DocumentationBody>,
     format: &MarkupKind,
 ) -> lsp_types::Documentation {
-    let mut text = if *format == MarkupKind::Markdown {
-        let mut text = String::new();
-        if let Some(template) = template {
-            text.push_str(&format!(
-                "### Template:\n\n{}\n\n",
-                code_block(template, "skript-pattern")
-            ));
-        }
-        text.push_str(&format!(
-            "### Syntax:\n\n{}\n\n{}\n\nExpected types and addon guards are not checked.\n\nRegistration: {}",
-            code_block(syntax, "skript-pattern"), inline_code(detail), inline_code(identity)
-        ));
-        text
-    } else {
-        let mut text = String::new();
-        if let Some(template) = template {
-            text.push_str(&format!("Template:\n{template}\n\n"));
-        }
-        text.push_str(&format!(
-            "Syntax:\n{syntax}\n\n{detail}\nExpected types and addon guards are not checked.\nRegistration: {identity}"
-        ));
-        text
-    };
-    if let Some(documentation) = documentation {
-        text.push_str("\n\n");
-        text.push_str(documentation);
+    let mut fields = fields.to_vec();
+    // Syntax and preview can be identical; show each distinct grammar once.
+    if let Some(template) = template.filter(|template| *template != syntax) {
+        fields.push(("Template", template.into()));
     }
+    fields.push(("Pattern", syntax.into()));
+    fields.push((
+        "Validation",
+        "Editing proposal; expected types and addon guards are not fully checked.".into(),
+    ));
+    fields.push(("Registration", identity.into()));
+    markup(render_cached(title, &fields, documentation, format), format)
+}
+
+pub(super) fn markup(value: String, format: &MarkupKind) -> lsp_types::Documentation {
     if *format == MarkupKind::Markdown {
         lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
             kind: MarkupKind::Markdown,
-            value: text,
+            value,
         })
     } else {
-        lsp_types::Documentation::String(text)
+        lsp_types::Documentation::String(value)
     }
 }
 
@@ -771,12 +852,13 @@ mod tests {
     }
 
     #[test]
-    fn completion_markup_preserves_literal_grammar_without_changing_plaintext() {
+    fn completion_markup_preserves_literal_grammar_and_plaintext_information() {
         let grammar = "[go] %entities% (to|towards) %locations%";
         let lsp_types::Documentation::MarkupContent(markdown) = completion(
+            "Effect / [Addon]",
             grammar,
             Some("go %entities% to %locations%"),
-            "Effect / [Addon]",
+            &[],
             "reg\x60id",
             None,
             &MarkupKind::Markdown,
@@ -789,26 +871,34 @@ mod tests {
                 .value
                 .contains(&code_block(grammar, "skript-pattern"))
         );
-        assert!(markdown.value.contains("### Template:\n\n\x60\x60\x60skript-pattern\ngo %entities% to %locations%\n\x60\x60\x60"));
-        assert!(markdown.value.contains("`Effect / [Addon]`"));
+        assert!(markdown.value.contains("**Template:**\n\n\x60\x60\x60skript-pattern\ngo %entities% to %locations%\n\x60\x60\x60"));
+        assert!(markdown.value.contains("**Effect / \\[Addon\\]**"));
         assert!(
             markdown
                 .value
-                .contains("Registration: \x60\x60reg\x60id\x60\x60")
+                .contains("**Registration:** \x60\x60reg\x60id\x60\x60")
         );
-        assert_eq!(
-            completion(
-                grammar,
-                None,
-                "Effect",
-                "reg",
-                Some("Description"),
-                &MarkupKind::PlainText
-            ),
-            lsp_types::Documentation::String(format!(
-                "Syntax:\n{grammar}\n\nEffect\nExpected types and addon guards are not checked.\nRegistration: reg\n\nDescription"
-            ))
-        );
+        let lsp_types::Documentation::String(plain) = completion(
+            "Effect",
+            grammar,
+            None,
+            &[],
+            "reg",
+            Some(&DocumentationBody::text("Description")),
+            &MarkupKind::PlainText,
+        ) else {
+            panic!("plain negotiation")
+        };
+        for value in [
+            grammar,
+            "Effect",
+            "Description",
+            "Validation:",
+            "Registration: reg",
+        ] {
+            assert!(plain.contains(value), "{plain}");
+        }
+        assert!(!plain.contains("**") && !plain.contains("skript-pattern"));
     }
 
     #[test]
@@ -828,9 +918,80 @@ mod tests {
             Some(&doc),
             &MarkupKind::Markdown,
         );
-        assert_eq!(text.matches("### Examples").count(), 1);
+        assert_eq!(text.matches("**Examples**").count(), 1);
         assert!(text.contains("```skript\non join:\n\tsend \"<red>\"\n```"));
         assert!(text.contains("````skript\nnext ```\n````"));
         assert!(text.contains("fourth") && text.contains("``a.b.C`D``"));
+    }
+
+    #[test]
+    fn shared_hierarchy_keeps_cached_body_once_and_definition_last() {
+        let doc = Documentation {
+            description: vec!["A &lt;value&gt;".into()],
+            examples: vec!["send 1".into()],
+            ..Default::default()
+        };
+        let body = documentation_body(&doc, &MarkupKind::Markdown);
+        let fields = [
+            ("Return type", "dynamic (snapshot Partial: number)".into()),
+            ("Registration", "a.b.C:0".into()),
+        ];
+        let text = render_cached(
+            "Expression: Example",
+            &fields,
+            Some(&body),
+            &MarkupKind::Markdown,
+        );
+        assert!(text.starts_with("**Expression: Example**"));
+        assert!(text.contains("dynamic (snapshot Partial: number)"));
+        assert_eq!(text.matches("**Description**").count(), 1);
+        assert_eq!(text.matches("**Examples**").count(), 1);
+        assert!(text.contains("A `<value>`"));
+        assert!(text.find("**Examples**").unwrap() < text.find("**Definition**").unwrap());
+        assert!(text.contains(&code_block("send 1", "skript")));
+        let lsp_types::Documentation::MarkupContent(completion) = completion(
+            "Expression: Example",
+            "value",
+            Some("value"),
+            &fields,
+            "registration",
+            Some(&body),
+            &MarkupKind::Markdown,
+        ) else {
+            panic!()
+        };
+        assert!(!completion.value.contains("**Template:**"));
+        assert_eq!(completion.value.matches("**Examples**").count(), 1);
+        assert!(completion.value.len() < LIMIT);
+    }
+
+    #[test]
+    fn cached_body_keeps_earlier_blocks_when_composed_limit_is_reached() {
+        let doc = Documentation {
+            description: vec!["kept description".into()],
+            examples: vec!["send 1".into(), "x".repeat(16384)],
+            ..Default::default()
+        };
+        let body = documentation_body(&doc, &MarkupKind::Markdown);
+        let text = render_cached(
+            "Title",
+            &[
+                ("One", "a".repeat(8192)),
+                ("Two", "b".repeat(8192)),
+                ("Three", "c".repeat(8192)),
+            ],
+            Some(&body),
+            &MarkupKind::Markdown,
+        );
+        assert!(text.contains("kept description"));
+        assert!(text.contains(&code_block("send 1", "skript")));
+        assert!(!text.contains(&"x".repeat(100)));
+        assert!(text.contains("additional content omitted") && text.len() < LIMIT);
+        assert_eq!(
+            text.lines()
+                .filter(|line| line.starts_with("\x60\x60\x60"))
+                .count(),
+            2
+        );
     }
 }

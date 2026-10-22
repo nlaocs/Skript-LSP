@@ -108,16 +108,16 @@ impl Index {
 impl Index {
     /// Display snapshot declarations separately from the current provider proof.
     /// A revoked proof must never leave a previously narrowed type in the menu.
-    pub(super) fn output_description(&self, identity: &str) -> String {
+    fn output_display(&self, identity: &str) -> (String, &'static str) {
         let Some(output) = self.outputs.get(identity) else {
-            return "return: unknown; cardinality: unknown".into();
+            return ("unknown".into(), "unknown");
         };
         let actual = &output.actual;
         let proven = self.closed && self.current() && actual.complete && !actual.classes.is_empty();
         let classes = |values: &[ClassName]| {
             values
                 .iter()
-                .map(ClassName::as_str)
+                .map(|class| super::super::hover_text::type_name(&self.catalog, class.as_str()))
                 .collect::<Vec<_>>()
                 .join(" | ")
         };
@@ -132,7 +132,7 @@ impl Index {
                 value.push_str(&format!(
                     " (snapshot {:?}: {})",
                     output.declared_state,
-                    declared.as_str()
+                    super::super::hover_text::type_name(&self.catalog, declared.as_str())
                 ));
             }
             if !output.possible.is_empty() {
@@ -145,15 +145,43 @@ impl Index {
             value
         };
         let cardinality = if proven { actual.multiplicity } else { None };
-        format!(
-            "return: {ty}; cardinality: {}",
+        (
+            ty,
             match cardinality {
                 Some(Multiplicity::Single) => "single",
                 Some(Multiplicity::Multiple) => "plural",
                 Some(Multiplicity::Both) => "single or plural",
                 None => "unknown",
-            }
+            },
         )
+    }
+    pub(super) fn output_description(&self, identity: &str) -> String {
+        let (ty, cardinality) = self.output_display(identity);
+        format!("return: {ty}; cardinality: {cardinality}")
+    }
+    pub(super) fn display_type(&self, class: &str) -> String {
+        super::super::hover_text::type_name(&self.catalog, class)
+    }
+    pub(super) fn output_fields(&self, identity: &str) -> Vec<(&'static str, String)> {
+        let (ty, cardinality) = self.output_display(identity);
+        let mut fields = vec![("Return type", ty), ("Multiplicity", cardinality.into())];
+        if let Some(output) = self.outputs.get(identity) {
+            let classes = output
+                .actual
+                .classes
+                .iter()
+                .chain(output.declared.iter())
+                .chain(output.possible.iter())
+                .map(ClassName::as_str)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(" | ");
+            if !classes.is_empty() {
+                fields.push(("Snapshot value classes", classes));
+            }
+        }
+        fields
     }
 }
 impl CatalogIndex {
@@ -1147,10 +1175,18 @@ mod binding_tests {
         let dynamic = index.output_description("display");
         assert!(dynamic.starts_with("return: dynamic"), "{dynamic}");
         assert!(
-            dynamic.contains("possibilities Partial: java.lang.Number | java.lang.String"),
+            dynamic.contains("possibilities Partial: number | string"),
             "{dynamic}"
         );
         assert!(dynamic.ends_with("cardinality: unknown"), "{dynamic}");
+        let fields = index.output_fields("display");
+        assert!(
+            fields
+                .iter()
+                .any(|(label, value)| *label == "Snapshot value classes"
+                    && value.contains("java.lang.Number")
+                    && value.contains("java.lang.String"))
+        );
         index.closed = true;
         let output = index.outputs.get_mut("display").unwrap();
         output.actual = Actual {
@@ -1160,7 +1196,7 @@ mod binding_tests {
         };
         assert_eq!(
             index.output_description("display"),
-            "return: java.lang.Number | java.lang.String; cardinality: single or plural"
+            "return: number | string; cardinality: single or plural"
         );
         let output = index.outputs.get_mut("display").unwrap();
         output.actual.complete = false;

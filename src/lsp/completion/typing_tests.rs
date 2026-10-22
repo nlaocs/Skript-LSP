@@ -1365,12 +1365,12 @@ fn expression_return_detail_reaches_preview_without_claiming_cardinality() {
     ] {
         let pi = list.items.iter().find(|i| i.label == "pi").unwrap();
         let detail = pi.detail.as_ref().unwrap();
-        assert!(detail.contains("return: java.lang.Double"), "{detail}");
+        assert!(detail.contains("return: double"), "{detail}");
         assert!(detail.contains("cardinality: unknown"), "{detail}");
         assert!(
             serde_json::to_string(&pi.documentation)
                 .unwrap()
-                .contains("return: java.lang.Double")
+                .contains("Return type: double")
         );
     }
 }

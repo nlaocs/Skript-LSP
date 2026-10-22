@@ -79,7 +79,7 @@ impl Document {
                 }
             }
         }
-        let (entry_targets, entry_blocked) = structure::targets(&result, &format)?;
+        let (entry_targets, entry_blocked) = structure::targets(&result, &format, &catalog)?;
         blocked.extend(entry_blocked);
         let functions = result.functions.definitions();
         let mut document = Self::from_ast(source, result.ast, functions, catalog, blocked, format)?;
@@ -478,9 +478,7 @@ impl Descriptions {
     }
 
     fn type_name(&self, class: &str) -> String {
-        self.catalog
-            .type_by_class_name(class)
-            .map_or_else(|| class.to_owned(), |ty| ty.code_name.as_str().to_owned())
+        super::hover_text::type_name(&self.catalog, class)
     }
 
     fn parameter(&self, name: &str, class: &str, single: bool, optional: bool) -> String {

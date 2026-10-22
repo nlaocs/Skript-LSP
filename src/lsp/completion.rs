@@ -3,9 +3,11 @@
 //! These are editing suggestions, not successful parse candidates. Expected
 //! types use native contracts; execution scopes and addon guards are not guessed.
 use super::{positions::LineIndex, public_data::variable_details};
+#[cfg(test)]
+use lsp_types::Documentation;
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionList, CompletionTextEdit, Documentation,
-    InsertTextFormat, Position, TextEdit,
+    CompletionItem, CompletionItemKind, CompletionList, CompletionTextEdit, InsertTextFormat,
+    Position, TextEdit,
 };
 use parser_wasm::{DocumentParseResult, host::AstNode};
 use skript_parser::{
@@ -16,7 +18,7 @@ use std::{
     sync::Arc,
 };
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
-use syntaxes::{Catalog, ClassName, Syntax, SyntaxKind};
+use syntaxes::{Catalog, Syntax, SyntaxKind};
 
 mod continuation;
 mod cursor;
@@ -49,7 +51,7 @@ enum Part {
 #[derive(Clone)]
 struct Template {
     finite_capture: bool,
-    documentation: Option<Arc<str>>,
+    documentation: Option<Arc<super::hover_text::DocumentationBody>>,
     kind: SyntaxKind,
     label: String,
     detail: String,
@@ -59,7 +61,7 @@ struct Template {
     parts: Vec<Part>,
 }
 struct Pattern {
-    documentation: Option<Arc<str>>,
+    documentation: Option<Arc<super::hover_text::DocumentationBody>>,
     kind: SyntaxKind,
     label: String,
     detail: String,
@@ -73,6 +75,7 @@ struct Function {
     detail: String,
     parameters: Vec<(String, String, bool, bool)>,
     returns_value: bool,
+    documentation: Option<Arc<super::hover_text::DocumentationBody>>,
     definition: Option<Arc<FunctionDefinition>>,
 }
 impl Function {
@@ -102,6 +105,7 @@ impl Function {
                 })
                 .collect(),
             returns_value: definition.return_type.is_some(),
+            documentation: None,
             definition: Some(Arc::new(definition.clone())),
         }
     }
@@ -148,6 +152,13 @@ impl CatalogIndex {
                 // Match parser lookup order even when the first definition is void.
                 if function_shapes.insert(shape) {
                     candidate.detail = format!("Function / {}", function.addon.name);
+                    candidate.documentation = Some(
+                        super::hover_text::documentation_body(
+                            &function.documentation,
+                            &index.documentation_format,
+                        )
+                        .into(),
+                    );
                     index.functions.push(candidate);
                 }
                 continue;
@@ -155,13 +166,12 @@ impl CatalogIndex {
             let Some(common) = syntax.common() else {
                 continue;
             };
-            let documentation: Arc<str> = super::hover_text::render(
-                common.documentation.name.as_deref().unwrap_or("Syntax"),
-                &[("Addon", common.addon.name.clone())],
-                Some(&common.documentation),
-                &index.documentation_format,
-            )
-            .into();
+            let documentation: Arc<super::hover_text::DocumentationBody> =
+                super::hover_text::documentation_body(
+                    &common.documentation,
+                    &index.documentation_format,
+                )
+                .into();
             for (pattern_index, pattern) in common.patterns.iter().enumerate() {
                 if pattern.source.len() > MAX_TEMPLATE_BYTES {
                     index.limited = true;
@@ -851,9 +861,13 @@ impl Document {
                     serde_json::json!({"syntaxKind":format!("{:?}", pattern.kind),"continuation":true,"syntaxIdentity":pattern.identity}),
                 );
                 item.documentation = Some(super::hover_text::completion(
+                    &pattern.detail,
                     &pattern.label,
                     None,
-                    &detail,
+                    &[(
+                        "Status",
+                        "Alternative grammar continuation (arguments unverified)".into(),
+                    )],
                     &pattern.identity,
                     pattern.documentation.as_deref(),
                     &self.index.documentation_format,
@@ -1061,7 +1075,8 @@ impl Document {
                                 definition
                                     .return_type
                                     .as_ref()
-                                    .map_or("unknown", ClassName::as_str),
+                                    .map(|class| self.display_type(class.as_str()))
+                                    .unwrap_or_else(|| "none".into()),
                                 if definition.return_type_is_single {
                                     "single"
                                 } else {
@@ -1080,6 +1095,47 @@ impl Document {
                         TextRange::new(word_start, word_end),
                         use_snippets,
                     )?;
+                    let mut fields = vec![
+                        ("Signature", label.clone()),
+                        ("Information", function.detail.clone()),
+                    ];
+                    if let Some(definition) = &function.definition {
+                        fields.push((
+                            "Return type",
+                            definition
+                                .return_type
+                                .as_ref()
+                                .map(|class| self.display_type(class.as_str()))
+                                .unwrap_or_else(|| "none".into()),
+                        ));
+                        if definition.return_type.is_some() {
+                            fields.push((
+                                "Multiplicity",
+                                if definition.return_type_is_single {
+                                    "single"
+                                } else {
+                                    "plural"
+                                }
+                                .into(),
+                            ));
+                        }
+                        fields.push(("Return information", "declared".into()));
+                        if let Some(class) = &definition.return_type {
+                            fields.push(("Value class", class.0.clone()));
+                        }
+                    } else {
+                        fields.push(("Return type", "unknown".into()));
+                    }
+                    fields.push(("Registration", function.identity.clone()));
+                    item.documentation = Some(super::hover_text::markup(
+                        super::hover_text::render_cached(
+                            "Function",
+                            &fields,
+                            function.documentation.as_deref(),
+                            &self.index.documentation_format,
+                        ),
+                        &self.index.documentation_format,
+                    ));
                     if existing_call {
                         let tail = &self.source[word_end..line.range.end];
                         let opening = tail.len() - tail.trim_start().len();
@@ -1238,10 +1294,25 @@ impl Document {
         if template.finite_capture {
             item.data.as_mut().unwrap()["finiteCaptureValue"] = serde_json::json!(true);
         }
+        let fields = if template.kind == SyntaxKind::Expression {
+            self.index
+                .typing
+                .as_ref()
+                .map(|index| index.output_fields(&template.identity))
+                .unwrap_or_else(|| {
+                    vec![
+                        ("Return type", "unknown".into()),
+                        ("Multiplicity", "unknown".into()),
+                    ]
+                })
+        } else {
+            Vec::new()
+        };
         item.documentation = Some(super::hover_text::completion(
+            &template.detail,
             &template.label,
             Some(&label),
-            &detail,
+            &fields,
             &template.identity,
             template.documentation.as_deref(),
             &self.index.documentation_format,
@@ -1249,6 +1320,12 @@ impl Document {
         // The definition owns the complete proposal only without a retained
         // right suffix; render(false) itself may stop at the first slot.
         Ok((item, !suffix))
+    }
+    fn display_type(&self, class: &str) -> String {
+        self.index
+            .typing
+            .as_ref()
+            .map_or_else(|| class.to_owned(), |index| index.display_type(class))
     }
     fn item(
         &self,
@@ -1264,9 +1341,30 @@ impl Document {
             label: label.into(),
             kind: Some(kind),
             detail: Some(detail.into()),
-            documentation: Some(Documentation::String(format!(
-                "Syntax:\n{label}\n\n{detail}\nRegistration: {identity}"
-            ))),
+            // Function and syntax owners compose their richer document once.
+            documentation: matches!(
+                kind,
+                CompletionItemKind::VARIABLE | CompletionItemKind::PROPERTY
+            )
+            .then(|| {
+                super::hover_text::markup(
+                    super::hover_text::render(
+                        if kind == CompletionItemKind::VARIABLE {
+                            "Variable"
+                        } else {
+                            "Structure entry"
+                        },
+                        &[
+                            ("Name", label.into()),
+                            ("Information", detail.into()),
+                            ("Registration", identity.into()),
+                        ],
+                        None,
+                        &self.index.documentation_format,
+                    ),
+                    &self.index.documentation_format,
+                )
+            }),
             filter_text: Some(insertion.split("${").next().unwrap_or(insertion).into()),
             insert_text_format: Some(if snippets {
                 InsertTextFormat::SNIPPET
@@ -1496,7 +1594,9 @@ mod tests {
             let parts = normalize_parts(parts);
             index.templates.push(Template {
                 finite_capture: false,
-                documentation: Some(Arc::from("Supplied syntax description")),
+                documentation: Some(Arc::new(super::super::hover_text::DocumentationBody::text(
+                    "Supplied syntax description",
+                ))),
                 kind: SyntaxKind::Effect,
                 label: grammar.into(),
                 detail: "Effect / Move / Test".into(),
@@ -1539,7 +1639,9 @@ mod tests {
                 };
                 assert!(text.contains(grammar));
                 assert!(text.contains("Supplied syntax description"));
-                assert!(text.contains("Expected types and addon guards are not checked."));
+                assert!(text.contains(
+                    "Editing proposal; expected types and addon guards are not fully checked."
+                ));
             }
         }
     }
@@ -1605,7 +1707,9 @@ mod tests {
         let index = Arc::get_mut(&mut document.index).unwrap();
         for identity in ["first:0", "second:0", "first:0"] {
             index.patterns.push(Pattern {
-                documentation: Some(Arc::from("Registered syntax description")),
+                documentation: Some(Arc::new(super::super::hover_text::DocumentationBody::text(
+                    "Registered syntax description",
+                ))),
                 kind: SyntaxKind::Effect,
                 label: grammar.into(),
                 detail: identity.into(),
@@ -1675,6 +1779,7 @@ mod tests {
             detail: "fixture".into(),
             parameters: vec![("argument".into(), class.into(), true, false)],
             returns_value,
+            documentation: None,
             definition: None,
         }
     }

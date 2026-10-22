@@ -61,6 +61,7 @@ mod tests {
             &BTreeMap::new(),
             "owner",
             &MarkupKind::PlainText,
+            None,
             &mut targets,
             &mut blocked,
         )
@@ -96,6 +97,7 @@ mod tests {
             &BTreeMap::new(),
             "owner",
             &MarkupKind::Markdown,
+            None,
             &mut targets,
             &mut blocked,
         )
@@ -112,6 +114,7 @@ mod tests {
                 &BTreeMap::new(),
                 "owner",
                 &MarkupKind::PlainText,
+                None,
                 &mut targets,
                 &mut blocked
             )
@@ -130,15 +133,16 @@ mod tests {
             "owner",
             0,
             &MarkupKind::PlainText,
+            None,
         );
         assert!(text.contains("Entry path: nested / value"));
         assert!(text.contains("Shape: section"));
         assert!(text.contains("Body: conditions"));
-        let text = describe(&data, &path, None, "owner", 0, &MarkupKind::PlainText);
+        let text = describe(&data, &path, None, "owner", 0, &MarkupKind::PlainText, None);
         assert!(text.contains("raw (no executable body declaration)"));
         data.kind = EntryKind::Unknown;
         data.return_types.clear();
-        let text = describe(&data, &path, None, "owner", 0, &MarkupKind::PlainText);
+        let text = describe(&data, &path, None, "owner", 0, &MarkupKind::PlainText, None);
         assert!(text.contains("Value type: unknown (not declared)"));
         assert!(text.contains("Shape: unknown (provider-defined)"));
     }
@@ -153,6 +157,7 @@ use syntaxes::{EntryData, EntryKind, EntryValidator};
 pub(super) fn targets(
     result: &DocumentParseResult,
     format: &MarkupKind,
+    catalog: &Catalog,
 ) -> Result<(Vec<Target>, Vec<TextRange>), String> {
     let mut targets = Vec::new();
     let mut blocked = Vec::new();
@@ -179,6 +184,7 @@ pub(super) fn targets(
                 &candidate.entry_body_modes,
                 &candidate.matched.registration_id,
                 format,
+                Some(catalog),
                 &mut targets,
                 &mut blocked,
             )?;
@@ -194,6 +200,7 @@ fn collect(
     modes: &BTreeMap<Vec<String>, SectionBodyMode>,
     registration: &str,
     format: &MarkupKind,
+    catalog: Option<&Catalog>,
     targets: &mut Vec<Target>,
     blocked: &mut Vec<TextRange>,
 ) -> Result<(), String> {
@@ -228,6 +235,7 @@ fn collect(
                             registration,
                             entry.declaration_index,
                             format,
+                            catalog,
                         )
                         .into(),
                         origins: span
@@ -266,6 +274,7 @@ fn collect(
                 modes,
                 registration,
                 format,
+                catalog,
                 targets,
                 blocked,
             )?;
@@ -281,7 +290,14 @@ fn describe(
     registration: &str,
     index: usize,
     format: &MarkupKind,
+    catalog: Option<&Catalog>,
 ) -> String {
+    let type_name = |class: &str| {
+        catalog.map_or_else(
+            || class.to_owned(),
+            |catalog| super::super::hover_text::type_name(catalog, class),
+        )
+    };
     let section = matches!(
         data.kind,
         EntryKind::Trigger | EntryKind::Container | EntryKind::Section
@@ -332,18 +348,30 @@ fn describe(
         let value_type = data
             .value_type
             .as_ref()
-            .map(|class| class.0.clone())
+            .map(|class| type_name(class.as_str()))
             .or_else(|| {
                 (!data.return_types.is_empty()).then(|| {
                     data.return_types
                         .iter()
-                        .map(|class| class.as_str())
+                        .map(|class| type_name(class.as_str()))
                         .collect::<Vec<_>>()
                         .join(" | ")
                 })
             })
             .unwrap_or_else(|| "unknown (not declared)".into());
         fields.push(("Value type", value_type));
+        let classes = data
+            .value_type
+            .iter()
+            .chain(data.return_types.iter())
+            .map(|class| class.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if !classes.is_empty() {
+            fields.push(("Value class", classes));
+        }
         fields.push(("Value multiplicity", "unknown (not declared)".into()));
         fields.push((
             "Separator",

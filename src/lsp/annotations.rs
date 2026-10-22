@@ -152,27 +152,20 @@ impl Document {
             .hover
             .as_ref()
             .and_then(|document| document.at(position));
-        let Some((range, description)) = self
+        let Some((range, fields)) = self
             .semantic
             .as_ref()
-            .and_then(|document| document.hover(position))
+            .and_then(|document| document.hover_fields(position))
         else {
             return native;
         };
-        let addition = if *format == MarkupKind::Markdown {
-            format!(
-                "**Variable type**\n\n{}",
-                hover_text::code_block(&description, "text")
-            )
-        } else {
-            format!("Variable type\n{description}")
-        };
+        let addition = hover_text::render("Variable type", &fields, None, format);
         let (content, range) = match native {
             Some(lsp_types::Hover {
                 contents: lsp_types::HoverContents::Markup(content),
                 range: native_range,
             }) => (
-                format!("{}\n\n{}", content.value, addition),
+                format!("{}\n\n{}", addition, content.value),
                 native_range.or(Some(range)),
             ),
             _ => (addition, Some(range)),

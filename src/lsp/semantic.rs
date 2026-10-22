@@ -80,11 +80,7 @@ impl InferredType {
             } => {
                 let mut names = classes
                     .iter()
-                    .map(|class| {
-                        catalog
-                            .type_by_class_name(class)
-                            .map_or_else(|| class.clone(), |ty| ty.code_name.as_str().to_owned())
-                    })
+                    .map(|class| super::hover_text::type_name(catalog, class))
                     .collect::<Vec<_>>();
                 if *maybe_unset {
                     names.push("unset".into());
@@ -526,21 +522,33 @@ impl Document {
             &occurrence.ty,
         ))
     }
-    pub fn hover(&self, position: Position) -> Option<(Range, String)> {
+    pub fn hover_fields(&self, position: Position) -> Option<(Range, Vec<(&'static str, String)>)> {
         let (range, ty) = self.type_at(position)?;
         let occurrence = self.at(position)?;
         let Reference::Variable { identity, .. } = &occurrence.reference else {
             return None;
         };
-        let mut description = String::new();
+        let mut fields = Vec::new();
         if let Some(declared) = self.declared_parameters.get(&identity.key) {
-            description.push_str(&format!(
-                "Declared parameter type: {}\n",
-                declared.description(&self.catalog)
+            fields.push((
+                "Declared parameter type",
+                declared.description(&self.catalog),
             ));
         }
-        description.push_str(&format!("Inferred type: {}", ty.description(&self.catalog)));
-        Some((range, description))
+        fields.push(("Inferred type", ty.description(&self.catalog)));
+        Some((range, fields))
+    }
+    #[cfg(test)]
+    pub fn hover(&self, position: Position) -> Option<(Range, String)> {
+        let (range, fields) = self.hover_fields(position)?;
+        Some((
+            range,
+            fields
+                .iter()
+                .map(|(label, value)| format!("{label}: {value}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ))
     }
     /// Project documents must all be current published generations. The caller
     /// removes invalidated documents before passing this read-only set.

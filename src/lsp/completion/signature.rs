@@ -780,6 +780,7 @@ mod tests {
             identity: "fixture".into(),
             detail: "fixture".into(),
             returns_value: true,
+            documentation: None,
             definition: None,
             parameters: vec![("first".into(), "Number".into(), true, false)],
         });
@@ -804,6 +805,7 @@ mod tests {
                 identity: "fixture".into(),
                 detail: "fixture".into(),
                 returns_value: true,
+                documentation: None,
                 definition: None,
                 parameters: vec![("first".into(), "Number".into(), true, false)],
             });
@@ -862,6 +864,7 @@ mod tests {
             identity: class.into(),
             detail: class.into(),
             returns_value: true,
+            documentation: None,
             definition: None,
             parameters: vec![
                 ("first".into(), class.into(), single, false),
@@ -873,6 +876,7 @@ mod tests {
         index.functions = vec![function("Number", true), function("Text", true)];
         document.functions = vec![Function {
             returns_value: false,
+            documentation: None,
             definition: None,
             detail: "local void".into(),
             ..function("Number", true)
