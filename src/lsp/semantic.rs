@@ -19,6 +19,7 @@ use std::{
 };
 use syntaxes::Catalog;
 mod call_hierarchy;
+mod document_symbols;
 mod navigation;
 
 const CHANGE: &str = "skript.semantic.variable-change";
@@ -206,6 +207,7 @@ pub(super) struct Document {
     catalog: Arc<Catalog>,
     occurrences: Vec<Occurrence>,
     calls: Vec<call_hierarchy::CallSite>,
+    symbols: Vec<lsp_types::DocumentSymbol>,
     // Lexical declaration information, never a replacement for current flow facts.
     declared_parameters: HashMap<VariableKey, InferredType>,
     completion_points: Vec<CompletionPoint>,
@@ -402,6 +404,9 @@ impl Document {
             functions,
             Some(result.functions.document_id().to_owned()),
         )?;
+        document.symbols = document_symbols::collect(result, &document.lines, |node, issuer| {
+            witnesses.provider_valid(node, issuer)
+        });
         for region in &result.dependency_unavailable {
             for origin in &region.span.origins {
                 let range = TextRange::new(
@@ -490,6 +495,7 @@ impl Document {
             catalog,
             occurrences: Vec::new(),
             calls: Vec::new(),
+            symbols: Vec::new(),
             declared_parameters: HashMap::new(),
             completion_points: Vec::new(),
             completion_type_bindings: 0,

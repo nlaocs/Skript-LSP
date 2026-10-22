@@ -289,3 +289,66 @@ fn call_hierarchy_prepare_uses_semantic_wait_cancellation_and_edit_invalidation(
     no_responses(&client, 74, &[70, 72]);
     client.finish();
 }
+
+#[test]
+fn document_symbols_wait_cancel_and_invalidate_with_the_document_generation() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    request(&client, 80, "textDocument/documentSymbol", 0);
+    no_responses(&client, 81, &[80]);
+    client.notify("$/cancelRequest", json!({"id":80}));
+    assert_eq!(
+        token_response(&client, 80)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    request(&client, 82, "textDocument/documentSymbol", 0);
+    client.change(2, "fresh");
+    assert_eq!(
+        token_response(&client, 82)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    client.proceed.send(()).unwrap();
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 2);
+    client.diagnostics(2);
+    request(&client, 83, "textDocument/documentSymbol", 0);
+    assert_eq!(
+        token_response(&client, 83).response_result.unwrap(),
+        json!([])
+    );
+    no_responses(&client, 84, &[80, 82]);
+    client.finish();
+}
+
+#[test]
+fn document_symbols_negotiate_hierarchy_without_assuming_client_support() {
+    for (support, expected) in [
+        (json!({}), false),
+        (json!({"hierarchicalDocumentSymbolSupport":false}), false),
+        (json!({"hierarchicalDocumentSymbolSupport":true}), true),
+    ] {
+        let params=serde_json::from_value(json!({"rootUri":fixture_project_uri(),"capabilities":{"textDocument":{"documentSymbol":support}},"initializationOptions":{"snapshotPath":"snapshot"}})).unwrap();
+        assert_eq!(
+            ProjectConfig::from_params(params)
+                .unwrap()
+                .hierarchical_symbols,
+            expected
+        );
+    }
+}
+
+#[test]
+fn document_symbols_legacy_clients_receive_supported_kinds_in_flat_and_nested_results() {
+    let mut symbols = json!([{"kind":24,"children":[{"kind":12},{"kind":23}]}]);
+    crate::lsp::annotations::legacy_symbol_kinds(&mut symbols);
+    assert_eq!(
+        symbols,
+        json!([{"kind":3,"children":[{"kind":12},{"kind":3}]}])
+    );
+}

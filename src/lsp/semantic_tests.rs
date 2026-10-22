@@ -1350,3 +1350,166 @@ fn call_hierarchy_distinguishes_provider_overloads_at_the_same_source_location()
         assert_eq!(incoming[0].from_ranges, call.from_ranges);
     }
 }
+
+#[test]
+fn document_symbols_use_native_hierarchy_exact_utf16_ranges_and_owned_records() {
+    let mut fixture = Fixture::new("# 🌳\n親:\n    子:\n        value\nnext:");
+    let child = fixture.push(SyntaxKind::Section, "section", fixture.line(2));
+    let root = fixture.push(SyntaxKind::Structure, "structure", fixture.line(1));
+    let next = fixture.push(SyntaxKind::Structure, "structure", fixture.line(4));
+    fixture.nodes[root as usize].children.push(child);
+    for (id, name) in [(root, "親"), (child, "子"), (next, "next")] {
+        fixture.nodes[id as usize].metadata.push(metadata(parser_wasm::DOCUMENT_SYMBOL_METADATA,
+            json!({"version":1,"name":name,"kind":3,"detail":null,"selection":{"start":0,"end":name.len()}})));
+    }
+    let mapped = skript_parser::MappedSource::identity(Arc::clone(&fixture.source));
+    let raw = skript_parser::parse_raw_tree(
+        &mapped,
+        skript_parser::RawTreeOptions::for_skript_version(2, 15),
+    );
+    let lines = LineIndex::new(&fixture.source);
+    let mut ast = AstTree {
+        roots: vec![next, root],
+        nodes: fixture.nodes,
+    };
+    let collect = |ast: &AstTree| {
+        document_symbols::from_ast(ast, &raw, &mapped, &lines, &[], |_, issuer| {
+            issuer == "fixture.semantic-provider"
+        })
+    };
+    let symbols = collect(&ast);
+    assert_eq!(
+        symbols.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        ["親", "next"]
+    );
+    assert_eq!(
+        symbols[0].range,
+        Range::new(Position::new(1, 0), Position::new(3, 13))
+    );
+    assert_eq!(
+        symbols[0].selection_range,
+        Range::new(Position::new(1, 0), Position::new(1, 1))
+    );
+    assert_eq!(symbols[0].children.as_ref().unwrap()[0].name, "子");
+    let mut altered_raw = raw.clone();
+    altered_raw
+        .nodes
+        .iter_mut()
+        .find(|node| {
+            node.code_span.as_ref().is_some_and(|span| {
+                span.virtual_range.start
+                    == ast.nodes[child as usize].span.virtual_range.start as usize
+            })
+        })
+        .unwrap()
+        .parent = None;
+    let altered = document_symbols::from_ast(&ast, &altered_raw, &mapped, &lines, &[], |_, _| true);
+    assert!(
+        altered[0].children.is_none(),
+        "contained geometry without native raw ancestry cannot make a child"
+    );
+    let blocked = document_symbols::from_ast(
+        &ast,
+        &raw,
+        &mapped,
+        &lines,
+        &[(
+            ast.nodes[root as usize].span.virtual_range.start,
+            ast.nodes[root as usize].span.virtual_range.end,
+        )],
+        |_, _| true,
+    );
+    assert!(!blocked.iter().any(|symbol| symbol.name == "親"));
+    ast.nodes[child as usize].metadata[0].owner_component_id = Some("foreign".into());
+    assert!(
+        collect(&ast)[0].children.is_none(),
+        "forged owners cannot supply symbols"
+    );
+    ast.nodes[child as usize].metadata[0].owner_component_id =
+        Some("fixture.semantic-provider".into());
+    for bad in [
+        json!({"version":2,"name":"子","kind":3,"selection":{"start":0,"end":3}}),
+        json!({"version":1,"name":"子","kind":0,"selection":{"start":0,"end":3}}),
+        json!({"version":1,"name":"子","kind":3,"selection":{"start":1,"end":3}}),
+        json!({"version":1,"name":"子","kind":3,"selection":{"start":0,"end":999}}),
+        json!({"version":1,"name":" ","kind":3,"selection":{"start":0,"end":3}}),
+    ] {
+        ast.nodes[child as usize].metadata[0].value = bad.to_string();
+        assert!(collect(&ast)[0].children.is_none(), "bad contract {bad}");
+    }
+    ast.nodes[child as usize].metadata[0].value =
+        json!({"version":1,"name":"子","kind":3,"selection":{"start":0,"end":3}}).to_string();
+    let duplicate = ast.nodes[child as usize].metadata[0].clone();
+    ast.nodes[child as usize].metadata.push(duplicate);
+    assert!(
+        collect(&ast)[0].children.is_none(),
+        "duplicate contracts make no claim"
+    );
+    let mut document =
+        Fixture::new("unused").finish_with(&[], Vec::new(), Vec::new(), "file:///outline.sk");
+    document.symbols = symbols;
+    let flat = document.document_symbols(false);
+    assert_eq!(flat.as_array().unwrap().len(), 3);
+    assert_eq!(flat[1]["containerName"], "親");
+    assert_eq!(
+        flat[1]["location"]["range"]["start"],
+        json!({"line":2,"character":4})
+    );
+}
+
+#[test]
+fn document_symbols_reject_generated_source_and_ast_parentage_without_raw_ancestry() {
+    let mut fixture = Fixture::new("one:\n    value\ntwo:\n    value");
+    let a = fixture.push(SyntaxKind::Structure, "structure", fixture.line(0));
+    let b = fixture.push(SyntaxKind::Section, "section", fixture.line(2));
+    for id in [a, b] {
+        fixture.nodes[id as usize].metadata.push(metadata(
+            parser_wasm::DOCUMENT_SYMBOL_METADATA,
+            json!({"version":1,"name":"outline","kind":3,"selection":{"start":0,"end":3}}),
+        ));
+    }
+    fixture.nodes[a as usize].children.push(b);
+    let mapped = skript_parser::MappedSource::identity(Arc::clone(&fixture.source));
+    let raw = skript_parser::parse_raw_tree(
+        &mapped,
+        skript_parser::RawTreeOptions::for_skript_version(2, 15),
+    );
+    let ast = AstTree {
+        roots: vec![a],
+        nodes: fixture.nodes,
+    };
+    let symbols = document_symbols::from_ast(
+        &ast,
+        &raw,
+        &mapped,
+        &LineIndex::new(&fixture.source),
+        &[],
+        |_, _| true,
+    );
+    assert_eq!(symbols.len(), 1);
+    assert!(
+        symbols[0].children.is_none(),
+        "AST parentage alone cannot make a sibling a child"
+    );
+    let mapped = skript_parser::MappedSource::new(
+        Arc::clone(&fixture.source),
+        Arc::clone(&fixture.source),
+        Default::default(),
+        vec![skript_parser::SourceMapSegment::new(
+            TextRange::new(0, fixture.source.len()),
+            skript_parser::SourceOrigin::replaced(TextRange::new(0, fixture.source.len()), None),
+        )],
+    )
+    .unwrap();
+    assert!(
+        document_symbols::from_ast(
+            &ast,
+            &raw,
+            &mapped,
+            &LineIndex::new(&fixture.source),
+            &[],
+            |_, _| true
+        )
+        .is_empty()
+    );
+}

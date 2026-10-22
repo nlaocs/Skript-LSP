@@ -1634,3 +1634,78 @@ fn call_hierarchy_resolves_body_edges_recursion_local_visibility_and_repeated_si
         "source and declaration witness reject an old item even with a forged unchanged transport stamp"
     );
 }
+
+#[test]
+fn document_symbols_core_metadata_survives_partial_bodies_and_tracks_current_revision() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("outline.sk");
+    let source = "# 🌳\nfunction greet(name: text) :: text:\n    return {_name}\ncommand /hello:\n    trigger:\n        send 1\non load:\n    not_a_valid_statement\noptions:\n    label: demo\nfunction broken(\n";
+    let mut snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(&path, source, 1, 1)],
+    };
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    let analyzed = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &snapshot.open[0].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    let symbols = analyzed.current_semantic.document_symbols(true);
+    let symbols = symbols.as_array().unwrap();
+    assert_eq!(
+        symbols
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["greet", "command /hello", "on load", "options"]
+    );
+    assert_eq!(symbols[0]["kind"], 12);
+    assert_eq!(symbols[1]["kind"], 6);
+    assert_eq!(symbols[2]["kind"], 24);
+    assert_eq!(symbols[3]["kind"], 3);
+    assert_eq!(
+        symbols[0]["selectionRange"],
+        serde_json::json!({"start":{"line":1,"character":9},"end":{"line":1,"character":14}})
+    );
+    assert_eq!(
+        symbols[1]["range"]["end"],
+        serde_json::json!({"line":5,"character":14})
+    );
+    let previous = snapshot.open[0].source.clone();
+    snapshot.epoch = 2;
+    snapshot.open[0] = view(
+        &path,
+        &source.replace("function greet(", "function updated("),
+        2,
+        2,
+    );
+    let revised = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &snapshot.open[0].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    let symbols = revised.current_semantic.document_symbols(true);
+    assert_eq!(symbols[0]["name"], "updated");
+    assert!(
+        !symbols
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["name"] == "greet")
+    );
+    assert_eq!(previous.as_ref(), source, "analysis does not edit input");
+}

@@ -2,11 +2,27 @@
 use super::*;
 use lsp_types::{GotoDefinitionParams, InlayHintParams, Range, ReferenceParams};
 
+// Clients without a SymbolKind capability only support the original 1..=18.
+pub(super) fn legacy_symbol_kinds(symbols: &mut Value) {
+    let mut stack = vec![symbols];
+    while let Some(list) = stack.pop() {
+        for symbol in list.as_array_mut().into_iter().flatten() {
+            if symbol["kind"].as_u64().is_some_and(|kind| kind > 18) {
+                symbol["kind"] = json!(3);
+            }
+            if let Some(children) = symbol.get_mut("children") {
+                stack.push(children);
+            }
+        }
+    }
+}
+
 enum Query {
     Definition(Position),
     References(Position, bool),
     Inlay(Range),
     PrepareHierarchy(Position),
+    Symbols(bool, bool),
 }
 pub(super) struct Pending {
     id: RequestId,
@@ -33,6 +49,17 @@ impl Document {
                 "Project discovery is incomplete; this project-wide semantic query is unavailable until the workspace can be fully analyzed".into());
         }
         match query {
+            Query::Symbols(hierarchical, extended) => {
+                let mut symbols = self
+                    .semantic
+                    .as_ref()
+                    .map(|document| document.document_symbols(*hierarchical))
+                    .unwrap_or_else(|| serde_json::json!([]));
+                if !extended {
+                    legacy_symbol_kinds(&mut symbols);
+                }
+                Response::new_ok(id, symbols)
+            }
             Query::PrepareHierarchy(position) => Response::new_ok(
                 id,
                 self.semantic.as_ref().and_then(|document| {
@@ -169,6 +196,14 @@ impl Documents {
         params: Value,
     ) -> Result<(), String> {
         let parsed: Result<(Uri, Query), String> = (|| match method {
+            "textDocument/documentSymbol" => {
+                let params: lsp_types::DocumentSymbolParams =
+                    serde_json::from_value(params).map_err(|error| error.to_string())?;
+                Ok((
+                    params.text_document.uri,
+                    Query::Symbols(self.hierarchical_symbols, self.extended_symbol_kinds),
+                ))
+            }
             "textDocument/definition" => {
                 let params: GotoDefinitionParams =
                     serde_json::from_value(params).map_err(|error| error.to_string())?;
@@ -223,6 +258,7 @@ impl Documents {
             return send(connection, Response::new_ok(id, Vec::<Value>::new()));
         };
         let valid = match query {
+            Query::Symbols(..) => true,
             Query::Definition(position)
             | Query::References(position, _)
             | Query::PrepareHierarchy(position) => {

@@ -37,6 +37,8 @@ struct ProjectConfig {
     inlay_refresh: bool,
     semantic_refresh: bool,
     rename_document_changes: bool,
+    hierarchical_symbols: bool,
+    extended_symbol_kinds: bool,
     snapshot_path: PathBuf,
     addon_paths: Vec<PathBuf>,
     hover_format: MarkupKind,
@@ -58,6 +60,20 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let extended_symbol_kinds = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text| text.document_symbol.as_ref())
+            .and_then(|symbols| symbols.symbol_kind.as_ref())
+            .is_some();
+        let hierarchical_symbols = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text| text.document_symbol.as_ref())
+            .and_then(|symbols| symbols.hierarchical_document_symbol_support)
+            .unwrap_or(false);
         let rename_document_changes = params
             .capabilities
             .workspace
@@ -176,6 +192,8 @@ impl ProjectConfig {
             inlay_refresh,
             semantic_refresh,
             rename_document_changes,
+            hierarchical_symbols,
+            extended_symbol_kinds,
             snapshot_path: absolute(options.snapshot_path),
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
             hover_format,
@@ -615,6 +633,8 @@ impl Document {
     }
 }
 struct Documents {
+    hierarchical_symbols: bool,
+    extended_symbol_kinds: bool,
     hierarchy_session: String,
     project_root: Option<PathBuf>,
     project_epoch: u64,
@@ -628,6 +648,8 @@ struct Documents {
 impl Documents {
     fn new(signature_capabilities: completion::SignatureCapabilities) -> Self {
         Self {
+            hierarchical_symbols: false,
+            extended_symbol_kinds: false,
             hierarchy_session: format!(
                 "{}:{}",
                 std::process::id(),
@@ -833,11 +855,15 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
     let watch_files = config.watch_files;
     let inlay_refresh = config.inlay_refresh;
     let rename_document_changes = config.rename_document_changes;
+    let hierarchical_symbols = config.hierarchical_symbols;
+    let extended_symbol_kinds = config.extended_symbol_kinds;
     let semantic_refresh = config.semantic_refresh;
     let mut last_refresh_epoch = 0;
     let mut worker = Worker::start(config, factory)?;
     let mut documents = Documents::new(signature_capabilities);
     documents.hover_format = hover_format;
+    documents.hierarchical_symbols = hierarchical_symbols;
+    documents.extended_symbol_kinds = extended_symbol_kinds;
     documents.project_root = Some(project_root);
     let mut initialize_id = Some(initialize_id);
     let mut initialized = false;
@@ -853,7 +879,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(index), startup_ms) => {
                         documents.completion_index = index;
-                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"callHierarchyProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"callHierarchyProvider":true,"documentSymbolProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
                         if completion_refresh { capabilities["experimental"] = json!({"skriptCompletionRefresh":true}); }
                         if rename_document_changes { capabilities["renameProvider"] = json!({"prepareProvider":true}); }
                         if let Some(legend) = &semantic_legend {
@@ -1018,7 +1044,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 documents.rename_request(&worker, &connection, request.id, &request.method, request.params, rename_document_changes)?;
                             } else if matches!(request.method.as_str(), "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls") && initialize_id.is_none() && initialized && !shutdown {
                                 documents.hierarchy_request(&connection, request.id, &request.method, request.params)?;
-                            } else if matches!(request.method.as_str(), "textDocument/definition" | "textDocument/references" | "textDocument/inlayHint" | "textDocument/prepareCallHierarchy") && initialize_id.is_none() && initialized && !shutdown {
+                            } else if matches!(request.method.as_str(), "textDocument/definition" | "textDocument/references" | "textDocument/inlayHint" | "textDocument/prepareCallHierarchy" | "textDocument/documentSymbol") && initialize_id.is_none() && initialized && !shutdown {
                                 documents.annotation_request(&connection, request.id, &request.method, request.params)?;
                             } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
                                 let response = match serde_json::from_value::<HoverParams>(request.params) {
