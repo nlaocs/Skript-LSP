@@ -5,23 +5,10 @@ use parser_wasm::{
     host::{HostConfig, ParserHost},
 };
 use skript_parser::{StructureHeaderPreparation, StructurePreparationEvent};
-use std::{path::Path, sync::OnceLock};
 
 const SOURCE: &str = "# 日本🦊\nfunction first(value: number, values: numbers, arg%%Name: text):\n    send {_} to console\n    if {_value} is 1:\n        send {_} to console\n    send {_arg%%%%Name} to console\nfunction second(other: text):\n    send {_}\non load:\n    send \"end\"\n";
 
-pub(in crate::lsp::completion) fn catalog() -> Arc<Catalog> {
-    static CATALOG: OnceLock<Arc<Catalog>> = OnceLock::new();
-    Arc::clone(CATALOG.get_or_init(|| {
-        Arc::new(
-            ssg::load(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
-            )
-            .unwrap()
-            .into_catalog(),
-        )
-    }))
-}
+pub(in crate::lsp::completion) use crate::lsp::test_support::runtime_catalog as catalog;
 fn position(source: &str, needle: &str, prefix: usize) -> Position {
     LineIndex::new(source)
         .position(source, source.find(needle).unwrap() + prefix)

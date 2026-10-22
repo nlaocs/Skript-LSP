@@ -179,17 +179,6 @@ fn parameter_candidate_types_follow_current_operand_facts_not_header_after_reass
     }
 }
 #[test]
-fn opaque_prior_effect_and_revision_mismatch_keep_unknown_variable_candidates() {
-    let source = "function check_types(arg_number: number, arg_unknown: object):\n    execute console command \"noop\"\n    teleport {_arg_} to {_destination}\n";
-    let (_, mut view, _, _) = parse(source);
-    let p = position(source, "{_arg_");
-    let list = view.at(p, false).unwrap();
-    assert!(declaration_labels(&list).contains(&"{_arg_number}"));
-    view.source = Arc::from(source.replace("noop", "nope"));
-    let list = view.at(p, false).unwrap();
-    assert!(declaration_labels(&list).contains(&"{_arg_number}"));
-}
-#[test]
 fn all_hole_paths_and_regex_unknown_are_preserved_instead_of_signature_ranking() {
     let rules = catalog();
     let parse_pattern =
@@ -412,17 +401,18 @@ fn function_cardinality_and_converters_reuse_the_native_rules() {
 #[test]
 fn adopted_variable_type_is_not_borrowed_from_other_parent_patterns() {
     let source = "function check_types(arg_text: text, arg_number: number):\n    set {_arg_number} to 1\n    {_arg_} matches \"x\"\n";
-    for (competing, _reachable) in [
-        ("{_arg_number} matches %strings%", true),
-        ("<.+> matches %strings%", true),
-        ("{_%objects%} matches %strings%", true),
-        ("%objects%} matches %strings%", false),
-        ("{%objects%%objects%} matches %strings%", true),
+    let (early, mut view, _, _) = parse(source);
+    drop(early);
+    let p = position(source, "{_arg_");
+    assert!(!declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"));
+    let original_patterns = view.index.patterns.len();
+    for competing in [
+        "{_arg_number} matches %strings%",
+        "<.+> matches %strings%",
+        "{_%objects%} matches %strings%",
+        "%objects%} matches %strings%",
+        "{%objects%%objects%} matches %strings%",
     ] {
-        let (early, mut view, _, _) = parse(source);
-        drop(early);
-        let p = position(source, "{_arg_");
-        assert!(!declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"));
         let parsed =
             syntax_pattern_parser::syntax::parse(competing, catalog().plural_rules()).unwrap();
         Arc::get_mut(&mut view.index)
@@ -436,13 +426,17 @@ fn adopted_variable_type_is_not_borrowed_from_other_parent_patterns() {
                 identity: "fixture:passive:0".into(),
                 graph: continuation::Graph::new(&parsed.elements).unwrap(),
             });
-        // Another parent interpretation does not change this variable proposal
-        // or the current adopted capture. It can offer a separate syntax item.
-        assert_eq!(
-            declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"),
-            false,
+        assert!(
+            !declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"),
             "{competing}"
         );
+        let removed = Arc::get_mut(&mut view.index)
+            .unwrap()
+            .patterns
+            .pop()
+            .unwrap();
+        assert_eq!(removed.identity, "fixture:passive:0");
+        assert_eq!(view.index.patterns.len(), original_patterns);
     }
 }
 
@@ -573,20 +567,24 @@ fn new_required_calls_use_their_declared_type_but_name_only_existing_calls_keep_
 }
 
 #[test]
-fn adopted_audience_capture_keeps_nullable_fallback_but_filters_present_number() {
-    for (middle, class, maybe_unset, kept) in [
-        ("", "java.lang.Number", true, true),
+fn adopted_audience_capture_keeps_uncertain_and_stale_facts_but_filters_present_number() {
+    for (middle, known, kept) in [
+        ("", Some(("java.lang.Number", true)), true),
         (
             "    set {_arg_number} to 1\n",
-            "java.lang.Long",
+            Some(("java.lang.Long", false)),
             false,
-            false,
+        ),
+        (
+            "    set {_arg_number} to 1\n    execute console command \"noop\"\n",
+            None,
+            true,
         ),
     ] {
         let source = format!(
             "function typed(arg_number: number):\n{middle}    send \"ready\" to {{_arg_}}\n"
         );
-        let (_, view, result, _) = parse(&source);
+        let (_, mut view, result, _) = parse(&source);
         assert!(
             result.syntax.diagnostics.is_empty(),
             "{:?}",
@@ -598,22 +596,42 @@ fn adopted_audience_capture_keeps_nullable_fallback_but_filters_present_number()
             view.accepted_slots.contains_key(&(edit.start, edit.end)),
             "actual adopted capture required"
         );
-        let (ty, _, _) = view
-            .semantic_types
-            .as_ref()
-            .unwrap()
-            .completion_input(&source, edit, "arg_number")
-            .expect("actual incoming stored facts");
-        assert!(
-            matches!(ty,crate::lsp::semantic::InferredType::Values {classes,maybe_unset: actual,..} if classes.len()==1 && classes.contains(class) && *actual==maybe_unset),
-            "{ty:?}"
-        );
+        let semantic = view.semantic_types.as_ref().unwrap();
+        let incoming = semantic.completion_input(&source, edit, "arg_number");
+        match known {
+            Some((class, maybe_unset)) => {
+                let (ty, _, _) = incoming.expect("incoming facts");
+                assert!(
+                    matches!(ty,crate::lsp::semantic::InferredType::Values{classes,maybe_unset:actual,..} if classes.len()==1 && classes.contains(class) && *actual==maybe_unset),
+                    "{ty:?}"
+                );
+            }
+            None => assert!(
+                incoming.is_none(),
+                "opaque effect must withdraw the completion point and prior Long fact"
+            ),
+        }
+        let p = position(&source, "{_arg_");
         assert_eq!(
-            declaration_labels(&view.at(position(&source, "{_arg_"), false).unwrap())
-                .contains(&"{_arg_number}"),
+            declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"),
             kept,
             "{source}"
         );
+        if !kept {
+            let edited = source.replace("ready", "other");
+            assert_eq!(edited.len(), source.len());
+            assert!(
+                semantic
+                    .completion_input(&edited, edit, "arg_number")
+                    .is_none(),
+                "changed source cannot reuse a proven Long fact"
+            );
+            view.source = Arc::from(edited);
+            assert!(
+                declaration_labels(&view.at(p, false).unwrap()).contains(&"{_arg_number}"),
+                "source edit must withdraw the previous exclusion"
+            );
+        }
     }
 }
 

@@ -4,21 +4,9 @@ use parser_wasm::{
     DocumentParseRequest, DocumentParserConfig, RuntimeProfile,
     host::{HostConfig, ParserHost},
 };
-use std::{path::Path, sync::OnceLock};
+use std::path::Path;
 
-fn catalog() -> Arc<Catalog> {
-    static CATALOG: OnceLock<Arc<Catalog>> = OnceLock::new();
-    Arc::clone(CATALOG.get_or_init(|| {
-        Arc::new(
-            ssg::load(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
-            )
-            .unwrap()
-            .into_catalog(),
-        )
-    }))
-}
+use crate::lsp::test_support::runtime_catalog as catalog;
 fn parse(source: &str) -> DocumentParseResult {
     parse_with_catalog(source, catalog())
 }

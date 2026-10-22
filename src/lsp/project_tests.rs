@@ -145,14 +145,7 @@ fn source_generation_and_epoch_are_witnesses_even_when_text_is_unchanged() {
 }
 
 fn host() -> (ParserHost, Arc<Catalog>) {
-    let catalog = Arc::new(
-        ssg::load(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4"),
-        )
-        .unwrap()
-        .into_catalog(),
-    );
+    let catalog = crate::lsp::test_support::multi_addon_catalog();
     let host = crate::new_parser_host(parser_wasm::HostConfig {
         syntax_catalog: Some(Arc::clone(&catalog)),
         ..Default::default()
@@ -1005,7 +998,10 @@ fn result_handoff_rechecks_the_whole_batch_and_semantic_configuration() {
             4 => snapshot.open[1].generation += 1,
             5 => config.raw_tree = Some(skript_parser::RawTreeOptions::for_skript_version(2, 8)),
             6 => config.structure.headers_only = true,
-            7 => selected_catalog = self::host().1,
+            7 => {
+                selected_catalog = Arc::new((*catalog).clone());
+                assert!(!Arc::ptr_eq(&selected_catalog, &catalog));
+            }
             _ => unreachable!(),
         }
         let analyzed = index

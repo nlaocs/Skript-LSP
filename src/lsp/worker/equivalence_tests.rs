@@ -3,9 +3,7 @@ use super::*;
 use lsp_types::{DiagnosticSeverity, MarkupKind, NumberOrString, Position, Range};
 
 fn analyzer() -> ParserAnalyzer {
-    let snapshot = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime");
-    let catalog = Arc::new(ssg::load(snapshot).unwrap().into_catalog());
+    let catalog = crate::lsp::test_support::runtime_catalog();
     let host = crate::new_parser_host(HostConfig {
         syntax_catalog: Some(Arc::clone(&catalog)),
         runtime_profile: parser_wasm::RuntimeProfile {

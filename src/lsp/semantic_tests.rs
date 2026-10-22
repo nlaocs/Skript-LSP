@@ -5,21 +5,8 @@ use parser_wasm::bindings::nlaocs::skript_parser_addon::types::{
     TextRange as WitRange,
 };
 use serde_json::json;
-use std::sync::LazyLock;
 
-fn catalog() -> Arc<Catalog> {
-    static CATALOG: LazyLock<Arc<Catalog>> = LazyLock::new(|| {
-        Arc::new(
-            ssg::load(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4"),
-            )
-            .unwrap()
-            .into_catalog(),
-        )
-    });
-    Arc::clone(&CATALOG)
-}
+use crate::lsp::test_support::multi_addon_catalog as catalog;
 fn metadata(key: &str, value: serde_json::Value) -> MetadataEntry {
     MetadataEntry {
         owner_component_id: Some("fixture.semantic-provider".into()),

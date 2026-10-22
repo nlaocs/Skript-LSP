@@ -639,14 +639,7 @@ mod tests {
     fn from_result_keeps_native_type_evidence_with_execution_status() {
         // Teleport's bypassed direction capture needs its authentic initializer.
         // The old schema3 corpus has no DefaultExpression descriptors.
-        let catalog = std::sync::Arc::new(
-            ssg::load(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
-            )
-            .unwrap()
-            .into_catalog(),
-        );
+        let catalog = crate::lsp::test_support::runtime_catalog();
         let mut host = crate::new_parser_host(parser_wasm::HostConfig {
             syntax_catalog: Some(catalog),
             runtime_profile: parser_wasm::RuntimeProfile {
@@ -726,14 +719,7 @@ mod tests {
 
     #[test]
     fn real_type_diagnostics_distinguish_returns_parameters_unknown_and_incomplete_input() {
-        let catalog = std::sync::Arc::new(
-            ssg::load(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
-            )
-            .unwrap()
-            .into_catalog(),
-        );
+        let catalog = crate::lsp::test_support::runtime_catalog();
         let mut host = crate::new_parser_host(parser_wasm::HostConfig {
             syntax_catalog: Some(std::sync::Arc::clone(&catalog)),
             runtime_profile: parser_wasm::RuntimeProfile {

@@ -5,23 +5,9 @@ use parser_wasm::bindings::nlaocs::skript_parser_addon::types::{
     TextRange as WitRange,
 };
 use skript_parser::{MappedSource, PatternCapture, RawTreeOptions, TypeCaptureState};
-use std::sync::LazyLock;
 use syntax_pattern_parser::syntax::{PatternTypeAlternative, PatternTypeExpr, Span};
 
-fn catalog() -> Arc<Catalog> {
-    static CATALOG: LazyLock<Arc<Catalog>> = LazyLock::new(|| {
-        Arc::new(
-            ssg::load(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4"),
-            )
-            .unwrap()
-            .into_catalog(),
-        )
-    });
-    Arc::clone(&CATALOG)
-}
-
+use crate::lsp::test_support::multi_addon_catalog as catalog;
 struct Fixture {
     source: Arc<str>,
     nodes: Vec<AstNode>,

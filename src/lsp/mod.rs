@@ -15,6 +15,8 @@ mod public_data;
 mod rename;
 mod semantic;
 mod semantic_tokens;
+#[cfg(test)]
+mod test_support;
 mod worker;
 
 use crossbeam_channel::{bounded, select};
