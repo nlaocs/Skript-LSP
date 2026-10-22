@@ -67,6 +67,12 @@ impl Index {
     pub(super) fn current(&self) -> bool {
         self.certificate.as_ref().is_none_or(|c| c.is_current())
     }
+    pub(super) fn finite_captures_current(&self) -> bool {
+        self.certificate.is_some()
+            && self.current()
+            && self.closed
+            && self.candidate_bindings_closed
+    }
     pub(super) fn insert(&mut self, identity: &str, expression: &syntaxes::Expression) {
         let (classes, complete) = match expression.return_type_state {
             ReturnTypeState::Static => (
@@ -180,6 +186,22 @@ impl CatalogIndex {
                 );
             }
         }
+        let catalog = Arc::clone(&index.catalog);
+        let routes = if index.finite_captures_current() {
+            index
+                .outputs
+                .iter()
+                .filter_map(|(id, output)| {
+                    output
+                        .capture_routes
+                        .clone()
+                        .map(|routes| (id.clone(), routes))
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        finite::rebuild(self, &catalog, &routes);
     }
 }
 // Current adopted syntax supplies a stronger context than competing lexical

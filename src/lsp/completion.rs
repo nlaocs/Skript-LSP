@@ -20,8 +20,10 @@ use syntaxes::{Catalog, ClassName, Syntax, SyntaxKind};
 
 mod continuation;
 mod cursor;
+mod finite;
 mod parameters;
 mod prepared;
+mod ranking;
 pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
 mod signature;
 mod structure;
@@ -31,10 +33,11 @@ mod typing_tests;
 pub(super) use signature::{SignatureCapabilities, SignatureQuery};
 use structure::{EntryScope, Scope};
 
-const MAX_ITEMS: usize = 100;
+// Bound transfer and retained menu state; incomplete results are recomputed as
+// the prefix narrows. All kinds use the same ranking before this limit.
+const MAX_ITEMS: usize = 512;
 const MAX_VARIANTS: usize = 16;
 const MAX_TEMPLATE_BYTES: usize = 1024;
-const MAX_CONTEXT_ALTERNATIVES: usize = 8;
 const MAX_SYNTAX_SOURCE_BYTES: usize = 256 * 1024;
 const MAX_CONTINUATION_BYTES: usize = 4096;
 
@@ -45,6 +48,7 @@ enum Part {
 }
 #[derive(Clone)]
 struct Template {
+    finite_capture: bool,
     documentation: Option<Arc<str>>,
     kind: SyntaxKind,
     label: String,
@@ -224,6 +228,7 @@ impl CatalogIndex {
                         continue;
                     }
                     index.templates.push(Template {
+                        finite_capture: false,
                         documentation: Some(Arc::clone(&documentation)),
                         kind: syntax.kind(),
                         label: pattern.source.clone(),
@@ -728,7 +733,11 @@ impl Document {
         if matches!(state, Lexical::String | Lexical::Comment) {
             return Ok(empty());
         }
-        let mut items = Vec::new();
+        let finite_captures_current = self
+            .index
+            .typing
+            .as_ref()
+            .is_some_and(|i| i.finite_captures_current());
         let word_start = prefix
             .char_indices()
             .rev()
@@ -743,6 +752,37 @@ impl Document {
         } else {
             None
         };
+        let expression = matches!(line.scope, Scope::Expressions)
+            || variable_start.is_some()
+            || !line.root
+                && (!prefix.is_empty()
+                    && (prefix.ends_with(char::is_whitespace)
+                        || prefix.split_whitespace().count() > 1
+                        || !self.index.templates.iter().any(|t| {
+                            matches!(
+                                t.kind,
+                                SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
+                            ) && t.folded.starts_with(&folded_prefix)
+                        })));
+        let type_edit_start = variable_start.unwrap_or(word_start);
+        let type_edit_end = if let Some(start) = variable_start {
+            match cursor::variable_edit_end(&self.source[start..line.range.end], offset - start) {
+                Ok(Some(close)) => start + close,
+                Ok(None) => line.range.end,
+                Err(()) => return Ok(empty()),
+            }
+        } else {
+            word_end
+        };
+        let type_edit = TextRange::new(type_edit_start, type_edit_end);
+        // Variable replacements use their authenticated lookup proof below;
+        // grammar-hole expectations are unused when only variables are shown.
+        let expected_types = (expression && variable_start.is_none())
+            .then(|| self.expected_at(line, type_edit, references))
+            .flatten();
+        let expected = expected_types.as_deref();
+        let mut completion_type_budget = continuation::Budget::new();
+        let mut items = ranking::Pool::new(&self.source, &self.lines, offset, expected.is_some());
         let mut frontier_limited = prefix.len() > MAX_CONTINUATION_BYTES;
         if variable_start.is_none()
             && word_start > line.code_start
@@ -819,21 +859,7 @@ impl Document {
                 items.push(item);
             }
         }
-        // Continuations have a separate generation budget: they may all fail
-        // the right-suffix check, so they must not consume the fallback budget.
-        let generated_continuations = items.len();
-        let expression = matches!(line.scope, Scope::Expressions)
-            || variable_start.is_some()
-            || !line.root
-                && (!prefix.is_empty()
-                    && (prefix.ends_with(char::is_whitespace)
-                        || prefix.split_whitespace().count() > 1
-                        || !self.index.templates.iter().any(|t| {
-                            matches!(
-                                t.kind,
-                                SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
-                            ) && t.folded.starts_with(&folded_prefix)
-                        })));
+        // Frontier exploration is bounded independently of final menu selection.
         // Whitespace may start an argument while still matching fixed words in
         // the current statement. Keep those matches ahead of generic expressions.
         if expression
@@ -842,9 +868,6 @@ impl Document {
             && !matches!(line.scope, Scope::Expressions)
         {
             for template in &self.index.templates {
-                if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
-                    break;
-                }
                 if matches!(
                     template.kind,
                     SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
@@ -866,24 +889,6 @@ impl Document {
                 }
             }
         }
-        let type_edit_start = variable_start.unwrap_or(word_start);
-        let type_edit_end = if let Some(start) = variable_start {
-            match cursor::variable_edit_end(&self.source[start..line.range.end], offset - start) {
-                Ok(Some(close)) => start + close,
-                Ok(None) => line.range.end,
-                Err(()) => return Ok(empty()),
-            }
-        } else {
-            word_end
-        };
-        let type_edit = TextRange::new(type_edit_start, type_edit_end);
-        // Variable replacements use their authenticated lookup proof below;
-        // grammar-hole expectations are unused when only variables are shown.
-        let expected_types = (expression && variable_start.is_none())
-            .then(|| self.expected_at(line, type_edit, references))
-            .flatten();
-        let expected = expected_types.as_deref();
-        let mut completion_type_budget = continuation::Budget::new();
         if expression {
             let start = variable_start.unwrap_or(word_start);
             let mut end = word_end;
@@ -935,16 +940,10 @@ impl Document {
                             "range": self.lines.range(&self.source, parameter.range)?,
                         }}));
                         items.push(item);
-                        if items.len().saturating_sub(generated_continuations) >= MAX_ITEMS {
-                            break;
-                        }
                     }
                 }
             }
             for variable in self.variables.iter().filter(|_| references) {
-                if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
-                    break;
-                }
                 if variable.local
                     && (variable.observed >= offset
                         || variable.parent.is_none()
@@ -987,9 +986,6 @@ impl Document {
                     .chain(&self.index.functions)
                     .enumerate()
                 {
-                    if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
-                        break;
-                    }
                     if !function.returns_value || !starts(&function.name, query) {
                         continue;
                     }
@@ -1052,6 +1048,9 @@ impl Document {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
+                    if !items.may_accept(&label, word_start) {
+                        continue;
+                    }
                     let return_detail = function
                         .definition
                         .as_ref()
@@ -1114,9 +1113,6 @@ impl Document {
                 line.code_start
             };
             for template in &self.index.templates {
-                if items.len().saturating_sub(generated_continuations) > MAX_ITEMS {
-                    break;
-                }
                 let allowed = if line.root {
                     matches!(template.kind, SyntaxKind::Structure | SyntaxKind::Event)
                 } else if expression {
@@ -1128,10 +1124,14 @@ impl Document {
                     )
                 };
                 if !allowed
+                    || template.finite_capture && !finite_captures_current
                     || matches!(line.scope, Scope::Conditions)
                         && matches!(template.kind, SyntaxKind::Effect | SyntaxKind::Section)
                     || !template.folded.starts_with(&folded_query)
                 {
+                    continue;
+                }
+                if !items.may_accept(&preview(&template.parts), start) {
                     continue;
                 }
                 let (item, whole_template) =
@@ -1153,91 +1153,8 @@ impl Document {
                 items.push(item);
             }
         }
-        // Some menu clients insert only up to the cursor. Keep edits in that
-        // prefix when an existing right suffix already matches the suggestion.
-        // Omit ambiguous middle replacements instead of duplicating the suffix.
-        items.retain_mut(|item| {
-            let Some(CompletionTextEdit::Edit(edit)) = &mut item.text_edit else {
-                return false;
-            };
-            let Some(end) = self.lines.offset(&self.source, edit.range.end) else {
-                return false;
-            };
-            if end <= offset {
-                return true;
-            }
-            let suffix = &self.source[offset..end];
-            let suffix = if item.insert_text_format == Some(InsertTextFormat::SNIPPET) {
-                escape(suffix)
-            } else {
-                suffix.to_owned()
-            };
-            let Some(prefix) = edit.new_text.strip_suffix(&suffix) else {
-                return false;
-            };
-            edit.new_text = prefix.to_owned();
-            edit.range.end = position;
-            true
-        });
-        // Only merge the same syntax and the same effective insertion. Distinct
-        // registrations, variants and adapter edits remain separate.
-        let mut seen = HashSet::new();
-        items.retain(|item| {
-            let Some(identity) = item
-                .data
-                .as_ref()
-                .and_then(|data| data["syntaxIdentity"].as_str())
-            else {
-                return true;
-            };
-            let edit = serde_json::to_string(&(
-                &item.text_edit,
-                &item.insert_text_format,
-                &item.label,
-                &item.data,
-            ))
-            .expect("completion edit fields are serializable");
-            seen.insert((identity.to_owned(), edit))
-        });
-        let continuation_count = items
-            .iter()
-            .filter(|item| {
-                item.data
-                    .as_ref()
-                    .is_some_and(|data| data["continuation"] == true)
-            })
-            .count();
-        let alternatives = if continuation_count > 0 {
-            MAX_CONTEXT_ALTERNATIVES
-        } else {
-            MAX_ITEMS
-        };
-        let before = items.len();
-        let mut ordinary = 0;
-        items.retain(|item| {
-            if item
-                .data
-                .as_ref()
-                .is_some_and(|data| data["continuation"] == true)
-            {
-                return true;
-            }
-            ordinary += 1;
-            ordinary <= alternatives
-        });
-        let is_incomplete = before > items.len()
-            || items.len() > MAX_ITEMS
-            || self.index.limited
-            || frontier_limited
-            || !references;
-        if expected.is_some() {
-            items.sort_by_key(|item| {
-                item.data
-                    .as_ref()
-                    .is_some_and(|d| d["continuation"] == true)
-            });
-        }
-        items.truncate(MAX_ITEMS);
+        let (mut items, result_limited) = items.finish();
+        let is_incomplete = result_limited || self.index.limited || frontier_limited || !references;
         for (index, item) in items.iter_mut().enumerate() {
             item.sort_text = Some(format!("{index:06}"));
         }
@@ -1317,6 +1234,9 @@ impl Document {
         item.data = Some(
             serde_json::json!({"syntaxKind":format!("{:?}", template.kind),"syntaxIdentity":template.identity}),
         );
+        if template.finite_capture {
+            item.data.as_mut().unwrap()["finiteCaptureValue"] = serde_json::json!(true);
+        }
         item.documentation = Some(super::hover_text::completion(
             &template.label,
             Some(&label),
@@ -1509,6 +1429,7 @@ impl Document {
             functions: Vec::new(),
             index: Arc::new(CatalogIndex {
                 templates: vec![Template {
+                    finite_capture: false,
                     documentation: None,
                     kind: SyntaxKind::Structure,
                     label: label.clone(),
@@ -1573,6 +1494,7 @@ mod tests {
         for parts in variants(&parsed.elements, 0, &mut false, &rules) {
             let parts = normalize_parts(parts);
             index.templates.push(Template {
+                finite_capture: false,
                 documentation: Some(Arc::from("Supplied syntax description")),
                 kind: SyntaxKind::Effect,
                 label: grammar.into(),
@@ -1632,6 +1554,7 @@ mod tests {
             for parts in variants(&parsed.elements, 0, &mut false, &rules) {
                 let parts = normalize_parts(parts);
                 index.templates.push(Template {
+                    finite_capture: false,
                     documentation: None,
                     kind: SyntaxKind::Effect,
                     label: grammar.into(),
@@ -1950,6 +1873,7 @@ mod tests {
         let mut view = with_functions("on load:\n    send name of player");
         view.index = Arc::new(CatalogIndex {
             templates: vec![Template {
+                finite_capture: false,
                 documentation: None,
                 kind: SyntaxKind::Expression,
                 label: "name of objects".into(),
@@ -1983,6 +1907,7 @@ mod tests {
         let mut view = with_functions("on load:\n    cancel ");
         let mut index = Arc::try_unwrap(view.index).ok().unwrap();
         index.templates.push(Template {
+            finite_capture: false,
             documentation: None,
             kind: SyntaxKind::Effect,
             label: "cancel event".into(),
@@ -2004,6 +1929,7 @@ mod tests {
         let mut view = with_functions("on load:\n    send s");
         let mut index = Arc::try_unwrap(view.index).ok().unwrap();
         index.templates.push(Template {
+            finite_capture: false,
             documentation: None,
             kind: SyntaxKind::Effect,
             label: "send subtitle".into(),
@@ -2054,6 +1980,7 @@ mod tests {
         ] {
             let view = with_functions(source);
             let template = Template {
+                finite_capture: false,
                 documentation: None,
                 kind,
                 label: "fixture".into(),
@@ -2108,7 +2035,7 @@ mod tests {
         let mut view = with_functions("on load:\n    send ");
         view.index = Arc::new(CatalogIndex {
             templates: Vec::new(),
-            functions: (0..150)
+            functions: (0..MAX_ITEMS + 50)
                 .map(|n| function(&format!("f{n:03}"), "Number", true))
                 .collect(),
             limited: false,
@@ -2119,9 +2046,13 @@ mod tests {
         });
         let list = view.at(Position::new(1, 9), false).unwrap();
         assert!(list.is_incomplete);
-        assert_eq!(list.items.len(), 100);
+        assert_eq!(list.items.len(), MAX_ITEMS);
         assert!(list.items[0].label.starts_with("f000("));
-        assert!(list.items[99].label.starts_with("f099("));
+        assert!(
+            list.items[MAX_ITEMS - 1]
+                .label
+                .starts_with(&format!("f{:03}(", MAX_ITEMS - 1))
+        );
     }
     #[test]
     fn continuations_preserve_arguments_suffixes_and_the_full_grammar() {
@@ -2186,14 +2117,14 @@ mod tests {
     }
 
     #[test]
-    fn right_suffix_filter_precedes_the_context_alternative_limit() {
+    fn suffix_filter_precedes_independent_completion_budgets() {
         let grammar = "move %objects% (to|towards) %location%";
         let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
             "../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
         ))
         .unwrap();
         let parsed = syntax_pattern_parser::syntax::parse(grammar, &rules).unwrap();
-        for (suffix, expected_keywords, expected_functions) in [("o", 1, 8), ("x", 0, 12)] {
+        for (suffix, expected_keywords, expected_functions) in [("o", 1, 12), ("x", 0, 12)] {
             let source = format!("on load:\n    move player t{suffix}");
             let mut view = with_functions(&source);
             let index = Arc::get_mut(&mut view.index).unwrap();

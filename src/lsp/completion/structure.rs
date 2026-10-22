@@ -486,6 +486,7 @@ mod tests {
             (SyntaxKind::Condition, "is set"),
         ] {
             index.templates.push(Template {
+                finite_capture: false,
                 documentation: None,
                 kind,
                 label: text.into(),

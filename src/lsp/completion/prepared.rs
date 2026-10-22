@@ -387,6 +387,7 @@ impl PreparedDocument {
         let mut document = Document::test_fixture(Arc::clone(&source));
         let index = Arc::get_mut(&mut document.index).unwrap();
         index.templates[0] = Template {
+            finite_capture: false,
             documentation: None,
             kind: SyntaxKind::Effect,
             label: "hold pattern".into(),
