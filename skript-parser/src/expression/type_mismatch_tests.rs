@@ -38,6 +38,10 @@ struct Environment {
     cancelled: bool,
     nested_failure: Option<FailureTrace>,
     nested_failure_expected: Option<&'static str>,
+    functions: Vec<crate::FunctionDefinition>,
+    effect_count: usize,
+    semantic_checkpoints: Vec<usize>,
+    cancel_after_leaf: bool,
 }
 
 impl PatternMatchEnvironment for Environment {
@@ -64,6 +68,31 @@ impl PatternMatchEnvironment for Environment {
 }
 
 impl ExpressionParseEnvironment for Environment {
+    fn lookup_functions(
+        &mut self,
+        request: crate::FunctionLookupRequest<'_>,
+    ) -> Result<Vec<crate::FunctionDefinition>, String> {
+        Ok(self
+            .functions
+            .iter()
+            .filter(|definition| definition.name == request.name)
+            .cloned()
+            .collect())
+    }
+    fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        self.semantic_checkpoints.push(self.effect_count);
+        Ok(())
+    }
+    fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let before = self
+            .semantic_checkpoints
+            .pop()
+            .ok_or("unbalanced semantic probe")?;
+        if !accepted {
+            self.effect_count = before;
+        }
+        Ok(())
+    }
     fn state_revision(&self) -> Result<u64, String> {
         Ok(0)
     }
@@ -116,6 +145,10 @@ impl ExpressionParseEnvironment for Environment {
         }) else {
             return Ok(ExpressionLeafParse::default());
         };
+        self.effect_count += 1;
+        if self.cancel_after_leaf {
+            self.cancelled = true;
+        }
         Ok(vec![ExpressionLeafCandidate {
             effects: None,
             parser_id: "test.known-text".into(),
@@ -773,4 +806,281 @@ fn type_mismatch_in_a_nested_capture_keeps_its_own_expected_type() {
         matches!(&trace.root_cause().failure.reasons[..], [PatternFailureReason::TypeMismatch { expected, actual }]
         if expected == &["org.bukkit.entity.Entity"] && actual == &["java.lang.String"])
     );
+}
+
+fn diagnostic_function(
+    name: &str,
+    parameter: Option<&str>,
+    returns: Option<&str>,
+) -> crate::FunctionDefinition {
+    crate::FunctionDefinition {
+        parser_id: "test.function".into(),
+        name: name.into(),
+        definition_id: format!("function:{name}:{parameter:?}:{returns:?}"),
+        registration_id: format!("function:{name}:{parameter:?}:{returns:?}:0"),
+        registration_order: 0,
+        return_type: returns.map(|class| ClassName(class.into())),
+        return_type_is_single: true,
+        parameters: parameter
+            .map(|class| {
+                vec![crate::FunctionParameterDefinition {
+                    name: "value".into(),
+                    parameter_type: ClassName(class.into()),
+                    single: true,
+                    optional: false,
+                }]
+            })
+            .unwrap_or_default(),
+        metadata: BTreeMap::new(),
+    }
+}
+
+#[test]
+fn type_mismatch_function_returns_use_typed_binding_without_adopting_probe_effects() {
+    for text in ["typed(known text)", "(typed(known text))"] {
+        let source = MappedSource::identity(text);
+        let mut environment = Environment {
+            functions: vec![diagnostic_function(
+                "typed",
+                Some("java.lang.String"),
+                Some("java.lang.String"),
+            )],
+            ..Default::default()
+        };
+        let parsed = parse_expression(
+            catalog(),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: expected_location(),
+                context: Default::default(),
+            },
+            &mut environment,
+            Default::default(),
+        )
+        .unwrap();
+        assert!(parsed.selected.is_none());
+        let trace = parsed.failure.as_ref().unwrap().trace.as_ref().unwrap();
+        assert_mismatch(trace);
+        assert_eq!(
+            trace.root_cause().failure.span.local_range.slice(text),
+            Some("typed(known text)")
+        );
+        assert_eq!(
+            environment.effect_count, 0,
+            "diagnostic argument initialization must roll back"
+        );
+        assert!(environment.semantic_checkpoints.is_empty());
+    }
+}
+
+#[test]
+fn type_mismatch_function_probe_keeps_ambiguity_unknown_plurality_and_bad_arguments_separate() {
+    let mut plural = diagnostic_function(
+        "typed",
+        Some("org.bukkit.entity.LivingEntity"),
+        Some("org.bukkit.Location"),
+    );
+    plural.return_type_is_single = false;
+    let scenarios = [
+        (
+            "ambiguous",
+            vec![
+                diagnostic_function(
+                    "typed",
+                    Some("org.bukkit.entity.Entity"),
+                    Some("java.lang.String"),
+                ),
+                diagnostic_function("typed", Some("java.lang.Object"), Some("java.lang.Number")),
+            ],
+            "typed(player)",
+        ),
+        (
+            "multiplicity competitor",
+            vec![
+                diagnostic_function(
+                    "typed",
+                    Some("org.bukkit.entity.Entity"),
+                    Some("java.lang.String"),
+                ),
+                plural,
+            ],
+            "typed(player)",
+        ),
+        (
+            "unknown result",
+            vec![diagnostic_function(
+                "typed",
+                Some("java.lang.String"),
+                Some("java.lang.Object"),
+            )],
+            "typed(known text)",
+        ),
+        (
+            "void",
+            vec![diagnostic_function("typed", None, None)],
+            "typed()",
+        ),
+        (
+            "wrong arguments",
+            vec![diagnostic_function(
+                "typed",
+                Some("org.bukkit.entity.Player"),
+                Some("java.lang.String"),
+            )],
+            "typed(known text)",
+        ),
+        (
+            "unfinished call",
+            vec![diagnostic_function("typed", None, Some("java.lang.String"))],
+            "typed(",
+        ),
+    ];
+    for (case, functions, text) in scenarios {
+        let source = MappedSource::identity(text);
+        let mut environment = Environment {
+            functions,
+            ..Default::default()
+        };
+        let result = parse_expression(
+            catalog(),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: expected_location(),
+                context: Default::default(),
+            },
+            &mut environment,
+            Default::default(),
+        )
+        .unwrap();
+        assert!(result.selected.is_none(), "{case}");
+        if let Some(trace) = result.failure.and_then(|failure| failure.trace) {
+            assert!(
+                !trace
+                    .root_cause()
+                    .failure
+                    .reasons
+                    .iter()
+                    .any(|reason| matches!(reason, PatternFailureReason::TypeMismatch { .. })),
+                "{case}: {trace:?}"
+            );
+        }
+        assert_eq!(environment.effect_count, 0, "{case}");
+        assert!(environment.semantic_checkpoints.is_empty(), "{case}");
+    }
+}
+
+#[test]
+fn type_mismatch_function_probe_does_not_change_compatible_selection_and_cleans_up_on_cancel() {
+    let text = "typed(known text)";
+    let source = MappedSource::identity(text);
+    let definition = diagnostic_function(
+        "typed",
+        Some("java.lang.String"),
+        Some("org.bukkit.Location"),
+    );
+    let mut environment = Environment {
+        functions: vec![definition],
+        ..Default::default()
+    };
+    let result = parse_expression(
+        catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: expected_location(),
+            context: Default::default(),
+        },
+        &mut environment,
+        Default::default(),
+    )
+    .unwrap();
+    assert!(result.selected.is_some());
+    assert!(result.failure.is_none());
+    let mut environment = Environment {
+        functions: vec![diagnostic_function(
+            "typed",
+            Some("java.lang.String"),
+            Some("java.lang.String"),
+        )],
+        cancel_after_leaf: true,
+        ..Default::default()
+    };
+    let error = parse_expression(
+        catalog(),
+        ExpressionParseRequest {
+            source: &source,
+            range: TextRange::new(0, text.len()),
+            expected_types: expected_location(),
+            context: Default::default(),
+        },
+        &mut environment,
+        Default::default(),
+    )
+    .unwrap_err();
+    assert!(crate::parse_cancellation(&error).is_some());
+    assert_eq!(environment.effect_count, 0);
+    assert!(environment.semantic_checkpoints.is_empty());
+}
+
+#[test]
+fn type_mismatch_function_parameter_does_not_inherit_outer_union() {
+    let text = "typed(known text)";
+    let source = MappedSource::identity(text);
+    let range = TextRange::new(0, text.len());
+    let pattern =
+        syntax_pattern_parser::syntax::parse("%location/entity%", catalog().plural_rules())
+            .unwrap();
+    let PatternElement::TypeExpr(expression) = &pattern.elements[0].value else {
+        panic!("typed capture");
+    };
+    let mut environment = Environment {
+        functions: vec![diagnostic_function(
+            "typed",
+            Some("java.lang.Number"),
+            Some("org.bukkit.Location"),
+        )],
+        ..Default::default()
+    };
+    // Use the actual typed-slot resolver: the public parse_expression entry
+    // alone does not run the outer-union expected-type rewriting being tested.
+    let result = {
+        let mut session = ExpressionSession::new(
+            catalog(),
+            None,
+            &source,
+            &mut environment,
+            ExpressionParseContext::default(),
+            ExpressionParserConfig::default(),
+        );
+        session.frame_starts.push(0);
+        session.frame_depths.push(0);
+        session
+            .resolve_type_inner(TypeExpressionRequest {
+                input: source.virtual_source(),
+                expression,
+                pattern_span: pattern.elements[0].span,
+                remaining: range,
+                candidate_ends: &[range.end],
+            })
+            .unwrap()
+    };
+    assert!(result.resolutions.is_empty());
+    let trace = result
+        .failure
+        .expect("the Number parameter must reject String");
+    let cause = trace.root_cause();
+    assert!(
+        cause.failure.reasons.iter().any(|reason| matches!(
+            reason,
+            PatternFailureReason::TypeMismatch { expected, actual }
+                if expected == &vec!["java.lang.Number".to_owned()]
+                    && actual == &vec!["java.lang.String".to_owned()]
+        )),
+        "{trace:#?}"
+    );
+    assert_eq!(cause.failure.span.local_range, TextRange::new(6, 16));
+    assert_eq!(environment.effect_count, 0);
+    assert!(environment.semantic_checkpoints.is_empty());
 }

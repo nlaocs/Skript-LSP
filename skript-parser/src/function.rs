@@ -388,8 +388,8 @@ fn resolve_function_call<E: ExpressionParseEnvironment>(
     if duplicate_named_argument(&call.arguments) {
         return Ok(PrefixParse::default());
     }
-    let definitions = session.function_definitions(&call.name)?;
-    let definitions = definitions
+    let all_definitions = session.function_definitions(&call.name)?;
+    let definitions = all_definitions
         .iter()
         .filter(|definition| {
             expected_types.is_none_or(|expected| {
@@ -401,7 +401,16 @@ fn resolve_function_call<E: ExpressionParseEnvironment>(
         })
         .collect::<Vec<_>>();
     if definitions.is_empty() {
-        return Ok(PrefixParse::default());
+        return Ok(PrefixParse {
+            candidates: Vec::new(),
+            failure: rejected_return_failure(
+                session,
+                call,
+                &all_definitions,
+                expected_types,
+                depth,
+            )?,
+        });
     }
 
     let exact = definitions
@@ -434,10 +443,79 @@ fn resolve_function_call<E: ExpressionParseEnvironment>(
         },
         Selection::None => PrefixParse {
             candidates: Vec::new(),
-            failure: choose_failure_trace(exact_failure, list_failure),
+            failure: choose_failure_trace(
+                choose_failure_trace(exact_failure, list_failure),
+                rejected_return_failure(session, call, &all_definitions, expected_types, depth)?,
+            ),
         },
         Selection::Ambiguous => PrefixParse::default(),
     })
+}
+
+/// Only failed typed requests enter this path. Bind each rejected signature's
+/// arguments with their real parameter types; never reparse the call as Object.
+/// Recovery scopes discard all context, state, receipts and memoized resolutions.
+fn rejected_return_failure<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    call: &CallSyntax,
+    definitions: &[FunctionDefinition],
+    expected: Option<&[ExpressionExpectedType]>,
+    depth: usize,
+) -> Result<Option<FailureTrace>, ExpressionParseError> {
+    let Some(expected) = expected.filter(|expected| !expected.is_empty()) else {
+        return Ok(None);
+    };
+    let rejected = definitions
+        .iter()
+        .filter(|definition| {
+            definition.return_type.is_some()
+                && !(session.return_type_matches(definition.return_type.as_ref(), expected)
+                    && session
+                        .multiplicity_matches(Some(definition.return_multiplicity()), expected))
+        })
+        .collect::<Vec<_>>();
+    for list in [false, true] {
+        let mut selected = None;
+        for definition in rejected
+            .iter()
+            .filter(|definition| definition.is_list_signature() == list)
+        {
+            session.check_cancelled()?;
+            let checkpoint = session.begin_recovery_scope().map_err(environment_error)?;
+            let parsed = (|| {
+                session
+                    .begin_expression_candidate()
+                    .map_err(environment_error)?;
+                if list {
+                    parse_list_definition(session, call, definition, depth)
+                } else {
+                    parse_exact_definition(session, call, definition, depth)
+                }
+            })();
+            // Also unwind on parse errors and cancellation. No diagnostic probe
+            // may leave an adopted argument or live deferred guest receipt.
+            session
+                .finish_recovery_scope(checkpoint, false)
+                .map_err(environment_error)?;
+            let Some(candidate) = parsed?.candidate else {
+                continue;
+            };
+            if selected.is_some() {
+                return Ok(None);
+            } // ambiguous binding
+            selected = Some(candidate.node);
+        }
+        if let Some(node) = selected {
+            return Ok(session.type_mismatch_trace(
+                node.span,
+                node.return_type.as_ref(),
+                &node.possible_return_types,
+                node.possible_return_types_state,
+                expected,
+            ));
+        }
+    }
+    Ok(None)
 }
 
 fn select_unique<E: ExpressionParseEnvironment>(
@@ -717,7 +795,21 @@ fn build_candidate<E: ExpressionParseEnvironment>(
         let child_start = children.len();
         for value in mapped.values {
             let parsed = parse_parameter_value(session, value, parameter, depth + 1)?;
-            failure = choose_failure_trace(failure, parsed.failure);
+            let parameter_span = session.map_range(value)?;
+            let parameter_failure = parsed.failure.map(|trace| {
+                trace.with_parent(crate::FailureFrame {
+                    kind: crate::MatchSyntaxKind::Expression,
+                    definition_id: definition.definition_id.clone(),
+                    registration_id: definition.registration_id.clone(),
+                    pattern_index: 0,
+                    pattern: definition.signature_key(),
+                    element_path: Vec::new(),
+                    pattern_span: None,
+                    input_span: parameter_span,
+                    role: crate::FailureFrameRole::TypeExpressionCapture,
+                })
+            });
+            failure = choose_failure_trace(failure, parameter_failure);
             let Some(mut nodes) = parsed.nodes else {
                 return Ok(DefinitionParse {
                     candidate: None,

@@ -75,7 +75,7 @@ pub fn function_namespace_unavailable<'a>(
 pub enum FailureFrameRole {
     /// A structurally matched syntax candidate was rejected by semantic hooks.
     SemanticCandidate,
-    /// A typed pattern capture failed during recursive Expression parsing.
+    /// A typed pattern capture or Function parameter failed during recursive Expression parsing.
     TypeExpressionCapture,
     /// A regex capture was reinterpreted as an Expression.
     ExpressionCapture { index: usize },

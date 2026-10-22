@@ -2532,18 +2532,18 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                         raw_inner.start + local_inner.end,
                     );
                     if !inner.is_empty() {
-                        let inner_candidates = self
-                            .parse_prefixes_mode(
-                                inner,
-                                &[inner.end],
-                                expected_types,
-                                allow_literals,
-                                allow_expressions,
-                                time,
-                                depth + 1,
-                                allow_lists,
-                            )?
-                            .candidates;
+                        let inner_parsed = self.parse_prefixes_mode(
+                            inner,
+                            &[inner.end],
+                            expected_types,
+                            allow_literals,
+                            allow_expressions,
+                            time,
+                            depth + 1,
+                            allow_lists,
+                        )?;
+                        failure = choose_expression_failure_trace(failure, inner_parsed.failure);
+                        let inner_candidates = inner_parsed.candidates;
                         let group_span = self.map_range(TextRange::new(range.start, group_end))?;
                         for inner_candidate in inner_candidates {
                             let child = inner_candidate.node;
@@ -3587,7 +3587,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         self.registrations.get(registration_id)
     }
 
-    fn type_mismatch_trace(
+    pub(crate) fn type_mismatch_trace(
         &self,
         span: MatchSpan,
         return_type: Option<&ClassName>,
