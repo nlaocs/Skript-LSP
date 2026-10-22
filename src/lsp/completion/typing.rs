@@ -815,7 +815,9 @@ impl Document {
         // facts are stronger evidence than a speculative parent Graph path.
         let Some((
             super::super::semantic::InferredType::Values {
-                classes, multiple, ..
+                classes,
+                multiple,
+                maybe_unset: false,
             },
             requested,
             owner,

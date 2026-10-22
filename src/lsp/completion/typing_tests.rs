@@ -148,7 +148,11 @@ fn declared_function_return_types_filter_but_object_is_kept() {
 }
 #[test]
 fn parameter_candidate_types_follow_current_operand_facts_not_header_after_reassignment() {
-    for (middle, text_expected) in [("", true), ("    set {_arg_text} to 1\n", false)] {
+    for (middle, text_expected, number_expected) in [
+        ("", true, true),
+        ("    set {_arg_number} to 1\n", true, false),
+        ("    set {_arg_text} to 1\n", false, true),
+    ] {
         let source = format!(
             "function check_types(arg_text: text, arg_number: number, arg_unknown: object):\n{middle}    {{_arg_}} matches \"x\"\n"
         );
@@ -161,7 +165,11 @@ fn parameter_candidate_types_follow_current_operand_facts_not_header_after_reass
             text_expected,
             "{middle:?}: {names:?}"
         );
-        assert!(!names.contains(&"{_arg_number}"), "{names:?}");
+        assert_eq!(
+            names.contains(&"{_arg_number}"),
+            number_expected,
+            "{names:?}"
+        );
         assert!(names.contains(&"{_arg_unknown}"), "{names:?}");
         // Prepared views do not pretend the declaration is a current flow type.
         let PreparedQuery::Ready(list) = early.at(p, false).unwrap() else {
@@ -403,8 +411,7 @@ fn function_cardinality_and_converters_reuse_the_native_rules() {
 
 #[test]
 fn adopted_variable_type_is_not_borrowed_from_other_parent_patterns() {
-    let source =
-        "function check_types(arg_text: text, arg_number: number):\n    {_arg_} matches \"x\"\n";
+    let source = "function check_types(arg_text: text, arg_number: number):\n    set {_arg_number} to 1\n    {_arg_} matches \"x\"\n";
     for (competing, _reachable) in [
         ("{_arg_number} matches %strings%", true),
         ("<.+> matches %strings%", true),
@@ -449,7 +456,7 @@ fn variable_facts_respect_branch_union_opaque_barriers_scalar_names_and_teleport
         ("    set {_arg_text} to 1\n", false),
     ] {
         let source = format!(
-            "function typed(arg_text: text, arg_number: number, arg_unknown: object, arg_%%Number: number):\n{middle}    {{_arg_}} matches \"x\"\n"
+            "function typed(arg_text: text, arg_number: number, arg_unknown: object, arg_%%Number: number):\n{middle}    set {{_arg_number}} to 1\n    {{_arg_}} matches \"x\"\n"
         );
         let (_, view, _, _) = parse(&source);
         let list = view.at(position(&source, "{_arg_"), false).unwrap();
@@ -460,7 +467,10 @@ fn variable_facts_respect_branch_union_opaque_barriers_scalar_names_and_teleport
             "{middle}: {names:?}"
         );
         assert!(!names.contains(&"{_arg_number}"), "{names:?}");
-        assert!(!names.contains(&"{_arg_%%%%Number}"), "{names:?}");
+        assert!(
+            names.contains(&"{_arg_%%%%Number}"),
+            "nullable escaped parameter must remain unknown: {names:?}"
+        );
         assert!(names.contains(&"{_arg_unknown}"), "{names:?}");
     }
     for body in [
@@ -563,25 +573,48 @@ fn new_required_calls_use_their_declared_type_but_name_only_existing_calls_keep_
 }
 
 #[test]
-fn adopted_audience_capture_filters_a_known_number_variable() {
-    let source = "function typed(arg_number: number):\n    send \"ready\" to {_arg_}\n";
-    let (_, view, _, _) = parse(source);
-    let start = source.find("{_arg_}").unwrap();
-    let edit = TextRange::new(start, start + "{_arg_}".len());
-    let (ty, _, _) = view
-        .semantic_types
-        .as_ref()
-        .unwrap()
-        .completion_input(source, edit, "arg_number")
-        .expect("current operand facts");
-    assert!(
-        matches!(ty, crate::lsp::semantic::InferredType::Values { classes, .. }
-        if classes.contains("java.lang.Number"))
-    );
-    assert!(
-        !declaration_labels(&view.at(position(source, "{_arg_"), false).unwrap())
-            .contains(&"{_arg_number}")
-    );
+fn adopted_audience_capture_keeps_nullable_fallback_but_filters_present_number() {
+    for (middle, class, maybe_unset, kept) in [
+        ("", "java.lang.Number", true, true),
+        (
+            "    set {_arg_number} to 1\n",
+            "java.lang.Long",
+            false,
+            false,
+        ),
+    ] {
+        let source = format!(
+            "function typed(arg_number: number):\n{middle}    send \"ready\" to {{_arg_}}\n"
+        );
+        let (_, view, result, _) = parse(&source);
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{:?}",
+            result.syntax.diagnostics
+        );
+        let start = source.find("{_arg_}").unwrap();
+        let edit = TextRange::new(start, start + "{_arg_}".len());
+        assert!(
+            view.accepted_slots.contains_key(&(edit.start, edit.end)),
+            "actual adopted capture required"
+        );
+        let (ty, _, _) = view
+            .semantic_types
+            .as_ref()
+            .unwrap()
+            .completion_input(&source, edit, "arg_number")
+            .expect("actual incoming stored facts");
+        assert!(
+            matches!(ty,crate::lsp::semantic::InferredType::Values {classes,maybe_unset: actual,..} if classes.len()==1 && classes.contains(class) && *actual==maybe_unset),
+            "{ty:?}"
+        );
+        assert_eq!(
+            declaration_labels(&view.at(position(&source, "{_arg_"), false).unwrap())
+                .contains(&"{_arg_number}"),
+            kept,
+            "{source}"
+        );
+    }
 }
 
 #[test]

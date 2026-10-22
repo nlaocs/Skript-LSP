@@ -803,6 +803,8 @@ struct Operands {
     required_context: Option<ContextRequirement>,
     #[serde(default)]
     steps: Vec<OperandStep>,
+    /// Certifies all intrinsic postprocessing as well as every listed child;
+    /// each callback between children must be represented by its step barrier.
     #[serde(default)]
     complete: bool,
 }
