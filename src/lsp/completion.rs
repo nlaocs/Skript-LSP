@@ -3,7 +3,6 @@
 //! These are editing suggestions, not successful parse candidates. Expected
 //! types use native contracts; execution scopes and addon guards are not guessed.
 use super::{positions::LineIndex, public_data::variable_details};
-#[cfg(test)]
 use lsp_types::Documentation;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionList, CompletionTextEdit, InsertTextFormat,
