@@ -1,12 +1,16 @@
-# Skript LSP for VS Code (prototype)
+# Skript LSP for VS Code（試作版）
 
-Existing native `skript-lsp` serverをstdioで接続する薄いクライアントです。`.sk` をSkriptとして登録し、補完、hover、診断、定義・参照、signature help、semantic tokens、inlay hintsを標準LSP経由で提供します。構文・型の解析は既存サーバーが担当します。拡張側に別parserはありません。
+既存のnative `skript-lsp`へstdioで接続するclientです。`.sk`をSkriptとして登録し、診断、ホバー、
+補完、引数案内、定義・参照、安全なリネーム、呼び出し階層、構造一覧、semantic tokens、inlay hintsを
+標準LSP経由で提供します。解析はserverが担当し、拡張側に別のSkript parserはありません。
 
-VS Code Stableの公開APIのみを使います。最低APIは1.100、型定義も1.100に固定しています。Insiders専用APIやproposed APIは使いません。Web版・virtual workspaceには対応しません。Remote環境では拡張ホスト側OS用の実行ファイルとデータが必要です。
+VS Code Stableの公開APIのみを使い、最低APIと型定義は1.100です。Insiders専用・proposed APIは使いません。
+両channelを対象にしていますが、API互換性と各version/themeでの実表示の検証は別です。
+Web版・virtual workspace・Untitled文書には対応しません。Remoteでは拡張hostのOS用の実行ファイルとデータが必要です。
 
-## Build / package
+## ビルドとパッケージ
 
-Node.js 22以上、npmを用意し、このディレクトリで実行します。
+Node.js 22以降とnpmを用意し、このdirectoryで実行します。
 
 ```sh
 npm ci --ignore-scripts
@@ -15,18 +19,21 @@ npm test
 npm run package
 ```
 
-`skript-lsp-0.1.2.vsix` が生成されます。依存関係はlockfileで固定し、registryはnpm公式に限定しています。`ignore-scripts` でも明示した `npm run` は実行できます。実行ファイル、SSGデータ、WASM addonは同梱・自動取得しません。既存のサーバーbuildと完全なSSG exportディレクトリを別途用意してください（[サーバー仕様](../../docs/lsp.ja.md)）。
+`skript-lsp-0.1.2.vsix`を生成します。依存はlockfileで固定します。`ignore-scripts`を付けても、
+明示した`npm run`は実行できます。server executable、SSGデータ、WASM addonは同梱・自動取得しません。
+[repositoryのビルド手順](../../README.ja.md#ビルドと接続)でserverを用意し、対象環境の完全なSSG exportを指定してください。
 
-## Install / configure
+## インストールと設定
 
-InsidersではExtensionsの「Install from VSIX...」から生成物を選べます。最初は専用profile、または下記の専用data directoryを使ってください。Stableでも同じVSIXを利用できます。
+対象のStableまたはInsidersのExtensionsから「Install from VSIX...」でVSIXを選びます。
+CLIでは、導入先のchannelに合わせて`code`または`code-insiders`を使えます。
 
 ```sh
-code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --install-extension /path/to/skript-lsp-0.1.2.vsix
-code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --new-window /path/to/project
+code-insiders --install-extension /path/to/skript-lsp-0.1.2.vsix
 ```
 
-Settingsで次を指定します。Windowsの実行ファイルは `.exe`、JSONでは `C:/...` またはescapeしたbackslashを使います。
+Settingsに次を指定します。pathは実際の配置へ変更してください。Windowsの実行ファイルは`.exe`で、
+JSON内では`C:/...`またはescapeしたbackslashを使います。
 
 ```json
 {
@@ -36,53 +43,97 @@ Settingsで次を指定します。Windowsの実行ファイルは `.exe`、JSON
 }
 ```
 
-パスは絶対パス、または下記project rootからの相対パスです。PATH検索・shell展開・`~`・`${workspaceFolder}` 展開はしません。空白を含むパスも一つのパスとして扱います。`snapshotPath` はJSONファイル一個ではなく、完全なexportディレクトリを指定します。データ内容の検証とaddonの解釈はサーバーが行います。
+絶対path、または選択したproject rootからの相対pathを受け取ります。PATH検索、shell展開、`~`、
+`${workspaceFolder}`の展開はしません。`snapshotPath`はJSON file一個ではなくexport directoryです。
+snapshotの内容とAddonの契約はserverが検証します。
 
-実行ファイル・任意addonを起動するためWorkspace Trustが必要です。フォルダー設定でこれらのパスを渡す場合も、そのworkspaceを信頼したうえで利用してください。試験のためにTrustを無効化する必要はありません。
+native executableと任意Addonを起動するためWorkspace Trustが必要です。信頼できる対象folderだけを承認し、
+Trustを無効にする必要はありません。関連設定を変えるとclientを再起動するため、稼働中の作業と区別して変更してください。
 
-## Project roots / lifecycle
+## Projectの範囲と接続寿命
 
-- 開いているworkspace folderをそのままrootにします。親の `.git` や別のprojectを探しません。
-- 通常のmulti-rootは、Skript文書を開いた各folderにつき一つのサーバーを起動します。各接続へ渡すworkspace folderは一つです。resource設定でfolderごとにsnapshot・addonを選べます。
-- workspace外の単独ファイルは親ディレクトリをrootにし、そのディレクトリのファイルだけをclientの文書対象にします。近隣ファイルのproject探索は既存サーバーの上限に従います。
-- **入れ子のworkspace foldersは試作版の制限です。** 祖先folderの起動をエラーで止めます。workspaceから祖先または子folderを外してください。曖昧なprovider選択や重複したproject解析に頼らないための明示的な制限です。単独ファイルの親ディレクトリ同士が入れ子になる場合は利用できます。
-- `file:` のSkript文書だけを扱います。未保存のUntitled文書には接続しません。
+- workspace folderをそのままrootにし、祖先の`.git`から別projectを選びません。
+- 通常のmulti-rootでは、Skript文書を開いた各folderに一つのserverを起動します。各接続には一つのfolderを渡し、
+  resource設定でfolderごとにsnapshot・Addonを選べます。
+- **入れ子のworkspace foldersは未対応です。** 祖先folderの起動を明示errorにします。
+  workspaceから祖先または子folderを外してください。単独fileの親directory同士が入れ子になる場合は利用できます。
+- workspace外の単独fileは、その親directoryをrootにします。clientは直接そのdirectoryにあるfileを扱い、
+  serverの近隣ソース探索には[LSPのproject上限](../../docs/lsp.ja.md#project内の文書と依存関係)が適用されます。
+- 対象は`file:`のSkript文書です。最後の対象文書を閉じると、そのrootのclientを停止します。
 
-Command Paletteの `Skript LSP: Start / Stop / Restart / Show Output` で操作します。最後の対象文書が閉じられるとそのrootのclientを停止します。関連設定やworkspace foldersを変更すると接続を作り直します。明示的にStopした状態は設定変更後も維持します。起動エラーを直したらStart/Restartしてください。
+Command Paletteの`Skript LSP: Start / Stop / Restart / Show Output`で操作します。
+関連設定・workspace foldersの変更は接続を作り直しますが、明示的なStopは設定変更後も維持します。
+起動エラーを修正したらStart/Restartしてください。snapshotを読み直す場合も再起動が必要です。
 
-`skriptLsp.trace.server` はwindow単位の設定です。Outputの「Skript LSP」でログレベルをTraceにするとprotocol tracingが有効になり、この設定でmessages / verboseの詳細度を選べます（SDKの仕様によりoffでもTraceレベルではmessages）。Trace以外ではprotocol tracingは無効です。verboseにはソース本文・ローカルパスが含まれるため、共有前に内容を確認してください。
+## 操作と対応範囲
 
-## Colors / editor limits
+editor標準のHover、Suggest、Signature Help、Go to Definition、Find All References、Rename Symbol、
+Call Hierarchy、文書内symbol一覧を利用します。inlay hintsとsemantic highlightingの表示はeditor設定にも従います。
 
-本文のsemantic tokensは、サーバーが返すSkript独自のroleも交渉し、通常のtheme scopeへ対応付けます。色の選択は利用中のthemeに従います。
+| 機能 | 注意点 |
+| --- | --- |
+| 補完 | 要求slotと候補の型が分かる範囲で不適合を除外します。Unknown/Dynamicと未確定の期待型は保守的に扱い、未検証の別文法continuationを適合済みとは表示しません。 |
+| 変数の型 | 宣言型、要求型、現在の保存値の推論を区別します。関数結果の安全な代入経路も扱いますが、任意のruntime値や副作用を実行して確定するものではありません。 |
+| リネーム | 静的なASCIIの単一localとソースのある関数に限定します。global/list/parameter/動的名は対象外。全編集先をopenにし、現在版で解析を完了させます。不完全な参照範囲や衝突は拒否します。 |
+| 呼び出し階層 | ソースのある関数本文同士が対象です。Event/Command入口やCatalogだけの関数、未解決callを補作しません。 |
+| 構造一覧 | providerがmetadataと安全な原文範囲を提供するStructure/Sectionを表示します。全構文をheaderの綴りから拾う機能ではありません。 |
+| Inlay hints | 実引数名と対応する初期化済み暗黙引数を表示します。変数型のhintは未実装です。 |
 
-hoverや補完説明の `skript` / `skript-pattern` code fenceにはTextMate grammarを提供します。例文の文字列・変数・補間、およびpatternの `%types%` やgroup記号が字句単位で色分けされます。説明欄内でサーバーのASTやsemantic tokensを再解析するものではありません。VS CodeのMarkdown表示とthemeに依存し、Neovimの独自表示と同一の配色は保証しません。
+正確な拒否条件、型flow、探索不完全時の制限は[LSPの仕様](../../docs/lsp.ja.md)を参照してください。
+参照検索で読めるclosed fileでも、安全なリネームにはopenが必要です。編集はversion付きWorkspaceEditとして返されます。
 
-補完はサーバーのprepared/final/revoked/project-changed通知を利用し、現在の文書・版・位置・ticketに一致する候補を更新します。取消・編集・終了後の結果は破棄します。空白でも補完を起動し、右側のsuffixを保つ編集ではfilterTextを入力範囲に合わせます。文字列内の補間はコードのtoken種別に戻します。構文名・Javaクラス名による例外は追加していません。候補がないprepared結果には現サーバーがticketを付けないため、その場合の独自通知更新はありません。既存サーバーの探索上限・解析費用は引き続き適用されます。大量ディレクトリで探索上限に達しても、開いた文書の解析を続けるのはサーバー側の契約です。
+## 補完の更新と色
 
-## Isolated integration tests
+拡張はserverのprepared/final/revoked/project-changed通知を使い、同じ文書・版・位置・ticketの候補を更新します。
+取消・編集・終了後の結果を破棄し、空白からの起動と右側suffixを保つ編集にも対応します。
+文字列の補間内はcodeのtoken種別に戻します。構文名・Java class名による例外は持ちません。
+空のprepared結果には現serverがticketを付けないため、その場合の独自通知更新はありません。
+refreshによるmenuのちらつきが残る場合があり、APIの応答だけで実際のmenu表示を確認したとは扱いません。
 
-インストール済みのCode executableを指定して実機試験できます。自動downloadはありません。`Code.exe` / `Code - Insiders.exe` 本体を指定し、CLIの `.cmd` は指定しません。
+本文のsemantic tokensはSkript独自のroleも交渉し、themeのscopeへ対応付けます。初回は最終解析を使うため、
+大きな文書では準備済み補完より遅れて色が付く場合があります。全文解析の並列化は導入していません。
+
+ホバー・補完説明の`skript`/`skript-pattern` fenceにはTextMate grammarを提供します。例文の文字列・変数・補間、
+登録patternの型slotやgroupを字句単位で色分けします。説明内のASTを再解析するものではなく、解析の受理を示しません。
+Markdown rendererとthemeによって見え方は異なり、Neovimと同じ配色は保証しません。
+
+## ログと検証
+
+Outputの「Skript LSP」でログを確認できます。`skriptLsp.trace.server`はwindow単位の設定です。
+channelのlog levelをTraceにするとprotocol tracingが有効になり、messages/verboseの詳細度を選べます
+（SDKの仕様により、Traceではoffでもmessages）。Trace以外ではprotocol tracingは無効です。
+verboseにはソース本文・local pathを含み得るため、共有前に確認してください。
+
+`trace.server`がmessages/verboseの場合、Trace level以外でも補完providerの受付・dispatch・応答件数と範囲・
+phase更新・待機・破棄を記録します。これらのmetadata logは本文・候補label・filter文字列を出力しませんが、
+URI・版・位置・filter長・整列flagは残します。dispatchはSDK callbackを呼んだ意味で、通信配送の証明ではありません。
+activation logは読み込んだ拡張のversionとpathを示します。
+
+unit testに加え、インストール済みCode executableを指定した任意のintegration testがあります。
+自動downloadはなく、`Code.exe`/`Code - Insiders.exe`本体を指定します（CLIの`.cmd`ではありません）。
 
 ```sh
 npm run compile
 node scripts/test-host.mjs /path/to/Code /path/to/skript-lsp /path/to/complete-ssg-export
 ```
 
-毎回新しい一時profile・extensions directory・workspace・`.sk` fixtureを作り、Extension Development Hostで公開APIを試験します。既存profileやユーザーのファイルは変更しません。project探索上限の試験用に空のテキストファイルを50,001個作ります。成果物の一時ディレクトリは表示され、`result.json` とCodeのlogsを残します。試験完了後、必要な証跡を保管してからその一時ディレクトリを削除できます。Trust承認が必要な環境では、作成された試験workspaceだけを承認してください。
+この試験は一時profile・extensions directory・workspaceを作り、探索上限試験のため空fileを50,001個生成します。
+通常のprofileや原本を変更しませんが、時間とdiskを使うため明示的に実行してください。表示された一時directoryに
+`result.json`とCode logsを残します。Trust承認が必要なら作成された試験workspaceだけを承認してください。
+API/provider/診断の確認と、物理画面のmenu・Markdown配色・themeの確認は別です。
 
-自動試験はprovider結果と診断を検証します。画面上の候補リストの操作感、Markdownの実際の配色、各themeでの見え方は別途目視してください。
+## 削除と復元
 
-## Remove / rollback
-
-専用profileで拡張を無効化・uninstallするか、同じdata directoryで次を実行します。
+導入先のeditorから拡張を無効化・uninstallできます。CLIの場合も同じchannel/profileを選びます。
 
 ```sh
-code-insiders --user-data-dir /path/to/test-profile --extensions-dir /path/to/test-extensions --uninstall-extension nlaocs.skript-lsp
+code-insiders --uninstall-extension nlaocs.skript-lsp
 ```
 
-導入前のVSIXへ戻す場合は、対象profileへ前のVSIXを再installしてください。サーバー・snapshotは自動更新しないため、この拡張の削除では変更しません。
+以前のVSIXへ戻すには、その導入先へ旧VSIXを再installします。server・snapshot・外部Addonは自動更新しないため、
+拡張の削除では変更しません。serverを差し替える場合は旧exeと対応するAddon・設定を保存し、整合する組み合わせへ戻せるようにします。
 
-実装の基礎はMicrosoft公式の [Language Server Extension Guide](https://code.visualstudio.com/api/language-extensions/language-server-extension-guide)、[Extension tests](https://code.visualstudio.com/api/working-with-extensions/testing-extension)、[Semantic highlighting](https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide)、[Workspace Trust](https://code.visualstudio.com/api/extension-guides/workspace-trust) です。
-
-With `skriptLsp.trace.server` set to `messages` or `verbose`, the main output also records completion provider entry, dispatch attempts, response counts and ranges, phase refresh, waits and discarded results. They omit source text, candidate labels and filter strings; URI, version, positions, filter lengths and alignment flags remain. Dispatch means the SDK request callback was invoked, not proof of transport delivery. These metadata logs do not require the channel log level to be Trace. Activation logs identify the loaded extension version and path. They help separate API completion from automatic suggest display; an API response alone does not confirm a visible menu.
+実装の基礎はMicrosoft公式の[Language Server Extension Guide](https://code.visualstudio.com/api/language-extensions/language-server-extension-guide)、
+[Extension tests](https://code.visualstudio.com/api/working-with-extensions/testing-extension)、
+[Semantic highlighting](https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide)、
+[Workspace Trust](https://code.visualstudio.com/api/extension-guides/workspace-trust)です。

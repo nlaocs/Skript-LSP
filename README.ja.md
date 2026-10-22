@@ -2,156 +2,145 @@
 
 [English](README.md)
 
-省略された型付き引数はWASMのDefaultExpression providerで解決し、共通parser treeの
-implicitな子として保持します。[DefaultExpression APIとAddonガイド](docs/default-expressions.ja.md)を参照してください。
+[Skript](https://github.com/SkriptLang/Skript)向けのLanguage Serverとparserのworkspaceです。
+SkriptSyntaxGenerator（SSG）が対象サーバーの環境から出力した構文データと、WebAssemblyの
+parser componentを使います。解析時にMinecraftサーバーやJavaを起動する必要はありません。
 
-Skript-LSPは、[Skript](https://github.com/SkriptLang/Skript)言語向けに開発中の
-Language Serverです。このworkspaceは、SkriptSyntaxGenerator（SSG）がサーバーごとに
-生成する構文データ、出典位置を保持するparser、LSP本体に組み込まずに解析へ参加できる
-WebAssembly addon systemを中心に構成されています。
+現在開発中です。snapshotは利用可能な登録情報を表しますが、それだけでSkriptやすべてのAddonの
+動作を実装するものではありません。
 
-## 現在の状態
+## 対応機能
 
-libraryにはsnapshot読み込み、登録pattern解析、source mapping、Text/Tree macro、Wasmtime host、
-transactional StateStore、dynamic syntax登録、Expression・Condition・Effect・Event・Sectionの
-再帰解析が実装されています。トップレベルStructure解析にはEntryValidatorと二段階lifecycleがあり、
-document内のFunction宣言も登録して呼び出し解析に利用できます。
+| 機能 | 現在の対応範囲 |
+| --- | --- |
+| 診断 | Structureのentry、入れ子の実行本文、parser/providerの失敗、根拠がある場合の期待型と実際型。別領域のエラーがあっても、安全に採用できた部分の結果を保持します。 |
+| ホバー・補完説明 | 構文、戻り値型、引数宣言、変数の推論型、説明、例、定義情報。登録文法と実行例は異なるcode fenceで示します。 |
+| Semantic highlighting | 採用済み構文、関数名、変数、literal、補間区切り。Skript独自のtoken分類にはclient側の対応が必要です。 |
+| 補完・引数案内 | Structureのentry、文のtemplate、文法の継続語、Expression、関数、scope内の変数。要求型が確定すれば既知の不適合な戻り値型を除外し、Unknownや未検証の代替は保守的に扱います。 |
+| 定義移動・参照検索 | 解決済み関数と静的に識別できる変数。原文とscopeを確認し、project内の未open文書も検索対象にできます。 |
+| 安全なリネーム | ソースのある関数と、条件を満たす静的な単一ローカル変数。編集範囲の網羅性、編集先のopen、version付き編集に対応するclientが必要です。 |
+| 呼び出し階層 | ソースを確認できる関数本文同士のincoming/outgoing calls。再帰と複数文書に対応します。 |
+| 構造一覧 | providerのmetadataと、検証した原文範囲・親子関係に基づくdocument symbols。 |
+| Inlay hints | 明示した関数実引数の名前と、対応する初期化済み暗黙引数。原文は変更しません。 |
 
-ルートの`skript-lsp` binaryは、明示した単一projectとsnapshotで動くstdio Language Serverです。
-全文同期、原文位置付き診断、ホバー、Semantic Tokens、文脈に沿う補完、引数案内、定義移動、
-参照検索、初期化済みの暗黙引数を示すread-only inlay hintを提供します。採用済みparserとproviderの
-根拠から、local変数の保守的な型flowも得ます。ホバーと補完説明では登録patternの文法とSkriptの例を
-区別し、Neovim adapterは補完編集を変えずに両者を着色します。[LSPの契約](docs/lsp.ja.md)と[Neovim設定](docs/neovim.ja.md)を参照してください。
-ルートlibraryは`new_parser_host`を提供します。`skript-repl` utilityは、既存の一行Effect検証と
-共通document parserを利用する複数行REPLを提供し、version付きJSON treeも出力します。
-project内の未openのUTF-8 `.sk`も上限付きで索引化し、open bufferはdiskより優先します。
-複数文書の解析には、有効な全componentによる`parser.project-stable-semantics` v1の明示が必要です。
-未知の値、意味を公開していないAddonの副作用、曖昧な原文射影、未対応のhandlerはUnknownまたは
-partialのまま残します。実行時評価や完全な手続き間解析ではありません。
+正確な契約は[LSPの動作と制限](docs/lsp.ja.md)を参照してください。
+静的解析であり、実行時評価やリンターではありません。
 
-型flowは、要求型への変換前に変数へ保存された型を扱います。汎用engineはunion・list要素・
-parameter・到達書込を表現できますが、精度には現在のproviderの根拠が必要です。現在のCoreが
-証明するのはprimitive scalarの生成と、安全な継承`beforeChange` clone/set経路です。任意の
-FunctionやExpressionList結果はUnknownになり得て、型付きparameter/returnにも未設定の可能性を残します。
-戻り値classだけでは非空性や他localの不変性を証明しません。nativeの評価順付きearly operand契約は
-opaque処理より前の安全な読取を示すもので、Effect/Condition全体のpure宣言ではありません。
-未知のconverter・callback・alias・control flowでは、外側の要求型を借りず事実を忘れます。
+## ビルドと接続
 
-Addon契約はWIT `nlaocs:skript-parser-addon@0.42.0`、ABI `24.0`です。componentはこの契約で
-再buildしてください。incremental処理は明示的にopt-inした意味hookの返却値だけを検証して再利用し、
-native matchingと現在のtransactionは再実行します。以前のAST全体は移植しません。WASMの強制的な
-取消には別の安全性opt-inが必要です。snapshotに保存済みliteral defaultの実値がない場合、
-hintは登録された型を示し、値を補作しません。
+stable Rust toolchain、Cargo、WebAssembly targetを用意し、repository rootで実行します。
 
-古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
-影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
+```sh
+rustup target add wasm32-unknown-unknown
+cargo run -p xtask --locked -- build-core-library
+cargo build --locked --release --bin skript-lsp
+```
+
+実行ファイルは`target/release/skript-lsp`（Windowsでは`skript-lsp.exe`）、または設定済みの
+`CARGO_TARGET_DIR`以下へ出力されます。必須のCoreLibraryはcompile時に埋め込まれるため、
+componentを更新したら実行ファイルも再buildします。外部parser addonはhostと同じ契約が必要です。
+現在はWIT `nlaocs:skript-parser-addon@0.42.0`、ABI `24.0`です。
+
+対象サーバーのSkript・Addon構成から、完全なSSG export directoryを用意します。
+このrepositoryはexportを読み取る側で、generatorは独立したMinecraft pluginです。
+archive readerの`ssg::load`はschema 3～7に対応しますが、LSPは`load_for_parsing`を使い、
+現行schema 7とCoreLibraryが必要とするmetadataを要求します。loaderが再生成を要求したexportは更新してください。
+任意metadataが解析精度を高める場合もあります。Addon固有の意味論には追加parser WASM componentが必要な場合もあります。
+
+`skript-lsp --stdio`で起動します（引数なしもstdio）。clientは明示した一つのprojectの`rootUri`、
+または一件の`workspaceFolders`と、次の設定を渡します。
+
+```json
+{
+  "snapshotPath": "/path/to/complete-ssg-export",
+  "addonPaths": []
+}
+```
+
+これはCLI引数ではなく`initializationOptions`です。pathは絶対path、またはproject rootからの
+相対pathです。無関係な親repositoryではなく、対象のSkriptソースfolderをrootにします。
+snapshotを読み直す場合はserverの再起動が必要です。
+
+- [Neovimの設定と操作](docs/neovim.ja.md)：付属例はNeovim 0.12以降の標準APIを使います。
+  基本機能に追加pluginは不要です。
+- [VS Code / Insiders拡張](editors/vscode/README.md)：stable API（最低1.100）を使うlocal試作版です。
+  Insiders専用APIは使いません。serverとSSGデータは別途用意し、実際のclient/themeでの表示確認も必要です。
 
 ## アーキテクチャ
 
 ```mermaid
 flowchart LR
-    SSG["SkriptSyntaxGenerator snapshot"] --> Loader["ssg"]
-    Loader --> Catalog["syntaxes::Catalog"]
-    Loader --> Rules["PluralRules.json"]
-    Rules --> Patterns["syntax-pattern-parser"]
+    Export["SSG export"] --> SSG["ssg"] --> Catalog["syntaxes::Catalog"]
     Catalog --> Host["parser-wasm host"]
-    Core["core-library WASM"] --> Host
-    Addons["addon WASM components"] --> Host
-    Host --> Dynamic["dynamic syntax snapshot"]
+    Core["CoreLibrary + optional WASM addons"] --> Host
     Source[".sk source"] --> Host
-    Host --> Expanded["macro展開後source + SourceMap"]
-    Expanded --> Parser["skript-parser"]
-    Parser --> Tree["再帰Tree macro pipeline"]
-    Host --> Tree
-    Tree --> Syntax["Structure / Section / Effect / Expression解析"]
-    Host --> Syntax
-    Syntax --> Consumers["LSP診断・library利用者"]
-    Dynamic --> Parser
-    Patterns --> Parser
+    Host --> Parser["skript-parser: macro・source map・文書解析"]
+    Patterns["syntax-pattern-parser: 登録文法"] --> Parser
+    Parser --> Results["AST・診断・意味情報の根拠"]
+    Results --> LSP["stdio LSP / library利用者 / REPL"]
 ```
 
-想定しているデータの流れは次のとおりです。
+hostがtransaction付き解析、動的登録、Text・Tree・AST macroを調整します。CoreLibraryは
+ほかのcomponentも利用できる共通Addon契約を通じてSkript固有の意味論を実装します。
+LSPは採用済みの解析結果と検証済みmetadataからeditor用の情報を作り、Structureごとに
+綴りを調べる別parserを持ちません。
 
-1. Minecraft server上でSSGを実行し、その環境のSkriptとaddon構成に対応したschema 7
-   snapshotを生成する。
-2. `ssg`がsnapshotを検証し、保存形式に依存しない`syntaxes::Catalog`へ変換する。
-   schema 3・4も引き続き読み込める。schema 5では`Language.json`が必須だが、旧schemaでは不要。
-3. `parser-wasm`が必須のCoreLibraryと任意のaddon componentを読み込む。componentは
-   初期化時とdocument prepass時に構文を追加または上書きできる。Text macroはdocument
-   sourceをpreprocessし、Tree macroはlossless RawTreeを再帰的に変換する。
-4. `syntax-pattern-parser`がSkriptの登録patternを表現し、`skript-parser`がText/Tree editを
-   検証する。合成したSourceMapでmacro展開後sourceとの位置関係を追跡し、commentと
-   indentationからlosslessなRawTreeを構築する。
-5. `ParserHost::parse_document`は各stageを一つのtransactional document serviceへ統合する。
-   Structure headerと選択済みbody、nested syntax、source付きdiagnostic、partial AST recovery、
-   document内Function登録まで解析できる。stdio frontendは文書のlifecycleと現在世代のeditor view、
-   上限付きproject indexを接続し、source/importの根拠で古い定義や依存結果を無効にする。
+| Crate | 役割 |
+| --- | --- |
+| [`skript-lsp`](src/lib.rs) | CoreLibraryの埋め込み、parser hostの構築、stdio protocol、editor用の情報。 |
+| [`ssg`](ssg/README.ja.md) | サーバーのsnapshot exportの読込と検証。 |
+| [`syntaxes`](syntaxes/README.ja.md) | 正規化したCatalog、登録identity、型関係、converter、alias。 |
+| [`syntax-pattern-parser`](syntax-pattern-parser/README.ja.md) | `(send|message) %string%`のような登録patternを解析。`.sk`ソース用ではありません。 |
+| [`skript-parser`](skript-parser/README.ja.md) | 原文範囲とSourceMap、情報を落とさない字下げtree、再帰照合、Structure entry、関数registry。 |
+| [`parser-wasm`](parser-wasm/README.ja.md) | WIT契約、Wasmtime host、lifecycle hook、StateStore、transaction付きpipeline。 |
+| [`core-library`](core-library/README.ja.md) | 組込の解析意味論を実装する必須WASM component。 |
+| [`skript-repl`](utilities/skript-repl/README.ja.md) | 一行の検証と複数行の文書REPL、version付きJSON出力。 |
+| [`xtask`](xtask/README.ja.md) | CoreLibraryと試験componentのbuild・Component化・検証。 |
 
-解析時に動作中のMinecraft・Paper・Java・Skriptは不要で、生成済みsnapshotとWASM componentを
-使用します。ただし利用可能な構文はsnapshotのSkript/addon構成に従い、addon固有の意味処理には
-追加のWASM addonが必要になる場合があります。
+[`skripthub`](skripthub/README.ja.md)と
+[`invalid-syntax-searcher`](utilities/invalid-syntax-searcher/README.ja.md)は互換性・corpus調査用です。
+通常のLanguage ServerはSkriptHubからデータを取得しません。
 
-## Workspaceのcrate
+libraryからは`new_parser_host`を利用できます。runtime metadata付きのCatalog、または情報不足を
+補う明示的なruntime profileが必要で、`HostConfig::default()`だけではparserの設定は完了しません。
+guest componentは`parser-wasm`へ`default-features = false`で依存します。
 
-| Crate | 種類 | 役割 |
-| --- | --- | --- |
-| [`skript-lsp`](./) | library / binary | CoreLibraryを埋め込み、parser hostを構築し、stdio LSPで単一projectの診断、補完、意味問い合わせ、read-only hintを提供します。 |
-| [`syntax-pattern-parser`](./syntax-pattern-parser/README.ja.md) | library | 選択肢、optional group、type expression、parse tag、parse markなど、Skriptへ登録された構文patternを解析します。`.sk` file自体は解析しません。 |
-| [`ssg`](./ssg/README.ja.md) | library | SSG schema 3〜7 snapshot directoryを読み込み、完全性検証とruntime modelへの変換を行います。schema 5以降のlanguage data、schema 6のdefault Expression descriptor、schema 7のBlockData registry dataも含みます。 |
-| [`syntaxes`](./syntaxes/README.ja.md) | library | 正規化された構文domain model、index付きCatalog、type関係、alias、dynamic syntax registryを所有します。 |
-| [`skript-parser`](./skript-parser/README.ja.md) | library | `.sk` document用のUTF-8 range、SourceMap、macro provenance、lossless RawTree、登録pattern照合、再帰syntax node、二段階Structure/EntryValidator解析を所有します。 |
-| [`parser-wasm`](./parser-wasm/README.ja.md) | library | WIT ABIを定義し、Wasmtime host、hook registry、transactional syntax pipeline、Structure lifecycle、StateStore、dynamic syntax bridgeを実装します。 |
-| [`core-library`](./core-library/README.ja.md) | WASM component | Skript標準の解析処理を実装する必須parser addonです。公開addon ABIだけを使い、primitive/type解析とSkript固有のExpression、Effect、Section、Structure意味処理を提供します。 |
-| [`skripthub`](./skripthub/README.ja.md) | legacy library | 旧SkriptHub APIとflattenされたfunction文字列の互換readerです。新しい構文データには`ssg`と`syntaxes`を使用します。 |
-| [`text-macro-addon`](./test-components/text-macro-addon/README.ja.md) | test WASM component | 順序付きText macro展開、UTF-8 edit、anchor、StateStore rollback、trapを検証します。 |
-| [`tree-macro-addon`](./test-components/tree-macro-addon/README.ja.md) | test WASM component | 対象指定TreeEdit、再帰展開、provenance、cycle、StateStore rollback、quota、trapを検証します。 |
-| [dynamic-syntax-addon](./test-components/dynamic-syntax-addon/README.ja.md) | test WASM component | dynamic registration、override、prepass、rollback、freeze、unloadを検証します。 |
-| [`catalog-data-addon`](./test-components/catalog-data-addon/README.ja.md) | test WASM component | WIT経由の全source document・record取得、catalog query、response limitを検証します。 |
-| [effect-addon](./test-components/effect-addon/README.ja.md) | test WASM component | Effect lifecycleの置換、Reject diagnostic、dynamic handler、採用state rollbackを検証します。 |
-| [matching-addon](./test-components/matching-addon/README.ja.md) | test WASM component | 型付きmatching overrideと採用候補だけを残すStateStore rollbackを検証します。 |
-| [`function-addon`](./test-components/function-addon/) | test WASM component | 構造化Function leaf、入れ子引数、不正出力のrollback、出力量制限、CLI/REPL reportを検証します。 |
-| [`expression-data-addon`](./test-components/expression-data-addon/) | test WASM component | node-localなschema version付きExpression public data、Transform/Overrideによる置換・削除、raw JSON保持を2つのfeature variantで検証します。 |
-| [`skript-repl`](./utilities/skript-repl/README.ja.md) | 解析utility | 共通parserとWASM hostを利用し、単発Effect検証と複数行document REPLを提供する独立実行ファイル`skript-repl`を構築します。 |
-| [`invalid-syntax-searcher`](./utilities/invalid-syntax-searcher/README.ja.md) | developer utility | SkriptHubデータを取得し、parserが拒否したpatternを分類します。 |
-| [`xtask`](./xtask/README.ja.md) | build utility | core Wasm moduleのbuild、Component変換、export検証、local artifactの配置を行います。 |
+## 主な制限
 
-各crate directoryの日本語READMEでは、公開範囲、責務の境界、依存関係、テスト方法を
-より詳しく説明しています。
+- **Projectの範囲：** serverごとに一つのrootとsnapshotを使い、open bufferをdiskより優先します。
+  探索上限は512 source、50,000 directory entry、深さ64、1 fileあたり1 MiB、合計16 MiBです。
+  symlinkやreparse pointは辿りません。探索未完了を完全な名前空間として扱わず明示します。
+  複数文書の解析には全componentの`parser.project-stable-semantics` v1宣言が必要です。
+- **リネーム：** ASCII識別子の静的な単一ローカル変数が対象です。global、list family、parameter、
+  動的名、曖昧な原文位置、不完全な編集範囲は対象外です。関数ではproject全体の網羅性と衝突も確認します。
+  編集先の全文書がopenかつ現在版である必要があり、read-onlyの参照検索より対応範囲が狭くなります。
+- **呼び出し階層・構造一覧：** 階層のnodeはソースのある関数で、Event/Commandの入口やCatalogだけの
+  関数は含みません。構造一覧にはproviderのmetadataが必要で、未対応・曖昧な範囲は省略されます。
+- **型：** 引数の宣言型、parse contextの要求型、保存値の推論型は別の情報です。対応する代入では
+  関数の既知の戻り値型も伝播しますが、provider、変換、alias、制御flow、snapshotの根拠不足により
+  Unknownになる場合があります。評価順を伴う補間の一部でも、後続localの型を保守的に失います。
+  これは標準Number formatterが無関係なlocalを書き換えると実証したものではありません。
+  完全な手続き間の値・副作用解析は行いません。
+- **待ち時間と表示：** 対応clientでは準備済み補完を最終解析より先に返せますが、大きな文書の初回診断・
+  ホバー・意味による色付けには待ち時間が残ります。本文解析は並列化されておらず、検証済みhookの再利用も
+  AST全体の再利用ではありません。候補更新時にclientによってちらつく場合があり、一定時間内の応答や
+  ちらつきのないmenuを保証しません。
 
-## Crateの選び方
+Unknownを型適合の証拠としたり、補完から一律に消したりしません。未検証の文法継続候補は、型付きの
+候補と区別して示します。変数型のinlay hintや追加の型確度区分は、実装済み機能ではありません。
 
-入力が生成済みsnapshot directoryなら`ssg`を使用します。データ読み込み後に、構文、
-class、converter、EventValue、aliasなどを検索する場合は`syntaxes`を使用します。
+## 開発とテスト
 
-Skriptまたはaddonが登録した`(send|message) %string%`のような文字列には
-`syntax-pattern-parser`を使用します。実際の`.sk` document内の位置と出典を扱う場合は
-`skript-parser`を使用します。この2つは入力の意味が異なるため、同じparserとして
-扱いません。
-
-addon componentをhostする場合や共通WIT contractを使う場合は`parser-wasm`を使用します。
-guest componentは`default-features = false`で依存し、guest側へWasmtimeをlinkしないように
-します。
-
-CoreLibraryの初期化にはSkript versionが必要です。読み込んだSSG Catalogを
-`HostConfig::syntax_catalog`へ設定すると、hostがそのsource metadataからversionなど未設定の
-runtime profileを補完します。Catalogのruntime metadataがない場合は、初期化用に
-`HostConfig::runtime_profile`を明示してください。実際の構文解析にはCatalogが必要で、
-defaultのHostConfigだけではparserの設定は完了しません。
-
-## Buildとテスト
-
-ルートcrateは、compile時に必須のCoreLibrary componentを埋め込みます。parserのintegration
-testもtest componentを埋め込むため、workspace全体をcompileまたはtestする前に両方の
-artifactをbuildします。
+hostのintegration testはCoreLibraryに加えて試験componentも埋め込みます。
+workspace全体を試験する前に両方を用意します。
 
 ```sh
-rustup target add wasm32-unknown-unknown
 cargo run -p xtask --locked -- build-core-library
 cargo run -p xtask --locked -- build-test-components
-cargo test --workspace --all-features --locked
+cargo test --workspace --all-features --locked --jobs 2
 ```
 
-個別の確認には次のcommandを使用できます。
+対象を絞った確認では、不要な全体実行を避けられます。
 
 ```sh
 cargo test -p syntax-pattern-parser --locked
@@ -159,33 +148,25 @@ cargo test -p ssg --locked
 cargo test -p syntaxes --locked
 cargo test -p skript-parser --locked
 cargo test -p parser-wasm --locked
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test -p skript-lsp --all-features --locked --lib --test lsp_stdio
 ```
 
-artifactのbuild後、API referenceは次のcommandで生成できます。
+同じartifactを用意してからAPI文書を生成できます。
 
 ```sh
-cargo doc --workspace --all-features --no-deps --locked --open
+cargo doc --workspace --all-features --no-deps --locked
 ```
 
-`cargo doc`やdoc testも埋め込みcomponentを参照するため、同じartifactの準備が必要です。
-Rust CIは`main`向けpull requestで実行され、両artifactをbuildしてから`--jobs 2`でworkspaceを
-testします。`[profile.test]`はassertionとoverflow checkを保持したまま`opt-level = 1`を使用します。
-通常のrelease設定とは別です。
+同じplatform/toolchainでは既存のCargo targetを再利用します。生成componentはGit管理外です。
+出力一覧とexport検証は[xtask](xtask/README.ja.md)、任意のeditor integration testは各editor文書を
+参照してください。headless/API試験は、物理画面のmenuや全themeの見え方を保証するものではありません。
 
-`xtask`は`artifacts/core-library.wasm`と
-`artifacts/catalog-data-addon.wasm`、`artifacts/dynamic-syntax-addon.wasm`、`artifacts/effect-addon.wasm`、
-`artifacts/expression-data-addon-a.wasm`、`artifacts/expression-data-addon-b.wasm`、
-`artifacts/matching-addon.wasm`、
-`artifacts/text-macro-addon.wasm`、`artifacts/tree-macro-addon.wasm`を生成します。
-生成artifactはcommitしません。
-CoreLibraryが存在しない場合は意図的にcompile errorになります。CoreLibraryなしのparserは
-support対象外だからです。
+[Rust CI](.github/workflows/ci.yml)は`main`向けpull requestでworkspace全体を試験します。
+`main`の一部の設定・依存更新や手動dispatchはcache準備用で、これらは全testの実行とは異なります。
 
-## Repositoryの境界
+## 関連文書
 
-このrepositoryはSSGの出力を利用します。Minecraft serverの構文データを生成するplugin
-そのものは含みません。generatorは独立したMinecraft pluginとして管理します。
-
-SkriptHub supportは、互換性維持とparser corpusの調査にのみ残しています。新しいLSP機能が
-SkriptHub serviceの可用性やdata shapeへ依存してはいけません。
+- [LSP protocol・意味情報・制約](docs/lsp.ja.md)
+- [Neovim](docs/neovim.ja.md) / [VS Code・Insiders](editors/vscode/README.md)
+- [DefaultExpression APIとAddon](docs/default-expressions.ja.md)
+- 各crateのREADMEと、生成したRust API文書

@@ -1,4 +1,4 @@
-# Neovimで診断・補完・意味情報を確認する
+# NeovimでSkript-LSPを使う
 
 Neovim 0.12 以降の標準 LSP client を使う。`nvim-lspconfig` や追加 plugin は不要で、
 この手順は既存の Neovim 設定ファイルを書き換えない。
@@ -21,12 +21,14 @@ initialize request に渡す。`root_dir` は `SKRIPT_LSP_ROOT` に固定する�
 この例は `.sk` を filetype `skript` に対応付け、`vim.lsp.config` と `vim.lsp.enable` で接続する。
 
 PowerShell では、repository root から次のように設定する。
-`SKRIPT_LSP_EXE` は実際に用意した executable の場所へ変更する。
+以下のpathは、実際に用意したrelease executable・対象サーバーのexport・Skript projectへ変更する。
+`CARGO_TARGET_DIR`を設定したbuildでは、その出力先を使う。test corpusや無関係な親repositoryを
+通常のsnapshot/rootの代わりに指定しない。
 
 ```powershell
-$env:SKRIPT_LSP_EXE = (Resolve-Path .\target\debug\skript-lsp.exe).Path
-$env:SKRIPT_LSP_SNAPSHOT = (Resolve-Path .\utilities\skript-repl\tests\data\current-multi-addon-2.15.4).Path
-$env:SKRIPT_LSP_ROOT = (Get-Location).Path
+$env:SKRIPT_LSP_EXE = (Resolve-Path 'C:/path/to/skript-lsp.exe').Path
+$env:SKRIPT_LSP_SNAPSHOT = (Resolve-Path 'C:/path/to/complete-ssg-export').Path
+$env:SKRIPT_LSP_ROOT = (Resolve-Path 'C:/path/to/skript-project').Path
 # 必要な場合だけ指定する。省略時は追加 Addon なし。
 # $env:SKRIPT_LSP_ADDON_PATHS = '["C:/path/to/addon.wasm"]'
 ```
@@ -35,7 +37,7 @@ $env:SKRIPT_LSP_ROOT = (Get-Location).Path
 `-i NONE` は ShaDa の読み書き、`-n` は swap file、`--noplugin` は plugin の自動読込を無効にする。
 
 ```powershell
-nvim -n -i NONE --noplugin -u .\examples\neovim\skript-lsp.lua .\example.sk
+nvim -n -i NONE --noplugin -u .\examples\neovim\skript-lsp.lua "$env:SKRIPT_LSP_ROOT/example.sk"
 ```
 
 通常の設定を読み込んだ Neovim から試す場合は、次の command を実行してから `.sk` を開く。
@@ -55,8 +57,8 @@ nvim -n -i NONE --noplugin -u .\examples\neovim\skript-lsp.lua .\example.sk
 空白・コメント・未知の構文・位置対応が曖昧なマクロ展開では表示を返さない。
 編集直後の再解析中もnullになり、完了後に再度要求すると現在の情報を表示する。
 変数にはnativeの要求型と、現在の代入履歴から独立に得た`Inferred type`を分けて表示する。
-後者は要求型への変換前の保存型であり、根拠がないときはUnknownになる。literal scalarや
-安全な代入経路の根拠が必要で、型付きFunction/parameter、listの実値や非空性まで保証しない。
+後者は要求型への変換前の保存型であり、根拠がないときはUnknownになる。宣言引数や既知の関数戻り値も
+安全な評価・代入の根拠がある範囲で扱うが、宣言型だけでは現在値や非空性を保証しない。
 opaqueなconverter/callbackを通る読取では以前の保存型を保持せず、globalのruntime値や別eventの実行順も推測しない。
 古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
 影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
@@ -83,13 +85,18 @@ headlessの標準rendererを対象とし、第三者のMarkdown pluginやdesktop
 snippet対応時は必須引数・型slotをtab stopにする。Neovim標準のsnippet操作を利用でき、追加pluginは不要。
 
 文頭のCatalogテンプレート、式の関数とExpression、同じ文書で観測した静的変数名を表示する。
-候補は型・Addon guard・実行scopeへの適合性を保証しない。local変数の候補名は、同じbody/祖先で
-カーソルより前に現れた参照履歴に限定する。解析済みの候補には現在のflow推論の説明を添えられるが、
+要求slotと候補自身の型を確定できる範囲で、parserと共通の規則から不適合な型を除外する。
+Unknown/Dynamicや未確定の期待型では候補を保守的に残す。宣言引数は最初の参照前から、その本文scopeで候補になる。
+それ以外のlocal履歴は同じbody/祖先でカーソルより前に現れた参照に限定する。解析済みの候補には現在のflow推論の説明を添えられるが、
 参照履歴そのものを宣言やruntime値の証明にはしない。
 未完成行ではPattern ASTに沿う継続語も示す。`teleport player t`から`to`を選ぶと入力済み引数を保持する。
-説明paneには元の全文法を表示する。型・guardは未判定であり、同じ継続語をまとめた場合は代表patternの説明になる。
+説明paneには元の全文法と戻り値型を表示する。別文法のcontinuationは型・guard未検証で残る場合があり、
+その旨を説明に示す。同じ継続語をまとめた場合は代表patternの説明になる。
 編集直後でも構文候補は現在の原文から先に返せる。参照履歴や関数の確定には現在文書の解析が必要で、
 即時の構文応答の後に同じ要求へ追加送信はしない。検索時間・解析待ち・clientのmenu描画は分けて扱う。
+付属の標準client起動例は独自のprepared/final refreshを有効にしない。構造内のprepared補完を使うには、
+`skript/completionRefresh`契約に対応するclient処理が別途必要で、capabilityを付けるだけでは不十分である。
+menuの更新方法によってちらつく場合があり、全体の解析時間と候補表示時間も異なる。
 詳しい制約は[LSPの入力候補](lsp.ja.md#入力候補の範囲)を参照する。
 
 `tests/neovim/completion.lua`は標準clientの実応答とmenu・確定後のbufferを確認し、
@@ -110,7 +117,7 @@ Blinkを使う構成では既存の `opts` に `signature = { enabled = true }` 
 既存の補完キー設定を変更する必要はない。この設定はBlink全体の有効化であり、他の対応LSPにも適用される。
 文法内の位置は入力支援であり、引数型やAddon guardの成功を示さない。曖昧な場合は文法だけを表示する。
 
-## 定義移動・参照検索・暗黙引数
+## 定義移動・参照検索
 
 解析後、変数や関数へカーソルを置き、`:lua vim.lsp.buf.definition()`で定義候補へ移動する。
 `:lua vim.lsp.buf.references()`は`includeDeclaration`を含む標準参照要求を使う。
@@ -118,7 +125,28 @@ Blinkを使う構成では既存の `opts` に `signature = { enabled = true }` 
 書込候補はclientの一覧へ渡す。動的名や曖昧なmacro位置から一意のruntime bindingを推測しない。
 projectの複数文書解析には全componentの`parser.project-stable-semantics` v1宣言が必要である。
 
-bufferのhintを有効にするには、接続後に次を実行できる。
+## リネーム・呼び出し階層・構造一覧
+
+| 操作 | Neovim API |
+| --- | --- |
+| 呼び出し元 | `vim.lsp.buf.incoming_calls()` |
+| 呼び出し先 | `vim.lsp.buf.outgoing_calls()` |
+| 文書の構造一覧 | `vim.lsp.buf.document_symbol()` |
+| リネーム | `vim.lsp.buf.rename()`。下記のclient条件を満たす場合のみ |
+
+呼び出し階層はソースのある関数本文同士が対象で、Event/Commandの入口やCatalogだけの関数は含まない。
+構造一覧はprovider metadataと安全な範囲があるStructure/Sectionを表示する。未完成・曖昧な範囲は省略され得る。
+
+リネームはversion付きdocumentChanges対応の表明と、そのversionを検証して編集するclient処理が必要である。
+付属の起動例は安全なリネーム用の対応を追加しない。標準capabilitiesがdocumentChangesを表明しない
+環境では、この例でrenameProviderは公開されず、リネームは利用できない。
+capabilityだけを有効にして安全性を保証したと扱わない。対応clientを使う場合も、編集先の全fileをopenにし、
+解析完了後に実行する。静的なASCIIの単一localとソースのある関数が対象で、global・list・parameter等は対象外。
+詳細は[LSPの安全なリネーム](lsp.ja.md#安全なリネーム)を参照する。
+
+## Inlay hints
+
+付属例は接続時にhintを有効にする。手動で切り替える場合は次を実行できる。
 
 ```vim
 :lua vim.lsp.inlay_hint.enable(true, { bufnr = 0 })
@@ -132,7 +160,11 @@ bufferのhintを有効にするには、接続後に次を実行できる。
 Playerを持つevent内の`send 1`等では、実際に初期化した省略引数を`to <event player>`のように示す。
 明示receiverや、Playerを得られない`on load`へ同じ値を補作しない。literal defaultの保存済み実値は
 snapshotにないため、`<registered default: 型名>`を示し、tooltipに値が利用できない旨を残す。
-根拠不足のdefaultや複雑な省略branchは表示を省略する。
+根拠不足のdefaultや複雑な省略branchは表示を省略する。実際のScriptEventが提供するCommandSenderの
+defaultと、存在しないPlayerの補作は区別する。
+
+採用した関数呼び出しでは、明示した実引数の前に`name:`を表示する。引数名を既に書いた場合や、
+対応が曖昧な呼び出しには重ねて表示しない。変数の横へ型を示すhintは未実装である。
 
 未open `.sk`の変更・削除は、Neovimがdynamic file watcher登録に対応すれば依存文書へ反映する。
 clientが対応する標準inlay/token refreshにより、本文versionが同じ依存bufferも再取得する。
@@ -183,7 +215,8 @@ Neovimの既定tokenTypesは標準分類だけであり、そのままのclient�
 確定した固定語と子の式を別範囲にし、親AST全体を同色で塗らない。
 採用したnative captureの位置を最終ASTへ保持し、`if`等の固定部分とcapture全域を分離する。
 macro変更後等に位置の根拠を確認できない親、未分類のcapture内、動的構文の一部は対象外になり得る。
-詳細は[LSPの制約](lsp.ja.md)を参照する。
+初回のsemantic tokensは最終解析を使うため、大きな文書では補完より遅れて色が付く場合がある。
+説明paneの字句着色と、ソースの意味解析による着色は別である。詳細は[LSPの制約](lsp.ja.md)を参照する。
 
 同じ隔離環境で `tests/neovim/semantic_tokens.lua` を実行すると、標準decoderのtoken範囲、
 標準highlighterの実extmark、役割別RGB、Structure/Section/Conditionの区別、literalのNormalリンク、既存色の維持、

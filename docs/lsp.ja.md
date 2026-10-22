@@ -1,7 +1,9 @@
 # stdio Language Server
 
-`skript-lsp --stdio`は、一つのprojectとSSG snapshotで診断・ホバー・Semantic Tokens・入力候補・引数案内・
-定義移動・参照検索・暗黙引数のinlay hintを提供する。採用済みの根拠から保守的な変数型flowも得る。
+`skript-lsp --stdio`は、一つのprojectとSSG snapshotで動くLanguage Serverである。診断・ホバー・
+Semantic Tokens・補完・引数案内・定義移動・参照検索・安全なリネーム・関数呼び出し階層・構造一覧・
+inlay hintsを提供する。各機能の範囲は下記の意味情報と原文位置の契約に従う。
+採用済みの根拠から保守的な変数型flowも得る。
 必須CoreLibraryはexeへ埋め込まれ、通常の解析にJavaやMinecraftサーバーは必要ない。
 全構文・全Addonの互換性、runtime値の評価、完全な手続き間解析を保証する完成版ではない。
 
@@ -10,6 +12,9 @@
 clientは `rootUri` または一件の `workspaceFolders` と、次の `initializationOptions` を渡す。
 複数workspace、snapshot指定漏れ、読めないsnapshot、不正なAddonは初期化エラーとして返す。
 相対pathはproject rootから解決する。読み込み後のsnapshot変更にはserverの再起動が必要。
+LSPは`ssg::load_for_parsing`を使い、現行schema 7とCoreLibraryが必要とするmetadataを検証する。
+互換archive readerの`ssg::load`がschema 3～7を読めることとは別で、古い形式をそのままruntime解析に使えるとは限らない。
+必要なfieldが欠けている場合はexportを再生成する。任意の型推論metadataがないだけならUnknownとして残る場合もある。
 
 ```json
 {
@@ -18,10 +23,22 @@ clientは `rootUri` または一件の `workspaceFolders` と、次の `initiali
 }
 ```
 
-対応要求は`initialize`、`textDocument/hover`、`textDocument/completion`、`textDocument/signatureHelp`、
-`textDocument/definition`、`textDocument/references`、`textDocument/inlayHint`、交渉済みの
-`textDocument/semanticTokens/full`、`shutdown`。通知は`initialized`、`exit`、`textDocument/didOpen`、
-`didChange`、`didClose`、`workspace/didChangeWatchedFiles`、`$/cancelRequest`に対応する。
+起動は`skript-lsp`または`skript-lsp --stdio`。`--help`で引数を確認できる。
+snapshotとAddonはCLI flagではなく、上記の初期化設定で指定する。
+
+| 機能 | メソッド |
+| --- | --- |
+| ホバー・補完・引数案内 | `textDocument/hover`、`textDocument/completion`、`textDocument/signatureHelp` |
+| 定義・参照 | `textDocument/definition`、`textDocument/references` |
+| リネーム | `textDocument/prepareRename`、`textDocument/rename`。version付きdocumentChangesに対応するclientのみ |
+| 呼び出し階層 | `textDocument/prepareCallHierarchy`、`callHierarchy/incomingCalls`、`callHierarchy/outgoingCalls` |
+| 構造一覧 | `textDocument/documentSymbol` |
+| 仮想文字 | `textDocument/inlayHint`。resolveなし |
+| 意味による色付け | 交渉済みの`textDocument/semanticTokens/full`。range/deltaなし |
+
+接続寿命は`initialize`、`initialized`、`shutdown`、`exit`で扱う。通知は
+`textDocument/didOpen`・`didChange`・`didClose`、`workspace/didChangeWatchedFiles`、
+`$/cancelRequest`に対応する。completion resolveも提供しない。
 同期方式はFullで、変更は文書全体の `text` と増加するclient versionを送る。
 位置encodingはUTF-16。診断はversion付きの `publishDiagnostics` で置換し、
 修正後に診断がなくなった場合とclose時には空配列を返す。
@@ -63,7 +80,15 @@ StateStoreをLSPのsymbol databaseとして利用する設計ではない。
 open bufferは同じpathのdisk内容より優先し、未保存の内容を勝手に書き戻さない。
 root外へのpath、symlink/reparse point、重複したopen aliasを安全側で扱い、`.git`を走査しない。
 上限は512 source、1 fileあたり1 MiB、合計16 MiB、directory entry 50,000件、深さ64である。
-読めないfile、不正UTF-8、予算超過、解析中のclosed file変更は明示errorにする。
+読めないfile、不正UTF-8、予算超過等による探索未完了は`lsp.project-incomplete`で明示する。
+その場合も、以前のimportを持ち越さず現在のopen bufferを新しく解析し、安全な局所結果は保持する。
+名前空間が不完全な間は、未発見の定義がshadowする可能性のあるCatalog関数を含め、関数を未解決にする。
+関数補完・署名と網羅的なproject参照検索は利用できず、projectの定義・参照要求は不完全な一覧ではなく
+RequestFailedを返す。取消・parser障害・extension障害とは区別する。
+
+任意の祖先Git repositoryをSkriptのrootに選ばない。入れ子の`.git` directory/worktree fileは別projectの境界となる。
+通常folderはhidden・依存物・生成物のような名前でも探索対象であり、名前のblacklistで名前空間を変えない。
+解析中にclosed sourceが変化した場合も世代を照合し、古い結果を現在の結果として公開しない。
 
 複数文書を解析する場合、有効なすべてのcomponentが`parser.project-stable-semantics` v1を
 明示する必要がある。未宣言componentがあればproject解析をerrorにし、古い関数をそのまま採用しない。
@@ -109,7 +134,7 @@ fatal errorを空診断へ変えず、取消・staleの解析結果は公開し�
 位置はvirtual byte offsetを直接表示せず、SourceMapのoriginal originから原文の行・UTF-16列へ変換する。
 primaryはparserが返した最初のorigin、残りのoriginとrelated spanはrelated informationへ残す。
 optionsによる生成文もこの規則でcall-siteへ対応付ける。元位置が不正ならsource-mapping failureを明示し、仮のvirtual位置へ置き換えない。
-単独Function呼び出し文等、現parserの未対応部分はそのまま制約として残る。
+解決済みの単独Function呼び出し文も解析する。戻り値なしの呼び出しを式の値として扱うこととは区別する。
 
 typed captureを拒否したnativeの`parser.type-mismatch`は、証明できたexpected/actual classを
 structured dataへ残し、単なるtrailing-inputで隠さない。unionは既知の全候補を扱い、nested childの
@@ -157,17 +182,20 @@ closeではキャッシュを解放し、同じURIをversion 0で開き直して
 `textDocument/definition`と`textDocument/references`は、現在の採用済みnative AST、provider所有の
 公開変数identity・変更・control-flow契約、Exactな原文範囲から作る不変viewを使う。
 文字列検索で同名を宣言と決めたり、StateStoreをsymbol databaseとして使ったりしない。
-関数名はnativeのdefinition/registrationとsource witnessを照合し、local関数は文書外へ持ち出さない。
+関数名はnativeのdefinition/registrationとsource witnessを照合する。通常の関数はprojectに公開し、
+local functionは文書内に限定する。いずれも本文のlocal変数・引数はその関数の実行scopeで分離し、
+呼出元のlocal変数を引き継がない。
 未open fileの現在の関数宣言にも移動できる。参照要求の`includeDeclaration`を尊重する。
 
 汎用engineはroot/実行文脈を分け、根拠のある代入・parameter・delete・list操作と到達書込を表現する。
-型flowは、要求型への変換前に変数へ保存された型を扱います。汎用engineはunion・list要素・
-parameter・到達書込を表現できますが、精度には現在のproviderの根拠が必要です。現在のCoreが
-証明するのはprimitive scalarの生成と、安全な継承`beforeChange` clone/set経路です。任意の
-FunctionやExpressionList結果はUnknownになり得て、型付きparameter/returnにも未設定の可能性を残します。
-戻り値classだけでは非空性や他localの不変性を証明しません。nativeの評価順付きearly operand契約は
-opaque処理より前の安全な読取を示すもので、Effect/Condition全体のpure宣言ではありません。
-未知のconverter・callback・alias・control flowでは、外側の要求型を借りず事実を忘れます。
+型flowは、要求型への変換前に変数へ保存された型を扱う。引数の宣言型、parse contextの要求型、
+地点ごとの現在値の推論は別の事実である。providerの根拠に基づき、primitiveの生成、parameter binding、
+採用した関数の戻り値型、安全な継承`beforeChange` clone/set経路を扱う。戻り値classの宣言だけでは
+非空性や他localの不変性を証明せず、未解決のFunction/ExpressionList結果はUnknownになり得る。
+型付きparameter/returnにも未設定の可能性を残す。評価順と文字列化の根拠は安全なoperandで型を保持する
+ための情報で、処理全体のpure宣言ではない。未知の変換・副作用・alias・制御flowでは、要求型を借りず
+影響する事実を忘れる。補間内の後続読取でUnknownになる制約も残るが、標準Numberの文字列化が
+無関係なlocalを書き換えると実証したものではない。
 
 branchは実行されない経路も含めてunionし、未設定の可能性を保持する。loopや意味を公開していない
 control flow、未知の副作用やfunction call、動的名・aliasが事実を壊す場合は保守的に忘れる。
@@ -183,6 +211,45 @@ global変数の実行時の値や別eventの実行順を推測せず、手続き
 UTF-16 surrogate途中・逆転rangeは待機前にInvalidParams、閉じたURIは空配列を返す。
 編集・project更新・closeは旧要求へContentModified、個別取消とshutdownはRequestCancelledを返す。
 要求の取消は共有解析を止めず、旧世代のannotationを後から返さない。
+
+## 安全なリネーム
+
+`workspace.workspaceEdit.documentChanges = true`を表明するclientだけに`renameProvider`を公開する。
+`prepareRename`と`rename`は現在版の解析とsource集合を確認し、解析待ちは保留せずContentModifiedを返す。
+名前の一致による文字列置換ではなく、参照検索と共通のidentity・scope・原文証明を使う。
+
+- 関数はソースのある宣言・登録identityと編集可能な名前範囲を必要とする。全project参加文書の編集可能な
+  参照範囲が網羅され、宣言・Catalog・既存lookupとの衝突がないことを確認する。local functionの可視範囲を保つ。
+- 変数は同じ実行scopeとcontextに属する、静的な単一localだけを扱う。対象文書とscope内の静的網羅性を要求する。
+  global、list family、parameter、動的名は対象外。対象scopeに未知のidentity/aliasがある場合や、競合する名前・
+  list family、曖昧なmacro origin、重複した編集所有権がある場合は拒否する。
+- 名前はASCII識別子`[A-Za-z_][A-Za-z0-9_]*`に限定する。localのbraceと接頭辞は名前の編集範囲に含めない。
+- 実際に編集する全fileがopenかつ現在版であることを要求し、version付き`documentChanges`を返す。
+  closed fileへのversionなし編集へfallbackしない。prepareの時点でもこの条件を確認する。
+
+read-onlyの参照が得られることは、安全に変更できることの証明ではない。serverは編集を返すだけで、原本へ適用しない。
+clientにもversionの不一致を拒否する編集処理が必要である。
+
+## 関数呼び出し階層
+
+解決済みの関数宣言または呼び出しからprepareし、nativeのdefinition/registration/signature/source witnessに
+基づいてincoming/outgoing callsを返す。nodeとedgeはソースのある関数本文同士を対象にし、再帰・複数call site・
+複数文書を扱う。local functionは文書外へ漏らさない。関数headerのdefault式は本文のcall edgeにしない。
+
+Event/Commandの入口、ソース本文のないCatalog関数、未解決・動的・原文を証明できない呼び出しをnodeとして補作しない。
+実行時の全呼び出しgraphではない。同じ相手へのcall siteはまとめ、原文順で決定的に返す。
+itemにはserver寿命・project世代・source・定義identityを結び付け、編集・close/reopen・依存変更後の古いitemを拒否する。
+prepareは現在の解析を待つが、follow-upは解析待ち・不完全projectを拒否する。現在のprojectにあるclosed文書もread-onlyの対象になる。
+
+## Document Symbols（構造一覧）
+
+Core/Addonが採用したStructure/Sectionへ公開する共通metadataを使い、function・command・event等を一覧にする。
+LSP側でheaderの綴りを再解析したり、特定の構文名を列挙したりしない。metadataのない構文は自動では追加されない。
+
+現在のRawTreeの親子関係、block全体のrange、名前等のselectionRangeを確認し、Exactな原文のUTF-16範囲へ投影する。
+位置が曖昧なmacro、混在source、不明schemaや未対応ownerは省略する。未完成文書でも、安全な範囲を証明できる構造は残せる。
+clientが対応すれば階層付きDocumentSymbol、それ以外はcontainerName付きのSymbolInformationを返す。
+最終解析の情報を使い、prepared補完から一覧を推定しない。project全体のworkspace symbolsとは別機能である。
 
 ## Semantic Tokens の分類と範囲
 
@@ -239,18 +306,24 @@ SSGに記録されたEventの`on` prefixを使い、headerには`:`を付ける�
 継続語は一致した固定文字が多いもの、消費したslotが少ないもの、短い固定語、綴り順、Catalog登録順で並べる。
 `t`に対する`to`を`towards`より先にする短さの順位は編集の便宜であり、parserの採用順位やAddonの優先権を表さない。
 同じ継続語は一つにまとめ、説明には最上位の代表patternの全文法を表示する。
-継続候補が残れば通常の代替候補を最大8件に絞り、その後に全体を最大100件にする。
-それ以外は文頭固定語、変数履歴、文書関数、Catalog関数、Expressionの順で、各Catalog群内では登録・pattern順を保つ。
-pattern sourceは1024 byteまでとし、文頭テンプレートの選択肢をpatternごと最大16通り、深さ32に制限する。同じ登録・先頭固定語の重複をまとめる。
+全候補に共通の関連度順位を適用してから、全体を最大512件にする。登録順で先に512件を採る処理ではない。
+有限のcapture値も共通の安全な展開から候補にできるが、任意のregexを無制限に列挙しない。
+切り詰め時は`isIncomplete`を返し、追加入力したprefixで候補を再検索する。画面の表示件数とserverの転送上限は別である。
+template化するpattern sourceは1024 byteまで、選択肢はpatternごと最大16通り、深さ32に制限する。
+同じ登録・先頭固定語の重複をまとめる。
 継続語は選択肢の直積を作らず、graphを最大2048 node、探索をpatternごと4096状態・slotごと128境界、
 要求全体で100万操作（状態・辺・文字走査）、入力prefixを4096 byteまでに制限する。
 切り詰めがあれば`isIncomplete`を返す。各候補のdocumentationには省略しない元patternまたは関数signatureを含める。
 
-これらは入力支援候補であり、採用済みの構文ではない。不完全な行へのexpected typeやAddon guardの判定、
-実行scopeへの適合性は確認しない。先頭がplaceholderだけのpattern、動的Addon layer、regexの具体的なマッチ文字列は補作しない。
+これらは入力支援候補であり、採用済みの構文ではない。nativeの期待slotを確定できる場合は、parserと共通の
+継承・converter・union・単複規則でExpression、関数戻り値、現在地点の変数型を絞る。候補自身の型を使い、
+同じ挿入文字列の別登録から型を借りない。Dynamic・Unknown・期待slot未確定では過剰除外しない。
+一般のteleport第一slotはentitiesであり、Player専用とは扱わない。
+別文法のcontinuationは引数・型・Addon guardを未検証のまま残る場合があり、その旨を説明へ表示する。
+型付き候補が絞られていても、全候補の意味的適合が検証済みとは限らない。任意のregexから具体値を補作しない。
 関数は現在のnative registryで採用した文書・projectの定義とCatalogから取り、parserと同じ引数のcomponent type・single・optional変換を使う。
 同名・同shapeの文書内関数によるshadowを維持し、戻り値のないshadowからCatalogの式候補を復活させない。
-引数型に合うoverloadの選択は行わない。単独Function呼び出し文のparser制約も変わらない。
+補完一覧での戻り値型フィルタは、完成した呼び出しの引数型に基づくoverload採用とは別である。
 
 宣言引数はproviderの skript.semantic.parameters v1/v2契約から得る。
 所有rootとExactなheader範囲に結び付け、最初の参照前からその本文・確定した子scopeだけで候補にする。
@@ -267,6 +340,8 @@ localはカーソルより前に同じRawTree bodyまたはその祖先bodyで�
 
 completionの説明形式は`completionItem.documentationFormat`の対応する先頭値を選び、hoverの交渉と独立にする。
 省略時はPlainTextである。Markdownではpatternとtemplateを`skript-pattern`、実コード例を`skript`として区別する。
+構文・戻り値型・説明・Pattern・Examples・Definitionを共通の整形で表示する。Expressionの型は既知・Dynamic・
+Unknown、単複、候補型の完全性を区別し、登録上の未確定型を確定型と表示しない。
 説明を着色しても、候補label・literalな挿入文字列・snippet・source edit・登録identityは変えない。
 
 編集は原文のUTF-16範囲で返す。既存の関数引数・変数の閉じbrace・右側の固定語を保持する。
@@ -326,6 +401,14 @@ named argument、複数値parameter、範囲外の引数、曖昧なslot、固�
 保留要求は文書ごと64件、server全体256件までで、超過分はRequestFailedにする。
 編集・close・個別取消・shutdown・worker failureの終端方針は補完と同じである。結果が無い場合はnullを返す。
 
+## 関数の実引数名を示すinlay hint
+
+採用した関数呼び出しの共通metadataにあるparameterと子nodeの対応を使い、明示した実引数の前に`name:`を表示する。
+入れ子・複数値の対応もnativeが確定した範囲だけを使う。既に名前を指定した引数や省略引数へ重ねて付けず、
+曖昧・未完成の呼び出しから名前を推測しない。関数名による特例や、LSP側でのsignature文字列の再解析は行わない。
+現在版のrangeと原文対応を要求し、編集後に古いhintを残さない。下記の暗黙引数hintと共存し、どちらもtextEditsを持たない。
+変数の閉じbrace横へ型を示すhintは未実装である。
+
 ## 初期化済みの暗黙引数を示すinlay hint
 
 `textDocument/inlayHint`は、native parserが省略を記録し、実際のDefaultExpression providerが
@@ -377,23 +460,12 @@ stdio試験は実CoreLibraryとsnapshot、試験Addonを使い、初期化/終�
 [Neovim手順](neovim.ja.md)には独立設定と期限付きheadless確認を用意している。
 
 
-## Workspace discovery and incomplete projects
+## 大きな文書と表示上の制限
 
-The client selects one explicit workspace root. The normal Neovim integration defaults to
-the opened file's directory; an arbitrary ancestor Git repository does not identify a Skript
-source scope. Set SKRIPT_LSP_ROOT explicitly when multiple source directories belong together.
-Nested repositories (.git directory or worktree file) are separate project boundaries.
-Discovery does not follow symlinks or Windows reparse points. Ordinary folders, including
-hidden, dependency-looking and generated-looking names, remain eligible; no name blacklist
-silently changes the language namespace.
+prepared補完の到達時刻、全文解析完了、semantic tokens応答、clientの適用・描画は別の時刻である。
+大きな文書では初回の全文解析待ちが残り、20秒等の一定時点で未着色でも、全結果が失われたとは限らない。
+本体を並列に解析するworkerやviewport優先は導入していない。宣言やhookの安全な再利用と、全文ASTの再利用も区別する。
+一つの巨大な実行本文と多数のStructureでは処理負荷が異なり、行数だけから応答時間を保証しない。
 
-The limits remain 50,000 directory entries, 512 sources, directory depth 64, 1 MiB per file
-and 16 MiB total. Discovery/closed-file failures publish lsp.project-incomplete and analyze
-the current immutable open buffer afresh without previous imports. Function calls remain
-unresolved while the global namespace is incomplete, including catalog functions that could
-be shadowed by undiscovered definitions. Unaffected statements keep their local analysis.
-Function signatures/completions and exhaustive references are unavailable in this mode.
-References and project-wide definitions return RequestFailed rather than a partial list.
-Cancellation and parser/extension failures retain their distinct handling.
-Timing details.project includes root, currentDocument, complete and incompleteReason so the
-selected scope can be diagnosed without scanning unrelated parent directories.
+補完phaseの更新では、clientのmenu再表示によりちらつく場合がある。同じ候補の再通知抑制やclient側の
+更新方法も含め、ちらつきの完全解消は保証していない。headless/APIの受信結果と、実際の画面描画を混同しない。
