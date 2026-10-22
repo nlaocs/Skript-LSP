@@ -622,6 +622,7 @@ fn functions_resolve_exact_registration_and_never_foreign_local_symbols() {
     });
     let root = fixture.container(0, SyntaxKind::Structure, &[call], None);
     let mut symbol = FunctionSymbol {
+        body: None,
         definition: FunctionDefinition {
             parser_id: "document.function".into(),
             name: "call".into(),
@@ -1157,5 +1158,195 @@ fn scoped_return_entry_requires_current_owner_and_cannot_revive_after_opaque_sta
                 InferredType::Unknown
             }
         );
+    }
+}
+
+#[test]
+fn call_hierarchy_body_membership_excludes_header_children_and_ambiguous_owners() {
+    let mut fixture = Fixture::new("owner:\n    call()\n    call()");
+    let header = fixture.push(SyntaxKind::Function, "function", fixture.part(1, "call()"));
+    let body = fixture.push(SyntaxKind::Function, "function", fixture.part(2, "call()"));
+    for id in [header, body] {
+        fixture.nodes[id as usize].function = Some(FunctionCall {
+            name: "call".into(),
+            definition_id: "callee".into(),
+            registration_id: "callee:0".into(),
+            arguments: Vec::new(),
+        });
+    }
+    let root = fixture.container(0, SyntaxKind::Structure, &[body], None);
+    fixture.nodes[root as usize].children.push(header);
+    let mapped = skript_parser::MappedSource::identity(Arc::clone(&fixture.source));
+    let raw = skript_parser::parse_raw_tree(
+        &mapped,
+        skript_parser::RawTreeOptions::for_skript_version(2, 15),
+    );
+    let ast = AstTree {
+        roots: vec![root],
+        nodes: fixture.nodes.clone(),
+    };
+    let lines = LineIndex::new(&fixture.source);
+    let symbol = FunctionSymbol {
+        definition: FunctionDefinition {
+            parser_id: "document.function".into(),
+            name: "owner".into(),
+            definition_id: "owner".into(),
+            registration_id: "owner:0".into(),
+            registration_order: 0,
+            return_type: None,
+            return_type_is_single: true,
+            parameters: Vec::new(),
+            metadata: BTreeMap::new(),
+        },
+        range: lines.range(&fixture.source, fixture.line(0)).unwrap(),
+        local: false,
+        name_range: None,
+        body: call_hierarchy::body(&fixture.nodes[root as usize], &raw, &lines, &fixture.source),
+    };
+    assert!(symbol.body.is_some());
+    let mut document = fixture.finish_with(
+        &[root],
+        Vec::new(),
+        vec![symbol.clone()],
+        "file:///body-membership.sk",
+    );
+    assert_eq!(
+        document.occurrences.len(),
+        2,
+        "both accepted call occurrences are indexed by shared navigation"
+    );
+    document.index_function_calls(&ast);
+    assert_eq!(
+        document.calls.len(),
+        1,
+        "only the native body capture owns runtime body edges"
+    );
+    document.functions.push(symbol);
+    document.index_function_calls(&ast);
+    assert!(
+        document.calls.is_empty(),
+        "a node shared by two declarations cannot invent an enclosing caller"
+    );
+}
+
+#[test]
+fn call_hierarchy_distinguishes_provider_overloads_at_the_same_source_location() {
+    let mut fixture = Fixture::new("caller:\n    over(1)\n    over(\"x\")\nover:");
+    let first = fixture.push(SyntaxKind::Function, "function", fixture.part(1, "over(1)"));
+    let second = fixture.push(
+        SyntaxKind::Function,
+        "function",
+        fixture.part(2, "over(\"x\")"),
+    );
+    let caller = fixture.container(0, SyntaxKind::Structure, &[first, second], None);
+    let callee = fixture.container(3, SyntaxKind::Structure, &[], None);
+    let mapped = skript_parser::MappedSource::identity(Arc::clone(&fixture.source));
+    let raw = skript_parser::parse_raw_tree(
+        &mapped,
+        skript_parser::RawTreeOptions::for_skript_version(2, 15),
+    );
+    let lines = LineIndex::new(&fixture.source);
+    let make = |name: &str, class: Option<&str>, node: u64, row: usize| {
+        let definition = FunctionDefinition {
+            parser_id: "document.function".into(),
+            name: name.into(),
+            definition_id: format!("{name}:{class:?}"),
+            registration_id: format!("{name}:{class:?}:0"),
+            registration_order: 0,
+            return_type: None,
+            return_type_is_single: true,
+            parameters: class
+                .map(|class| {
+                    vec![skript_parser::FunctionParameterDefinition {
+                        name: "value".into(),
+                        parameter_type: syntaxes::ClassName(class.into()),
+                        single: true,
+                        optional: false,
+                    }]
+                })
+                .unwrap_or_default(),
+            metadata: BTreeMap::from([
+                ("function.document-id".into(), "fixture-owner".into()),
+                ("function.revision".into(), "1".into()),
+            ]),
+        };
+        FunctionSymbol {
+            definition,
+            range: lines.range(&fixture.source, fixture.line(row)).unwrap(),
+            local: false,
+            name_range: Some(
+                lines
+                    .range(&fixture.source, fixture.part(row, name))
+                    .unwrap(),
+            ),
+            body: call_hierarchy::body(
+                &fixture.nodes[node as usize],
+                &raw,
+                &lines,
+                &fixture.source,
+            ),
+        }
+    };
+    let owner = make("caller", None, caller, 0);
+    let a = make("over", Some("java.lang.Number"), callee, 3);
+    let b = make("over", Some("java.lang.String"), callee, 3);
+    for (id, symbol) in [(first, &a), (second, &b)] {
+        fixture.nodes[id as usize].function = Some(FunctionCall {
+            name: "over".into(),
+            definition_id: symbol.definition.definition_id.clone(),
+            registration_id: symbol.definition.registration_id.clone(),
+            arguments: Vec::new(),
+        });
+        for (key, value) in [
+            ("function.signature", symbol.definition.signature_key()),
+            ("function.document-id", "fixture-owner".into()),
+            ("function.revision", "1".into()),
+            (
+                "function.source-witness",
+                format!("{:x}", Sha256::digest(fixture.source.as_bytes())),
+            ),
+        ] {
+            fixture.nodes[id as usize].metadata.push(MetadataEntry {
+                owner_component_id: None,
+                key: key.into(),
+                value,
+            });
+        }
+    }
+    let ast = AstTree {
+        roots: vec![caller, callee],
+        nodes: fixture.nodes.clone(),
+    };
+    let mut document = fixture.finish_with(
+        &[caller, callee],
+        Vec::new(),
+        vec![owner, a, b],
+        "file:///overload-provider.sk",
+    );
+    document.index_function_calls(&ast);
+    let owner = document
+        .prepare_hierarchy(Position::new(0, 1), &[], "session")
+        .unwrap()
+        .remove(0);
+    let outgoing = document.hierarchy_outgoing(&owner, &[], "session").unwrap();
+    assert_eq!(
+        outgoing.len(),
+        2,
+        "same source position must not merge distinct registered function signatures"
+    );
+    assert_eq!(outgoing[0].to.uri, outgoing[1].to.uri);
+    assert_eq!(
+        outgoing[0].to.selection_range,
+        outgoing[1].to.selection_range
+    );
+    assert_ne!(outgoing[0].to.data, outgoing[1].to.data);
+    for call in outgoing {
+        assert_eq!(call.from_ranges.len(), 1);
+        let incoming = document
+            .hierarchy_incoming(&call.to, &[], "session")
+            .unwrap();
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(incoming[0].from, owner);
+        assert_eq!(incoming[0].from_ranges, call.from_ranges);
     }
 }

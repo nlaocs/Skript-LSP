@@ -253,3 +253,39 @@ fn rename_negotiates_document_changes_without_versionless_fallback() {
         );
     }
 }
+
+#[test]
+fn call_hierarchy_prepare_uses_semantic_wait_cancellation_and_edit_invalidation() {
+    let client = Client::start();
+    client.open(1, "hold");
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+    request(&client, 70, "textDocument/prepareCallHierarchy", 0);
+    no_responses(&client, 71, &[70]);
+    client.notify("$/cancelRequest", json!({"id":70}));
+    assert_eq!(
+        token_response(&client, 70)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestCanceled as i32
+    );
+    request(&client, 72, "textDocument/prepareCallHierarchy", 0);
+    client.change(2, "fresh");
+    assert_eq!(
+        token_response(&client, 72)
+            .response_result
+            .unwrap_err()
+            .code,
+        ErrorCode::ContentModified as i32
+    );
+    client.proceed.send(()).unwrap();
+    assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 2);
+    client.diagnostics(2);
+    request(&client, 73, "textDocument/prepareCallHierarchy", 0);
+    assert_eq!(
+        token_response(&client, 73).response_result.unwrap(),
+        Value::Null
+    );
+    no_responses(&client, 74, &[70, 72]);
+    client.finish();
+}

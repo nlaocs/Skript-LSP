@@ -8,6 +8,52 @@ pub(in crate::lsp) struct RenamePlan {
     pub edits: Vec<Location>,
 }
 
+/// Build once per navigation query; never rescan all occurrences for each edge.
+pub(super) struct FunctionResolver<'a> {
+    symbols: HashMap<(&'a str, &'a str), Vec<(&'a Document, &'a FunctionSymbol)>>,
+}
+impl<'a> FunctionResolver<'a> {
+    pub(super) fn new(current: &'a Document, project: &[&'a Document]) -> Self {
+        let mut symbols = HashMap::<_, Vec<_>>::new();
+        for document in
+            std::iter::once(current).chain(project.iter().copied().filter(|d| d.uri != current.uri))
+        {
+            for symbol in &document.functions {
+                symbols
+                    .entry((
+                        symbol.definition.definition_id.as_str(),
+                        symbol.definition.registration_id.as_str(),
+                    ))
+                    .or_default()
+                    .push((document, symbol));
+            }
+        }
+        Self { symbols }
+    }
+    pub(super) fn resolve(
+        &self,
+        caller: &Document,
+        occurrence: &Occurrence,
+    ) -> Option<(&'a Document, &'a FunctionSymbol)> {
+        let Reference::Function {
+            definition,
+            registration,
+            ..
+        } = &occurrence.reference
+        else {
+            return None;
+        };
+        let mut matches = self
+            .symbols
+            .get(&(definition.as_str(), registration.as_str()))?
+            .iter()
+            .copied()
+            .filter(|(owner, symbol)| caller.reference_binds(occurrence, owner, symbol));
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    }
+}
+
 impl Document {
     fn name_edit_is_current(&self) -> bool {
         self.name_edit_certificate
@@ -19,48 +65,44 @@ impl Document {
         self.source.as_ref() == source
     }
 
+    pub(super) fn reference_binds(
+        &self,
+        occurrence: &Occurrence,
+        owner: &Document,
+        symbol: &FunctionSymbol,
+    ) -> bool {
+        let Reference::Function {
+            definition,
+            registration,
+            witness,
+        } = &occurrence.reference
+        else {
+            return false;
+        };
+        *definition == symbol.definition.definition_id
+            && *registration == symbol.definition.registration_id
+            && (!symbol.local || self.uri == owner.uri)
+            && witness
+                .as_ref()
+                .is_some_and(|w| w.matches(&symbol.definition, &owner.source_witness))
+    }
     pub(super) fn function_at<'a>(
         &'a self,
         position: Position,
         project: &[&'a Document],
     ) -> Option<(&'a Document, &'a FunctionSymbol)> {
-        let documents =
-            std::iter::once(self).chain(project.iter().copied().filter(|d| d.uri != self.uri));
-        let mut matches = Vec::new();
-        if let Some(Occurrence {
-            reference:
-                Reference::Function {
-                    definition,
-                    registration,
-                    witness,
-                },
-            ..
-        }) = self.at(position)
+        if let Some(occurrence) = self.at(position)
+            && matches!(occurrence.reference, Reference::Function { .. })
         {
-            for document in documents {
-                for symbol in &document.functions {
-                    if symbol.definition.definition_id == *definition
-                        && symbol.definition.registration_id == *registration
-                        && (!symbol.local || document.uri == self.uri)
-                        && witness.as_ref().is_some_and(|w| {
-                            w.matches(&symbol.definition, &document.source_witness)
-                        })
-                    {
-                        matches.push((document, symbol));
-                    }
-                }
-            }
-        } else {
-            for symbol in &self.functions {
-                if symbol
-                    .name_range
-                    .is_some_and(|r| r.start <= position && position < r.end)
-                {
-                    matches.push((self, symbol));
-                }
-            }
+            return FunctionResolver::new(self, project).resolve(self, occurrence);
         }
-        (matches.len() == 1).then(|| matches[0])
+        let mut matches = self.functions.iter().filter(|symbol| {
+            symbol
+                .name_range
+                .is_some_and(|r| r.start <= position && position < r.end)
+        });
+        let first = matches.next()?;
+        matches.next().is_none().then_some((self, first))
     }
 
     pub fn rename_plan(

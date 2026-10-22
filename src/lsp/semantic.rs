@@ -18,6 +18,7 @@ use std::{
     sync::Arc,
 };
 use syntaxes::Catalog;
+mod call_hierarchy;
 mod navigation;
 
 const CHANGE: &str = "skript.semantic.variable-change";
@@ -115,6 +116,7 @@ pub(super) struct FunctionSymbol {
     pub range: Range,
     pub local: bool,
     pub name_range: Option<Range>,
+    body: Option<call_hierarchy::FunctionBody>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -162,6 +164,7 @@ struct FunctionWitness {
 }
 #[derive(Clone, Debug)]
 struct Occurrence {
+    node: u64,
     range: TextRange,
     reference: Reference,
     ty: InferredType,
@@ -202,6 +205,7 @@ pub(super) struct Document {
     lines: LineIndex,
     catalog: Arc<Catalog>,
     occurrences: Vec<Occurrence>,
+    calls: Vec<call_hierarchy::CallSite>,
     // Lexical declaration information, never a replacement for current flow facts.
     declared_parameters: HashMap<VariableKey, InferredType>,
     completion_points: Vec<CompletionPoint>,
@@ -244,14 +248,20 @@ impl Document {
             }
             // Registrations precede AST macros. Export only declarations whose
             // current structure still has the native semantic forest witness.
-            if !result.ast.nodes.iter().any(|node| {
+            let mut owners = result.ast.nodes.iter().filter(|node| {
                 node.kind == SyntaxKind::Structure
                     && node.span.virtual_range.start <= declaration.span.start as u64
                     && node.span.virtual_range.end >= declaration.span.end as u64
                     && witnesses.native_valid(node)
-            }) {
+            });
+            let Some(owner) = owners.next() else {
                 continue;
-            }
+            };
+            let body = owners
+                .next()
+                .is_none()
+                .then(|| call_hierarchy::body(owner, &result.raw_tree, &lines, &source))
+                .flatten();
             let Ok(span) = result.source.map_range(declaration.span) else {
                 continue;
             };
@@ -266,6 +276,7 @@ impl Document {
                 continue;
             }
             functions.push(FunctionSymbol {
+                body,
                 definition: registration.definition.clone(),
                 range: lines.range(&source, origin.original_range)?,
                 local: declaration.scope == FunctionScope::Local,
@@ -450,6 +461,7 @@ impl Document {
                 .all(|call| call.expansion.is_none());
         document.name_edit_certificate = result.static_name_rename.clone();
         document.function_policy = result.functions.policy();
+        document.index_function_calls(&ast);
         Ok(document)
     }
     fn from_ast(
@@ -477,6 +489,7 @@ impl Document {
             lines,
             catalog,
             occurrences: Vec::new(),
+            calls: Vec::new(),
             declared_parameters: HashMap::new(),
             completion_points: Vec::new(),
             completion_type_bindings: 0,
@@ -1021,6 +1034,7 @@ impl Engine<'_> {
             self.document.occurrences.push(Occurrence {
                 range,
                 reference: Reference::Variable { identity, reaching },
+                node: node.id,
                 ty: ty.clone(),
             });
             if !safe {
@@ -1048,6 +1062,7 @@ impl Engine<'_> {
             });
             if !call.name.is_empty() && node.text.starts_with(&call.name) {
                 self.document.occurrences.push(Occurrence {
+                    node: node.id,
                     range: TextRange::new(range.start, range.start + call.name.len()),
                     reference: Reference::Function {
                         definition: call.definition_id.clone(),
@@ -1515,6 +1530,7 @@ impl Engine<'_> {
             });
             self.document.occurrences.push(Occurrence {
                 range,
+                node: node.id,
                 reference: Reference::Variable {
                     identity,
                     reaching: vec![range],

@@ -6,6 +6,7 @@ enum Query {
     Definition(Position),
     References(Position, bool),
     Inlay(Range),
+    PrepareHierarchy(Position),
 }
 pub(super) struct Pending {
     id: RequestId,
@@ -18,10 +19,11 @@ impl Document {
         id: RequestId,
         query: &Query,
         project: &[Arc<semantic::Document>],
+        hierarchy_stamp: &str,
     ) -> Response {
         let documents = project.iter().map(Arc::as_ref).collect::<Vec<_>>();
         if (matches!(query, Query::Definition(position) if self.semantic.as_ref().is_some_and(|document| document.project_definition_unavailable(*position)))
-            || matches!(query, Query::References(..)))
+            || matches!(query, Query::References(..) | Query::PrepareHierarchy(..)))
             && self
                 .semantic
                 .as_ref()
@@ -31,6 +33,12 @@ impl Document {
                 "Project discovery is incomplete; this project-wide semantic query is unavailable until the workspace can be fully analyzed".into());
         }
         match query {
+            Query::PrepareHierarchy(position) => Response::new_ok(
+                id,
+                self.semantic.as_ref().and_then(|document| {
+                    document.prepare_hierarchy(*position, &documents, hierarchy_stamp)
+                }),
+            ),
             Query::Definition(position) => Response::new_ok(
                 id,
                 self.semantic
@@ -58,11 +66,12 @@ impl Document {
         &mut self,
         connection: &Connection,
         project: &[Arc<semantic::Document>],
+        hierarchy_stamp: &str,
     ) -> Result<(), String> {
         for pending in std::mem::take(&mut self.annotation_requests) {
             send(
                 connection,
-                self.annotation_response(pending.id, &pending.query, project),
+                self.annotation_response(pending.id, &pending.query, project, hierarchy_stamp),
             )?;
         }
         Ok(())
@@ -168,6 +177,14 @@ impl Documents {
                     Query::Definition(params.text_document_position_params.position),
                 ))
             }
+            "textDocument/prepareCallHierarchy" => {
+                let params: lsp_types::TextDocumentPositionParams =
+                    serde_json::from_value(params).map_err(|error| error.to_string())?;
+                Ok((
+                    params.text_document.uri,
+                    Query::PrepareHierarchy(params.position),
+                ))
+            }
             "textDocument/references" => {
                 let params: ReferenceParams =
                     serde_json::from_value(params).map_err(|error| error.to_string())?;
@@ -201,11 +218,14 @@ impl Documents {
             .map(|document| document.annotation_requests.len())
             .sum::<usize>()
             < 256;
+        let hierarchy_stamp = self.hierarchy_stamp();
         let Some(document) = self.open.get_mut(&uri) else {
             return send(connection, Response::new_ok(id, Vec::<Value>::new()));
         };
         let valid = match query {
-            Query::Definition(position) | Query::References(position, _) => {
+            Query::Definition(position)
+            | Query::References(position, _)
+            | Query::PrepareHierarchy(position) => {
                 document.lines.offset(&document.source, position).is_some()
             }
             Query::Inlay(range) => {
@@ -230,7 +250,7 @@ impl Documents {
         if document.completion_ready {
             send(
                 connection,
-                document.annotation_response(id, &query, &self.semantic_project),
+                document.annotation_response(id, &query, &self.semantic_project, &hierarchy_stamp),
             )
         } else if !capacity || document.annotation_requests.len() >= 64 {
             send(

@@ -1,6 +1,7 @@
 //! A single-project, full-document LSP frontend for the shared parser service.
 
 mod annotations;
+mod call_hierarchy;
 mod completion;
 mod diagnostics;
 mod hover;
@@ -614,6 +615,7 @@ impl Document {
     }
 }
 struct Documents {
+    hierarchy_session: String,
     project_root: Option<PathBuf>,
     project_epoch: u64,
     semantic_project: Vec<Arc<semantic::Document>>,
@@ -626,6 +628,14 @@ struct Documents {
 impl Documents {
     fn new(signature_capabilities: completion::SignatureCapabilities) -> Self {
         Self {
+            hierarchy_session: format!(
+                "{}:{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ),
             project_root: None,
             project_epoch: 0,
             semantic_project: Vec::new(),
@@ -843,7 +853,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(index), startup_ms) => {
                         documents.completion_index = index;
-                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"callHierarchyProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
                         if completion_refresh { capabilities["experimental"] = json!({"skriptCompletionRefresh":true}); }
                         if rename_document_changes { capabilities["renameProvider"] = json!({"prepareProvider":true}); }
                         if let Some(legend) = &semantic_legend {
@@ -889,6 +899,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                             if let Some(error) = analysis.completion_error { log(&connection, format!("completion unavailable: {error}"))?; }
                             if let Some(error) = analysis.annotations_error { log(&connection, format!("semantic annotations unavailable: {error}"))?; }
                             documents.semantic_project = analysis.project_semantics;
+                            let hierarchy_stamp = documents.hierarchy_stamp();
                             let document = documents.open.get_mut(&job.uri).unwrap();
                             document.tokens = Some(SemanticTokens::default());
                             document.completion_ready = true;
@@ -908,7 +919,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                     publish(&connection, job.uri.clone(), job.version, diagnostics)?;
                                 }
                             }
-                            document.finish_annotations(&connection, &documents.semantic_project)?;
+                            document.finish_annotations(&connection, &documents.semantic_project, &hierarchy_stamp)?;
                             document.finish_token_requests(&connection)?;
                             document.finish_completion_requests(&connection, completion_snippets)?;
                             document.finish_signature_requests(&connection)?;
@@ -1005,7 +1016,9 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                 }
                             } else if matches!(request.method.as_str(), "textDocument/prepareRename" | "textDocument/rename") && initialize_id.is_none() && initialized && !shutdown {
                                 documents.rename_request(&worker, &connection, request.id, &request.method, request.params, rename_document_changes)?;
-                            } else if matches!(request.method.as_str(), "textDocument/definition" | "textDocument/references" | "textDocument/inlayHint") && initialize_id.is_none() && initialized && !shutdown {
+                            } else if matches!(request.method.as_str(), "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls") && initialize_id.is_none() && initialized && !shutdown {
+                                documents.hierarchy_request(&connection, request.id, &request.method, request.params)?;
+                            } else if matches!(request.method.as_str(), "textDocument/definition" | "textDocument/references" | "textDocument/inlayHint" | "textDocument/prepareCallHierarchy") && initialize_id.is_none() && initialized && !shutdown {
                                 documents.annotation_request(&connection, request.id, &request.method, request.params)?;
                             } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
                                 let response = match serde_json::from_value::<HoverParams>(request.params) {

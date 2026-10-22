@@ -1449,3 +1449,188 @@ fn rename_source_set_detects_added_removed_changed_and_oversized_closed_members(
     fs::remove_file(&closed).unwrap();
     assert!(verify_source_set(&snapshot, &expected).is_err());
 }
+
+#[test]
+fn call_hierarchy_resolves_body_edges_recursion_local_visibility_and_repeated_sites() {
+    use lsp_types::Position;
+    let root = tempfile::tempdir().unwrap();
+    let a = root.path().join("a.sk");
+    let b = root.path().join("b.sk");
+    let partial = root.path().join("partial.sk");
+    let source = "# 日本🦊\nfunction target() :: number:\n    return 1\nfunction caller() :: number:\n    set {_a} to target()\n    return target()\nfunction recursive(n: number) :: number:\n    return recursive({_n})\nlocal function helper() :: number:\n    return 1\nfunction local_a() :: number:\n    return helper()\nfunction defaults(arg: number = 1) :: number:\n    return 1\n";
+    fs::write(&b,"local function helper() :: number:\n    return 2\nfunction external() :: number:\n    return target()\nfunction local_b() :: number:\n    return helper()\n").unwrap();
+    fs::write(
+        &partial,
+        "function partial() :: number:\n    set {_x} to missing_function()\n    return target()\n",
+    )
+    .unwrap();
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(&a, source, 1, 1)],
+    };
+    let (mut host, catalog) = host();
+    let mut index = ProjectIndex::new();
+    let analyzed = index
+        .analyze(
+            &mut host,
+            Arc::clone(&catalog),
+            "file:///project",
+            &snapshot,
+            &snapshot.open[0].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    let documents = analyzed
+        .documents
+        .iter()
+        .map(Arc::as_ref)
+        .collect::<Vec<_>>();
+    let current = analyzed.current_semantic.as_ref();
+    assert_eq!(analyzed.scanned_documents, 3);
+    let target = current
+        .prepare_hierarchy(Position::new(1, 10), &documents, "session:1")
+        .unwrap()
+        .remove(0);
+    assert_eq!(target.name, "target");
+    assert_eq!(target.selection_range.start, Position::new(1, 9));
+    assert_eq!(
+        target.range.end,
+        Position::new(2, 12),
+        "body extent excludes trailing newline and trivia"
+    );
+    let incoming = current
+        .hierarchy_incoming(&target, &documents, "session:1")
+        .unwrap();
+    let names = incoming
+        .iter()
+        .map(|c| c.from.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.contains(&"caller") && names.contains(&"external") && names.contains(&"partial"),
+        "known incoming edges survive unresolved unrelated calls: {names:?}"
+    );
+    let caller = incoming.iter().find(|c| c.from.name == "caller").unwrap();
+    assert_eq!(caller.from_ranges.len(), 2);
+    assert_eq!(caller.from_ranges[0].start.line, 4);
+    assert_eq!(caller.from_ranges[1].start.line, 5);
+    let outgoing = current
+        .hierarchy_outgoing(&caller.from, &documents, "session:1")
+        .unwrap();
+    assert_eq!(outgoing.len(), 1);
+    assert_eq!(outgoing[0].to, target);
+    assert_eq!(outgoing[0].from_ranges, caller.from_ranges);
+    let at_call = current
+        .prepare_hierarchy(caller.from_ranges[0].start, &documents, "session:1")
+        .unwrap();
+    assert_eq!(at_call, [target.clone()]);
+    let recursive = current
+        .prepare_hierarchy(Position::new(6, 12), &documents, "session:1")
+        .unwrap()
+        .remove(0);
+    let recursion = current
+        .hierarchy_outgoing(&recursive, &documents, "session:1")
+        .unwrap();
+    assert_eq!(recursion.len(), 1);
+    assert_eq!(recursion[0].to, recursive);
+    assert_eq!(
+        current
+            .hierarchy_incoming(&recursive, &documents, "session:1")
+            .unwrap()[0]
+            .from,
+        recursive
+    );
+    let helper_a = current
+        .prepare_hierarchy(Position::new(8, 17), &documents, "session:1")
+        .unwrap()
+        .remove(0);
+    let local = current
+        .hierarchy_incoming(&helper_a, &documents, "session:1")
+        .unwrap();
+    assert_eq!(local.len(), 1);
+    assert_eq!(local[0].from.name, "local_a");
+    let other = documents
+        .iter()
+        .copied()
+        .find(|d| d.uri == path_uri(&b).unwrap())
+        .unwrap();
+    let helper_b = other
+        .prepare_hierarchy(Position::new(0, 17), &documents, "session:1")
+        .unwrap()
+        .remove(0);
+    assert_ne!(helper_a.uri, helper_b.uri);
+    let local = other
+        .hierarchy_incoming(&helper_b, &documents, "session:1")
+        .unwrap();
+    assert_eq!(local.len(), 1);
+    assert_eq!(local[0].from.name, "local_b");
+    let default = current
+        .prepare_hierarchy(Position::new(12, 12), &documents, "session:1")
+        .unwrap()
+        .remove(0);
+    assert!(
+        current
+            .hierarchy_outgoing(&default, &documents, "session:1")
+            .unwrap()
+            .is_empty(),
+        "literal default produces no runtime body call"
+    );
+    let partial = documents
+        .iter()
+        .copied()
+        .find(|d| d.uri == path_uri(&partial).unwrap())
+        .unwrap();
+    let item = partial
+        .prepare_hierarchy(Position::new(0, 11), &documents, "session:1")
+        .unwrap()
+        .remove(0);
+    let edges = partial
+        .hierarchy_outgoing(&item, &documents, "session:1")
+        .unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].to.name, "target");
+    assert!(
+        current
+            .hierarchy_incoming(&target, &documents, "session:2")
+            .is_err()
+    );
+    let mut forged = target.clone();
+    forged.name = "different".into();
+    assert!(
+        current
+            .hierarchy_outgoing(&forged, &documents, "session:1")
+            .is_err()
+    );
+    let mut revised = snapshot.clone();
+    revised.epoch = 2;
+    revised.open[0] = view(
+        &a,
+        &source.replace("function target()", "function replacement()"),
+        2,
+        2,
+    );
+    let changed = index
+        .analyze(
+            &mut host,
+            catalog,
+            "file:///project",
+            &revised,
+            &revised.open[0].uri,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+    let changed_documents = changed
+        .documents
+        .iter()
+        .map(Arc::as_ref)
+        .collect::<Vec<_>>();
+    assert!(
+        changed
+            .current_semantic
+            .hierarchy_outgoing(&target, &changed_documents, "session:1")
+            .is_err(),
+        "source and declaration witness reject an old item even with a forged unchanged transport stamp"
+    );
+}
