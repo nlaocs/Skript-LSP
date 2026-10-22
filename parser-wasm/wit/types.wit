@@ -1,5 +1,14 @@
 package nlaocs:skript-parser-addon@0.42.0;
 
+// parser.isolated-preparation-safe v1 is an optional manifest promise. Fresh
+// Store initialization is deterministic from Catalog/runtime/ordered bindings;
+// owned initial dynamic definitions are permitted, StateStore access and
+// external effects are forbidden. Only independently declared incremental
+// read-only invocations can cross an attempt-bound opaque seed, with current
+// inputs/read dependencies/output validation. No worker AST/state delta/receipt
+// is adoptable. Discarding isolated Stores does not permit resetting the live
+// coordinator Store or treating provisional headers as final declarations.
+
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
     record catalog-record-ref {

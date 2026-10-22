@@ -451,6 +451,7 @@ struct StateStoreInner {
     data_directory: PathBuf,
     quotas: StateQuotas,
     namespaces: NamespaceRegistry,
+    parse_only: bool,
     projects: BTreeMap<String, ProjectState>,
     latest_document_revisions: BTreeMap<(String, String), DocumentRevision>,
 }
@@ -545,10 +546,17 @@ impl StateStore {
                 data_directory,
                 quotas: config.quotas,
                 namespaces: NamespaceRegistry::default(),
+                parse_only: false,
                 projects: BTreeMap::new(),
                 latest_document_revisions: BTreeMap::new(),
             })),
         })
+    }
+
+    /// Internal isolated preparation hosts cannot open or publish committed data.
+    pub(crate) fn restrict_to_parse_scopes(&self) -> Result<(), StateError> {
+        self.lock()?.parse_only = true;
+        Ok(())
     }
 
     /// Validates and registers every namespace declared by one component.
@@ -1333,6 +1341,13 @@ impl InvocationTransaction {
         parse.ensure_open()?;
         let store_handle = parse.store.clone();
         let mut store = store_handle.lock()?;
+        if store.parse_only && !matches!(scope, StateScope::Invocation | StateScope::Parse) {
+            return Err(StateError::AccessDenied {
+                component_id: self.component_id.clone(),
+                namespace: namespace.to_owned(),
+                operation: "access committed state from isolated preparation",
+            });
+        }
         let (namespace_key, record) =
             store
                 .namespaces

@@ -1417,6 +1417,13 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     /// Observes current-source proposal preparation; it must not alter parser state.
     fn structure_preparation(&mut self, _event: crate::StructurePreparationEvent<'_>) {}
 
+    /// Selects bodies in an unpublished speculative preparation pass. Headers
+    /// still run in source order. A filtered forest is not a completed document
+    /// and must never be published or adopted as the authoritative AST.
+    fn prepare_structure_body(&mut self, _index: usize, _total: usize) -> bool {
+        true
+    }
+
     /// Selects the body parser and context after a top-level Structure header matched.
     fn enter_structure(
         &mut self,

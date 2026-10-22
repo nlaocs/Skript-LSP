@@ -159,6 +159,11 @@ impl addon::Guest for CoreLibrary {
                     required: false,
                 },
                 CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_ISOLATED_PREPARATION_SAFE.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
+                CapabilityRequirement {
                     id: parser_wasm::CAPABILITY_PROJECT_STABLE_SEMANTICS.to_owned(),
                     minimum_version: 1,
                     required: false,

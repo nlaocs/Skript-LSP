@@ -1044,6 +1044,7 @@ struct StoreData {
     epoch_cancelled: bool,
     initializing: bool,
     initialization_host_call_attempted: bool,
+    initialization_state_call_attempted: bool,
     call_deadline: u64,
     #[cfg(test)]
     cancel_token_after_state_put: Option<(String, DocumentCancellationToken)>,
@@ -2227,6 +2228,7 @@ impl StoreData {
 
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
         self.note_initialization_host_call();
+        self.initialization_state_call_attempted |= self.initializing;
         self.invocation
             .as_mut()
             .ok_or_else(|| wit_state_error(StateError::NoActiveTransaction))
@@ -2527,6 +2529,9 @@ fn catalog_page_bounds(
     }
     Ok((offset, offset.saturating_add(limit as usize).min(length)))
 }
+
+mod body_preparation;
+pub use body_preparation::BodyPreparationMetrics;
 
 struct ComponentEntry {
     component: Component,
@@ -4947,6 +4952,17 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             context: apply_context_updates(request.context, updates, "Section exit")?,
             metadata: metadata_entries(output.candidate.metadata)?,
         })
+    }
+
+    fn prepare_structure_body(&mut self, index: usize, total: usize) -> bool {
+        self.hooks
+            .host
+            .body_partition
+            .is_none_or(|(partition, partitions)| {
+                // Keep the front of the document on the authoritative worker;
+                // preparation workers cover disjoint contiguous later ranges.
+                index.saturating_mul(partitions + 1) / total.max(1) == partition + 1
+            })
     }
 
     fn structure_preparation(&mut self, event: skript_parser::StructurePreparationEvent<'_>) {
@@ -8887,6 +8903,10 @@ impl CompletionTypeCertificate {
 /// ~~~
 pub struct ParserHost {
     completion_types: CompletionTypeCertificate,
+    body_preparation: Option<body_preparation::RunningPreparation>,
+    body_partition: Option<(usize, usize)>,
+    isolated_preparation: bool,
+    body_preparation_metrics: BodyPreparationMetrics,
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
@@ -9236,6 +9256,10 @@ impl ParserHost {
         );
         let mut host = Self {
             completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
+            body_preparation: None,
+            body_partition: None,
+            isolated_preparation: false,
+            body_preparation_metrics: BodyPreparationMetrics::default(),
             runtime,
             config,
             native_cancellation: None,
@@ -12522,12 +12546,29 @@ impl ParserHost {
             "<loading>"
         };
         let component = self.runtime.component(bytes, loading_id)?;
+        self.load_compiled_component(component, mandatory_core)
+    }
+
+    fn load_compiled_component(
+        &mut self,
+        component: Component,
+        mandatory_core: bool,
+    ) -> Result<ComponentInfo, HostError> {
+        self.revoke_completion_types();
+        let loading_id = if mandatory_core {
+            CORE_LIBRARY_COMPONENT_ID
+        } else {
+            "<loading>"
+        };
         let mut store = create_store(
             &self.runtime.engine,
             &self.config,
             self.type_user_input_matchers.clone(),
         );
         store.data_mut().epoch_clock = Some(Arc::clone(&self.runtime._epoch_ticker.clock));
+        store.data_mut().cancellation = self.native_cancellation.clone();
+        // Only a newly isolated host is discardable before its manifest call.
+        store.data_mut().interrupt_safe = self.isolated_preparation;
         prepare_store(
             &mut store,
             self.config.fuel_per_call,
@@ -12555,10 +12596,16 @@ impl ParserHost {
         if let Some(catalog) = self.config.syntax_catalog.as_deref() {
             validate_manifest_catalog_bindings(&manifest, catalog)?;
         }
-        store.data_mut().interrupt_safe = component_promises(
+        let restart_safe = component_promises(
             &manifest.capabilities,
             crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         );
+        let isolated_safe = component_promises(
+            &manifest.capabilities,
+            crate::CAPABILITY_ISOLATED_PREPARATION_SAFE,
+        );
+        store.data_mut().interrupt_safe =
+            restart_safe || (self.isolated_preparation && isolated_safe);
         stamp_catalog_annotation_owners(&mut manifest);
 
         if mandatory_core && manifest.component_id != CORE_LIBRARY_COMPONENT_ID {
@@ -12608,7 +12655,12 @@ impl ParserHost {
             });
         let dynamic_update = store.data_mut().dynamic_syntax_update.take();
         let initialization = initialization?;
-        validate_restart_initialization(&store, &manifest.component_id)?;
+        validate_restart_initialization_for(&store, &manifest.component_id, restart_safe)?;
+        validate_isolated_preparation_initialization(
+            &store,
+            &manifest.component_id,
+            isolated_safe,
+        )?;
         store.data_mut().initializing = false;
         match initialization {
             Ok(()) => {}
@@ -12660,11 +12712,18 @@ impl ParserHost {
     }
 }
 
-fn validate_restart_initialization(
+fn validate_isolated_preparation_initialization(
     store: &Store<StoreData>,
     component_id: &str,
+    isolated_safe: bool,
 ) -> Result<(), HostError> {
-    validate_restart_initialization_for(store, component_id, store.data().interrupt_safe)
+    if isolated_safe && store.data().initialization_state_call_attempted {
+        return Err(HostError::InitializationRejected {
+            component_id: component_id.into(),
+            message: "isolated preparation initialization may not access StateStore".into(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_restart_initialization_for(
@@ -12818,6 +12877,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
         crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
+        crate::CAPABILITY_ISOLATED_PREPARATION_SAFE,
         crate::CAPABILITY_COMPLETION_CATALOG_PATTERNS,
         crate::CAPABILITY_COMPLETION_CANDIDATE_BINDINGS,
         crate::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION,
@@ -13905,6 +13965,7 @@ fn create_store(
             epoch_cancelled: false,
             initializing: true,
             initialization_host_call_attempted: false,
+            initialization_state_call_attempted: false,
             call_deadline: 0,
             #[cfg(test)]
             cancel_token_after_state_put: None,

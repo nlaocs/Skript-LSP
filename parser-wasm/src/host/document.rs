@@ -43,6 +43,7 @@ use super::{
 #[derive(Debug, Clone, Default)]
 pub struct DocumentCancellationToken {
     cancelled: Arc<AtomicBool>,
+    parent: Option<Arc<DocumentCancellationToken>>,
     #[cfg(test)]
     native_probe_budget: Option<Arc<AtomicUsize>>,
 }
@@ -61,6 +62,17 @@ impl DocumentCancellationToken {
     /// Returns whether cancellation has been requested.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+            || self
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.is_cancelled())
+    }
+
+    pub(super) fn child(&self) -> Self {
+        Self {
+            parent: Some(Arc::new(self.clone())),
+            ..Self::new()
+        }
     }
 
     pub(super) fn native_cancelled(&self) -> bool {
@@ -205,6 +217,9 @@ pub struct DocumentParserConfig {
     pub imported_functions: Vec<skript_parser::ImportedFunction>,
     /// Cooperative cancellation checked at stage boundaries and native syntax probes.
     pub cancellation: DocumentCancellationToken,
+    /// Total CPU worker budget for optional isolated body preparation (1..=4).
+    /// The authoritative parser always runs; preparation never publishes ASTs.
+    pub body_preparation_workers: usize,
 }
 
 impl Default for DocumentParserConfig {
@@ -214,6 +229,7 @@ impl Default for DocumentParserConfig {
             structure: StructureParserConfig::default(),
             imported_functions: Vec::new(),
             cancellation: DocumentCancellationToken::new(),
+            body_preparation_workers: 1,
         }
     }
 }
@@ -380,6 +396,20 @@ impl ParserHost {
             &config.cancellation,
             DocumentParseStage::Start,
         )?;
+        self.start_body_preparation(&request, &config);
+        let result = self.parse_document_serial_observed(request, config, structure_preparation);
+        self.finish_body_preparation();
+        result
+    }
+
+    fn parse_document_serial_observed(
+        &mut self,
+        request: DocumentParseRequest,
+        config: DocumentParserConfig,
+        structure_preparation: Option<
+            &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
+        >,
+    ) -> Result<DocumentParseResult, DocumentParseError> {
         let transaction = self.begin_parse(
             &request.project_uri,
             &request.context.document_id,

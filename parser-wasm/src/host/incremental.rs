@@ -34,16 +34,16 @@ pub struct IncrementalMetrics {
 }
 
 #[derive(Clone)]
-struct CachedInvocation {
-    output: HookOutput,
-    reads: StateReadCertificate,
-    bytes: usize,
+pub(super) struct CachedInvocation {
+    pub(super) output: HookOutput,
+    pub(super) reads: StateReadCertificate,
+    pub(super) bytes: usize,
 }
 
-struct DocumentCache {
-    revision: u64,
-    world: String,
-    entries: HashMap<String, CachedInvocation>,
+pub(super) struct DocumentCache {
+    pub(super) revision: u64,
+    pub(super) world: String,
+    pub(super) entries: HashMap<String, CachedInvocation>,
 }
 
 struct ActiveDocument {
@@ -59,12 +59,16 @@ struct ActiveDocument {
 
 #[derive(Default)]
 pub(super) struct IncrementalCache {
-    documents: BTreeMap<String, DocumentCache>,
+    pub(super) documents: BTreeMap<String, DocumentCache>,
     active: Option<ActiveDocument>,
     last_metrics: IncrementalMetrics,
 }
 
 impl IncrementalCache {
+    pub(super) fn is_active(&self) -> bool {
+        self.active.is_some()
+    }
+
     pub(super) fn release(&mut self, document: &str, through: u64) {
         if self
             .documents
@@ -358,6 +362,7 @@ impl ParserHost {
         state: &mut InvocationTransaction,
         payload: &HookPayload,
     ) -> Result<Option<HookOutput>, HostError> {
+        self.poll_body_preparation();
         let active = self
             .incremental
             .active
@@ -370,7 +375,12 @@ impl ParserHost {
             .filter(|cache| {
                 cache.revision < active.revision && Some(&cache.world) == active.world.as_ref()
             })
-            .and_then(|cache| cache.entries.get(key));
+            .and_then(|cache| cache.entries.get(key))
+            .or_else(|| {
+                self.body_preparation
+                    .as_ref()?
+                    .lookup(active.world.as_deref()?, key)
+            });
         let Some(cached) = cached else {
             active.metrics.misses += 1;
             return Ok(None);
