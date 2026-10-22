@@ -157,6 +157,39 @@ fn standard_parser(payload: &ExpressionPayload) -> Option<&'static TypeParser> {
     })
 }
 
+/// Skript recognizes quoted VariableString before requested-type conversion.
+/// Recover that evidence only when the ordinary typed route cannot accept it.
+/// Unknown conversion information, restricted parse modes and compatible unions
+/// stay on their existing route; this never supplies a new accepted expression.
+pub(crate) fn diagnostic_string_payload(payload: &ExpressionPayload) -> Option<ExpressionPayload> {
+    if payload.active_type.is_some()
+        || !payload.allow_literals
+        || !payload.allow_expressions
+        || payload.expected_types.is_empty()
+    {
+        return None;
+    }
+    if !payload.candidate_ends.iter().any(|end| {
+        crate::expression_candidates::expression_slice(payload, *end)
+            .and_then(|text| string_literal::parse(payload, text, *end))
+            .is_some()
+    }) {
+        return None;
+    }
+    if !payload.expected_types.iter().all(|expected| {
+        matches!(
+            crate::catalog::can_convert("java.lang.String", &expected.class_name),
+            Ok(crate::catalog::TypeRelation::Incompatible)
+        )
+    }) {
+        return None;
+    }
+    let active = crate::catalog::type_for_class("java.lang.String").ok()??;
+    let mut typed = payload.clone();
+    typed.active_type = Some(active);
+    parses_string(&typed).then_some(typed)
+}
+
 pub(crate) fn parses_string(payload: &ExpressionPayload) -> bool {
     standard_parser(payload).is_some_and(|parser| parser.id == string_literal::PARSER.id)
 }

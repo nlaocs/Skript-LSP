@@ -535,6 +535,26 @@ fn parse_expression_candidates(
     if let Some(outcome) = primitives::interpolation::parse(&payload, parse_results) {
         return Ok(interpolation_output(payload, outcome));
     }
+    if let Some(typed) = types::diagnostic_string_payload(&payload) {
+        if let Some(outcome) = primitives::interpolation::parse(&typed, parse_results) {
+            let mut output = interpolation_output(typed, outcome);
+            if let Some(HookPayload::Expression(replacement)) = &mut output.replacement {
+                // The internal recognizer's Type must not rewrite the immutable
+                // request received from the host, including on nested requests.
+                replacement.active_type = payload.active_type;
+                replacement.type_parser_outcome = payload.type_parser_outcome;
+            }
+            return Ok(output);
+        }
+        if let Some(candidate) = expression_candidates::parse_types(&typed) {
+            payload.candidates.push(candidate);
+            return Ok(HookOutput {
+                decision: HookDecision::ContinueProcessing,
+                replacement: Some(HookPayload::Expression(payload)),
+                effects: empty_effects(),
+            });
+        }
+    }
     if let Some(candidate) = expression_candidates::parse(&payload) {
         payload.candidates.push(candidate);
         Ok(HookOutput {
