@@ -58,6 +58,7 @@ pub(super) fn resolve(
                     return super::reject_structure(reason);
                 }
                 payload.candidate.metadata.extend(command.metadata());
+                super::outline_symbol(&mut payload, 6, None);
                 super::append_metadata(
                     &mut payload,
                     parser_wasm::STRUCTURE_ENTRY_BODY_MODES_METADATA,

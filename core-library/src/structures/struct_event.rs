@@ -190,6 +190,7 @@ pub(super) fn resolve(context: InvocationContext, mut payload: StructurePayload)
             "the Event source does not expose whether custom priorities are supported",
         );
     }
+    super::outline_symbol(&mut payload, 24, None);
     payload.candidate.body_mode = StructureBodyMode::Trigger;
     push_metadata(&mut payload, "semantic-mode", "event-structure");
     push_metadata(&mut payload, "event-listening-behavior", listening_behavior);

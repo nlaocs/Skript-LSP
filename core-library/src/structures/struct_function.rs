@@ -44,6 +44,19 @@ pub(super) fn resolve(
         if let Err(reason) = validate_default_results(&requests, &parsed.defaults, parse_results) {
             return super::reject_structure(reason);
         }
+        let name_offset = |key: &str| {
+            parsed
+                .declaration
+                .metadata
+                .iter()
+                .find(|entry| entry.key == key)
+                .and_then(|entry| entry.value.parse::<usize>().ok())
+        };
+        if let Some(selection) =
+            name_offset("function.name.start").zip(name_offset("function.name.end"))
+        {
+            super::outline_symbol(&mut payload, 12, Some(selection));
+        }
         let returns = parsed.declaration.returns.clone();
         if parsed
             .bindings
@@ -120,6 +133,10 @@ fn unresolved_version(context: InvocationContext, payload: StructurePayload) -> 
     if let Some(crate::nlaocs::skript_parser_addon::types::HookPayload::Structure(payload)) =
         output.replacement.as_mut()
     {
+        payload
+            .candidate
+            .metadata
+            .retain(|entry| entry.key != parser_wasm::DOCUMENT_SYMBOL_METADATA);
         super::append_metadata(payload, "semantic-state", "unresolved");
     }
     output.effects.diagnostics.push(super::structure_warning(

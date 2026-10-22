@@ -1082,3 +1082,34 @@ Parse state and therefore misses by the shared runtime rule. Native matching and
 current Structure payload construction still run; header hit counts and observed
 header preparation latency must be reported separately. Guest components built
 against ABI 23 / WIT 0.41 must be rebuilt.
+
+### Document outline metadata
+
+Accepted Structure/Section providers may emit owned metadata with key
+`skript.semantic.document-symbol` and this JSON schema:
+
+```json
+{"version":1,"name":"greet","kind":12,"detail":"function greet()","selection":{"start":9,"end":14}}
+```
+
+`kind` is a standard LSP SymbolKind (1–26). Selection offsets are nonempty,
+header-relative UTF-8 byte offsets, not UTF-16 columns. The native parser supplies
+the full RawTree extent and parentage. Consumers must validate the unique current
+provider witness, exact SourceMap projection, range containment and AST/RawTree
+ancestry. Conflicting records, unknown versions, generated or mixed origins and
+unadopted candidates make no outline claim. Providers must withhold the record
+when header semantics are unresolved. Missing metadata is supported and yields
+no symbol; there is no source-text fallback or WIT/ABI change.
+
+Core emits Function name selections, Command/Event header selections and
+Namespace headers for its other supported structures. Ordinary executable
+sections and entry values do not become declarations just because they indent.
+The LSP returns hierarchical DocumentSymbol results when the client supports
+them, otherwise flat SymbolInformation, with legacy SymbolKind fallback.
+
+The current conservative provider witness includes ancestor and subtree writers.
+A foreign contributor can therefore make an otherwise unchanged header symbol
+unavailable. Likewise, a macro-generated or mixed-origin full extent is omitted
+even when its header is exact. Neither condition is silently promoted to native
+source ownership. This feature exposes accepted final semantics and does not
+remove the existing initial-analysis wait.

@@ -132,6 +132,13 @@ pub const CAPABILITY_STRUCTURE_PARSER: &str = "parser.structure";
 /// Owned Structure metadata containing a JSON list of {"path":["entry"],"mode":"trigger"|"conditions"}.
 /// Paths select Section entries in the registration's EntryValidator, never source spelling guesses.
 pub const STRUCTURE_ENTRY_BODY_MODES_METADATA: &str = "structure.entry-body-modes.v1";
+/// Owned outline metadata on an accepted AST node. JSON v1 contains a nonempty
+/// name, an LSP SymbolKind number (1..=26), optional detail, and selection
+/// {start,end} UTF-8 offsets relative to the node's native header. Consumers
+/// require the current unique provider witness and exact source projection.
+/// Full extent and hierarchy come from native RawTree/AST, never this record.
+/// Missing, conflicting or unknown versions make no outline claim.
+pub const DOCUMENT_SYMBOL_METADATA: &str = "skript.semantic.document-symbol";
 /// Requests every SSG type option in a registered Expression payload.
 pub const REGISTERED_CONTEXT_ALL_TYPE_OPTIONS: &str = "expression.type-options.all";
 /// Immutable native annotation mapping positive SSG input-cardinality evidence to a capture slot.

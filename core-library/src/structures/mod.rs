@@ -90,6 +90,42 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
     })
 }
 
+/// Core owns the semantic label/kind; host owns extent and parentage. A more
+/// specific handler may supply a name selection before the common fallback.
+fn outline_symbol(payload: &mut StructurePayload, kind: u8, selection: Option<(usize, usize)>) {
+    let key = parser_wasm::DOCUMENT_SYMBOL_METADATA;
+    if payload
+        .candidate
+        .metadata
+        .iter()
+        .any(|entry| entry.key == key)
+    {
+        return;
+    }
+    let span = &payload.candidate.span.virtual_range;
+    let Some(header) = usize::try_from(span.start)
+        .ok()
+        .zip(usize::try_from(span.end).ok())
+        .and_then(|(start, end)| payload.input.get(start..end))
+    else {
+        return;
+    };
+    let (start, end) = selection.unwrap_or_else(|| {
+        let start = header.len() - header.trim_start().len();
+        (start, start + header.trim().len())
+    });
+    let Some(name) = header
+        .get(start..end)
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return;
+    };
+    let value = serde_json::json!({"version":1,"name":name,"kind":kind,
+        "detail":header,"selection":{"start":start,"end":end}})
+    .to_string();
+    append_metadata(payload, key, &value);
+}
+
 fn register_handler(
     handlers: &mut Vec<RegisteredSyntaxHandler>,
     handler_id: &str,
@@ -125,6 +161,7 @@ fn continue_with_mode(
     if entering {
         payload.candidate.body_mode = mode;
         append_metadata(&mut payload, "semantic-mode", semantic_mode);
+        outline_symbol(&mut payload, 3, None);
     }
     HookOutput {
         decision: HookDecision::ContinueProcessing,
