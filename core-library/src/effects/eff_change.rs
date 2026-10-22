@@ -143,6 +143,10 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let target = changed.and_then(|capture| capture.summary.as_ref());
     let static_target = target.and_then(static_variable);
     let delta = changer.and_then(|capture| capture.summary.as_ref());
+    let context_preserving = authentic
+        && target
+            .and_then(|value| value.return_type.as_deref())
+            .is_some_and(catalog::type_init_has_no_changer);
     let identity_delta = authentic && delta.is_some_and(catalog::identity_delta_for_summary);
     let identity_delta_types = if authentic {
         delta
@@ -173,6 +177,13 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         &contract.to_string(),
     );
     if authentic {
+        if context_preserving {
+            super::annotate(
+                &mut payload,
+                crate::public_data::EVALUATION_CONTEXT_METADATA_KEY,
+                r#"{"version":1,"kind":"preserve"}"#,
+            );
+        }
         let prefix = operation.changer_capture.into_iter().collect::<Vec<_>>();
         super::annotate(
             &mut payload,

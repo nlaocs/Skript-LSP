@@ -191,6 +191,10 @@ pub(super) fn resolve(
     {
         crate::public_data::publish_metadata(
             &mut payload.candidate.metadata,
+            crate::public_data::preserve_evaluation_context(),
+        );
+        crate::public_data::publish_metadata(
+            &mut payload.candidate.metadata,
             crate::public_data::preserve_local_effects(),
         );
         let prefix: &[u64] = if semantics.expected_conditions == 1 {

@@ -185,6 +185,16 @@ pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLe
             .iter()
             .any(|data| data.schema_id == crate::public_data::INTERPOLATION_SCHEMA_ID)
     {
+        if crate::catalog::standard_primitive_parser(active)
+            && candidate.return_type.as_ref().is_some_and(|class| {
+                crate::catalog::stringification_preserving_classes().contains(class)
+                    && crate::catalog::type_init_has_no_changer(class)
+            })
+        {
+            candidate
+                .metadata
+                .push(crate::public_data::preserve_evaluation_context());
+        }
         candidate
             .metadata
             .push(crate::public_data::preserve_local_effects());

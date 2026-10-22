@@ -145,9 +145,57 @@ pub(super) fn resolve(
             value_span,
         ),
     }
+    if return_entry_adapter(summary, return_type.as_deref())
+        && payload.candidate.as_ref().is_some_and(|candidate| {
+            crate::catalog::standard_effect_source(candidate, "ch.njol.skript.effects.EffReturn")
+        })
+    {
+        super::annotate(
+            &mut payload,
+            crate::public_data::EVALUATION_CONTEXT_METADATA_KEY,
+            r#"{"version":1,"kind":"preserve"}"#,
+        );
+        super::annotate(
+            &mut payload,
+            crate::public_data::OPERAND_EVALUATION_METADATA_KEY,
+            &serde_json::json!({"version":1,"prefix":[0],"requiredContext":{
+                "key":"return-value-entry","value":crate::public_data::SCRIPT_RETURN_ENTRY}})
+            .to_string(),
+        );
+    }
     Some(super::continue_with_diagnostics(payload, diagnostics))
 }
 
+/// A standard identity adapter or static Variable typed-view reaches the same
+/// value lookup first. Never certify arbitrary parse-time literal conversion.
+fn return_entry_adapter(
+    summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary,
+    target: Option<&str>,
+) -> bool {
+    let Some(target) = target else {
+        return false;
+    };
+    if summary.return_type.as_deref().is_some_and(|source| {
+        source == target
+            || crate::catalog::is_class_assignable(source, target).ok()
+                == Some(TypeRelation::Compatible)
+    }) {
+        return true;
+    }
+    summary.kind == "variable"
+        && crate::catalog::base_type_dispatch(target)
+        && summary.public_data.iter().any(|data| {
+            data.schema_id == crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID
+                && data.schema_version == 1
+                && serde_json::from_str::<serde_json::Value>(&data.json)
+                    .ok()
+                    .is_some_and(|value| {
+                        value["scope"] == "local"
+                            && value["resolution"] == "static"
+                            && value["list"] == false
+                    })
+        })
+}
 fn return_handler_available(context: &ParseContext) -> Option<bool> {
     // ReturnHandler is an explicit parser contract. Function structure/event metadata alone is
     // not enough because another structure or addon may use the same event class.

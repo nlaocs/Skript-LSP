@@ -45,6 +45,23 @@ pub(super) fn resolve(
             return super::reject_structure(reason);
         }
         let returns = parsed.declaration.returns.clone();
+        if parsed
+            .bindings
+            .iter()
+            .all(|parameter| crate::catalog::type_init_has_no_changer(&parameter.class_name))
+            && crate::catalog::standard_structure_source(
+                &payload.candidate,
+                "ch.njol.skript.structures.StructFunction",
+            )
+        {
+            payload.candidate.metadata.push(MetadataEntry {
+                key: crate::public_data::EVALUATION_CONTEXT_METADATA_KEY.into(),
+                value: serde_json::json!({"version":1,"kind":"scope","key":"return-value-entry",
+                    "value":crate::public_data::SCRIPT_RETURN_ENTRY})
+                .to_string(),
+                owner_component_id: None,
+            });
+        }
         payload.candidate.metadata.push(MetadataEntry {
             key: "skript.semantic.parameters".into(),
             value: serde_json::to_string(&ParameterBindings {

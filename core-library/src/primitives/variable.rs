@@ -69,6 +69,16 @@ pub(super) fn parse(
         if requested.is_empty() {
             requested.push("java.lang.Object".into());
         }
+        if java_trim(body).starts_with('_')
+            && crate::catalog::base_type_dispatch("java.lang.Object")
+            && requested
+                .iter()
+                .all(|class| crate::catalog::base_type_dispatch(class))
+        {
+            candidate
+                .metadata
+                .push(crate::public_data::preserve_evaluation_context());
+        }
         candidate
             .metadata
             .push(crate::public_data::variable_read(&requested));

@@ -390,3 +390,16 @@ mod tests {
         );
     }
 }
+
+/// Parser/init context effects, independent of runtime local-value effects.
+pub const EVALUATION_CONTEXT_METADATA_KEY: &str = "skript.semantic.evaluation-context";
+pub(crate) fn preserve_evaluation_context()
+-> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+        key: EVALUATION_CONTEXT_METADATA_KEY.into(),
+        value: r#"{"version":1,"kind":"preserve"}"#.into(),
+        owner_component_id: None,
+    }
+}
+/// Audited standard ReturnableTrigger -> ScriptFunction -> value.getArray entry.
+pub const SCRIPT_RETURN_ENTRY: &str = "skript-2.15.4.script-return-value-entry.v1";

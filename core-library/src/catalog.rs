@@ -745,6 +745,22 @@ pub(crate) fn standard_section_source(
             None,
         )
 }
+pub(crate) fn standard_structure_source(
+    candidate: &crate::nlaocs::skript_parser_addon::types::StructureCandidate,
+    class: &str,
+) -> bool {
+    pinned_runtime()
+        && candidate.element_class.as_deref() == Some(class)
+        && standard_syntax_source(
+            "Structures.json",
+            "structure",
+            &candidate.definition_id,
+            &candidate.registration_id,
+            class,
+            candidate.pattern_index,
+            Some(&candidate.pattern),
+        )
+}
 fn standard_syntax_source(
     document: &str,
     kind: &str,
@@ -2240,4 +2256,223 @@ mod tests {
             ],
         }
     }
+}
+
+/// Classes.toString searches ClassInfo in order before calling its parser.
+/// Certify only the audited dense prefix: no custom getter or formatter can run
+/// before these exact final runtime classes are selected. Old snapshots lack
+/// the dispatch witness and deliberately certify no classes.
+pub(crate) fn stringification_preserving_classes() -> Vec<String> {
+    if !pinned_runtime() {
+        return Vec::new();
+    }
+    let Ok(digest) = catalog_source_digest() else {
+        return Vec::new();
+    };
+    let key = format!("{digest}\0stringification");
+    if let Some(classes) = IMMUTABLE_RUNTIME_CLASSES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .cloned()
+    {
+        return classes;
+    }
+    let classes = stringification_prefix(&stringification_records());
+    let mut cache = IMMUTABLE_RUNTIME_CLASSES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= 16 {
+        cache.clear();
+    }
+    cache.insert(key, classes.clone());
+    classes
+}
+fn stringification_prefix(records: &[serde_json::Value]) -> Vec<String> {
+    const BASE: &str = "ch.njol.skript.classes.ClassInfo";
+    let audited = [
+        ("Long", "LongParser"),
+        ("Double", "DoubleParser"),
+        ("Float", "FloatParser"),
+        ("Boolean", "2"),
+        ("Short", "ShortParser"),
+        ("Byte", "ByteParser"),
+        ("String", "5"),
+    ];
+    let mut classes = Vec::new();
+    for (index, (class, parser)) in audited.into_iter().enumerate() {
+        let Some(record) = records.get(index) else {
+            break;
+        };
+        let class = format!("java.lang.{class}");
+        let parser = format!("{}{}", "ch.njol.skript.classes.data.JavaClasses$", parser);
+        if record["typeParseOrder"].as_u64() != Some(index as u64)
+            || record["originalClass"].as_str() != Some(class.as_str())
+            || record["addon"]["name"].as_str() != Some("Skript")
+            || record["addon"]["version"].as_str() != Some("2.15.4")
+            || record["hasParser"].as_bool() != Some(true)
+            || record["parserClass"].as_str() != Some(parser.as_str())
+            || record["typeRuntime"]["version"].as_u64() != Some(1)
+            || record["typeRuntime"]["classInfoClass"].as_str() != Some(BASE)
+        {
+            break;
+        }
+        classes.push(class);
+    }
+    classes
+}
+#[cfg(target_arch = "wasm32")]
+fn stringification_records() -> Vec<serde_json::Value> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+    let Some(source) = catalog_data::source().ok().flatten() else {
+        return Vec::new();
+    };
+    let mut records = Vec::new();
+    for index in 0..7 {
+        let Some(chunk) = catalog_data::read_record(
+            &source.source_digest,
+            &source.snapshot_id,
+            "Types.json",
+            index,
+            0,
+            64 * 1024,
+        )
+        .ok()
+        .flatten() else {
+            break;
+        };
+        if chunk.offset != 0 || chunk.bytes.len() as u64 != chunk.total_length {
+            break;
+        }
+        let Ok(record) = serde_json::from_slice(&chunk.bytes) else {
+            break;
+        };
+        records.push(record);
+    }
+    records
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn stringification_records() -> Vec<serde_json::Value> {
+    Vec::new()
+}
+
+/// Exact registered type lookup uses the base ClassInfo's non-callback getters.
+pub(crate) fn base_type_dispatch(class: &str) -> bool {
+    if !pinned_runtime() {
+        return false;
+    }
+    let Ok(Some(option)) = type_for_class(class) else {
+        return false;
+    };
+    if option.class_name != class {
+        return false;
+    }
+    let Ok(digest) = catalog_source_digest() else {
+        return false;
+    };
+    let key = format!("{digest}\0base-dispatch\0{}", option.registration_id);
+    if let Some(value) = STANDARD_RUNTIME_SOURCES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .copied()
+    {
+        return value;
+    }
+    let result = registration_records(&option.registration_id)
+        .ok()
+        .is_some_and(|records| {
+            let records = records
+                .iter()
+                .filter(|record| record.document == "Types.json")
+                .collect::<Vec<_>>();
+            records.len() == 1
+                && serde_json::from_slice::<serde_json::Value>(&records[0].bytes)
+                    .ok()
+                    .is_some_and(|record| {
+                        record["originalClass"].as_str() == Some(class)
+                            && record["registrationId"].as_str()
+                                == Some(option.registration_id.as_str())
+                            && record["typeRuntime"]["version"].as_u64() == Some(1)
+                            && record["typeRuntime"]["classInfoClass"].as_str()
+                                == Some("ch.njol.skript.classes.ClassInfo")
+                    })
+        });
+    let mut cache = STANDARD_RUNTIME_SOURCES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len() >= MAX_CACHED_CHANGE_CONTRACTS {
+        cache.clear();
+    }
+    cache.insert(key, result);
+    result
+}
+
+#[cfg(test)]
+mod evaluation_context_tests {
+    use super::*;
+    #[test]
+    fn formatter_prefix_needs_actual_order_and_base_dispatch() {
+        let mut records: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime/Types.json")).unwrap();
+        assert_eq!(stringification_prefix(&records).len(), 7);
+        for field in ["typeRuntime", "parserClass", "typeParseOrder", "addon"] {
+            let mut changed = records.clone();
+            changed[0].as_object_mut().unwrap().remove(field);
+            assert!(stringification_prefix(&changed).is_empty(), "{field}");
+        }
+        records[1]["typeRuntime"]["classInfoClass"] = serde_json::json!("addon.Override");
+        assert_eq!(stringification_prefix(&records), ["java.lang.Long"]);
+        let old: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4/Types.json"
+        ))
+        .unwrap();
+        assert!(stringification_prefix(&old).is_empty());
+    }
+}
+
+/// Distinguish no changer from a changer that rejects every mode.
+pub(crate) fn type_init_has_no_changer(class: &str) -> bool {
+    if !base_type_dispatch(class) {
+        return false;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::nlaocs::skript_parser_addon::catalog_data::change_contract_for_type(class)
+            .ok()
+            .flatten()
+            .is_some_and(|contract| contract.type_class == class && !contract.has_changer)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// A primitive value result does not certify the parser that created it. Bind
+/// the actual active registration to its audited parse-time implementation too.
+pub(crate) fn standard_primitive_parser(
+    active: &crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption,
+) -> bool {
+    let suffix = match active.class_name.as_str() {
+        "java.lang.String" => "5",
+        "java.lang.Boolean" => "2",
+        "java.lang.Number" => "NumberParser",
+        "java.lang.Long" => "LongParser",
+        "java.lang.Double" => "DoubleParser",
+        "java.lang.Float" => "FloatParser",
+        "java.lang.Short" => "ShortParser",
+        "java.lang.Byte" => "ByteParser",
+        "java.lang.Integer" => "IntegerParser",
+        _ => return false,
+    };
+    let expected = format!("{}{}", "ch.njol.skript.classes.data.JavaClasses$", suffix);
+    active.parser_class.as_deref() == Some(expected.as_str())
+        && type_for_class(&active.class_name)
+            .ok()
+            .flatten()
+            .is_some_and(|first| {
+                first.registration_id == active.registration_id
+                    && first.parser_class == active.parser_class
+            })
+        && base_type_dispatch(&active.class_name)
 }

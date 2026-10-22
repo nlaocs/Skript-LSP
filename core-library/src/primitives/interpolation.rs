@@ -142,6 +142,24 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                 }
             })
             .collect();
+        if container.kind == "string"
+            && crate::runtime::current()
+                .and_then(|p| p.skript_version)
+                .as_deref()
+                == Some("2.15.4")
+        {
+            leaf.metadata
+                .push(crate::public_data::preserve_evaluation_context());
+            leaf.metadata
+                .push(crate::public_data::non_empty_value_result());
+            let preserve_types = crate::catalog::stringification_preserving_classes();
+            leaf.metadata.push(MetadataEntry {
+                key: crate::public_data::OPERAND_EVALUATION_METADATA_KEY.into(),
+                value: serde_json::json!({"version":2,"complete":true,"steps":(0..leaf.children.len()).map(|index|
+                    serde_json::json!({"childIndex":index,"preserveTypes":preserve_types})).collect::<Vec<_>>()}).to_string(),
+                owner_component_id: None,
+            });
+        }
         if container.kind == "variable-name" {
             leaf.public_data
                 .push(variable::public_name_data(container.body)?);
