@@ -232,6 +232,14 @@ fn parse_declaration(payload: &StructurePayload) -> Result<ParsedFunctionDeclara
             parameters,
             returns,
             metadata: vec![
+                // The producer certifies that replacing this source name with
+                // an ASCII identifier preserves the declaration's binding shape.
+                // The registry's version-specific function-name policy still applies.
+                MetadataEntry {
+                    key: "function.name.edit-grammar".into(),
+                    value: "ascii-identifier-v1".into(),
+                    owner_component_id: None,
+                },
                 MetadataEntry {
                     key: "function.return-syntax".to_owned(),
                     value: return_syntax.to_owned(),

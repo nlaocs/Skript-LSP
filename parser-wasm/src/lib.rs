@@ -41,6 +41,18 @@ pub const CAPABILITY_INCREMENTAL_STRUCTURE_HEADER: &str = "parser.incremental-st
 /// Component-wide deterministic project semantic promise; see the WIT manifest contract.
 pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-semantics";
 
+/// Opt-in v1 stability of authenticated ASCII identifier leaves edited together
+/// at Function declaration/call names or static scalar local Variable names.
+/// After the editor verifies complete bindings, source geometry and collisions,
+/// changing these leaves may only rename those identities. Macros, matching and
+/// semantic hooks must not activate new transformations, reinterpret surrounding
+/// structure or create/remove unrelated declarations/references based on either
+/// spelling. This includes previously no-op macros. Already expanded sources,
+/// dynamic/list names and parameter-label edits are outside this contract.
+/// Every enabled component must promise exactly v1; project stability and a
+/// current revocable runtime certificate are separate requirements.
+pub const CAPABILITY_STATIC_NAME_RENAME_STABILITY: &str = "parser.static-name-rename-stability";
+
 /// Opt-in v1 editing contract for Expression/Condition/Effect/Section grammars.
 /// For exact unchanged source, the initialized Catalog exhausts registered
 /// pattern languages and native typed-slot requirements of these four kinds.

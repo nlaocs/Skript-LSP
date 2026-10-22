@@ -70,6 +70,11 @@ pub struct FunctionVersionPolicy {
 }
 
 impl FunctionVersionPolicy {
+    /// Checks a function name using the same grammar as declaration registration.
+    pub fn accepts_name(self, name: &str) -> bool {
+        is_valid_function_name(name, self.allow_leading_underscore)
+    }
+
     /// Policy for the modern Function model used by Skript 2.15.4.
     pub const SKRIPT_2_15_4: Self = Self {
         allow_local_functions: true,
@@ -298,7 +303,7 @@ impl FunctionDeclaration {
     /// Validates source, parameters, and policy-specific capabilities before
     /// a declaration mutates a transaction.
     pub fn validate(&self, policy: FunctionVersionPolicy) -> Result<(), FunctionRegistryError> {
-        if !is_valid_function_name(&self.name, policy.allow_leading_underscore) {
+        if !policy.accepts_name(&self.name) {
             return Err(FunctionRegistryError::InvalidFunctionName);
         }
         if !self.span.is_valid_for(&self.source) {

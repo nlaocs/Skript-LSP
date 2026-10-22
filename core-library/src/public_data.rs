@@ -31,6 +31,17 @@ pub struct VariableIdentityData {
     pub case_policy: VariableCasePolicy,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canonical_name: Option<String>,
+    /// Optional exact UTF-8 name range relative to this variable expression.
+    /// Absent for templates, list families, parameters and unproven spellings.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name_range: Option<VariableNameRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariableNameRange {
+    pub start: u64,
+    pub end: u64,
+    pub grammar: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +97,7 @@ impl VariableIdentityData {
             list,
             case_policy: VariableCasePolicy::Unknown,
             canonical_name: None,
+            name_range: None,
         }
     }
 }

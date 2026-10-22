@@ -243,6 +243,8 @@ pub struct DependencyUnavailableRegion {
 
 #[derive(Debug)]
 pub struct DocumentParseResult {
+    /// Revoked when the provider universe changes, including during another parse.
+    pub static_name_rename: Option<super::StaticNameRenameCertificate>,
     pub function_namespace_complete: bool,
     pub dependency_unavailable: Vec<DependencyUnavailableRegion>,
     pub execution_status: DocumentExecutionStatus,
@@ -487,6 +489,7 @@ impl ParserHost {
         );
 
         Ok(DocumentParseResult {
+            static_name_rename: self.static_name_rename_certificate(),
             function_namespace_complete,
             dependency_unavailable: dependency_unavailable.clone(),
             execution_status: if parsed.fault_regions.is_empty()

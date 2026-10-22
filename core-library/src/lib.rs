@@ -158,6 +158,13 @@ impl addon::Guest for CoreLibrary {
                     minimum_version: 1,
                     required: false,
                 },
+                // Static identifier edits cannot introduce the {@...} option marker;
+                // native function/local binding changes are handled by their shared registries.
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_STATIC_NAME_RENAME_STABILITY.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
                 CapabilityRequirement {
                     id: parser_wasm::CAPABILITY_PROJECT_STABLE_SEMANTICS.to_owned(),
                     minimum_version: 1,
@@ -913,7 +920,10 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 16);
+        assert_eq!(manifest.capabilities.len(), 18);
+        assert!(manifest.capabilities.iter().any(|c| c.id
+            == parser_wasm::CAPABILITY_STATIC_NAME_RENAME_STABILITY
+            && c.minimum_version == 1));
         assert!(
             manifest
                 .capabilities

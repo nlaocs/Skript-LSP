@@ -92,15 +92,36 @@ pub(super) fn public_identity_data(body: &str) -> Option<ExpressionPublicData> {
         VARIABLE_IDENTITY_SCHEMA_ID, VARIABLE_IDENTITY_SCHEMA_VERSION, VariableIdentityData,
     };
     let template = name_template(body)?;
+    let mut identity = VariableIdentityData::from_template(
+        template.scope,
+        &template.name,
+        is_list_variable_body(body),
+    );
+    let name = normalized_name(body);
+    let mut characters = name.chars();
+    let simple = characters
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && characters.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if matches!(template.scope, VariableScope::Local)
+        && !identity.list
+        && simple
+        && identity.name.as_deref() == Some(name)
+    {
+        let leading = body.len() - body.trim_start_matches(|c: char| c <= '\u{20}').len();
+        let local = java_trim(body).strip_prefix('_')?;
+        let inner_leading = local.len() - local.trim_start_matches(|c: char| c <= '\u{20}').len();
+        let start = 1 + leading + 1 + inner_leading; // enclosing brace and local prefix
+        identity.name_range = Some(crate::public_data::VariableNameRange {
+            start: u64::try_from(start).ok()?,
+            end: u64::try_from(start + name.len()).ok()?,
+            grammar: "ascii-identifier-v1".into(),
+        });
+    }
     Some(ExpressionPublicData {
         schema_id: VARIABLE_IDENTITY_SCHEMA_ID.to_owned(),
         schema_version: VARIABLE_IDENTITY_SCHEMA_VERSION,
-        json: serde_json::to_string(&VariableIdentityData::from_template(
-            template.scope,
-            &template.name,
-            is_list_variable_body(body),
-        ))
-        .ok()?,
+        json: serde_json::to_string(&identity).ok()?,
     })
 }
 
@@ -249,6 +270,36 @@ fn percent_expression_ranges(input: &str) -> Option<Vec<std::ops::Range<usize>>>
 #[cfg(test)]
 mod tests {
     use super::is_valid_variable_name_body;
+
+    #[test]
+    fn scalar_local_name_geometry_preserves_java_trim_and_local_prefix() {
+        use crate::public_data::VariableIdentityData;
+        for (body, expected) in [
+            ("_Foo", Some((2, 5))),
+            (" _ Foo ", Some((4, 7))),
+            ("_a%%b", None),
+            ("_items::*", None),
+            ("_%player%", None),
+            ("global", None),
+            ("_\u{e9}", None),
+        ] {
+            let data = super::public_identity_data(body).unwrap();
+            let identity: VariableIdentityData = serde_json::from_str(&data.json).unwrap();
+            assert_eq!(
+                identity.name_range.as_ref().map(|r| (r.start, r.end)),
+                expected,
+                "{body}"
+            );
+            if let Some(range) = identity.name_range {
+                assert_eq!(range.grammar, "ascii-identifier-v1");
+                let expression = format!("{{{body}}}");
+                assert_eq!(
+                    expression.get(range.start as usize..range.end as usize),
+                    identity.name.as_deref()
+                );
+            }
+        }
+    }
 
     #[test]
     fn identity_uses_java_trim_and_runtime_percent_escaping() {

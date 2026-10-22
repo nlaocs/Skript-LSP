@@ -8851,11 +8851,22 @@ fn shared_host_runtime(epoch_tick: Duration) -> Result<Arc<SharedHostRuntime>, H
 
 /// Read-only, revocable certification of the provider set used by completion.
 /// Old document Arcs observe revocation immediately, including during a parse.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompletionTypeCertificate(Arc<AtomicBool>);
 impl CompletionTypeCertificate {
     pub fn is_current(&self) -> bool {
         self.0.load(Ordering::Acquire)
+    }
+}
+
+/// Source-edit stability, issued only after every current component opts in.
+/// Shares the runtime revocation fence with completion type certificates;
+/// the independent name-edit contract is never implied by a type certificate.
+#[derive(Clone, Debug)]
+pub struct StaticNameRenameCertificate(CompletionTypeCertificate);
+impl StaticNameRenameCertificate {
+    pub fn is_current(&self) -> bool {
+        self.0.is_current()
     }
 }
 
@@ -8946,6 +8957,21 @@ impl ParserHost {
                         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
                     )
             })
+    }
+
+    /// Certifies unchanged provider semantics under the v1 static name edits.
+    /// Load, disable and unload revoke outstanding certificates immediately.
+    pub fn static_name_rename_certificate(&self) -> Option<StaticNameRenameCertificate> {
+        (self.project_semantics_are_stable()
+            && self.components.iter().all(|entry| {
+                !entry.disabled
+                    && !entry.unloaded
+                    && component_promises(
+                        &entry.manifest.capabilities,
+                        crate::CAPABILITY_STATIC_NAME_RENAME_STABILITY,
+                    )
+            }))
+        .then(|| StaticNameRenameCertificate(self.completion_type_certificate()))
     }
 
     /// Negative grammar proof for bounded editor pattern queries. This is not
@@ -12818,6 +12844,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
         crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
+        crate::CAPABILITY_STATIC_NAME_RENAME_STABILITY,
         crate::CAPABILITY_COMPLETION_CATALOG_PATTERNS,
         crate::CAPABILITY_COMPLETION_CANDIDATE_BINDINGS,
         crate::CAPABILITY_COMPLETION_STATIC_LOCAL_SUBSTITUTION,
@@ -16669,6 +16696,51 @@ mod tests {
             forged
                 .iter()
                 .all(|entry| entry.owner_component_id.is_some())
+        );
+    }
+
+    #[test]
+    fn rename_stability_requires_exact_opt_in_and_revocable_runtime() {
+        let mut host = ParserHost::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../artifacts/core-library.wasm"
+            )),
+            core_test_config(),
+        )
+        .unwrap();
+        let original = host.components[0].manifest.capabilities.clone();
+        assert!(host.static_name_rename_certificate().unwrap().is_current());
+        for version in [None, Some(0), Some(2)] {
+            host.components[0].manifest.capabilities = original.clone();
+            if let Some(version) = version {
+                host.components[0]
+                    .manifest
+                    .capabilities
+                    .iter_mut()
+                    .find(|c| c.id == crate::CAPABILITY_STATIC_NAME_RENAME_STABILITY)
+                    .unwrap()
+                    .minimum_version = version;
+            } else {
+                host.components[0]
+                    .manifest
+                    .capabilities
+                    .retain(|c| c.id != crate::CAPABILITY_STATIC_NAME_RENAME_STABILITY);
+            }
+            assert!(host.static_name_rename_certificate().is_none());
+        }
+        host.components[0].manifest.capabilities = original;
+        host.components[0].disabled = true;
+        assert!(host.static_name_rename_certificate().is_none());
+        host.components[0].disabled = false;
+        host.components[0].unloaded = true;
+        assert!(host.static_name_rename_certificate().is_none());
+        host.components[0].unloaded = false;
+        let proof = host.static_name_rename_certificate().unwrap();
+        assert!(host.load_addon(&[]).is_err());
+        assert!(
+            !proof.is_current(),
+            "even a failed runtime change revokes old documents"
         );
     }
 
