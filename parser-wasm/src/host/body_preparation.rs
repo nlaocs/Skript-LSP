@@ -6,6 +6,10 @@
 use super::*;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Instant;
+mod trace;
+use trace::TraceToken;
+pub(super) use trace::{BodyPhaseClock, EntryUse};
+pub use trace::{BodyPhaseMetrics, BodyPreparationTrace, BodyWorkerTrace};
 
 /// Counts preparation work separately from authoritative document analysis.
 #[derive(Clone, Debug, Default)]
@@ -17,6 +21,7 @@ pub struct BodyPreparationMetrics {
     pub bytes: usize,
     pub join_ms: f64,
     pub reason: &'static str,
+    pub trace: Option<BodyPreparationTrace>,
 }
 
 // This private, non-serializable seed is the cross-host seal. It owns the actual
@@ -36,6 +41,7 @@ struct Seed {
     )>,
     request: DocumentParseRequest,
     document: DocumentParserConfig,
+    trace_origin: Option<Instant>,
 }
 
 impl Seed {
@@ -51,6 +57,7 @@ impl Seed {
             body_partition: None,
             isolated_preparation: true,
             body_preparation_metrics: BodyPreparationMetrics::default(),
+            body_phase_clock: BodyPhaseClock::default(),
             runtime: Arc::clone(&self.runtime),
             config: self.config.clone(),
             native_cancellation: Some(cancellation.clone()),
@@ -99,6 +106,7 @@ struct Capsule {
     seed: Arc<Seed>,
     partition: usize,
     cache: Option<incremental::DocumentCache>,
+    trace: Option<BodyWorkerTrace>,
 }
 
 pub(super) struct RunningPreparation {
@@ -106,17 +114,41 @@ pub(super) struct RunningPreparation {
     receiver: Receiver<Capsule>,
     cancellation: Vec<DocumentCancellationToken>,
     handles: Vec<JoinHandle<()>>,
-    caches: BTreeMap<usize, incremental::DocumentCache>,
+    caches: BTreeMap<usize, PreparedCache>,
+    received: usize,
     metrics: BodyPreparationMetrics,
 }
 
+struct PreparedCache {
+    cache: incremental::DocumentCache,
+    uses: Option<Vec<EntryUse>>,
+}
+
 impl RunningPreparation {
-    fn accept(&mut self, capsule: Capsule) {
-        if !Arc::ptr_eq(&capsule.seed, &self.seed) || self.seed.document.cancellation.is_cancelled()
-        {
+    fn accept(&mut self, mut capsule: Capsule) {
+        if !Arc::ptr_eq(&capsule.seed, &self.seed) {
+            if let Some(trace) = &mut self.metrics.trace {
+                trace.foreign_capsules += 1;
+            }
             return;
         }
-        if let Some(cache) = capsule.cache {
+        self.received += 1;
+        let received_at_ms = self.offset_ms();
+        if self.seed.document.cancellation.is_cancelled() {
+            if let Some(trace) = &mut self.metrics.trace {
+                trace.cancelled_capsules += 1;
+                if let Some(mut worker) = capsule.trace {
+                    worker.outcome = "discarded-main-cancelled";
+                    worker.received_at_ms = received_at_ms;
+                    trace.workers.push(worker);
+                }
+            }
+            return;
+        }
+        if let Some(worker) = &mut capsule.trace {
+            worker.received_at_ms = received_at_ms;
+        }
+        if let Some(mut cache) = capsule.cache {
             self.metrics.completed += 1;
             self.metrics.entries += cache.entries.len();
             self.metrics.bytes += cache
@@ -124,39 +156,179 @@ impl RunningPreparation {
                 .values()
                 .map(|entry| entry.bytes)
                 .sum::<usize>();
-            self.caches.insert(capsule.partition, cache);
+            let uses = self.metrics.trace.as_ref().map(|_| {
+                for (slot, entry) in cache.entries.values_mut().enumerate() {
+                    entry.trace_slot = slot;
+                    if let (Some(worker), Some(at)) = (&mut capsule.trace, entry.recorded_at_ms) {
+                        worker.first_recorded_at_ms =
+                            Some(worker.first_recorded_at_ms.map_or(at, |old| old.min(at)));
+                        worker.last_recorded_at_ms =
+                            Some(worker.last_recorded_at_ms.map_or(at, |old| old.max(at)));
+                    }
+                }
+                vec![EntryUse::Unqueried; cache.entries.len()]
+            });
+            self.caches
+                .insert(capsule.partition, PreparedCache { cache, uses });
         } else {
             self.metrics.failed += 1;
         }
+        if let (Some(trace), Some(worker)) = (&mut self.metrics.trace, capsule.trace) {
+            trace.workers.push(worker);
+        }
     }
 
+    fn offset_ms(&self) -> Option<f64> {
+        self.seed
+            .trace_origin
+            .map(|origin| origin.elapsed().as_secs_f64() * 1000.0)
+    }
     fn poll(&mut self) {
         while let Ok(capsule) = self.receiver.try_recv() {
             self.accept(capsule);
         }
     }
-
-    pub(super) fn lookup(&self, world: &str, key: &str) -> Option<&incremental::CachedInvocation> {
+    pub(super) fn lookup(
+        &mut self,
+        world: &str,
+        key: &str,
+    ) -> Option<(&incremental::CachedInvocation, Option<TraceToken>)> {
+        if let Some(trace) = &mut self.metrics.trace {
+            trace.lookup_calls += 1;
+            if self.received < self.metrics.spawned {
+                trace.lookups_while_pending += 1;
+            }
+        }
         if self.seed.document.cancellation.is_cancelled() {
+            if let Some(trace) = &mut self.metrics.trace {
+                trace.cancelled_lookups += 1;
+            }
             return None;
         }
-        self.caches
-            .values()
-            .filter(|cache| cache.world == world)
-            .find_map(|cache| cache.entries.get(key))
+        let mut matching_world = false;
+        for (partition, prepared) in &self.caches {
+            if prepared.cache.world != world {
+                continue;
+            }
+            matching_world = true;
+            if let Some(entry) = prepared.cache.entries.get(key) {
+                let token = prepared.uses.as_ref().map(|_| TraceToken {
+                    partition: *partition,
+                    slot: entry.trace_slot,
+                    recorded_at_ms: entry.recorded_at_ms,
+                });
+                return Some((entry, token));
+            }
+        }
+        if let Some(trace) = &mut self.metrics.trace {
+            if self.caches.is_empty() {
+                trace.no_ready_cache += 1;
+            } else if !matching_world {
+                trace.no_matching_world += 1;
+            } else {
+                trace.key_not_in_ready_caches += 1;
+            }
+        }
+        None
     }
-
+    pub(super) fn record_use(&mut self, token: Option<TraceToken>, outcome: EntryUse) {
+        let Some(token) = token else {
+            return;
+        };
+        if let Some(state) = self
+            .caches
+            .get_mut(&token.partition)
+            .and_then(|cache| cache.uses.as_mut())
+            .and_then(|uses| uses.get_mut(token.slot))
+        {
+            if *state != EntryUse::Consumed {
+                *state = outcome;
+            }
+        }
+        let now = self.offset_ms();
+        let Some(worker) = self.metrics.trace.as_mut().and_then(|trace| {
+            trace
+                .workers
+                .iter_mut()
+                .find(|worker| worker.partition == token.partition)
+        }) else {
+            return;
+        };
+        match outcome {
+            EntryUse::Consumed => {
+                worker.hit_calls += 1;
+                if let Some(now) = now {
+                    worker.first_consumed_at_ms.get_or_insert(now);
+                    worker.last_consumed_at_ms = Some(now);
+                    if let Some(at) = token.recorded_at_ms {
+                        let age = (now - at).max(0.0);
+                        worker.max_recorded_to_consumed_ms = Some(
+                            worker
+                                .max_recorded_to_consumed_ms
+                                .map_or(age, |old| old.max(age)),
+                        );
+                    }
+                    if let Some(at) = worker.finished_at_ms {
+                        let age = (now - at).max(0.0);
+                        worker.max_ready_to_consumed_ms = Some(
+                            worker
+                                .max_ready_to_consumed_ms
+                                .map_or(age, |old| old.max(age)),
+                        );
+                    }
+                }
+            }
+            EntryUse::ReceiptRejected => worker.receipt_rejections += 1,
+            EntryUse::HeaderRejected => worker.header_rejections += 1,
+            EntryUse::StateRejected => worker.state_rejections += 1,
+            EntryUse::StateError => worker.state_errors += 1,
+            EntryUse::Unqueried => {}
+        }
+    }
+    fn summarize_uses(&mut self) {
+        let Some(trace) = &mut self.metrics.trace else {
+            return;
+        };
+        for (partition, prepared) in &self.caches {
+            let Some(uses) = &prepared.uses else {
+                continue;
+            };
+            let Some(worker) = trace
+                .workers
+                .iter_mut()
+                .find(|worker| worker.partition == *partition)
+            else {
+                continue;
+            };
+            for state in uses {
+                match state {
+                    EntryUse::Unqueried => worker.unqueried_after_receipt += 1,
+                    EntryUse::Consumed => worker.unique_consumed_entries += 1,
+                    EntryUse::ReceiptRejected => worker.unused_receipt_rejected += 1,
+                    EntryUse::HeaderRejected => worker.unused_header_rejected += 1,
+                    EntryUse::StateRejected => worker.unused_state_rejected += 1,
+                    EntryUse::StateError => worker.unused_state_error += 1,
+                }
+            }
+        }
+        trace.workers.sort_by_key(|worker| worker.partition);
+    }
     fn finish(mut self) -> BodyPreparationMetrics {
         let started = Instant::now();
         self.poll();
         for token in &self.cancellation {
             token.cancel();
         }
+        let wait = self.metrics.trace.as_ref().map(|_| Instant::now());
         for handle in self.handles.drain(..) {
             let _ = handle.join();
         }
+        if let (Some(trace), Some(wait)) = (&mut self.metrics.trace, wait) {
+            trace.helper_join_wait_ms = wait.elapsed().as_secs_f64() * 1000.0;
+        }
         self.poll();
         self.metrics.join_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.summarize_uses();
         self.metrics.clone()
     }
 }
@@ -179,36 +351,106 @@ fn prepare(
     token: DocumentCancellationToken,
     sender: Sender<Capsule>,
 ) {
+    let mut trace = seed.trace_origin.map(|origin| BodyWorkerTrace {
+        partition,
+        outcome: "initializing",
+        started_at_ms: Some(origin.elapsed().as_secs_f64() * 1000.0),
+        ..Default::default()
+    });
     let cache = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut host = seed.instantiate(token.clone()).ok()?;
+        let initialized = trace.as_ref().map(|_| Instant::now());
+        let host = seed.instantiate(token.clone());
+        if let (Some(trace), Some(started)) = (&mut trace, initialized) {
+            trace.initialization_ms = Some(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        let mut host = match host {
+            Ok(host) => host,
+            Err(_) => {
+                if let Some(trace) = &mut trace {
+                    trace.outcome = if token.is_cancelled() {
+                        "cancelled-initialization"
+                    } else {
+                        "initialization-error"
+                    };
+                }
+                return None;
+            }
+        };
         host.body_partition = Some((partition, partitions));
+        host.body_phase_clock.align_next_document(seed.trace_origin);
         let mut config = seed.document.clone();
         config.body_preparation_workers = 1;
         config.cancellation = token.clone();
-        let result = host.parse_document(seed.request.clone(), config).ok()?;
-        if token.is_cancelled()
-            || result.execution_status != DocumentExecutionStatus::Complete
-            || !result.component_failures.is_empty()
-            || !result.fault_regions.is_empty()
-            || !result.dependency_unavailable.is_empty()
-        {
+        let result = host.parse_document(seed.request.clone(), config);
+        if let Some(trace) = &mut trace {
+            trace.phase = host
+                .body_preparation_metrics
+                .trace
+                .as_ref()
+                .map(|trace| trace.main.clone());
+        }
+        let result = match result {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(trace) = &mut trace {
+                    trace.outcome = if token.is_cancelled() {
+                        "cancelled-parse"
+                    } else {
+                        "parse-error"
+                    };
+                }
+                return None;
+            }
+        };
+        let outcome = if token.is_cancelled() {
+            "cancelled-parse"
+        } else if !result.component_failures.is_empty() || !result.fault_regions.is_empty() {
+            "component-fault"
+        } else if !result.dependency_unavailable.is_empty() {
+            "dependency-unavailable"
+        } else if result.execution_status != DocumentExecutionStatus::Complete {
+            "incomplete"
+        } else {
+            "ready"
+        };
+        if let Some(trace) = &mut trace {
+            trace.outcome = outcome;
+        }
+        if outcome != "ready" {
             return None;
         }
-        // Only after the ordinary pipeline, output checks and private commit
-        // completed. Pending entries are never streamed out of an active parse.
-        host.incremental
+        // A recorded response is not available to the main host until all the
+        // ordinary validation and private worker commit above have completed.
+        let cache = host
+            .incremental
             .documents
-            .remove(&seed.request.context.document_id)
-    }))
-    .ok()
-    .flatten();
-    // Completed successful capsules have independent lifetimes: an unrelated
-    // worker's later failure does not revoke a response already revalidated by
-    // the authoritative parser. Failed workers lend no capsule or semantic fact.
+            .remove(&seed.request.context.document_id);
+        if cache.is_none()
+            && let Some(trace) = &mut trace
+        {
+            trace.outcome = "no-cache";
+        }
+        cache
+    }));
+    let cache = match cache {
+        Ok(cache) => cache,
+        Err(_) => {
+            if let Some(trace) = &mut trace {
+                trace.outcome = "panic";
+            }
+            None
+        }
+    };
+    if let (Some(trace), Some(origin)) = (&mut trace, seed.trace_origin) {
+        trace.finished_at_ms = Some(origin.elapsed().as_secs_f64() * 1000.0);
+    }
+    // Timing travels on the existing one-capsule-per-worker channel. No shared
+    // lock, per-invocation channel traffic, source string or error text is added.
     let _ = sender.send(Capsule {
         seed,
         partition,
         cache,
+        trace,
     });
 }
 
@@ -296,6 +538,7 @@ impl ParserHost {
                 .collect(),
             request: request.clone(),
             document: config.clone(),
+            trace_origin: self.body_phase_clock.origin(),
         });
         let (sender, receiver) = mpsc::channel();
         let mut running = RunningPreparation {
@@ -304,8 +547,12 @@ impl ParserHost {
             cancellation: Vec::new(),
             handles: Vec::new(),
             caches: BTreeMap::new(),
+            received: 0,
             metrics: BodyPreparationMetrics {
                 reason: "isolated read-only invocation preparation",
+                trace: config
+                    .trace_body_preparation
+                    .then(BodyPreparationTrace::default),
                 ..Default::default()
             },
         };
@@ -326,6 +573,13 @@ impl ParserHost {
                 }
                 Err(_) => {
                     running.metrics.failed += 1;
+                    if let Some(trace) = &mut running.metrics.trace {
+                        trace.workers.push(BodyWorkerTrace {
+                            partition,
+                            outcome: "spawn-error",
+                            ..Default::default()
+                        });
+                    }
                 }
             }
         }
@@ -373,6 +627,17 @@ mod tests {
         DocumentParserConfig,
         Capsule,
     ) {
+        ready_with_trace(false)
+    }
+
+    fn ready_with_trace(
+        trace: bool,
+    ) -> (
+        ParserHost,
+        DocumentParseRequest,
+        DocumentParserConfig,
+        Capsule,
+    ) {
         let mut host = host();
         let request = DocumentParseRequest::new(
             "file:///public-capsule",
@@ -382,8 +647,10 @@ mod tests {
         );
         let config = DocumentParserConfig {
             body_preparation_workers: 2,
+            trace_body_preparation: trace,
             ..Default::default()
         };
+        host.body_phase_clock.begin_document(trace);
         host.start_body_preparation(&request, &config);
         let running = host
             .body_preparation
@@ -519,7 +786,7 @@ mod tests {
         use crate::bindings::nlaocs::skript_parser_addon::types::{HookInvocation, SourceOrigin};
         use crate::state::{NamespaceVisibility, StateEncoding, StateScope, StateValue};
         for scan in [false, true] {
-            let (mut main, request, _config, mut capsule) = ready();
+            let (mut main, request, _config, mut capsule) = ready_with_trace(true);
             let worker = capsule
                 .seed
                 .instantiate(DocumentCancellationToken::new())
@@ -622,6 +889,8 @@ mod tests {
                     },
                     reads,
                     bytes: 1,
+                    trace_slot: usize::MAX,
+                    recorded_at_ms: None,
                 },
             );
             main.body_preparation.as_mut().unwrap().accept(capsule);
@@ -665,6 +934,15 @@ mod tests {
             current.cancel().unwrap();
             main.finish_incremental_document("same.sk", 1, false);
             main.finish_body_preparation();
+            let trace = main.body_preparation_metrics().trace.as_ref().unwrap();
+            assert_eq!(trace.workers.len(), 1);
+            assert_eq!(trace.workers[0].hit_calls, 1);
+            assert_eq!(trace.workers[0].state_rejections, 1);
+            assert_eq!(trace.workers[0].unique_consumed_entries, 1);
+            assert_eq!(
+                trace.workers[0].unused_state_rejected, 0,
+                "a consumed entry must not be reclassified as unused after a later miss"
+            );
         }
     }
 }

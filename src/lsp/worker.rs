@@ -265,6 +265,8 @@ impl Analyzer for ParserAnalyzer {
         let config = DocumentParserConfig {
             cancellation: job.control.token.clone(),
             body_preparation_workers: self.analysis_workers,
+            trace_body_preparation: std::env::var_os("SKRIPT_BODY_PREPARATION_TRACE")
+                .is_some_and(|value| value == "1"),
             ..DocumentParserConfig::default()
         };
         let mut semantic = None;
@@ -338,7 +340,11 @@ impl Analyzer for ParserAnalyzer {
         } else {
             Default::default()
         };
-        let analysis_metrics = json!({"bodyPreparation":{"spawned":prepared.spawned,"completed":prepared.completed,"failed":prepared.failed,"entries":prepared.entries,"bytes":prepared.bytes,"joinMs":prepared.join_ms,"reason":prepared.reason},"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"headerEligible":incremental.header_eligible,"headerHits":incremental.header_hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
+        let mut analysis_metrics = json!({"bodyPreparation":{"spawned":prepared.spawned,"completed":prepared.completed,"failed":prepared.failed,"entries":prepared.entries,"bytes":prepared.bytes,"joinMs":prepared.join_ms,"reason":prepared.reason},"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"headerEligible":incremental.header_eligible,"headerHits":incremental.header_hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
+        if let Some(trace) = &prepared.trace {
+            analysis_metrics["bodyPreparation"]["traceScope"] = json!("last-host-document-attempt");
+            analysis_metrics["bodyPreparation"]["trace"] = json!(trace);
+        }
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
         let mut hover = None;

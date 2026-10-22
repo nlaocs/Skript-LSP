@@ -2531,7 +2531,9 @@ fn catalog_page_bounds(
 }
 
 mod body_preparation;
-pub use body_preparation::BodyPreparationMetrics;
+pub use body_preparation::{
+    BodyPhaseMetrics, BodyPreparationMetrics, BodyPreparationTrace, BodyWorkerTrace,
+};
 
 struct ComponentEntry {
     component: Component,
@@ -8907,6 +8909,7 @@ pub struct ParserHost {
     body_partition: Option<(usize, usize)>,
     isolated_preparation: bool,
     body_preparation_metrics: BodyPreparationMetrics,
+    body_phase_clock: body_preparation::BodyPhaseClock,
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
@@ -9260,6 +9263,7 @@ impl ParserHost {
             body_partition: None,
             isolated_preparation: false,
             body_preparation_metrics: BodyPreparationMetrics::default(),
+            body_phase_clock: Default::default(),
             runtime,
             config,
             native_cancellation: None,
@@ -9826,6 +9830,7 @@ impl ParserHost {
                 })
             })?;
         let matching_hooks_registered = self.registry.has_matching_hooks();
+        let native_started = self.body_phase_clock.begin_native();
         let previous_namespace = mem::replace(
             &mut self.native_function_namespace_complete,
             config.expression.function_namespace_complete,
@@ -9869,6 +9874,11 @@ impl ParserHost {
             &mut environment,
             config,
         );
+        environment
+            .hooks
+            .host
+            .body_phase_clock
+            .end_native(native_started);
         if parsed.is_ok() {
             debug_assert!(
                 environment.semantic_candidates.is_empty(),
@@ -12071,10 +12081,12 @@ impl ParserHost {
                     {
                         entry.store.data_mut().guest_hook_calls += 1;
                     }
+                    let hook_started = self.body_phase_clock.begin_hook();
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
                         .call_invoke(&mut entry.store, &invocation);
+                    self.body_phase_clock.end_hook(hook_started);
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",

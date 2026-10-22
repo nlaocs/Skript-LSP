@@ -38,6 +38,8 @@ pub(super) struct CachedInvocation {
     pub(super) output: HookOutput,
     pub(super) reads: StateReadCertificate,
     pub(super) bytes: usize,
+    pub(super) trace_slot: usize,
+    pub(super) recorded_at_ms: Option<f64>,
 }
 
 pub(super) struct DocumentCache {
@@ -376,27 +378,55 @@ impl ParserHost {
                 cache.revision < active.revision && Some(&cache.world) == active.world.as_ref()
             })
             .and_then(|cache| cache.entries.get(key))
+            .map(|cached| (cached, None))
             .or_else(|| {
                 self.body_preparation
-                    .as_ref()?
+                    .as_mut()?
                     .lookup(active.world.as_deref()?, key)
             });
-        let Some(cached) = cached else {
+        let Some((cached, trace_token)) = cached else {
             active.metrics.misses += 1;
             return Ok(None);
         };
         let mut output = cached.output.clone();
         if !super::semantic_proof::restore_output_receipts(payload, &mut output) {
             active.metrics.misses += 1;
+            if let Some(running) = &mut self.body_preparation {
+                running.record_use(
+                    trace_token,
+                    super::body_preparation::EntryUse::ReceiptRejected,
+                );
+            }
             return Ok(None);
         }
         if !header::restore_output(payload, &mut output) {
             active.metrics.misses += 1;
+            if let Some(running) = &mut self.body_preparation {
+                running.record_use(
+                    trace_token,
+                    super::body_preparation::EntryUse::HeaderRejected,
+                );
+            }
             return Ok(None);
         }
-        if !state.replay_read_certificate(&cached.reads)? {
+        let valid_reads = match state.replay_read_certificate(&cached.reads) {
+            Ok(valid) => valid,
+            Err(error) => {
+                if let Some(running) = &mut self.body_preparation {
+                    running.record_use(trace_token, super::body_preparation::EntryUse::StateError);
+                }
+                return Err(error.into());
+            }
+        };
+        if !valid_reads {
             active.metrics.misses += 1;
             active.metrics.dependency_misses += 1;
+            if let Some(running) = &mut self.body_preparation {
+                running.record_use(
+                    trace_token,
+                    super::body_preparation::EntryUse::StateRejected,
+                );
+            }
             return Ok(None);
         }
         if let Some(replacement) = output.replacement.as_mut()
@@ -411,6 +441,9 @@ impl ParserHost {
             active.metrics.header_hits += 1;
         }
         insert_pending(active, key.to_owned(), cached.clone());
+        if let Some(running) = &mut self.body_preparation {
+            running.record_use(trace_token, super::body_preparation::EntryUse::Consumed);
+        }
         Ok(Some(output))
     }
 
@@ -461,6 +494,7 @@ impl ParserHost {
         let bytes = key
             .len()
             .saturating_add(format!("{output:?}{reads:?}").len());
+        let recorded_at_ms = self.body_phase_clock.offset_ms();
         let active = self
             .incremental
             .active
@@ -473,13 +507,17 @@ impl ParserHost {
                 output,
                 reads,
                 bytes,
+                trace_slot: usize::MAX,
+                recorded_at_ms,
             },
         );
         Ok(())
     }
 }
 
-fn insert_pending(active: &mut ActiveDocument, key: String, value: CachedInvocation) {
+fn insert_pending(active: &mut ActiveDocument, key: String, mut value: CachedInvocation) {
+    // Slots are local to one current preparation bank, never an ordinary cache identity.
+    value.trace_slot = usize::MAX;
     if active.pending.contains_key(&key) {
         return;
     }

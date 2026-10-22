@@ -157,3 +157,40 @@ fn cancelled_attempt_joins_helpers_and_cannot_lend_results_to_reopened_revision(
         fingerprint(&parse(&mut host(), &source, 2, 1))
     );
 }
+
+#[test]
+fn opt_in_trace_preserves_semantics_and_exposes_no_source_or_cache_keys() {
+    let source = "on load:
+    send 1
+on join:
+    if player is set:
+        send 2
+";
+    let baseline = parse(&mut host(), source, 1, 2);
+    let mut measured = host();
+    let result = measured
+        .parse_document(
+            DocumentParseRequest::new(PROJECT, DOCUMENT, 1, source),
+            DocumentParserConfig {
+                body_preparation_workers: 2,
+                trace_body_preparation: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(fingerprint(&baseline), fingerprint(&result));
+    let metrics = measured.body_preparation_metrics();
+    let trace = metrics.trace.as_ref().expect("explicit profiling opt-in");
+    assert_eq!(trace.workers.len(), metrics.spawned);
+    assert!(trace.main.native_passes > 0);
+    assert!(trace.main.native_pass_ms >= trace.main.hook_ms_inside_native_pass);
+    for worker in &trace.workers {
+        assert!(worker.initialization_ms.is_some());
+        assert!(worker.finished_at_ms <= worker.received_at_ms);
+    }
+    let json = serde_json::to_value(trace).unwrap();
+    let keys = json.to_string();
+    assert!(!keys.contains("send 1"));
+    assert!(!keys.contains("file:///"));
+    assert!(!keys.contains("same.sk"));
+}
