@@ -1116,3 +1116,20 @@ fn initialization_failure_returns_an_error_without_claiming_capabilities() {
     );
     assert!(server.join().unwrap().is_err());
 }
+
+#[test]
+fn analysis_worker_budget_is_explicit_bounded_and_serial_by_default() {
+    for workers in [None, Some(1), Some(2), Some(3), Some(4), Some(0), Some(5)] {
+        let mut options = json!({"snapshotPath":"snapshot"});
+        if let Some(workers) = workers {
+            options["analysisWorkers"] = json!(workers);
+        }
+        let params = serde_json::from_value(json!({"rootUri":fixture_project_uri(),"capabilities":{},"initializationOptions":options})).unwrap();
+        let result = ProjectConfig::from_params(params);
+        if matches!(workers, Some(0 | 5)) {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap().analysis_workers, workers.unwrap_or(1));
+        }
+    }
+}

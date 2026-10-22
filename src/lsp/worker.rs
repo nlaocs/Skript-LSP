@@ -98,6 +98,7 @@ struct ParserAnalyzer {
     semantic_enabled: bool,
     completions: Arc<completion::CatalogIndex>,
     prepare_completion: bool,
+    analysis_workers: usize,
     project: super::project::ProjectIndex,
 }
 pub(super) fn parser_factory() -> Factory {
@@ -137,6 +138,7 @@ pub(super) fn parser_factory() -> Factory {
             semantic_enabled: config.semantic_legend.is_some(),
             completions,
             prepare_completion: config.completion_refresh,
+            analysis_workers: config.analysis_workers,
             project: super::project::ProjectIndex::default(),
         }))
     })
@@ -262,6 +264,7 @@ impl Analyzer for ParserAnalyzer {
         };
         let config = DocumentParserConfig {
             cancellation: job.control.token.clone(),
+            body_preparation_workers: self.analysis_workers,
             ..DocumentParserConfig::default()
         };
         let mut semantic = None;
@@ -330,7 +333,12 @@ impl Analyzer for ParserAnalyzer {
         } else {
             Default::default()
         };
-        let analysis_metrics = json!({"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"headerEligible":incremental.header_eligible,"headerHits":incremental.header_hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
+        let prepared = if parsed_document {
+            self.host.body_preparation_metrics().clone()
+        } else {
+            Default::default()
+        };
+        let analysis_metrics = json!({"bodyPreparation":{"spawned":prepared.spawned,"completed":prepared.completed,"failed":prepared.failed,"entries":prepared.entries,"bytes":prepared.bytes,"joinMs":prepared.join_ms,"reason":prepared.reason},"project":project_metrics,"incremental":{"eligible":incremental.eligible,"hits":incremental.hits,"headerEligible":incremental.header_eligible,"headerHits":incremental.header_hits,"misses":incremental.misses,"dependencyMisses":incremental.dependency_misses,"stored":incremental.stored,"discarded":incremental.discarded}});
         let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
         let report_started = Instant::now();
         let mut hover = None;
