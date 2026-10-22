@@ -1412,3 +1412,40 @@ fn each_project_source_has_its_own_started_native_attempt_during_convergence() {
         "the fixture must exercise a convergence retry"
     );
 }
+
+#[test]
+fn rename_source_set_detects_added_removed_changed_and_oversized_closed_members() {
+    let root = tempfile::tempdir().unwrap();
+    let opened = root.path().join("open.sk");
+    let closed = root.path().join("closed.sk");
+    fs::write(&opened, "invalid disk bytes are overridden").unwrap();
+    fs::write(&closed, "on load:\n    send 1\n").unwrap();
+    let snapshot = ProjectSnapshot {
+        epoch: 1,
+        root: root.path().into(),
+        open: vec![view(&opened, "on load:\n    send 2\n", 1, 1)],
+    };
+    let expected = sources(&snapshot, &DocumentCancellationToken::new())
+        .unwrap()
+        .into_iter()
+        .map(|(uri, source)| (uri, source.witness))
+        .collect::<BTreeMap<_, _>>();
+    verify_source_set(&snapshot, &expected).unwrap();
+    fs::write(&opened, "another disk edit remains overridden").unwrap();
+    verify_source_set(&snapshot, &expected).unwrap();
+    let added = root.path().join("added.sk");
+    fs::write(&added, "on join:\n    send 3\n").unwrap();
+    assert!(verify_source_set(&snapshot, &expected).is_err());
+    fs::remove_file(added).unwrap();
+    fs::write(&closed, "on load:\n    send 4\n").unwrap();
+    assert!(verify_source_set(&snapshot, &expected).is_err());
+    fs::write(&closed, vec![b' '; MAX_FILE_BYTES + 1]).unwrap();
+    assert!(
+        verify_source_set(&snapshot, &expected)
+            .unwrap_err()
+            .to_string()
+            .contains("analysis limit")
+    );
+    fs::remove_file(&closed).unwrap();
+    assert!(verify_source_set(&snapshot, &expected).is_err());
+}

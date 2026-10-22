@@ -45,6 +45,103 @@ fn analyze(analyzer: &mut ParserAnalyzer, source: &str, revision: u64) -> Analys
     })
 }
 
+#[test]
+fn rename_uses_function_identity_and_rejects_collisions_and_incomplete_coverage() {
+    let source = "function first(value: number) :: number:\n    return {_value}\nfunction second(value: number) :: number:\n    return {_value}\non join:\n    send first(1)\n";
+    let mut parser = analyzer();
+    let result = analyze(&mut parser, source, 1);
+    let semantic = result.semantic.as_ref().unwrap();
+    assert!(
+        diagnostics(&result).0.is_empty(),
+        "{:?}",
+        diagnostics(&result).0
+    );
+    let at = position(source, source.rfind("first(1)").unwrap());
+    let project = result
+        .project_semantics
+        .iter()
+        .map(Arc::as_ref)
+        .collect::<Vec<_>>();
+    let plan = semantic
+        .rename_plan(at, &project, Some("renamed"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.placeholder, "first");
+    assert_eq!(plan.edits.len(), 2);
+    assert_eq!(
+        plan.edits
+            .iter()
+            .map(|edit| edit.range.start.line)
+            .collect::<Vec<_>>(),
+        vec![0, 5]
+    );
+    for name in ["second", "max", "not a name", "2invalid"] {
+        assert!(
+            semantic.rename_plan(at, &project, Some(name)).is_err(),
+            "{name}"
+        );
+    }
+    let modified = format!("{source}    this is not valid syntax\n");
+    let incomplete = analyze(&mut parser, &modified, 2);
+    let incomplete = incomplete.semantic.as_ref().unwrap();
+    assert!(incomplete.rename_plan(at, &[], Some("renamed")).is_err());
+}
+
+#[test]
+fn scalar_local_rename_stays_in_its_execution_scope_and_preserves_name_geometry() {
+    let source = "on join:\n    set {_item} to 1\n    if 1 is 1:\n        send {_item}\non quit:\n    set {_item} to 2\n    send {_item}\n";
+    let result = analyze(&mut analyzer(), source, 1);
+    let semantic = result.semantic.as_ref().unwrap();
+    assert!(
+        diagnostics(&result).0.is_empty(),
+        "{:?}",
+        diagnostics(&result).0
+    );
+    let at = position(source, source.find("_item").unwrap() + 1);
+    assert_eq!(semantic.references_at(at, &[], true).len(), 2);
+    let plan = semantic
+        .rename_plan(at, &[], Some("renamed"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.placeholder, "item");
+    assert_eq!(plan.edits.len(), 2);
+    assert_eq!(
+        plan.edits
+            .iter()
+            .map(|edit| edit.range.start.line)
+            .collect::<Vec<_>>(),
+        vec![1, 3]
+    );
+    for edit in &plan.edits {
+        assert_eq!(
+            edit.range.end.character - edit.range.start.character,
+            4,
+            "braces and local prefix must remain untouched"
+        );
+    }
+    assert!(semantic.rename_plan(at, &[], Some("not a name")).is_err());
+}
+
+#[test]
+fn local_rename_refuses_case_alias_dynamic_list_and_parameter_bindings() {
+    for source in [
+        "on join:\n    set {_item} to 1\n    send {_ITEM}\n",
+        "on join:\n    set {_item} to 1\n    send {_%player%}\n",
+        "on join:\n    set {_item::*} to 1, 2\n    send {_item::*}\n",
+        "function identity(item: number) :: number:\n    return {_item}\non join:\n    send identity(1)\n",
+    ] {
+        let result = analyze(&mut analyzer(), source, 1);
+        let semantic = result.semantic.as_ref().unwrap();
+        let offset = source.find("{_item").unwrap() + 2;
+        assert!(
+            semantic
+                .rename_plan(position(source, offset), &[], Some("renamed"))
+                .is_err(),
+            "{source}"
+        );
+    }
+}
+
 fn diagnostics(analysis: &Analysis) -> (&[Diagnostic], &str) {
     assert!(
         analysis.annotations_error.is_none(),
@@ -604,4 +701,170 @@ fn actual_imported_void_statement_preserves_lsp_identity_and_is_a_flow_barrier()
         }
     }
     assert_eq!(function_tokens, vec![(2, 4, "imported_void".len() as u32)]);
+}
+
+#[test]
+fn local_rename_includes_string_interpolation_with_utf16_name_geometry() {
+    let source = "on join:\n    set {_item} to 1\n    send \"😀 %{_item}%\"\n";
+    let analyzed = analyze(&mut analyzer(), source, 1);
+    assert!(
+        diagnostics(&analyzed).0.is_empty(),
+        "{:?}",
+        diagnostics(&analyzed).0
+    );
+    let document = analyzed.semantic.as_ref().unwrap();
+    let at = position(source, source.find("_item").unwrap() + 1);
+    let plan = document
+        .rename_plan(at, &[], Some("renamed"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.edits.len(), 2);
+    let start = position(source, source.rfind("_item").unwrap() + 1);
+    let end = Position::new(start.line, start.character + 4);
+    assert_eq!(plan.edits[1].range, Range::new(start, end));
+}
+
+#[test]
+fn function_rename_rejects_actual_source_macro_expansion() {
+    let source = "options:\n    value: 1\nfunction first() :: number:\n    return {@value}\non join:\n    send first()\n";
+    let analyzed = analyze(&mut analyzer(), source, 1);
+    assert!(
+        diagnostics(&analyzed).0.is_empty(),
+        "{:?}",
+        diagnostics(&analyzed).0
+    );
+    let document = analyzed.semantic.as_ref().unwrap();
+    let at = position(source, source.rfind("first()").unwrap());
+    assert!(document.rename_plan(at, &[], Some("renamed")).is_err());
+}
+
+#[test]
+fn function_rename_collects_exact_cross_document_bindings() {
+    let folder = tempfile::tempdir().unwrap();
+    let definition_path = folder.path().join("definition.sk");
+    let caller_path = folder.path().join("caller.sk");
+    let definition_source = "function cross_value(value: number) :: number:\n    return {_value}\n";
+    let caller_source = "on join:\n    send cross_value(2)\n";
+    std::fs::write(&definition_path, definition_source).unwrap();
+    std::fs::write(&caller_path, caller_source).unwrap();
+    let uri = |path: &std::path::Path| -> lsp_types::Uri {
+        url::Url::from_file_path(path)
+            .unwrap()
+            .as_str()
+            .parse()
+            .unwrap()
+    };
+    let definition_uri = uri(&definition_path);
+    let caller_uri = uri(&caller_path);
+    let snapshot = super::super::project::ProjectSnapshot {
+        epoch: 1,
+        root: folder.path().into(),
+        open: vec![super::super::project::ProjectSource {
+            uri: caller_uri.clone(),
+            generation: 1,
+            source_epoch: 1,
+            source: Arc::from(caller_source),
+        }],
+    };
+    let mut parser = analyzer();
+    let analyzed = parser.analyze(&Job {
+        uri: caller_uri.clone(),
+        project: Some(Arc::new(snapshot)),
+        generation: 1,
+        revision: 1,
+        version: 1,
+        source: Arc::from(caller_source),
+        control: Control::new(),
+        queued_at: Instant::now(),
+    });
+    assert!(
+        diagnostics(&analyzed).0.is_empty(),
+        "{:?}",
+        diagnostics(&analyzed).0
+    );
+    let document = analyzed.semantic.as_ref().unwrap();
+    let project = analyzed
+        .project_semantics
+        .iter()
+        .map(Arc::as_ref)
+        .collect::<Vec<_>>();
+    let at = position(
+        caller_source,
+        caller_source.find("cross_value").unwrap() + 2,
+    );
+    let plan = document
+        .rename_plan(at, &project, Some("renamed"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.edits.len(), 2);
+    assert_eq!(plan.edits[0].uri, caller_uri);
+    assert_eq!(plan.edits[1].uri, definition_uri);
+}
+
+#[test]
+fn rename_rejects_previously_noop_macro_without_name_stability_contract() {
+    let source = "function before(value: number) :: number:\n    return {_value}\non join:\n    send before(1)\n";
+    let mut parser = analyzer();
+    parser
+        .host
+        .load_addon(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/artifacts/text-macro-addon.wasm"
+        )))
+        .unwrap();
+    let analyzed = analyze(&mut parser, source, 1);
+    assert!(
+        diagnostics(&analyzed).0.is_empty(),
+        "{:?}",
+        diagnostics(&analyzed).0
+    );
+    let document = analyzed.semantic.as_ref().unwrap();
+    let at = position(source, source.rfind("before(1)").unwrap());
+    assert!(
+        document.rename_plan(at, &[], Some("alpha")).is_err(),
+        "no original expansion does not certify behavior under the new spelling"
+    );
+
+    let proposed = source.replace("before", "alpha");
+    let transaction = parser
+        .host
+        .begin_parse("file:///workspace", "conditional-macro-proposal", 2)
+        .unwrap();
+    let expanded = parser
+        .host
+        .expand_text_in_parse(
+            &transaction,
+            parser_wasm::host::TextMacroRequest {
+                context: parser_wasm::host::InvocationContext {
+                    invocation_id: 2,
+                    subscription_id: String::new(),
+                    document_id: "conditional-macro-proposal".into(),
+                    document_revision: 2,
+                    expansion: None,
+                    syntax_context: 0,
+                },
+                source: skript_parser::MappedSource::identity(proposed.as_str()),
+            },
+        )
+        .unwrap();
+    assert!(expanded.calls.iter().any(|call| call.expansion.is_some()));
+    assert_ne!(expanded.source.virtual_source(), proposed.as_str());
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn rename_revokes_an_already_published_document_when_provider_set_changes() {
+    let source = "function before() :: number:\n    return 1\non join:\n    send before()\n";
+    let mut parser = analyzer();
+    let analyzed = analyze(&mut parser, source, 1);
+    let document = analyzed.semantic.as_ref().unwrap();
+    let at = position(source, source.rfind("before()").unwrap());
+    assert!(
+        document
+            .rename_plan(at, &[], Some("renamed"))
+            .unwrap()
+            .is_some()
+    );
+    assert!(parser.host.load_addon(&[]).is_err());
+    assert!(document.rename_plan(at, &[], Some("renamed")).is_err());
 }

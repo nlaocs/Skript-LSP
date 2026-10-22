@@ -2,23 +2,10 @@
 use super::*;
 
 impl Documents {
-    pub(super) fn restart_project(
-        &mut self,
-        worker: &Worker,
-        connection: &Connection,
-        focused: Option<&Uri>,
-    ) -> Result<(), String> {
-        let Some(root) = &self.project_root else {
-            return Ok(());
-        };
-        self.project_epoch = self
-            .project_epoch
-            .checked_add(1)
-            .ok_or("project epoch exhausted")?;
-        self.semantic_project.clear();
-        let snapshot = Arc::new(project::ProjectSnapshot {
+    pub(super) fn project_snapshot(&self) -> Option<project::ProjectSnapshot> {
+        Some(project::ProjectSnapshot {
             epoch: self.project_epoch,
-            root: root.clone(),
+            root: self.project_root.as_ref()?.clone(),
             open: self
                 .open
                 .iter()
@@ -29,7 +16,24 @@ impl Documents {
                     source: Arc::clone(&document.source),
                 })
                 .collect(),
-        });
+        })
+    }
+
+    pub(super) fn restart_project(
+        &mut self,
+        worker: &Worker,
+        connection: &Connection,
+        focused: Option<&Uri>,
+    ) -> Result<(), String> {
+        if self.project_root.is_none() {
+            return Ok(());
+        }
+        self.project_epoch = self
+            .project_epoch
+            .checked_add(1)
+            .ok_or("project epoch exhausted")?;
+        self.semantic_project.clear();
+        let snapshot = Arc::new(self.project_snapshot().expect("project root checked"));
         let mut uris = self.open.keys().cloned().collect::<Vec<_>>();
         uris.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         if let Some(focused) = focused {

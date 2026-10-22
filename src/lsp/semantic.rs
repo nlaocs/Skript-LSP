@@ -18,6 +18,7 @@ use std::{
     sync::Arc,
 };
 use syntaxes::Catalog;
+mod navigation;
 
 const CHANGE: &str = "skript.semantic.variable-change";
 const FLOW: &str = "skript.semantic.control-flow";
@@ -127,6 +128,7 @@ struct Identity {
     key: VariableKey,
     alias: Option<String>,
     list: bool,
+    edit_range: Option<TextRange>,
 }
 #[derive(Clone, Debug)]
 struct Fact {
@@ -189,6 +191,10 @@ pub(super) struct Document {
     pub uri: Uri,
     pub source_witness: String,
     pub project_complete: bool,
+    rename_complete: bool,
+    name_edit_certificate: Option<parser_wasm::host::StaticNameRenameCertificate>,
+    function_policy: skript_parser::FunctionVersionPolicy,
+    unknown_variable_scopes: HashSet<u64>,
     unavailable: Vec<TextRange>,
     native_owner: Option<String>,
     source: Arc<str>,
@@ -409,6 +415,36 @@ impl Document {
                 });
             }
         }
+        // Project discovery completeness alone does not certify reference coverage.
+        // Recovery, faults and source-transforming macros require a richer rename
+        // contract before they may participate in a source edit.
+        document.rename_complete = result.function_namespace_complete
+            && result.execution_status == parser_wasm::DocumentExecutionStatus::Complete
+            && result.component_failures.is_empty()
+            && result.unresolved_spans().next().is_none()
+            && result.raw_tree.diagnostics.is_empty()
+            && result.syntax.diagnostics.is_empty()
+            && result.effects.diagnostics.iter().all(|diagnostic| {
+                !matches!(
+                    diagnostic.severity,
+                    parser_wasm::host::DiagnosticSeverity::Error
+                )
+            })
+            && result.source.virtual_source() == result.source.original()
+            && result
+                .text_macro_calls
+                .iter()
+                .all(|call| call.expansion.is_none())
+            && result
+                .tree_macro_calls
+                .iter()
+                .all(|call| call.expansion.is_none())
+            && result
+                .ast_macro_calls
+                .iter()
+                .all(|call| call.expansion.is_none());
+        document.name_edit_certificate = result.static_name_rename.clone();
+        document.function_policy = result.functions.policy();
         Ok(document)
     }
     fn from_ast(
@@ -427,6 +463,10 @@ impl Document {
             source_witness: format!("{:x}", Sha256::digest(source.as_bytes())),
             native_owner,
             project_complete: true,
+            rename_complete: false,
+            name_edit_certificate: None,
+            function_policy: skript_parser::FunctionVersionPolicy::default(),
+            unknown_variable_scopes: HashSet::new(),
             unavailable: Vec::new(),
             source,
             lines,
@@ -629,32 +669,7 @@ impl Document {
             .collect::<Vec<_>>();
         let mut output = Vec::new();
         let at = self.at(position);
-        let declaration = self.functions.iter().find(|symbol| {
-            symbol
-                .name_range
-                .is_some_and(|range| range.start <= position && position < range.end)
-        });
-        let target = match at.map(|occurrence| &occurrence.reference) {
-            Some(Reference::Function {
-                definition,
-                registration,
-                witness,
-            }) => documents.iter().find_map(|document| {
-                document
-                    .functions
-                    .iter()
-                    .find(|symbol| {
-                        symbol.definition.definition_id == *definition
-                            && symbol.definition.registration_id == *registration
-                            && (!symbol.local || document.uri == self.uri)
-                            && witness.as_ref().is_some_and(|witness| {
-                                witness.matches(&symbol.definition, &document.source_witness)
-                            })
-                    })
-                    .map(|symbol| (*document, symbol))
-            }),
-            _ => declaration.map(|symbol| (self, symbol)),
-        };
+        let target = self.function_at(position, project);
         if let Some((owner, symbol)) = target {
             for document in &documents {
                 for occurrence in &document.occurrences {
@@ -916,6 +931,7 @@ impl Engine<'_> {
             self.document
                 .dependencies
                 .insert(Dependency::UnknownVariableAlias);
+            self.document.unknown_variable_scopes.insert(scope);
         }
         if let Some(call) = &node.function {
             self.document.dependencies.insert(Dependency::Function {
@@ -1253,7 +1269,22 @@ impl Engine<'_> {
                 return None;
             }
             let data: IdentityData = serde_json::from_str(&record.json).ok()?;
-            identity_data(data, scope, node.syntax_context)
+            let edit_range = data.name_range.as_ref().and_then(|name| {
+                if name.grammar != "ascii-identifier-v1" {
+                    return None;
+                }
+                let base = self.exact(node)?;
+                let start = base.start.checked_add(usize::try_from(name.start).ok()?)?;
+                let end = base.start.checked_add(usize::try_from(name.end).ok()?)?;
+                (base.start <= start
+                    && start < end
+                    && end <= base.end
+                    && self.document.source.get(start..end) == Some(data.name.as_str()))
+                .then_some(TextRange::new(start, end))
+            });
+            let mut identity = identity_data(data, scope, node.syntax_context)?;
+            identity.edit_range = edit_range;
+            Some(identity)
         })();
         self.identities.insert(key, answer.clone());
         answer
@@ -1402,6 +1433,7 @@ fn identity_data(data: IdentityData, scope: u64, context: u64) -> Option<Identit
         },
         alias: data.alias_key,
         list: data.list,
+        edit_range: None,
     })
 }
 

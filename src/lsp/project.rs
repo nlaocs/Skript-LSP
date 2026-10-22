@@ -10,6 +10,7 @@ use skript_parser::{ImportedFunction, StructurePreparationEvent};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
+    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -323,12 +324,24 @@ fn read_source(path: &Path) -> Result<Arc<str>, ProjectError> {
             path.display()
         )));
     }
-    let bytes = fs::read(path).map_err(|error| {
-        incomplete(format!(
-            "cannot read project source {}: {error}",
-            path.display()
-        ))
-    })?;
+    // Bound the actual read too: a file can grow after its metadata was checked.
+    let mut bytes = Vec::with_capacity((before.len() as usize).min(MAX_FILE_BYTES));
+    fs::File::open(path)
+        .and_then(|file| {
+            file.take((MAX_FILE_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|error| {
+            incomplete(format!(
+                "cannot read project source {}: {error}",
+                path.display()
+            ))
+        })?;
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(incomplete(
+            "project source exceeded the byte limit while reading",
+        ));
+    }
     let after = fs::metadata(path).map_err(|error| {
         incomplete(format!(
             "cannot recheck project source {}: {error}",
@@ -496,6 +509,25 @@ fn sources(
         }
     }
     Ok(output)
+}
+
+/// Reuse discovery, link/boundary checks and source limits before a source edit.
+/// Watch notifications alone cannot prove that no participant was added/deleted.
+pub(super) fn verify_source_set(
+    snapshot: &ProjectSnapshot,
+    expected: &BTreeMap<String, String>,
+) -> Result<(), ProjectError> {
+    let found = sources(snapshot, &parser_wasm::DocumentCancellationToken::new())?;
+    if found.len() != expected.len()
+        || found
+            .iter()
+            .any(|(uri, source)| expected.get(uri) != Some(&source.witness))
+    {
+        return Err(incomplete(
+            "project membership or source changed since analysis; reanalysis is required",
+        ));
+    }
+    Ok(())
 }
 
 fn definitions_key(functions: &[ImportedFunction]) -> String {

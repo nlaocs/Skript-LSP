@@ -9,6 +9,16 @@ pub(super) struct VariableIdentity {
     pub resolution: String,
     pub alias_key: Option<String>,
     pub list: bool,
+    #[serde(default)]
+    pub name_range: Option<VariableNameRange>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct VariableNameRange {
+    pub start: u64,
+    pub end: u64,
+    #[serde(default)]
+    pub grammar: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

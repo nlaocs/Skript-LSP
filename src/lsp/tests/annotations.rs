@@ -203,3 +203,53 @@ fn unopened_semantic_requests_have_empty_results() {
     }
     client.finish();
 }
+
+#[test]
+fn rename_requires_versioned_edits_and_refuses_pending_current_analysis() {
+    for (capabilities, expected) in [
+        (json!({}), ErrorCode::RequestFailed),
+        (
+            json!({"workspace":{"workspaceEdit":{"documentChanges":true}}}),
+            ErrorCode::ContentModified,
+        ),
+    ] {
+        let client = Client::start_with_capabilities(capabilities);
+        client.open(1, "hold");
+        assert_eq!(client.started.recv_timeout(TIMEOUT).unwrap(), 1);
+        client.connection.sender.send(lsp_server::Request::new(50.into(), "textDocument/rename".into(),
+            json!({"textDocument":{"uri":fixture_uri("example.sk")},"position":{"line":0,"character":0},"newName":"renamed"})).into()).unwrap();
+        assert_eq!(
+            token_response(&client, 50)
+                .response_result
+                .unwrap_err()
+                .code,
+            expected as i32
+        );
+        client.proceed.send(()).unwrap();
+        client.diagnostics(1);
+        no_responses(&client, 51, &[50]);
+        client.finish();
+    }
+}
+
+#[test]
+fn rename_negotiates_document_changes_without_versionless_fallback() {
+    for (edit, expected) in [
+        (json!({}), false),
+        (json!({"documentChanges":false}), false),
+        (json!({"documentChanges":true}), true),
+    ] {
+        let params = serde_json::from_value(json!({
+            "rootUri":fixture_project_uri(),
+            "capabilities":{"workspace":{"workspaceEdit":edit}},
+            "initializationOptions":{"snapshotPath":"snapshot"}
+        }))
+        .unwrap();
+        assert_eq!(
+            ProjectConfig::from_params(params)
+                .unwrap()
+                .rename_document_changes,
+            expected
+        );
+    }
+}

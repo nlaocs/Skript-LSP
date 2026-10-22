@@ -11,6 +11,7 @@ mod preparation;
 mod project;
 mod project_sessions;
 mod public_data;
+mod rename;
 mod semantic;
 mod semantic_tokens;
 mod worker;
@@ -34,6 +35,7 @@ struct ProjectConfig {
     watch_files: bool,
     inlay_refresh: bool,
     semantic_refresh: bool,
+    rename_document_changes: bool,
     snapshot_path: PathBuf,
     addon_paths: Vec<PathBuf>,
     hover_format: MarkupKind,
@@ -55,6 +57,13 @@ struct InitializationOptions {
 impl ProjectConfig {
     #[allow(deprecated)] // rootUri is still the explicit single-project client contract.
     fn from_params(params: InitializeParams) -> Result<Self, String> {
+        let rename_document_changes = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.workspace_edit.as_ref())
+            .and_then(|edit| edit.document_changes)
+            .unwrap_or(false);
         let inlay_refresh = params
             .capabilities
             .workspace
@@ -165,6 +174,7 @@ impl ProjectConfig {
             watch_files,
             inlay_refresh,
             semantic_refresh,
+            rename_document_changes,
             snapshot_path: absolute(options.snapshot_path),
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
             hover_format,
@@ -812,6 +822,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
     let project_root = config.project_root.clone();
     let watch_files = config.watch_files;
     let inlay_refresh = config.inlay_refresh;
+    let rename_document_changes = config.rename_document_changes;
     let semantic_refresh = config.semantic_refresh;
     let mut last_refresh_epoch = 0;
     let mut worker = Worker::start(config, factory)?;
@@ -834,6 +845,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                         documents.completion_index = index;
                         let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
                         if completion_refresh { capabilities["experimental"] = json!({"skriptCompletionRefresh":true}); }
+                        if rename_document_changes { capabilities["renameProvider"] = json!({"prepareProvider":true}); }
                         if let Some(legend) = &semantic_legend {
                             capabilities["semanticTokensProvider"] = json!({"legend":legend.wire(),"full":true});
                         }
@@ -991,6 +1003,8 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                                     }
                                     Err(error) => send(&connection, Response::new_err(request.id, ErrorCode::InvalidParams as i32, error.to_string()))?,
                                 }
+                            } else if matches!(request.method.as_str(), "textDocument/prepareRename" | "textDocument/rename") && initialize_id.is_none() && initialized && !shutdown {
+                                documents.rename_request(&worker, &connection, request.id, &request.method, request.params, rename_document_changes)?;
                             } else if matches!(request.method.as_str(), "textDocument/definition" | "textDocument/references" | "textDocument/inlayHint") && initialize_id.is_none() && initialized && !shutdown {
                                 documents.annotation_request(&connection, request.id, &request.method, request.params)?;
                             } else if request.method == "textDocument/hover" && initialize_id.is_none() && initialized && !shutdown {
