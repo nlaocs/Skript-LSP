@@ -25,6 +25,7 @@ const FLOW: &str = "skript.semantic.control-flow";
 const IDENTITY: &str = "nlaocs.skript.variable-identity";
 const PARAMETERS: &str = "skript.semantic.parameters";
 const LOCAL_EFFECTS: &str = "skript.semantic.local-effects";
+const EVALUATION_CONTEXT: &str = "skript.semantic.evaluation-context";
 const OPERANDS: &str = "skript.semantic.operand-evaluation";
 const VALUE_RESULT: &str = "skript.semantic.value-result";
 const VARIABLE_READ: &str = "skript.semantic.variable-read";
@@ -335,6 +336,7 @@ impl Document {
                             | OPERANDS
                             | VALUE_RESULT
                             | VARIABLE_READ
+                            | EVALUATION_CONTEXT
                     )
                 })
                 .filter(|entry| {
@@ -361,6 +363,7 @@ impl Document {
                         | OPERANDS
                         | VALUE_RESULT
                         | VARIABLE_READ
+                        | EVALUATION_CONTEXT
                 ) || allowed.contains(&(
                     entry.key.clone(),
                     entry.value.clone(),
@@ -497,6 +500,8 @@ impl Document {
             visiting: HashSet::new(),
             identities: HashMap::new(),
             pending_completion_owner: None,
+            evaluation_context: None,
+            context_preservation: HashMap::new(),
         };
         for root in &ast.roots {
             let mut facts = Facts::new();
@@ -789,9 +794,46 @@ struct Change {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct Operands {
     version: u32,
+    #[serde(default)]
     prefix: Vec<u64>,
+    #[serde(default)]
+    required_context: Option<ContextRequirement>,
+    #[serde(default)]
+    steps: Vec<OperandStep>,
+    #[serde(default)]
+    complete: bool,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OperandStep {
+    child_index: usize,
+    /// Exact runtime classes whose intermediate processing preserves local facts.
+    preserve_types: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextRequirement {
+    key: String,
+    value: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EvaluationContext {
+    version: u32,
+    kind: String,
+    key: Option<String>,
+    value: Option<String>,
+}
+struct EvaluationStep {
+    child: u64,
+    preserve_types: Option<Vec<String>>,
+}
+struct EvaluationPlan {
+    steps: Vec<EvaluationStep>,
+    complete: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -817,6 +859,8 @@ struct Engine<'a> {
     visiting: HashSet<u64>,
     identities: HashMap<(u64, u64), Option<Identity>>,
     pending_completion_owner: Option<CompletionOwner>,
+    evaluation_context: Option<(String, String, String)>,
+    context_preservation: HashMap<u64, bool>,
 }
 impl Engine<'_> {
     fn node(&mut self, id: u64, scope: u64, facts: &mut Facts) -> Result<InferredType, String> {
@@ -825,9 +869,59 @@ impl Engine<'_> {
         }
         let node = *self.nodes.get(&id).ok_or("missing semantic AST node")?;
         let completion_owner = self.pending_completion_owner.take();
+        if node.kind == SyntaxKind::Structure {
+            self.evaluation_context = unique_metadata(node, EVALUATION_CONTEXT)
+                .and_then(|json| serde_json::from_str::<EvaluationContext>(json).ok())
+                .filter(|claim| claim.version == 1 && claim.kind == "scope")
+                .and_then(|claim| {
+                    Some((
+                        metadata_owner(node, EVALUATION_CONTEXT)?.to_owned(),
+                        claim.key?,
+                        claim.value?,
+                    ))
+                });
+        } else if !self.preserves_evaluation_context(node, &mut HashSet::new()) {
+            self.evaluation_context = None;
+        }
         let answer = self.node_inner(node, scope, facts, completion_owner);
         self.visiting.remove(&id);
         answer
+    }
+    fn preserves_evaluation_context(
+        &mut self,
+        node: &AstNode,
+        visiting: &mut HashSet<u64>,
+    ) -> bool {
+        if let Some(value) = self.context_preservation.get(&node.id) {
+            return *value;
+        }
+        if !visiting.insert(node.id) {
+            return false;
+        }
+        let intrinsic = unique_metadata(node, EVALUATION_CONTEXT)
+            .and_then(|json| serde_json::from_str::<EvaluationContext>(json).ok())
+            .is_some_and(|data| {
+                data.version == 1
+                    && data.kind == "preserve"
+                    && data.key.is_none()
+                    && data.value.is_none()
+            });
+        let grouped = node
+            .summary
+            .as_ref()
+            .is_some_and(|summary| summary.kind == "grouped-expression")
+            && node.children.len() == 1;
+        let safe = self.exact(node).is_some()
+            && (intrinsic || grouped)
+            && node.children.iter().all(|id| {
+                self.nodes
+                    .get(id)
+                    .copied()
+                    .is_some_and(|child| self.preserves_evaluation_context(child, visiting))
+            });
+        visiting.remove(&node.id);
+        self.context_preservation.insert(node.id, safe);
+        safe
     }
     fn node_inner(
         &mut self,
@@ -986,19 +1080,39 @@ impl Engine<'_> {
                 && nonbody.len() == 1
                 && body.is_empty());
         let prefix = if transparent {
-            Some(nonbody.clone())
+            Some(EvaluationPlan {
+                steps: nonbody
+                    .iter()
+                    .map(|child| EvaluationStep {
+                        child: *child,
+                        preserve_types: None,
+                    })
+                    .collect(),
+                complete: true,
+            })
         } else {
-            operand_prefix(node, &body, &self.nodes)
+            operand_prefix(node, &body, &self.nodes, self.evaluation_context.as_ref())
         };
         let preserves = preserves_locals(node);
         if !transparent && prefix.is_none() && (!preserves || !nonbody.is_empty()) {
             facts.clear();
         }
         let mut child_types = HashMap::new();
-        let ordered = prefix.unwrap_or_default();
-        for child in &ordered {
-            self.pending_completion_owner = self.completion_owner(node, *child);
-            child_types.insert(*child, self.node(*child, scope, facts)?);
+        let plan = prefix.unwrap_or(EvaluationPlan {
+            steps: Vec::new(),
+            complete: false,
+        });
+        let ordered = plan.steps.iter().map(|step| step.child).collect::<Vec<_>>();
+        for step in &plan.steps {
+            self.pending_completion_owner = self.completion_owner(node, step.child);
+            let ty = self.node(step.child, scope, facts)?;
+            if let Some(classes) = &step.preserve_types
+                && !matches!(&ty, InferredType::Values { classes: actual, maybe_unset: false, .. }
+                    if !actual.is_empty() && actual.iter().all(|class| classes.contains(class)))
+            {
+                facts.clear();
+            }
+            child_types.insert(step.child, ty);
         }
         let unlisted = nonbody
             .iter()
@@ -1020,7 +1134,8 @@ impl Engine<'_> {
                 && (change.mode == "delete"
                     || value.is_some_and(|value| identity_delta(change, value)))
         });
-        if !transparent && !target_only && (!preserves || !unlisted.is_empty()) {
+        if !transparent && !target_only && ((!preserves && !plan.complete) || !unlisted.is_empty())
+        {
             facts.clear();
         }
         if node.kind == SyntaxKind::Effect {
@@ -1141,18 +1256,21 @@ impl Engine<'_> {
         for (id, start) in ordered {
             if opaque {
                 facts.clear();
+                self.evaluation_context = None;
             }
             while barriers
                 .get(barrier)
                 .is_some_and(|at| start.is_none_or(|start| *at < start))
             {
                 facts.clear();
+                self.evaluation_context = None;
                 barrier += 1;
             }
             self.node(id, scope, facts)?;
         }
         if opaque || barrier < barriers.len() {
             facts.clear();
+            self.evaluation_context = None;
         }
         Ok(())
     }
@@ -1512,6 +1630,14 @@ fn unique_metadata<'a>(node: &'a AstNode, key: &str) -> Option<&'a str> {
     let value = entries.next()?;
     entries.next().is_none().then_some(value.value.as_str())
 }
+fn metadata_owner<'a>(node: &'a AstNode, key: &str) -> Option<&'a str> {
+    let mut entries = node.metadata.iter().filter(|entry| entry.key == key);
+    let entry = entries.next()?;
+    if entries.next().is_some() {
+        return None;
+    }
+    entry.owner_component_id.as_deref()
+}
 fn preserves_locals(node: &AstNode) -> bool {
     unique_metadata(node, LOCAL_EFFECTS)
         .and_then(|json| serde_json::from_str::<Flow>(json).ok())
@@ -1527,31 +1653,90 @@ fn operand_prefix(
     node: &AstNode,
     body: &[u64],
     nodes: &HashMap<u64, &AstNode>,
-) -> Option<Vec<u64>> {
+    context: Option<&(String, String, String)>,
+) -> Option<EvaluationPlan> {
     let contract: Operands = serde_json::from_str(unique_metadata(node, OPERANDS)?).ok()?;
-    if contract.version != 1 {
-        return None;
-    }
-    let mut indices = HashSet::new();
-    let mut children = HashSet::new();
-    let mut result = Vec::new();
-    for index in contract.prefix {
-        if !indices.insert(index) {
-            return None;
-        }
-        let child = capture_node(node, index, nodes)?;
-        if body.contains(&child)
-            || !children.insert(child)
-            || node.children.iter().filter(|id| **id == child).count() != 1
+    if let Some(required) = &contract.required_context {
+        let (owner, key, value) = context?;
+        if metadata_owner(node, OPERANDS) != Some(owner.as_str())
+            || &required.key != key
+            || &required.value != value
         {
             return None;
         }
-        result.push(child);
     }
-    Some(result)
+    let mut result = Vec::new();
+    match contract.version {
+        1 if contract.steps.is_empty() && !contract.complete => {
+            let mut indices = HashSet::new();
+            let mut children = HashSet::new();
+            for index in contract.prefix {
+                if !indices.insert(index) {
+                    return None;
+                }
+                let child = capture_node(node, index, nodes)?;
+                if body.contains(&child)
+                    || !children.insert(child)
+                    || node.children.iter().filter(|id| **id == child).count() != 1
+                {
+                    return None;
+                }
+                result.push(EvaluationStep {
+                    child,
+                    preserve_types: None,
+                });
+            }
+            Some(EvaluationPlan {
+                steps: result,
+                complete: false,
+            })
+        }
+        2 if contract.prefix.is_empty() && body.is_empty() => {
+            let parent = exact_span(&node.span)?;
+            let mut previous_end = parent.start;
+            // Intrinsic children have no pattern captures. Their current native
+            // forest, exact projection and provider receipt bind these indices.
+            for (index, step) in contract.steps.into_iter().enumerate() {
+                if step.child_index != index {
+                    return None;
+                }
+                let child = *node.children.get(index)?;
+                if node.children.iter().filter(|id| **id == child).count() != 1 {
+                    return None;
+                }
+                let child_node = nodes.get(&child)?;
+                let range = exact_span(&child_node.span)?;
+                if child_node.syntax_context != node.syntax_context
+                    || range.start < previous_end
+                    || range.end > parent.end
+                    || range.start >= range.end
+                {
+                    return None;
+                }
+                previous_end = range.end;
+                result.push(EvaluationStep {
+                    child,
+                    preserve_types: Some(step.preserve_types),
+                });
+            }
+            if contract.complete && result.len() != node.children.len() {
+                return None;
+            }
+            Some(EvaluationPlan {
+                steps: result,
+                complete: contract.complete,
+            })
+        }
+        _ => None,
+    }
 }
 fn read_preserves_type_facts(read: &VariableRead, ty: &InferredType, catalog: &Catalog) -> bool {
-    let InferredType::Values { classes, .. } = ty else {
+    let InferredType::Values {
+        classes,
+        maybe_unset: false,
+        ..
+    } = ty
+    else {
         return false;
     };
     !classes.is_empty()

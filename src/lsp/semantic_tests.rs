@@ -254,6 +254,13 @@ fn number() -> InferredType {
         maybe_unset: false,
     }
 }
+fn string() -> InferredType {
+    InferredType::Values {
+        classes: BTreeSet::from(["java.lang.String".into()]),
+        multiple: false,
+        maybe_unset: false,
+    }
+}
 fn inferred(document: &Document, row: u32, column: u32) -> InferredType {
     document
         .type_at(Position::new(row, column))
@@ -1002,5 +1009,153 @@ fn header_relative_parameter_contract_survives_utf8_prefix_and_rejects_bad_range
                 Range::new(Position::new(1, 9), Position::new(1, 14))
             );
         }
+    }
+}
+
+#[test]
+fn intrinsic_evaluation_steps_preserve_only_proven_formatter_boundaries() {
+    for (safe_formatter, malformed) in [(true, false), (false, false), (true, true)] {
+        let mut fixture = Fixture::new(
+            "owner:\n    bind {_a} = text\n    bind {_b} = other\n    inspect \"%{_a}% %{_b}%\"",
+        );
+        let a = fixture.assign(
+            1,
+            "{_a}",
+            "a",
+            "text",
+            "java.lang.String",
+            true,
+            false,
+            "set",
+        );
+        let b = fixture.assign(
+            2,
+            "{_b}",
+            "b",
+            "other",
+            "java.lang.String",
+            true,
+            false,
+            "set",
+        );
+        let first = fixture.var(3, "{_a}", "a", true, false);
+        let second = fixture.var(3, "{_b}", "b", true, false);
+        let value = fixture.push(
+            SyntaxKind::Expression,
+            "literal",
+            fixture.part(3, "\"%{_a}% %{_b}%\""),
+        );
+        fixture.nodes[value as usize].children = vec![first, second];
+        fixture.nodes[value as usize].metadata.push(metadata(OPERANDS,json!({"version":2,"complete":true,"steps":[
+            {"childIndex":if malformed {1} else {0},"preserveTypes":if safe_formatter {vec!["java.lang.String"]} else {vec![]}},
+            {"childIndex":1,"preserveTypes":["java.lang.String"]}]})));
+        let inspect = fixture.push(SyntaxKind::Effect, "effect", fixture.line(3));
+        fixture.seal(inspect, &[(0, value)]);
+        fixture.nodes[inspect as usize]
+            .metadata
+            .push(metadata(OPERANDS, json!({"version":1,"prefix":[0]})));
+        let root = fixture.container(0, SyntaxKind::Structure, &[a, b, inspect], None);
+        let document = fixture.finish(&[root]);
+        let first_pos = document
+            .source
+            .lines()
+            .nth(3)
+            .unwrap()
+            .find("{_a}")
+            .unwrap()
+            + 2;
+        let second_pos = document
+            .source
+            .lines()
+            .nth(3)
+            .unwrap()
+            .find("{_b}")
+            .unwrap()
+            + 2;
+        assert_eq!(
+            inferred(&document, 3, first_pos as u32),
+            if malformed {
+                InferredType::Unknown
+            } else {
+                string()
+            }
+        );
+        assert_eq!(
+            inferred(&document, 3, second_pos as u32),
+            if safe_formatter && !malformed {
+                string()
+            } else {
+                InferredType::Unknown
+            }
+        );
+    }
+}
+#[test]
+fn scoped_return_entry_requires_current_owner_and_cannot_revive_after_opaque_statement() {
+    for (opaque, foreign, preserve) in [
+        (false, false, true),
+        (true, false, true),
+        (false, true, true),
+        (false, false, false),
+    ] {
+        let mut fixture = Fixture::new(if opaque {
+            "owner:\n    opaque\n    bind {_a} = text\n    inspect {_a}"
+        } else {
+            "owner:\n    # harmless\n    bind {_a} = text\n    inspect {_a}"
+        });
+        let mut body = Vec::new();
+        if opaque {
+            body.push(fixture.push(SyntaxKind::Effect, "effect", fixture.line(1)));
+        }
+        let assign = fixture.assign(
+            2,
+            "{_a}",
+            "a",
+            "text",
+            "java.lang.String",
+            true,
+            false,
+            "set",
+        );
+        let read = fixture.read(3, "{_a}", "a", true, false);
+        for id in 0..fixture.nodes.len() {
+            fixture.nodes[id].metadata.push(metadata(
+                EVALUATION_CONTEXT,
+                json!({"version":1,"kind":"preserve"}),
+            ));
+        }
+        if opaque {
+            fixture.nodes[body[0] as usize]
+                .metadata
+                .retain(|entry| entry.key != EVALUATION_CONTEXT);
+        }
+        if !preserve {
+            fixture.nodes[assign as usize]
+                .metadata
+                .retain(|entry| entry.key != EVALUATION_CONTEXT);
+        }
+        let operands = fixture.nodes[read as usize]
+            .metadata
+            .iter_mut()
+            .find(|entry| entry.key == OPERANDS)
+            .unwrap();
+        operands.value=json!({"version":1,"prefix":[0],"requiredContext":{"key":"test-handler","value":"value-first"}}).to_string();
+        if foreign {
+            operands.owner_component_id = Some("foreign".into());
+        }
+        body.extend([assign, read]);
+        let root = fixture.container(0, SyntaxKind::Structure, &body, None);
+        fixture.nodes[root as usize].metadata.push(metadata(
+            EVALUATION_CONTEXT,
+            json!({"version":1,"kind":"scope","key":"test-handler","value":"value-first"}),
+        ));
+        assert_eq!(
+            inferred(&fixture.finish(&[root]), 3, 15),
+            if !opaque && !foreign && preserve {
+                string()
+            } else {
+                InferredType::Unknown
+            }
+        );
     }
 }

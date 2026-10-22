@@ -660,7 +660,7 @@ fn parameter_declaration_does_not_override_reassignment_or_survive_a_new_declara
     let (_, description) = document.hover(read).unwrap();
     assert!(
         description.contains("Declared parameter type: string")
-            && description.contains("Inferred type: unknown")
+            && description.contains("Inferred type: long")
     );
     let changed = source.replace("value: text", "value: number");
     let (_, changed_view, _, _) = parse(&changed);
@@ -674,4 +674,57 @@ fn parameter_declaration_does_not_override_reassignment_or_survive_a_new_declara
         .1;
     assert!(description.contains("Declared parameter type: number"));
     assert!(!description.contains("Declared parameter type: string"));
+}
+
+#[test]
+fn current_parameter_values_follow_certified_return_and_formatter_boundaries() {
+    use crate::lsp::semantic::InferredType;
+    for (body, class, unset) in [
+        ("return {_value}", Some("java.lang.String"), true),
+        ("return \"%{_value}%\"", Some("java.lang.String"), true),
+        (
+            "set {_value} to 3\n    return \"%{_value}%\"",
+            Some("java.lang.Long"),
+            false,
+        ),
+        (
+            "set {_value} to \"safe\"\n    return \"%{_value}%\"",
+            Some("java.lang.String"),
+            false,
+        ),
+        (
+            "set {_value} to \"safe\"\n    set {_n} to 3\n    return \"%{_n}% %{_value}%\"",
+            Some("java.lang.String"),
+            false,
+        ),
+        (
+            "execute console command \"say example\"\n    set {_value} to \"safe\"\n    return {_value}",
+            None,
+            false,
+        ),
+        (
+            "set {_value} to \"safe\"\n    return \"%{_unknown}% %{_value}%\"",
+            None,
+            false,
+        ),
+    ] {
+        let source = format!("function current(value: text) :: text:\n    {body}\n");
+        let (_, view, result, _) = parse(&source);
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{source}: {:?}",
+            result.syntax.diagnostics
+        );
+        let at = LineIndex::new(&source)
+            .position(&source, source.rfind("{_value}").unwrap() + 2)
+            .unwrap();
+        let actual = view.semantic_types.as_ref().unwrap().type_at(at).unwrap().1;
+        match class {
+            Some(class) => assert!(
+                matches!(actual,InferredType::Values {classes,maybe_unset,..} if classes.len()==1 && classes.contains(class) && *maybe_unset==unset),
+                "{source}: {actual:?}"
+            ),
+            None => assert_eq!(*actual, InferredType::Unknown, "{source}"),
+        }
+    }
 }
