@@ -68,24 +68,36 @@ pub(crate) fn handler_matches(handler_id: &str, registration_id: &str) -> bool {
 
 /// Returns a snapshot of the profile most recently accepted by initialization.
 pub(crate) fn current() -> Option<RuntimeProfile> {
+    current_profile().clone()
+}
+
+fn current_profile() -> std::sync::RwLockReadGuard<'static, Option<RuntimeProfile>> {
     CURRENT_PROFILE
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
+}
+
+/// Exact initialized version spelling, without cloning the owned snapshot.
+pub(crate) fn skript_version_is(version: &str) -> bool {
+    let profile = current_profile();
+    profile
+        .as_ref()
+        .and_then(|profile| profile.skript_version.as_deref())
+        == Some(version)
 }
 
 /// Compares the active Skript release by its numeric major/minor components.
 pub(crate) fn skript_at_least(major: u64, minor: u64) -> Option<bool> {
-    let profile = current()?;
-    let version = profile.skript_version?;
-    let version = parse_skript_version(&version)?;
+    let profile = current_profile();
+    let version = profile.as_ref()?.skript_version.as_deref()?;
+    let version = parse_skript_version(version)?;
     (version <= LATEST_SUPPORTED_SKRIPT).then_some(version >= (major, minor))
 }
 
 pub(crate) fn skript_at_least_patch(major: u64, minor: u64, patch: u64) -> Option<bool> {
-    let profile = current()?;
-    let version = profile.skript_version?;
-    let version = parse_skript_patch_version(&version)?;
+    let profile = current_profile();
+    let version = profile.as_ref()?.skript_version.as_deref()?;
+    let version = parse_skript_patch_version(version)?;
     (version.0 < LATEST_SUPPORTED_SKRIPT.0
         || (version.0 == LATEST_SUPPORTED_SKRIPT.0 && version.1 <= LATEST_SUPPORTED_SKRIPT.1))
         .then_some(version >= (major, minor, patch))
@@ -119,7 +131,9 @@ pub(crate) fn supports_skript_version(version: &str) -> bool {
 }
 
 pub(crate) fn snapshot_schema_at_least(version: u32) -> Option<bool> {
-    current()?
+    let profile = current_profile();
+    profile
+        .as_ref()?
         .snapshot_schema_version
         .map(|schema| schema >= version)
 }

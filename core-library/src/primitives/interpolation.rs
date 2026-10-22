@@ -142,12 +142,7 @@ pub(crate) fn parse(payload: &ExpressionPayload, results: &[ParseResult]) -> Opt
                 }
             })
             .collect();
-        if container.kind == "string"
-            && crate::runtime::current()
-                .and_then(|p| p.skript_version)
-                .as_deref()
-                == Some("2.15.4")
-        {
+        if container.kind == "string" && crate::runtime::skript_version_is("2.15.4") {
             leaf.metadata
                 .push(crate::public_data::preserve_evaluation_context());
             leaf.metadata

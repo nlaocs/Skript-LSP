@@ -55,12 +55,7 @@ pub(super) fn parse(
     candidate.public_data.push(public_identity_data(body)?);
     // Static scalar Variable lookup precedes its player-refresh/conversion path.
     // Never publish a blanket preservation promise for this runtime getter.
-    if !is_list_variable_body(body)
-        && crate::runtime::current()
-            .and_then(|profile| profile.skript_version)
-            .as_deref()
-            == Some("2.15.4")
-    {
+    if !is_list_variable_body(body) && crate::runtime::skript_version_is("2.15.4") {
         let mut requested = payload
             .expected_types
             .iter()

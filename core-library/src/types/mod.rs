@@ -203,10 +203,7 @@ pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLe
     // interpolated VariableString and arbitrary registered literal parsers stay unknown.
     if active.addon_name == "Skript"
         && active.addon_version == "2.15.4"
-        && crate::runtime::current()
-            .and_then(|profile| profile.skript_version)
-            .as_deref()
-            == Some("2.15.4")
+        && crate::runtime::skript_version_is("2.15.4")
         && candidate.kind == crate::nlaocs::skript_parser_addon::types::ExpressionLeafKind::Literal
         && candidate.children.is_empty()
         && matches!(

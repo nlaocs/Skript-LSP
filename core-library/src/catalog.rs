@@ -872,10 +872,7 @@ pub(crate) fn identity_delta_classes() -> Vec<String> {
     classes
 }
 fn pinned_runtime() -> bool {
-    crate::runtime::current()
-        .and_then(|profile| profile.skript_version)
-        .as_deref()
-        == Some("2.15.4")
+    crate::runtime::skript_version_is("2.15.4")
 }
 fn standard_immutable_type(class: &str) -> bool {
     let Ok(Some(option)) = type_for_class(class) else {

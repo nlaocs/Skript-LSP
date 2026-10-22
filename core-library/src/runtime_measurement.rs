@@ -68,6 +68,19 @@ fn profile() -> RuntimeProfile {
     }
 }
 
+// Keep the previous owned-read algorithm as an independent semantic oracle.
+fn copied_version(major: u64, minor: u64) -> Option<bool> {
+    let version = current()?.skript_version?;
+    let version = parse_skript_version(&version)?;
+    (version <= LATEST_SUPPORTED_SKRIPT).then_some(version >= (major, minor))
+}
+fn copied_patch(major: u64, minor: u64, patch: u64) -> Option<bool> {
+    let version = current()?.skript_version?;
+    let version = parse_skript_patch_version(&version)?;
+    (version.0 < LATEST_SUPPORTED_SKRIPT.0
+        || (version.0 == LATEST_SUPPORTED_SKRIPT.0 && version.1 <= LATEST_SUPPORTED_SKRIPT.1))
+        .then_some(version >= (major, minor, patch))
+}
 fn borrowed_version(major: u64, minor: u64) -> Option<bool> {
     let guard = CURRENT_PROFILE
         .read()
@@ -145,9 +158,21 @@ fn measure_profile_reads_and_cached_list_projection() {
                     skript_at_least(major, minor),
                     borrowed_version(major, minor)
                 );
+                assert_eq!(skript_at_least(major, minor), copied_version(major, minor));
+                for patch in [0, 4, 5] {
+                    assert_eq!(
+                        skript_at_least_patch(major, minor, patch),
+                        copied_patch(major, minor, patch)
+                    );
+                }
             }
             assert_eq!(snapshot_schema_at_least(4), borrowed_schema(4));
+            assert_eq!(
+                snapshot_schema_at_least(4),
+                current().and_then(|profile| profile.snapshot_schema_version.map(|s| s >= 4))
+            );
             assert_eq!(copied_pinned(), borrowed_pinned());
+            assert_eq!(skript_version_is("2.15.4"), copied_pinned());
         }
     }
     *CURRENT_PROFILE
@@ -157,6 +182,8 @@ fn measure_profile_reads_and_cached_list_projection() {
     assert_eq!(borrowed_version(2, 6), None);
     assert_eq!(snapshot_schema_at_least(4), None);
     assert_eq!(borrowed_schema(4), None);
+    assert!(!skript_version_is("2.15.4"));
+    assert_eq!(skript_at_least_patch(2, 6, 4), None);
     let mut rows = Vec::new();
     for plugin_count in [2, 32] {
         let mut p = profile();
