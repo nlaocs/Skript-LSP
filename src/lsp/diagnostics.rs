@@ -725,6 +725,292 @@ mod tests {
     }
 
     #[test]
+    fn real_type_diagnostics_distinguish_returns_parameters_unknown_and_incomplete_input() {
+        let catalog = std::sync::Arc::new(
+            ssg::load(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
+            )
+            .unwrap()
+            .into_catalog(),
+        );
+        let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+            syntax_catalog: Some(std::sync::Arc::clone(&catalog)),
+            runtime_profile: parser_wasm::RuntimeProfile {
+                skript_version: Some("2.15.4".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .unwrap();
+        let header = "function label() :: text:\r\n    return \"hello\"\r\nfunction numeric() :: number:\r\n    return 1\r\nfunction needs_number(amount: number) :: text:\r\n    return \"hello\"\r\non join:\r\n    ";
+        let cases = [
+            ("teleport player to location of player", None),
+            (
+                "teleport player to player's name",
+                Some((
+                    "player's name",
+                    "org.bukkit.Location",
+                    "net.kyori.adventure.text.Component",
+                )),
+            ),
+            (
+                "teleport player to \"here\"",
+                Some(("\"here\"", "org.bukkit.Location", "java.lang.String")),
+            ),
+            (
+                "teleport player to label()",
+                Some(("label()", "org.bukkit.Location", "java.lang.String")),
+            ),
+            (
+                "teleport player to (label())",
+                Some(("label()", "org.bukkit.Location", "java.lang.String")),
+            ),
+            (
+                "teleport label() to location of player",
+                Some(("label()", "org.bukkit.entity.Entity", "java.lang.String")),
+            ),
+            (
+                "set {_target} to \"here\"\r\n    teleport player to {_target}",
+                Some(("{_target}", "org.bukkit.Location", "java.lang.String")),
+            ),
+            (
+                "send needs_number(player)",
+                Some(("player", "java.lang.Number", "org.bukkit.entity.Player")),
+            ),
+            (
+                "send \"\u{1f98a}\" to numeric()",
+                Some((
+                    "numeric()",
+                    "net.kyori.adventure.audience.Audience",
+                    "java.lang.Number",
+                )),
+            ),
+            (
+                "teleport player to \"value %player%\"",
+                Some((
+                    "\"value %player%\"",
+                    "org.bukkit.Location",
+                    "java.lang.String",
+                )),
+            ),
+            (
+                "teleport player to \"value %not_a_valid_expression%\"",
+                None,
+            ),
+            ("send \"message\" to label()", None),
+            ("teleport player to {_unknown}", None),
+            ("teleport player to", None),
+            ("teleport player to label(", None),
+        ];
+        let uri = "file:///project/typed-diagnostics.sk".parse().unwrap();
+        for (index, (body, expected)) in cases.into_iter().enumerate() {
+            let source: std::sync::Arc<str> = format!("{header}{body}\r\n").into();
+            let result = host
+                .parse_document(
+                    parser_wasm::DocumentParseRequest::new(
+                        "file:///project",
+                        "real-typed-diagnostics",
+                        index as u64 + 1,
+                        std::sync::Arc::clone(&source),
+                    ),
+                    Default::default(),
+                )
+                .unwrap();
+            assert_eq!(
+                result.execution_status,
+                parser_wasm::DocumentExecutionStatus::Complete,
+                "{body}"
+            );
+            assert!(
+                result.component_failures.is_empty(),
+                "{body}: {:?}",
+                result.component_failures
+            );
+            assert!(
+                result.fault_regions.is_empty(),
+                "{body}: {:?}",
+                result.fault_regions
+            );
+            let mut diagnostics = from_result(&uri, &result).unwrap();
+            let semantic = super::super::semantic::Document::from_result(
+                &result,
+                std::sync::Arc::clone(&source),
+                uri.clone(),
+                std::sync::Arc::clone(&catalog),
+            )
+            .unwrap();
+            diagnostics.extend(semantic.diagnostics(&result).unwrap());
+            let typed=diagnostics.iter().filter(|diagnostic|matches!(&diagnostic.code,
+                Some(NumberOrString::String(code)) if code=="parser.type-mismatch" || code=="semantic.variable-type-mismatch")).collect::<Vec<_>>();
+            if let Some((bad, expected, actual)) = expected {
+                assert_eq!(typed.len(), 1, "{body}: {diagnostics:#?}");
+                let diagnostic = typed[0];
+                let start = header.len() + body.rfind(bad).unwrap();
+                assert_eq!(
+                    diagnostic.range,
+                    LineIndex::new(&source)
+                        .range(&source, TextRange::new(start, start + bad.len()))
+                        .unwrap(),
+                    "{body}"
+                );
+                let data = diagnostic.data.as_ref().unwrap();
+                assert_eq!(
+                    data["expectedTypes"],
+                    json!([expected]),
+                    "{body}: {diagnostics:#?}"
+                );
+                assert_eq!(
+                    data["actualTypes"],
+                    json!([actual]),
+                    "{body}: {diagnostics:#?}"
+                );
+            } else {
+                assert!(typed.is_empty(), "{body}: {diagnostics:#?}");
+                if !body.contains("not_a_valid_expression")
+                    && !body.ends_with(" to")
+                    && !body.ends_with("label(")
+                {
+                    assert!(diagnostics.is_empty(), "{body}: {diagnostics:#?}");
+                }
+            }
+        }
+        // A rejected intrinsic must not widen a restricted parse mode, replace
+        // a compatible union, or retain nested parse receipts/context effects.
+        use skript_parser::{
+            ExpressionExpectedType, ExpressionParseRequest, ExpressionParserConfig,
+            ExpressionRootMode as Mode, MappedSource,
+        };
+        let document = "file:///project/diagnostic-mode.sk";
+        let transaction = host.begin_parse("file:///project", document, 900).unwrap();
+        let modes = [
+            (
+                "\"here\"",
+                vec!["org.bukkit.Location"],
+                Mode::All,
+                true,
+                false,
+            ),
+            (
+                "\"here\"",
+                vec!["org.bukkit.Location"],
+                Mode::ExpressionsOnly,
+                false,
+                false,
+            ),
+            (
+                "\"here\"",
+                vec!["org.bukkit.Location"],
+                Mode::LiteralsOnly,
+                false,
+                false,
+            ),
+            ("\"here\"", vec!["java.lang.Object"], Mode::All, false, true),
+            (
+                "\"here\"",
+                vec!["org.bukkit.Location", "java.lang.String"],
+                Mode::All,
+                false,
+                true,
+            ),
+            (
+                "\"here\"",
+                vec!["fixture.UnknownType"],
+                Mode::All,
+                false,
+                false,
+            ),
+            (
+                "\"value %player%\"",
+                vec!["org.bukkit.Location"],
+                Mode::All,
+                true,
+                false,
+            ),
+            (
+                "\"value %not_a_valid_expression%\"",
+                vec!["org.bukkit.Location"],
+                Mode::All,
+                false,
+                false,
+            ),
+        ];
+        for (index, (text, expected, mode, mismatch, accepted)) in modes.into_iter().enumerate() {
+            let root_expected = expected
+                .iter()
+                .map(|class| (*class).to_owned())
+                .collect::<Vec<_>>();
+            let source = MappedSource::identity(text);
+            let result = host
+                .parse_expression_in_parse(
+                    &transaction,
+                    parser_wasm::host::InvocationContext {
+                        invocation_id: index as u64 + 1,
+                        subscription_id: String::new(),
+                        document_id: document.into(),
+                        document_revision: 900,
+                        expansion: None,
+                        syntax_context: 0,
+                    },
+                    ExpressionParseRequest {
+                        source: &source,
+                        range: TextRange::new(0, text.len()),
+                        expected_types: expected
+                            .into_iter()
+                            .map(|class| ExpressionExpectedType {
+                                class_name: syntaxes::ClassName(class.into()),
+                                plural: false,
+                            })
+                            .collect(),
+                        context: skript_parser::ExpressionParseContext {
+                            event_classes: vec![syntaxes::ClassName(
+                                "org.bukkit.event.player.PlayerJoinEvent".into(),
+                            )],
+                            ..Default::default()
+                        },
+                    },
+                    ExpressionParserConfig {
+                        root_mode: mode,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(result.failures.is_empty(), "{text}: {:?}", result.failures);
+            assert_eq!(
+                result.matches.selected.is_some(),
+                accepted,
+                "{text} {mode:?}: {result:#?}"
+            );
+            let found = result
+                .matches
+                .failure
+                .as_ref()
+                .and_then(|failure| failure.trace.as_ref())
+                .is_some_and(|trace| {
+                    let mut current=trace;
+                    loop {
+                        if current.frame.as_ref().is_some_and(|frame|frame.role!=skript_parser::FailureFrameRole::SemanticCandidate){return false;}
+                        let Some(cause)=current.cause.as_deref()else{break;};current=cause;
+                    }
+                    trace.root_cause().failure.reasons.iter().any(|reason| {
+                        matches!(
+                            reason,
+                            skript_parser::PatternFailureReason::TypeMismatch {expected,actual}
+                                if expected==&root_expected && actual==&vec!["java.lang.String".to_owned()]
+                        )
+                    })
+                });
+            assert_eq!(found, mismatch, "{text} {mode:?}: {result:#?}");
+            if !accepted {
+                assert!(result.effects.parse_results.is_empty(), "{text}");
+                assert!(result.effects.parse_requests.is_empty(), "{text}");
+                assert!(result.effects.context_updates.is_empty(), "{text}");
+            }
+        }
+        transaction.cancel().unwrap();
+    }
+
+    #[test]
     fn a_specific_child_error_replaces_its_summary_at_equal_or_different_positions() {
         let source = "on load:\n    broken statement\n";
         let uri = "file:///project/example.sk".parse().unwrap();
