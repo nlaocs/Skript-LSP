@@ -711,3 +711,158 @@ fn display_does_not_choose_nested_optional_or_choice_words() {
     });
     assert!(connective(&ambiguous, slot, "<event player>").is_none());
 }
+
+fn parameters(source: &str) -> Vec<(Position, String)> {
+    let result = parse(source);
+    assert!(
+        result.component_failures.is_empty(),
+        "{:?}",
+        result.component_failures
+    );
+    let document = Document::from_result(&result, Arc::from(source), catalog()).unwrap();
+    all(&document)
+        .iter()
+        .filter(|hint| hint.kind == Some(lsp_types::InlayHintKind::PARAMETER))
+        .map(|hint| {
+            assert!(hint.text_edits.is_none());
+            assert_eq!(hint.padding_right, Some(true));
+            (hint.position, label(hint).to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn explicit_function_arguments_use_selected_names_and_coexist_with_defaults() {
+    let source = "function announce(message: text, times: number = 1):\n    send {_message} to console\non join:\n    announce(\"hi\", 2)\n    announce(\"bye\")\n    announce(times: 3, message: \"named\")\n    send 1\n";
+    let hints = parameters(source);
+    assert_eq!(
+        hints,
+        vec![
+            (Position::new(3, 13), "message:".into()),
+            (Position::new(3, 19), "times:".into()),
+            (Position::new(4, 13), "message:".into()),
+        ]
+    );
+    let result = parse(source);
+    let document = Document::from_result(&result, Arc::from(source), catalog()).unwrap();
+    assert!(
+        all(&document)
+            .iter()
+            .any(|hint| hint.kind.is_none() && label(hint).contains("event")),
+        "the pre-existing omission hints still appear"
+    );
+    assert!(
+        document
+            .at(Range::new(Position::new(3, 19), Position::new(3, 19)))
+            .iter()
+            .any(|hint| label(hint) == "times:")
+    );
+}
+
+#[test]
+fn catalog_nested_plural_and_utf16_argument_positions_are_preserved() {
+    let source = "function collect(values: numbers):\n    send {_values::*} to console\non join:\n    collect(1, 2, 3)\n    send max(1, 2)\n    send substring(\"\u{1f600}\", 1, 2)\nfunction substring(value: text, start: number, end: number) :: text:\n    return {_value}\n";
+    let hints = parameters(source);
+    assert!(
+        hints
+            .iter()
+            .filter(|(position, _)| position.line == 3)
+            .cloned()
+            .collect::<Vec<_>>()
+            == vec![
+                (Position::new(3, 12), "values:".into()),
+                (Position::new(3, 15), "values:".into()),
+                (Position::new(3, 18), "values:".into())
+            ],
+        "{hints:?}"
+    );
+    assert!(
+        hints.iter().any(|(position, _)| position.line == 4),
+        "{hints:?}"
+    );
+    // The supplementary character before the numeric argument uses two UTF-16 units.
+    assert!(
+        hints
+            .iter()
+            .any(|(position, _)| *position == Position::new(5, 25)),
+        "{hints:?}"
+    );
+}
+
+#[test]
+fn calls_inside_nested_arguments_keep_both_parameter_bindings() {
+    let source = "function identity(value: number) :: number:\n    return {_value}\non join:\n    send identity(identity(2))\n";
+    assert_eq!(
+        parameters(source),
+        vec![
+            (Position::new(3, 18), "value:".into()),
+            (Position::new(3, 27), "value:".into()),
+        ]
+    );
+}
+
+#[test]
+fn incomplete_unknown_and_ambiguous_calls_do_not_gain_guessed_names() {
+    for call in [
+        "missing(1)",
+        "identity(",
+        "identity(2",
+        "identity(2,",
+        "identity(\"no number\")",
+    ] {
+        let source = format!(
+            "function identity(value: number) :: number:\n    return {{_value}}\non join:\n    send {call}\n"
+        );
+        assert!(parameters(&source).is_empty(), "{source}");
+    }
+    let source = "function identity(first: number) :: number:\n    return {_first}\nfunction identity(second: integer) :: number:\n    return {_second}\non join:\n    send identity(2)\n";
+    let result = parse(source);
+    assert!(
+        !result.ast.nodes.iter().any(|node| node
+            .function
+            .as_ref()
+            .is_some_and(|call| call.name == "identity")),
+        "an ambiguous call must not be selected"
+    );
+    assert!(parameters(source).is_empty());
+}
+
+#[test]
+fn selected_overload_and_local_shadow_supply_their_own_names() {
+    let overloads = "function choose(numeric: number) :: number:\n    return {_numeric}\nfunction choose(words: text) :: text:\n    return {_words}\non join:\n    send choose(\"hello\")\n";
+    assert_eq!(
+        parameters(overloads),
+        vec![(Position::new(5, 16), "words:".into())]
+    );
+    let shadow = "function identity(global_value: number) :: number:\n    return {_global_value}\nlocal function identity(local_value: number) :: number:\n    return {_local_value}\non join:\n    send identity(2)\n";
+    assert_eq!(
+        parameters(shadow),
+        vec![(Position::new(5, 18), "local_value:".into())]
+    );
+}
+
+#[test]
+fn changed_or_detached_call_metadata_cannot_borrow_the_native_witness() {
+    let source = "on join:\n    send max(1, 2)\n";
+    assert!(!parameters(source).is_empty());
+    for change in 0..3 {
+        let mut result = parse(source);
+        let call = result
+            .ast
+            .nodes
+            .iter_mut()
+            .find(|node| node.function.is_some())
+            .unwrap();
+        match change {
+            0 => call.function.as_mut().unwrap().arguments[0].parameter_name = "forged".into(),
+            1 => call.children.clear(),
+            _ => call.span.origins[0].original_range.start += 1,
+        }
+        let document = Document::from_result(&result, Arc::from(source), catalog()).unwrap();
+        assert!(
+            all(&document)
+                .iter()
+                .all(|hint| hint.kind != Some(lsp_types::InlayHintKind::PARAMETER))
+        );
+    }
+}

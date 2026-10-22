@@ -1,4 +1,5 @@
-//! Read-only hints for initialized defaults with native omission evidence.
+//! Read-only hints from adopted argument bindings and initialized defaults.
+mod function;
 use super::positions::LineIndex;
 use lsp_types::{InlayHint, InlayHintLabel, InlayHintTooltip, MarkupContent, MarkupKind, Range};
 use parser_wasm::{
@@ -84,6 +85,9 @@ impl Document {
         let mut seen = HashSet::new();
         for id in reachable {
             let node = nodes[&id];
+            hints.extend(function::hints(
+                node, &nodes, &witnesses, &source, &lines, &blocked,
+            ));
             let Some(summary) = &node.summary else {
                 continue;
             };
