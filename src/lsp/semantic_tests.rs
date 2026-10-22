@@ -1500,3 +1500,287 @@ fn document_symbols_reject_generated_source_and_ast_parentage_without_raw_ancest
         .is_empty()
     );
 }
+
+#[test]
+#[ignore = "explicit semantic projection microbenchmark; no latency assertion"]
+fn measure_semantic_projection_from_a_fixed_native_result() {
+    fn observation(document: &Document) -> String {
+        let mut declared = document.declared_parameters.iter().collect::<Vec<_>>();
+        declared.sort_by_key(|(key, _)| *key);
+        let mut unknown_scopes = document.unknown_variable_scopes.iter().collect::<Vec<_>>();
+        unknown_scopes.sort_unstable();
+        let value = json!({
+            "occurrences": format!("{:?}", document.occurrences),
+            "writes": format!("{:?}", document.writes),
+            "functions": document.functions.iter().map(|symbol| format!("{:?}", (
+                &symbol.definition.name, &symbol.definition.registration_id,
+                &symbol.definition.parameters, &symbol.definition.return_type,
+                symbol.definition.return_type_is_single, symbol.range,
+                symbol.name_range, symbol.local))).collect::<Vec<_>>(),
+            "calls": format!("{:?}", document.calls),
+            "dependencies": format!("{:?}", document.dependencies),
+            "declared": format!("{declared:?}"),
+            "unknownScopes": unknown_scopes,
+            "completionPoints": document.completion_points.iter().map(|point| json!({
+                "range": [point.range.start, point.range.end],
+                "ownerRange": [point.owner.range.start, point.owner.range.end],
+                "owner": point.owner.identity, "parameter": point.owner.parameter,
+                "requested": point.requested_types, "types": format!("{:?}", point.types)
+            })).collect::<Vec<_>>(),
+            "completionBindings": document.completion_type_bindings,
+            "symbols": document.symbols,
+            "renameComplete": document.rename_complete
+        });
+        format!("{:x}", Sha256::digest(serde_json::to_vec(&value).unwrap()))
+    }
+    let setup = std::time::Instant::now();
+    let catalog = crate::lsp::test_support::runtime_catalog();
+    let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+        syntax_catalog: Some(Arc::clone(&catalog)),
+        runtime_profile: parser_wasm::RuntimeProfile {
+            skript_version: Some("2.15.4".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .unwrap();
+    let mut source = String::from(
+        "# \u{65e5}\u{672c}\u{8a9e}\u{1f98a}\nfunction echo(value: text) :: text:\n    set {_copy} to {_value}\n    return {_copy}\nfunction wrapper(value: text) :: text:\n    return echo({_value})\n",
+    );
+    for i in 0..40 {
+        source.push_str(&format!("on load:\n    set {{_value}} to \"text{i}\"\n    if {{_value}} is set:\n        send echo({{_value}}) to console\n"));
+    }
+    let source: Arc<str> = Arc::from(source);
+    let uri: Uri = "file:///projection-benchmark/public.sk".parse().unwrap();
+    let host_setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
+    let parse_started = std::time::Instant::now();
+    let mut result = host
+        .parse_document(
+            parser_wasm::DocumentParseRequest::new(
+                "file:///projection-benchmark",
+                uri.as_str(),
+                1,
+                source.as_ref(),
+            ),
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        result.execution_status,
+        parser_wasm::DocumentExecutionStatus::Complete
+    );
+    assert!(result.component_failures.is_empty());
+    assert!(
+        result.syntax.diagnostics.is_empty(),
+        "{:?}",
+        result.syntax.diagnostics
+    );
+    result.ast = result.editor_ast();
+    let parse_ms = parse_started.elapsed().as_secs_f64() * 1000.0;
+    let witnesses = result.semantic_witnesses();
+    let owned_semantic_entries = result
+        .ast
+        .nodes
+        .iter()
+        .map(|node| {
+            node.metadata
+                .iter()
+                .filter(|entry| {
+                    matches!(
+                        entry.key.as_str(),
+                        CHANGE
+                            | FLOW
+                            | PARAMETERS
+                            | LOCAL_EFFECTS
+                            | OPERANDS
+                            | VALUE_RESULT
+                            | VARIABLE_READ
+                            | EVALUATION_CONTEXT
+                    ) && entry
+                        .owner_component_id
+                        .as_deref()
+                        .is_some_and(|issuer| witnesses.provider_valid(node, issuer))
+                })
+                .count()
+        })
+        .sum::<usize>();
+    assert!(owned_semantic_entries > 0);
+    // Compare the exact changed boundary with the previous algorithm outside
+    // the timer, using witnesses for original nodes, never their clones.
+    for original in &result.ast.nodes {
+        let mut old = original.clone();
+        let allowed = old
+            .metadata
+            .iter()
+            .filter(|entry| {
+                matches!(
+                    entry.key.as_str(),
+                    CHANGE
+                        | FLOW
+                        | PARAMETERS
+                        | LOCAL_EFFECTS
+                        | OPERANDS
+                        | VALUE_RESULT
+                        | VARIABLE_READ
+                        | EVALUATION_CONTEXT
+                ) && entry
+                    .owner_component_id
+                    .as_deref()
+                    .is_some_and(|issuer| witnesses.provider_valid(original, issuer))
+            })
+            .map(|entry| {
+                (
+                    entry.key.clone(),
+                    entry.value.clone(),
+                    entry.owner_component_id.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        old.metadata.retain(|entry| {
+            !matches!(
+                entry.key.as_str(),
+                CHANGE
+                    | FLOW
+                    | PARAMETERS
+                    | LOCAL_EFFECTS
+                    | OPERANDS
+                    | VALUE_RESULT
+                    | VARIABLE_READ
+                    | EVALUATION_CONTEXT
+            ) || allowed.contains(&(
+                entry.key.clone(),
+                entry.value.clone(),
+                entry.owner_component_id.clone(),
+            ))
+        });
+        let mut new = original.clone();
+        retain_semantic_contracts(&mut new, witnesses.unique_issuer(original));
+        assert_eq!(format!("{:?}", new.metadata), format!("{:?}", old.metadata));
+    }
+    let first_started = std::time::Instant::now();
+    let reference = Document::from_result(
+        &result,
+        Arc::clone(&source),
+        uri.clone(),
+        Arc::clone(&catalog),
+    )
+    .unwrap();
+    let first_projection_ms = first_started.elapsed().as_secs_f64() * 1000.0;
+    assert!(!reference.occurrences.is_empty());
+    assert!(!reference.completion_points.is_empty());
+    assert!(!reference.calls.is_empty());
+    // Keep the original fingerprint comparable with the before measurement.
+    // The extended fingerprint also covers function bodies and projection guards.
+    let extended_observation = |document: &Document| {
+        let value = format!(
+            "{:?}",
+            (
+                &document.functions,
+                &document.unavailable,
+                &document.native_owner,
+                document.function_policy,
+                document.project_complete,
+                &document.source_witness,
+                &document.uri,
+            )
+        );
+        format!("{:x}", Sha256::digest(value.as_bytes()))
+    };
+    let extended_expected = extended_observation(&reference);
+    let expected = observation(&reference);
+    let mut samples = Vec::new();
+    for _ in 0..30 {
+        let start = std::time::Instant::now();
+        let document = Document::from_result(
+            &result,
+            Arc::clone(&source),
+            uri.clone(),
+            Arc::clone(&catalog),
+        )
+        .unwrap();
+        samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        assert_eq!(observation(&document), expected);
+        assert_eq!(extended_observation(&document), extended_expected);
+        std::hint::black_box(document);
+    }
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "projection_benchmark {}",
+        json!({
+            "sourceSha256": format!("{:x}", Sha256::digest(source.as_bytes())),
+            "sourceBytes": source.len(), "astNodes": result.ast.nodes.len(),
+            "hostSetupMs": host_setup_ms, "parseMs": parse_ms, "firstProjectionMs": first_projection_ms, "iterations": samples.len(),
+            "ownedSemanticEntries": owned_semantic_entries,
+            "projectionMedianMs": samples[15], "projectionP95Ms": samples[28],
+            "observationSha256": expected,
+            "extendedObservationSha256": extended_expected,
+            "occurrences": reference.occurrences.len(), "calls": reference.calls.len(),
+            "completionPoints": reference.completion_points.len()
+        })
+    );
+}
+
+#[test]
+fn semantic_contract_filter_keeps_owned_duplicates_and_foreign_nonsemantic_entries() {
+    for (issuer, kept) in [
+        (Some("provider"), vec![0, 1, 2, 3, 6]),
+        (Some("foreign"), vec![0, 4, 6]),
+        (None, vec![0, 6]),
+    ] {
+        let entry = |key: &str, value: &str, owner: Option<&str>| MetadataEntry {
+            key: key.into(),
+            value: value.into(),
+            owner_component_id: owner.map(str::to_owned),
+        };
+        let entries = vec![
+            entry("ordinary", "no owner", None),
+            entry(CHANGE, "same", Some("provider")),
+            entry(CHANGE, "same", Some("provider")),
+            entry(CHANGE, "conflict", Some("provider")),
+            entry(FLOW, "branch", Some("foreign")),
+            entry(PARAMETERS, "unowned", None),
+            entry("skript.semantic.extension", "opaque", Some("foreign")),
+        ];
+        let value = |entry: &MetadataEntry| {
+            (
+                entry.key.clone(),
+                entry.value.clone(),
+                entry.owner_component_id.clone(),
+            )
+        };
+        let expected = kept
+            .into_iter()
+            .map(|index| value(&entries[index]))
+            .collect::<Vec<_>>();
+        let mut ast = node("", 0, SyntaxKind::Effect, "effect", TextRange::new(0, 0));
+        ast.metadata = entries;
+        retain_semantic_contracts(&mut ast, issuer);
+        assert_eq!(ast.metadata.iter().map(value).collect::<Vec<_>>(), expected);
+        if issuer == Some("provider") {
+            assert!(
+                unique_metadata(&ast, CHANGE).is_none(),
+                "duplicates stay ambiguous"
+            );
+        }
+        for key in [
+            CHANGE,
+            FLOW,
+            PARAMETERS,
+            LOCAL_EFFECTS,
+            OPERANDS,
+            VALUE_RESULT,
+            VARIABLE_READ,
+            EVALUATION_CONTEXT,
+        ] {
+            ast.metadata = vec![
+                entry(key, "contract", Some("provider")),
+                entry(key, "unowned", None),
+            ];
+            retain_semantic_contracts(&mut ast, Some("provider"));
+            assert_eq!(ast.metadata.len(), 1, "{key}");
+            assert_eq!(ast.metadata[0].value, "contract");
+            retain_semantic_contracts(&mut ast, None);
+            assert!(ast.metadata.is_empty(), "{key}");
+        }
+    }
+}

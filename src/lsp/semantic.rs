@@ -332,57 +332,9 @@ impl Document {
             .collect::<HashMap<_, _>>();
         for node in &mut ast.nodes {
             let original = originals[&node.id];
-            let provider = witnesses
-                .unique_issuer(original)
-                .filter(|issuer| witnesses.provider_valid(original, issuer));
+            let provider = witnesses.unique_issuer(original);
             let trusted = witnesses.native_valid(original) || provider.is_some();
-            let allowed = node
-                .metadata
-                .iter()
-                .filter(|entry| {
-                    matches!(
-                        entry.key.as_str(),
-                        CHANGE
-                            | FLOW
-                            | PARAMETERS
-                            | LOCAL_EFFECTS
-                            | OPERANDS
-                            | VALUE_RESULT
-                            | VARIABLE_READ
-                            | EVALUATION_CONTEXT
-                    )
-                })
-                .filter(|entry| {
-                    entry
-                        .owner_component_id
-                        .as_deref()
-                        .is_some_and(|issuer| witnesses.provider_valid(original, issuer))
-                })
-                .map(|entry| {
-                    (
-                        entry.key.clone(),
-                        entry.value.clone(),
-                        entry.owner_component_id.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            node.metadata.retain(|entry| {
-                !matches!(
-                    entry.key.as_str(),
-                    CHANGE
-                        | FLOW
-                        | PARAMETERS
-                        | LOCAL_EFFECTS
-                        | OPERANDS
-                        | VALUE_RESULT
-                        | VARIABLE_READ
-                        | EVALUATION_CONTEXT
-                ) || allowed.contains(&(
-                    entry.key.clone(),
-                    entry.value.clone(),
-                    entry.owner_component_id.clone(),
-                ))
-            });
+            retain_semantic_contracts(node, provider);
             if !trusted {
                 node.summary = None;
                 node.function = None;
@@ -1648,6 +1600,23 @@ fn join_facts(left: &Facts, right: &Facts) -> Facts {
             ))
         })
         .collect()
+}
+// The issuer comes from the original node's accepted provider witness. Preserve
+// duplicate contracts for the existing unique-metadata checks; do not deduplicate.
+fn retain_semantic_contracts(node: &mut AstNode, issuer: Option<&str>) {
+    node.metadata.retain(|entry| {
+        !matches!(
+            entry.key.as_str(),
+            CHANGE
+                | FLOW
+                | PARAMETERS
+                | LOCAL_EFFECTS
+                | OPERANDS
+                | VALUE_RESULT
+                | VARIABLE_READ
+                | EVALUATION_CONTEXT
+        ) || issuer.is_some_and(|issuer| entry.owner_component_id.as_deref() == Some(issuer))
+    });
 }
 fn unique_metadata<'a>(node: &'a AstNode, key: &str) -> Option<&'a str> {
     let mut entries = node.metadata.iter().filter(|entry| entry.key == key);
