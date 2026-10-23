@@ -313,6 +313,27 @@ pub(super) fn accepted_slots(
     slots
 }
 impl Document {
+    /// Positive literal guidance may use an unchanged native line after an
+    /// unrelated macro edit. This does not certify hard filtering or binding
+    /// substitution: those retain the stronger whole-source proof below.
+    fn literal_guidance_context_is_exact(&self, line: &Line, edit: TextRange) -> bool {
+        if edit.start < line.code_start
+            || edit.end > line.range.end
+            || !edit.is_valid_for(self.source.as_ref())
+            || self.blocked.iter().any(|range| overlaps(*range, line.range))
+        {
+            return false;
+        }
+        self.type_context_exact
+            || line.exact_source
+                && line.node.is_some()
+                && line.parent.is_some()
+                && line.ancestors.first().copied() == line.parent
+                && !line.root
+                && !line.blocked
+                && matches!(line.scope, Scope::Statements | Scope::Conditions | Scope::Expressions)
+    }
+
     pub(super) fn expected_at(
         &self,
         line: &Line,
@@ -354,7 +375,8 @@ impl Document {
         }
         let index = self.index.typing.as_ref()?;
         if budget.exhausted() || !index.current() || !index.closed
-            || !index.complete_patterns || !self.type_context_exact || line.root
+            || !index.complete_patterns
+            || !self.literal_guidance_context_is_exact(line, edit) || line.root
         {
             return None;
         }
@@ -425,7 +447,12 @@ impl Document {
         budget: &mut continuation::Budget,
     ) -> Option<Vec<ExpressionExpectedType>> {
         let index = self.index.typing.as_ref()?;
-        if !index.current() || !index.closed || !self.type_context_exact || line.root {
+        let exact_context = if literals {
+            self.literal_guidance_context_is_exact(line, edit)
+        } else {
+            self.type_context_exact
+        };
+        if !index.current() || !index.closed || !exact_context || line.root {
             return None;
         }
         let end = line

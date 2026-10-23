@@ -399,6 +399,8 @@ struct Line {
     scope: Scope,
     range: TextRange,
     code_start: usize,
+    // Single Exact origin and original line bytes, from the current parsed tree.
+    exact_source: bool,
     parent: Option<RawNodeId>,
     ancestors: Vec<RawNodeId>,
     root: bool,
@@ -424,6 +426,7 @@ pub(super) struct Document {
     index: Arc<CatalogIndex>,
     blocked: Vec<TextRange>,
     function_namespace_complete: bool,
+    // Preserve the stronger whole-source requirement for hard type proofs.
     type_context_exact: bool,
     accepted_slots: HashMap<(usize, usize), Vec<skript_parser::ExpressionExpectedType>>,
     pub(super) semantic_types: Option<Arc<super::semantic::Document>>,
@@ -709,6 +712,7 @@ impl Document {
                 },
                 range: TextRange::new(start, start + text.len()),
                 code_start: start + text.len(),
+                exact_source: false,
                 parent: None,
                 ancestors: Vec::new(),
                 root: text.is_empty(),
@@ -1451,6 +1455,7 @@ fn raw_context(
                 },
                 range: TextRange::new(range.start, range.start + text.len()),
                 code_start: range.start + node.line.indentation.text.len(),
+                exact_source: references,
                 parent: editing_parent,
                 ancestors,
                 root: editing_parent.is_none() && node.line.indentation.text.is_empty(),
@@ -1519,6 +1524,7 @@ impl Document {
                         range: node.line.content_span.virtual_range,
                         code_start: node.line.content_span.virtual_range.start
                             + node.line.indentation.text.len(),
+                        exact_source: false,
                         parent: node.parent,
                         ancestors: node.parent.into_iter().collect(),
                         root: node.parent.is_none() && node.line.indentation.text.is_empty(),
