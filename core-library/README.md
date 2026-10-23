@@ -22,11 +22,16 @@ missing, duplicate, foreign or unsupported facts retain Unknown.
 For standard 2.15.4 properties, certificates are generated after final type
 resolution and conversion. The standard Component family uses Adventure's
 immutable/NonExtendable API contract plus source-bound ClassInfo clone/storage
-evidence. This initial policy requires the complete source-bound stock Type headers
+evidence. This initial policy requires the complete raw stock Type headers
 and the selected raw ClassInfo record: even an
 unrelated addon Type disables it. Custom Component implementations outside that
 API contract and unknown clone/conversion callbacks are not certified. This does
 not grant arbitrary Slot, list or global storage a type-preservation guarantee.
+
+Catalog-data v4 projects the required top-level fields once per immutable source
+digest, rather than sending all Type options with every expression. Older hosts
+without this additive import reject the new component during linking. A host that
+implements the API but has no Catalog still retains Unknown.
 
 ## Current Behavior
 
@@ -45,7 +50,7 @@ The component currently provides the integration foundation:
 
 The manifest requires `parser.hooks`, `parser.default-expression`, the five syntax-parser capabilities,
 Tree macros, and `parser.state-store`. It optionally consumes
-`parser.dynamic-syntax` and `parser.catalog-data` version 3; Text and AST macro
+`parser.dynamic-syntax` version 3 and `parser.catalog-data` version 4; Text and AST macro
 capabilities are not requirements.
 
 The manifest opts into `parser.incremental-local-syntax` v1 for the Effect,

@@ -150,7 +150,6 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     expr_value_within::register(&mut handlers);
     expr_whether::register(&mut handlers);
     expr_x_of::register(&mut handlers);
-    let property_start = handlers.len();
     prop_expr_amount::register(&mut handlers);
     prop_expr_custom_name::register(&mut handlers);
     prop_expr_name::register(&mut handlers);
@@ -163,14 +162,6 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     prop_expr_value_of::register(&mut handlers);
     prop_expr_viewers::register(&mut handlers);
     prop_expr_wxyz::register(&mut handlers);
-    // Property providers use the complete type registry to certify the runtime
-    // storage domain. The host supplies this context independently of whether
-    // the syntax happens to contain a regex capture.
-    for handler in &mut handlers[property_start..] {
-        handler
-            .context_requirements
-            .push(REGISTERED_CONTEXT_ALL_TYPE_OPTIONS.into());
-    }
     simple_literal::register(&mut handlers);
     wrapper_expression::register(&mut handlers);
     input_cardinality::register(&mut handlers);

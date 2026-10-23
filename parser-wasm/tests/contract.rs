@@ -46,6 +46,7 @@ const CATALOG_QUERIES: &[&str] = &[
     "property-handlers-for-type",
     "read-document",
     "read-record",
+    "read-record-fields",
     "records-by-definition-id",
     "records-by-registration-id",
     "registered-handler-matches",

@@ -18,15 +18,12 @@ mod time_period;
 mod timespan;
 
 use crate::nlaocs::skript_parser_addon::types::{
-    ExpressionLeafCandidate, ExpressionPayload, ExpressionTypeOption, RegisteredSyntaxHandler,
+    ExpressionLeafCandidate, ExpressionPayload, RegisteredSyntaxHandler,
     RegisteredSyntaxHandlerTarget, SyntaxKind, TypeParserUnresolved,
 };
 
-pub(crate) fn storage_preserves_bounds(
-    classes: &[String],
-    options: &[ExpressionTypeOption],
-) -> bool {
-    storage::preserves_bounds(classes, options)
+pub(crate) fn storage_preserves_bounds(classes: &[String]) -> bool {
+    storage::preserves_bounds(classes)
 }
 
 pub(super) struct TypeParser {

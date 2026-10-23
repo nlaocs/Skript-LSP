@@ -10,16 +10,16 @@ const COMPONENT: &str = "net.kyori.adventure.text.Component";
 static FAMILIES: LazyLock<RwLock<HashMap<String, bool>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-use crate::nlaocs::skript_parser_addon::types::ExpressionTypeOption;
+use crate::nlaocs::skript_parser_addon::catalog_data::CatalogFieldPage;
 
-pub(super) fn preserves_bounds(classes: &[String], options: &[ExpressionTypeOption]) -> bool {
+pub(super) fn preserves_bounds(classes: &[String]) -> bool {
     if classes.is_empty() || classes.len() > 64 {
         return false;
     }
     let immutable = crate::catalog::identity_delta_classes();
     classes
         .iter()
-        .all(|class| immutable.contains(class) || (class == COMPONENT && component_family(options)))
+        .all(|class| immutable.contains(class) || (class == COMPONENT && component_family()))
 }
 
 fn stock_headers(records: &[Value]) -> bool {
@@ -32,6 +32,9 @@ fn stock_headers(records: &[Value]) -> bool {
         && records.len() <= 1024
         && records.iter().enumerate().all(|(index, record)| {
             record["typeParseOrder"].as_u64() == Some(index as u64)
+                && record["originalClass"]
+                    .as_str()
+                    .is_some_and(|class| !class.is_empty())
                 && record["addon"]["name"].as_str() == Some("Skript")
                 && record["addon"]["version"].as_str() == Some("2.15.4")
         })
@@ -51,58 +54,39 @@ fn component_registry(records: &[Value]) -> bool {
         && crate::catalog::source_clone_identity(matches[0])
 }
 
-fn registry_headers(
-    options: &[ExpressionTypeOption],
-    digest: &str,
-    snapshot: &str,
-) -> Option<Vec<Value>> {
-    if options.is_empty() || options.len() > 1024 {
+// The complete page sequence is authoritative. A dense prefix alone is not.
+fn append_headers(records: &mut Vec<Value>, page: &CatalogFieldPage) -> Option<bool> {
+    let before = records.len();
+    if page.items.len() > 256 || before.checked_add(page.items.len())? > 1024 {
         return None;
     }
-    let mut indices = std::collections::BTreeSet::new();
-    let mut headers = Vec::with_capacity(options.len());
-    for option in options {
-        let record = option.source_record.as_ref()?;
-        if record.source_digest != digest
-            || record.snapshot_id != snapshot
-            || record.document != "Types.json"
-            || record.index >= options.len() as u64
-            || !indices.insert(record.index)
-        {
+    for item in &page.items {
+        if item.index != records.len() as u64 {
             return None;
         }
-        headers.push(serde_json::json!({
-            "typeParseOrder": option.type_parse_order,
-            "originalClass": option.class_name,
-            "addon": {"name": option.addon_name, "version": option.addon_version}
-        }));
+        let value: Value = serde_json::from_slice(&item.json).ok()?;
+        if !value.is_object() {
+            return None;
+        }
+        records.push(value);
     }
-    (stock_headers(&headers)
-        && headers
-            .iter()
-            .filter(|header| header["originalClass"].as_str() == Some(COMPONENT))
-            .count()
-            == 1)
-        .then_some(headers)
+    if !records.is_empty() && !stock_headers(records) {
+        return None;
+    }
+    match page.next_offset {
+        None => Some(true),
+        Some(next) if next == records.len() as u64 && next > before as u64 => Some(false),
+        _ => None,
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn component_family(options: &[ExpressionTypeOption]) -> bool {
+fn component_family() -> bool {
     use crate::nlaocs::skript_parser_addon::catalog_data;
     if !crate::runtime::skript_version_is("2.15.4") {
         return false;
     }
     let Some(source) = catalog_data::source().ok().flatten() else {
-        return false;
-    };
-    // This context is the complete normalized Catalog::types list. SSG copies
-    // required owner/class/order fields directly from every raw Type record.
-    // Completeness comes from the host's all-options contract, not from dense
-    // indices alone (a contiguous prefix is not a complete registry). Indices
-    // and source identities check its shape/provenance. No large literal tables
-    // are read; unchecked native Catalog constructors remain caller-validated.
-    let Some(mut headers) = registry_headers(options, &source.source_digest, &source.snapshot_id)
-    else {
         return false;
     };
     if let Some(result) = FAMILIES
@@ -113,23 +97,29 @@ fn component_family(options: &[ExpressionTypeOption]) -> bool {
     {
         return result;
     }
-    let result = read_component_record(options, &source.source_digest, &source.snapshot_id)
-        .is_some_and(|record| {
-            let matching = headers
-                .iter()
-                .position(|header| header["originalClass"].as_str() == Some(COMPONENT));
-            let Some(index) = matching else {
-                return false;
-            };
-            if record["typeParseOrder"] != headers[index]["typeParseOrder"]
-                || record["originalClass"] != headers[index]["originalClass"]
-                || record["addon"] != headers[index]["addon"]
-            {
-                return false;
+    let result = (|| {
+        let mut headers = read_headers(&source.source_digest, &source.snapshot_id)?;
+        let matches = headers
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| value["originalClass"].as_str() == Some(COMPONENT))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return None;
+        }
+        let index = matches[0];
+        let record =
+            read_component_record(index as u64, &source.source_digest, &source.snapshot_id)?;
+        for field in ["typeParseOrder", "originalClass", "addon"] {
+            if record[field] != headers[index][field] {
+                return None;
             }
-            headers[index] = record;
-            component_registry(&headers)
-        })
+        }
+        headers[index] = record;
+        Some(component_registry(&headers))
+    })()
+    .unwrap_or(false)
         && catalog_data::source().ok().flatten().is_some_and(|after| {
             after.source_digest == source.source_digest && after.snapshot_id == source.snapshot_id
         });
@@ -143,30 +133,39 @@ fn component_family(options: &[ExpressionTypeOption]) -> bool {
     result
 }
 #[cfg(not(target_arch = "wasm32"))]
-fn component_family(_options: &[ExpressionTypeOption]) -> bool {
+fn component_family() -> bool {
     false
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_component_record(
-    options: &[ExpressionTypeOption],
-    digest: &str,
-    snapshot: &str,
-) -> Option<Value> {
+fn read_headers(digest: &str, snapshot: &str) -> Option<Vec<Value>> {
     use crate::nlaocs::skript_parser_addon::catalog_data;
-    let option = options
-        .iter()
-        .find(|option| option.class_name == COMPONENT)?;
-    let record = option.source_record.as_ref()?;
-    const MAX_BYTES: u32 = 64 * 1024;
-    if record.byte_length == 0 || record.byte_length > u64::from(MAX_BYTES) {
-        return None;
+    let fields = ["typeParseOrder", "originalClass", "addon"].map(str::to_owned);
+    let mut records = Vec::new();
+    loop {
+        let page = catalog_data::read_record_fields(
+            digest,
+            snapshot,
+            "Types.json",
+            &fields,
+            records.len() as u64,
+            256,
+        )
+        .ok()??;
+        if append_headers(&mut records, &page)? {
+            return Some(records);
+        }
     }
+}
+#[cfg(target_arch = "wasm32")]
+fn read_component_record(index: u64, digest: &str, snapshot: &str) -> Option<Value> {
+    use crate::nlaocs::skript_parser_addon::catalog_data;
+    const MAX_BYTES: u32 = 64 * 1024;
     let chunk =
-        catalog_data::read_record(digest, snapshot, "Types.json", record.index, 0, MAX_BYTES)
-            .ok()??;
+        catalog_data::read_record(digest, snapshot, "Types.json", index, 0, MAX_BYTES).ok()??;
     if chunk.offset != 0
-        || chunk.total_length != record.byte_length
+        || chunk.total_length == 0
+        || chunk.total_length > u64::from(MAX_BYTES)
         || chunk.bytes.len() as u64 != chunk.total_length
     {
         return None;
@@ -177,77 +176,79 @@ fn read_component_record(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn option(index: u64, class: &str) -> ExpressionTypeOption {
-        ExpressionTypeOption {
-            source_record: Some(
-                crate::nlaocs::skript_parser_addon::types::CatalogRecordRef {
-                    source_digest: "digest".into(),
-                    snapshot_id: "snapshot".into(),
-                    document: "Types.json".into(),
-                    index,
-                    byte_length: 100,
-                },
-            ),
-            definition_id: format!("type:{index}"),
-            registration_id: format!("type:{index}"),
-            addon_name: "Skript".into(),
-            addon_version: "2.15.4".into(),
-            code_name: format!("type{index}"),
-            class_name: class.into(),
-            parser_class: None,
-            type_parse_order: index,
-            before: Vec::new(),
-            after: Vec::new(),
-            singular: String::new(),
-            plural: String::new(),
-            user_input_patterns: Vec::new(),
-            has_parser: false,
-            parse_contexts: Vec::new(),
-            has_supplier: false,
-            default_expression: None,
-        }
-    }
-
     #[test]
-    fn storage_registry_context_requires_complete_same_source_headers() {
-        let options = vec![option(0, "java.lang.String"), option(1, COMPONENT)];
-        assert!(registry_headers(&options, "digest", "snapshot").is_some());
+    fn storage_registry_projection_requires_contiguous_complete_pages() {
+        use crate::nlaocs::skript_parser_addon::catalog_data::CatalogFieldRecord;
+        let record = |index| {
+            CatalogFieldRecord { index, json: serde_json::to_vec(&serde_json::json!({"typeParseOrder":index,"originalClass":"fixture.Type","addon":{"name":"Skript","version":"2.15.4"}})).unwrap() }
+        };
+        let mut records = Vec::new();
+        assert_eq!(
+            append_headers(
+                &mut records,
+                &CatalogFieldPage {
+                    items: vec![record(0)],
+                    next_offset: Some(1)
+                }
+            ),
+            Some(false)
+        );
+        assert_eq!(
+            append_headers(
+                &mut records,
+                &CatalogFieldPage {
+                    items: vec![record(1)],
+                    next_offset: None
+                }
+            ),
+            Some(true)
+        );
         for mutation in [
-            "missing-source",
-            "source",
-            "snapshot",
-            "document",
-            "duplicate-index",
+            "empty-progress",
             "index-gap",
-            "order",
+            "duplicate-index",
+            "next-gap",
+            "malformed",
+            "non-object",
+            "missing-owner",
             "addon",
-            "duplicate-component",
         ] {
-            let mut changed = options.clone();
+            let mut page = CatalogFieldPage {
+                items: vec![record(0)],
+                next_offset: None,
+            };
             match mutation {
-                "missing-source" => changed[1].source_record = None,
-                "source" => {
-                    changed[1].source_record.as_mut().unwrap().source_digest = "other".into()
+                "empty-progress" => {
+                    page.items.clear();
+                    page.next_offset = Some(0);
                 }
-                "snapshot" => {
-                    changed[1].source_record.as_mut().unwrap().snapshot_id = "other".into()
+                "index-gap" => page.items[0].index = 1,
+                "duplicate-index" => page.items.push(record(0)),
+                "next-gap" => page.next_offset = Some(2),
+                "malformed" => page.items[0].json = b"{broken".to_vec(),
+                "non-object" => page.items[0].json = b"null".to_vec(),
+                "missing-owner" => page.items[0].json = b"{}".to_vec(),
+                _ => {
+                    let mut value: Value = serde_json::from_slice(&page.items[0].json).unwrap();
+                    value["addon"]["name"] = Value::from("Addon");
+                    page.items[0].json = serde_json::to_vec(&value).unwrap();
                 }
-                "document" => {
-                    changed[1].source_record.as_mut().unwrap().document = "Other.json".into()
-                }
-                "duplicate-index" => changed[1].source_record.as_mut().unwrap().index = 0,
-                "index-gap" => changed[1].source_record.as_mut().unwrap().index = 2,
-                "order" => changed[1].type_parse_order = 0,
-                "addon" => changed[0].addon_name = "Addon".into(),
-                _ => changed[0].class_name = COMPONENT.into(),
             }
             assert!(
-                registry_headers(&changed, "digest", "snapshot").is_none(),
+                append_headers(&mut Vec::new(), &page).is_none(),
                 "{mutation}"
             );
         }
-        assert!(registry_headers(&[], "digest", "snapshot").is_none());
-        assert!(registry_headers(&vec![options[0].clone(); 1025], "digest", "snapshot").is_none());
+        assert!(
+            append_headers(
+                &mut Vec::new(),
+                &CatalogFieldPage {
+                    items: (0..257).map(record).collect(),
+                    next_offset: None
+                }
+            )
+            .is_none()
+        );
     }
 
     #[test]

@@ -91,6 +91,16 @@ interface catalog-data {
         next-offset: option<u64>,
     }
 
+    record catalog-field-record {
+        index: u64,
+        json: list<u8>,
+    }
+
+    record catalog-field-page {
+        items: list<catalog-field-record>,
+        next-offset: option<u64>,
+    }
+
     record catalog-chunk {
         media-type: string,
         offset: u64,
@@ -226,6 +236,21 @@ interface catalog-data {
         offset: u64,
         max-bytes: u32,
     ) -> result<option<catalog-chunk>, catalog-error>;
+
+    /// Catalog-data capability v4. Projects exact top-level field names from
+    /// each raw array record, retaining its source index. Missing fields stay
+    /// missing; explicit null stays null. Non-object records are rejected.
+    /// Source identities must match. At most 16 fields of 128 bytes, 256 rows
+    /// and 4 MiB of source per call; response byte limits may shorten the page
+    /// with an explicit next-offset, or reject an oversized first record.
+    read-record-fields: func(
+        source-digest: string,
+        snapshot-id: string,
+        document: string,
+        fields: list<string>,
+        offset: u64,
+        limit: u32,
+    ) -> result<option<catalog-field-page>, catalog-error>;
 
     /// Reports whether the normalized Catalog contains this Java class node.
     class-known: func(class-name: string) -> result<bool, catalog-error>;

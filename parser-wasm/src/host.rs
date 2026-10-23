@@ -1362,6 +1362,31 @@ impl wit_catalog_data::Host for StoreData {
         Ok(self.catalog()?.class(&class_name).is_some())
     }
 
+    fn read_record_fields(
+        &mut self,
+        source_digest: String,
+        snapshot_id: String,
+        document: String,
+        fields: Vec<String>,
+        offset: u64,
+        limit: u32,
+    ) -> Result<Option<wit_catalog_data::CatalogFieldPage>, wit_catalog_data::CatalogError> {
+        let catalog = self.catalog()?;
+        let Some(source) = catalog.source() else {
+            return Ok(None);
+        };
+        catalog_field_source(
+            source,
+            &source_digest,
+            &snapshot_id,
+            &document,
+            &fields,
+            offset,
+            limit,
+            self.max_catalog_response_bytes,
+        )
+    }
+
     fn declared_method_exists(
         &mut self,
         class_name: String,
@@ -2470,6 +2495,232 @@ fn catalog_chunk(
         total_length: bytes.len() as u64,
         bytes: bytes[offset..offset + length].to_vec(),
     })
+}
+
+fn catalog_field_source(
+    source: &syntaxes::CatalogSource,
+    digest: &str,
+    snapshot: &str,
+    document: &str,
+    fields: &[String],
+    offset: u64,
+    limit: u32,
+    response_limit: usize,
+) -> Result<Option<wit_catalog_data::CatalogFieldPage>, wit_catalog_data::CatalogError> {
+    if source.source_digest != digest || source.snapshot_id != snapshot {
+        return Err(invalid_catalog_input(
+            "catalog projection belongs to a different retained source or snapshot",
+        ));
+    }
+    let Some(bytes) = source.document(document) else {
+        return Ok(None);
+    };
+    catalog_field_page(bytes, fields, offset, limit, response_limit).map(Some)
+}
+
+fn catalog_field_page(
+    bytes: &[u8],
+    fields: &[String],
+    offset: u64,
+    limit: u32,
+    response_limit: usize,
+) -> Result<wit_catalog_data::CatalogFieldPage, wit_catalog_data::CatalogError> {
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err(wit_catalog_data::CatalogError {
+            kind: wit_catalog_data::CatalogErrorKind::ResponseTooLarge,
+            message: "catalog projection source exceeds 4 MiB".into(),
+        });
+    }
+    if fields.is_empty()
+        || fields.len() > 16
+        || limit == 0
+        || limit > 256
+        || fields
+            .iter()
+            .any(|field| field.is_empty() || field.len() > 128)
+        || fields.iter().collect::<BTreeSet<_>>().len() != fields.len()
+    {
+        return Err(invalid_catalog_input(
+            "catalog projection needs unique nonempty top-level keys (16 keys, 128 bytes each) and a page of 1..=256 records",
+        ));
+    }
+    // Keep unknown numbers and nested values verbatim. A Value roundtrip can
+    // round numbers beyond u64/f64 precision even though the field is opaque.
+    let records: Vec<BTreeMap<String, Box<serde_json::value::RawValue>>> =
+        serde_json::from_slice(bytes).map_err(|_| {
+            invalid_catalog_input("catalog projection source must be a JSON array of objects")
+        })?;
+    let (offset, end) = catalog_page_bounds(records.len(), offset, limit)?;
+    let mut items = Vec::new();
+    let mut returned_bytes = 0usize;
+    for (index, object) in records.iter().enumerate().take(end).skip(offset) {
+        let projection = fields
+            .iter()
+            .filter_map(|field| object.get(field).map(|value| (field, value.as_ref())))
+            .collect::<BTreeMap<_, _>>();
+        let json = serde_json::to_vec(&projection).map_err(|_| {
+            invalid_catalog_input("catalog projection could not serialize a record")
+        })?;
+        let item_bytes = json.len().saturating_add(8);
+        if returned_bytes.saturating_add(item_bytes) > response_limit {
+            if items.is_empty() {
+                return Err(wit_catalog_data::CatalogError {
+                    kind: wit_catalog_data::CatalogErrorKind::ResponseTooLarge,
+                    message: "one projected catalog record exceeds the response limit".into(),
+                });
+            }
+            break;
+        }
+        returned_bytes += item_bytes;
+        items.push(wit_catalog_data::CatalogFieldRecord {
+            index: index as u64,
+            json,
+        });
+    }
+    let next = offset + items.len();
+    Ok(wit_catalog_data::CatalogFieldPage {
+        items,
+        next_offset: (next < records.len()).then_some(next as u64),
+    })
+}
+
+#[cfg(test)]
+mod catalog_projection_tests {
+    use super::*;
+
+    #[test]
+    fn opaque_projected_numbers_and_nested_values_keep_their_original_precision() {
+        let input = br#"[{"wide":18446744073709551617,"fraction":0.123456789012345678901234567890,"nested":{"n":999999999999999999999999,"a":[1e200]}}]"#;
+        let fields = ["wide", "fraction", "nested"].map(str::to_owned);
+        let page = catalog_field_page(input, &fields, 0, 1, 1024).unwrap();
+        let values: BTreeMap<String, Box<serde_json::value::RawValue>> =
+            serde_json::from_slice(&page.items[0].json).unwrap();
+        assert_eq!(values["wide"].get(), "18446744073709551617");
+        assert_eq!(values["fraction"].get(), "0.123456789012345678901234567890");
+        assert_eq!(
+            values["nested"].get(),
+            r#"{"n":999999999999999999999999,"a":[1e200]}"#
+        );
+    }
+
+    #[test]
+    fn literal_fields_keep_null_missing_and_source_order_across_bounded_pages() {
+        let input = br#"[{"key":null,"a.b":7,"a":{"b":8},"ignored":"unused"},{"key":2},{}]"#;
+        let fields = vec!["key".into(), "a.b".into(), "missing".into()];
+        let first = catalog_field_page(input, &fields, 0, 1, 1024).unwrap();
+        assert_eq!(first.items[0].index, 0);
+        let value: serde_json::Value = serde_json::from_slice(&first.items[0].json).unwrap();
+        assert_eq!(value, serde_json::json!({"key":null,"a.b":7}));
+        assert_eq!(first.next_offset, Some(1));
+        let rest = catalog_field_page(input, &fields, 1, 2, 1024).unwrap();
+        assert_eq!(
+            rest.items.iter().map(|item| item.index).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&rest.items[1].json).unwrap(),
+            serde_json::json!({})
+        );
+        assert_eq!(rest.next_offset, None);
+        let one_record_bytes = first.items[0].json.len() + 8;
+        let clipped = catalog_field_page(input, &fields, 0, 3, one_record_bytes).unwrap();
+        assert_eq!(clipped.items.len(), 1);
+        assert_eq!(clipped.next_offset, Some(1));
+        assert!(
+            catalog_field_page(input, &fields, 3, 1, 1024)
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        assert!(catalog_field_page(input, &fields, 4, 1, 1024).is_err());
+    }
+
+    #[test]
+    fn projections_reject_bad_queries_non_objects_and_oversized_inputs_without_empty_success() {
+        for fields in [
+            vec![],
+            vec![String::new()],
+            vec!["x".into(), "x".into()],
+            vec!["x".repeat(129)],
+            (0..17).map(|i| i.to_string()).collect(),
+        ] {
+            assert!(catalog_field_page(b"[{}]", &fields, 0, 1, 1024).is_err());
+        }
+        for (input, limit) in [
+            (b"[]".as_slice(), 0),
+            (b"[]".as_slice(), 257),
+            (b"{}".as_slice(), 1),
+            (b"[null]".as_slice(), 1),
+            (b"[broken".as_slice(), 1),
+        ] {
+            assert!(catalog_field_page(input, &["x".into()], 0, limit, 1024).is_err());
+        }
+        assert!(catalog_field_page(b"[{},null]", &["x".into()], 1, 1, 1024).is_err());
+        for input in [vec![b' '; 4 * 1024 * 1024 + 1], b"[{\"x\":1}]".to_vec()] {
+            let error = catalog_field_page(&input, &["x".into()], 0, 1, 0).unwrap_err();
+            assert!(matches!(
+                error.kind,
+                wit_catalog_data::CatalogErrorKind::ResponseTooLarge
+            ));
+        }
+    }
+
+    #[test]
+    fn projection_checks_both_source_fences_before_reading_and_preserves_document_absence() {
+        let source = syntaxes::CatalogSource::from_json_documents(
+            "test",
+            1,
+            "snapshot",
+            BTreeMap::from([("data.json".into(), b"[{}]".to_vec())]),
+        )
+        .unwrap();
+        for (digest, snapshot) in [
+            ("other", "snapshot"),
+            (source.source_digest.as_str(), "other"),
+        ] {
+            assert!(
+                catalog_field_source(
+                    &source,
+                    digest,
+                    snapshot,
+                    "missing.json",
+                    &["x".into()],
+                    0,
+                    1,
+                    1024
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            catalog_field_source(
+                &source,
+                &source.source_digest,
+                "snapshot",
+                "missing.json",
+                &["x".into()],
+                0,
+                1,
+                1024
+            )
+            .unwrap()
+            .is_none()
+        );
+        let page = catalog_field_source(
+            &source,
+            &source.source_digest,
+            "snapshot",
+            "data.json",
+            &["x".into()],
+            0,
+            1,
+            1024,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.next_offset, None);
+    }
 }
 
 fn catalog_record_page(
@@ -4639,20 +4890,21 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PatternCapture::TypeExpression { .. } => None,
             })
             .collect::<Vec<_>>();
-        let type_options = if registered_handler_requires_context(
-            &self.hooks.host.components,
-            RegisteredSyntaxIdentity {
-                kind: CatalogSyntaxKind::Expression,
-                definition_id: request.definition_id,
-                registration_id: request.registration_id,
-                pattern_index: Some(request.pattern_index),
-                pattern_source: Some(request.pattern),
-                tags: Some(request.tags),
-                mark: Some(request.mark),
-                dynamic_handler: request.dynamic_handler,
-            },
-            REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
-        ) {
+        let type_options = if !regex_captures.is_empty()
+            && registered_handler_requires_context(
+                &self.hooks.host.components,
+                RegisteredSyntaxIdentity {
+                    kind: CatalogSyntaxKind::Expression,
+                    definition_id: request.definition_id,
+                    registration_id: request.registration_id,
+                    pattern_index: Some(request.pattern_index),
+                    pattern_source: Some(request.pattern),
+                    tags: Some(request.tags),
+                    mark: Some(request.mark),
+                    dynamic_handler: request.dynamic_handler,
+                },
+                REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+            ) {
             all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
         } else {
             Vec::new()
@@ -12917,7 +13169,7 @@ fn configured_host_capabilities(
 ) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
     if catalog_source_available {
-        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 3));
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 4));
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));

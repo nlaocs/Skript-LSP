@@ -218,6 +218,10 @@ Type登録一覧と該当ClassInfoの原データを確認できる場合に限�
 たとえば`player's name`の右辺はこの版ではstringではなくtextcomponentです。存在保証がない場合、
 代入先には`textcomponent?`を表示します。通常の読取位置には型inlayを追加しません。
 
+Type一覧はcatalog-data v4の上限付きフィールド射影でsource digestごとに一度確認し、各property式へ
+全Typeのpayloadを繰り返し渡しません。射影APIがない旧hostは新Coreをlink時に拒否します。
+API対応hostでCatalogが利用できない場合はUnknownを維持します。
+
 定義移動は現在の到達書込を返す。証明できない場合の静的候補やglobalの書込が複数あれば複数位置に
 なり得るため、一意なruntime bindingを保証しない。動的identityや曖昧なmacro originは省略する。
 解析中の要求は文書64件・server全体256件まで保持し、超過分はRequestFailedにする。

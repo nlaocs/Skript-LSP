@@ -181,7 +181,7 @@ older host without failing while lifting its manifest.
 The host advertises and executes Text, Tree, and AST macros. CoreLibrary's
 manifest requires `parser.hooks`, the five syntax-parser capabilities, Tree
 macros, and `parser.state-store`; it optionally consumes
-`parser.dynamic-syntax` and `parser.catalog-data` version 3. It does not require
+`parser.dynamic-syntax` version 3 and `parser.catalog-data` version 4. It does not require
 Text or AST macros.
 
 `addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
