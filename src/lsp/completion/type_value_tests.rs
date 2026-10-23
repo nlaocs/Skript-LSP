@@ -143,7 +143,7 @@ fn narrowed_prefix_reaches_values_beyond_the_menu_cap_and_plural_is_spelling() {
         let offset = if broad { source.find(needle).unwrap() } else { source.rfind(needle).unwrap() } + needle.len();
         let position = LineIndex::new(source).position(source, offset).unwrap();
         let list = view.at(position, false).unwrap();
-        assert!(!values(&list).is_empty());
+        assert!(!values(&list).is_empty(), "{needle:?}: {:?}", list.items.iter().take(16).map(|i| &i.label).collect::<Vec<_>>());
         assert!(list.items.len() <= MAX_ITEMS);
         if broad {
             assert!(list.is_incomplete);
@@ -244,4 +244,20 @@ fn incomplete_literal_evidence_does_not_become_a_hard_type_proof() {
     let hole = start..input.len();
     assert!(graph.hole_slots(&input, hole.clone(), &mut continuation::Budget::new()).unwrap().is_empty());
     assert!(!graph.literal_prefix_slots(&input, hole, &mut continuation::Budget::new()).unwrap().is_empty());
+}
+
+#[test]
+fn weak_value_matches_do_not_displace_expression_names_early_or_final() {
+    let source="on join:\n    give p\n    give player\n";
+    let (early,view,_,_)=parse(&source);
+    for needle in ["give p\n","give player\n"] {
+        let offset=source.find(needle).unwrap()+needle.trim_end().len();
+        let position=LineIndex::new(&source).position(&source,offset).unwrap();
+        let PreparedQuery::Ready(prepared)=early.at(position,true).unwrap() else { panic!("prepared slot") };
+        for list in [prepared,view.at(position,true).unwrap()] {
+            let expression=list.items.iter().position(|i|i.label=="player"&&i.data.as_ref().is_some_and(|d|d["syntaxKind"]=="Expression")).expect("expression player");
+            let value=list.items.iter().position(|i|i.label=="player"&&i.data.as_ref().is_some_and(|d|d["typeValue"].is_object())).expect("literal player");
+            assert!(expression<value);assert_eq!(list.items[expression].kind,Some(CompletionItemKind::VALUE));
+        }
+    }
 }

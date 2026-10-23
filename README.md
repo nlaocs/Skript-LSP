@@ -33,6 +33,12 @@ typed slots can supply proposals marked as an unfinished syntax suffix. This
 proposal evidence is separate from hard expression type filtering. Arbitrary parser inputs (for example RGB components),
 script-local aliases and runtime-only values are not enumerated. Suggestions
 do not guarantee that a runtime parser or addon-specific guard will accept them.
+Completion ranking uses exact matches and the actual searched text before applying
+the shared menu cap. Empty or one-character prefixes apply a soft browsing cost
+to finite values, so expanded value lists do not automatically displace useful
+expressions. Stronger prefixes still favor nearby word completions such as
+`sto` → `stone`. Clients may apply their own fuzzy scores and usage history;
+the server order alone cannot guarantee the displayed order.
 
 See the [LSP behavior and limitations](docs/lsp.ja.md) for the exact contracts.
 This is static analysis, not runtime execution or a linter.

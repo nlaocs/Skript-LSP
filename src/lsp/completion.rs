@@ -892,7 +892,7 @@ impl Document {
                     || template.kind == SyntaxKind::Condition)
                     && template.folded.starts_with(&folded_prefix)
                 {
-                    items.push(
+                    items.push_matching(
                         self.template_item(
                             template,
                             prefix,
@@ -902,6 +902,7 @@ impl Document {
                             snippets,
                         )?
                         .0,
+                        &template.leading,
                     );
                 }
             }
@@ -962,7 +963,7 @@ impl Document {
                             "name": parameter.name, "scope": "local",
                             "range": self.lines.range(&self.source, parameter.range)?,
                         }}));
-                        items.push(item);
+                        items.push_matching(item, search);
                     }
                 }
             }
@@ -990,7 +991,7 @@ impl Document {
                     })
                     && seen.insert(variable.source.as_str())
                 {
-                    items.push(self.item(
+                    items.push_matching(self.item(
                         &variable.source,
                         &variable.source,
                         "variable reference history; binding and type are unknown",
@@ -998,7 +999,7 @@ impl Document {
                         CompletionItemKind::VARIABLE,
                         TextRange::new(start, end),
                         false,
-                    )?);
+                    )?, search);
                 }
             }
             if variable_start.is_none() && references && self.function_namespace_complete {
@@ -1070,7 +1071,7 @@ impl Document {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                    if !items.may_accept(&label, word_start) {
+                    if !items.may_accept_matching(&function.name, &label, word_start) {
                         continue;
                     }
                     let return_detail = function
@@ -1160,7 +1161,7 @@ impl Document {
                             },
                         }));
                     }
-                    items.push(item);
+                    items.push_matching(item, &function.name);
                 }
             }
         }
@@ -1195,7 +1196,7 @@ impl Document {
                 {
                     continue;
                 }
-                if !items.may_accept(&preview(&template.parts), start) {
+                if !items.may_accept_matching(&template.leading, &preview(&template.parts), start) {
                     continue;
                 }
                 let (item, whole_template) =
@@ -1214,7 +1215,7 @@ impl Document {
                 {
                     continue;
                 }
-                items.push(item);
+                items.push_matching(item, &template.leading);
             }
         }
         let (mut items, result_limited) = items.finish();
@@ -1291,7 +1292,11 @@ impl Document {
             &insertion,
             &detail,
             &template.identity,
-            CompletionItemKind::SNIPPET,
+            if template.kind == SyntaxKind::Expression {
+                CompletionItemKind::VALUE
+            } else {
+                CompletionItemKind::SNIPPET
+            },
             TextRange::new(start, end),
             use_snippets,
         )?;

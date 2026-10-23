@@ -1,7 +1,10 @@
 //! One bounded, stable selection policy shared by every completion producer.
 use super::*;
 
-type Rank = (bool, u8, std::cmp::Reverse<usize>, usize);
+// A soft browsing cost, not a quota: narrow/exact matches bypass this cost.
+const FINITE_BROWSE_COST: usize = 1;
+
+type Rank = (bool, u8, std::cmp::Reverse<usize>, usize, bool, usize);
 struct Entry {
     item: CompletionItem,
     rank: Rank,
@@ -33,8 +36,10 @@ impl<'a> Pool<'a> {
             limited: false,
         }
     }
-    fn rank(&self, label: &str, unverified: bool, start: usize) -> Rank {
-        let folded = label.to_lowercase();
+    fn rank(
+        &self, text: &str, unverified: bool, start: usize, finite_value: bool, label_len: usize,
+    ) -> Rank {
+        let folded = text.to_lowercase();
         let query = self.source[start..self.offset].to_lowercase();
         let quality = if folded == query {
             0
@@ -43,21 +48,37 @@ impl<'a> Pool<'a> {
         } else {
             2
         };
+        // A one-character query gives little evidence for browsing thousands of
+        // finite values. With a longer token, prefer completing its nearest word
+        // first (stone before stored...), then break comparable matches by role.
+        // Weak matches use the displayed proposal size, so a short fixed prefix
+        // does not turn a long argument template into a cheap browsing choice.
+        let token_len = query.chars().rev().take_while(|c| word(*c)).count();
+        let remaining = if quality == 1 && token_len > 1 {
+            folded[query.len()..].chars().take_while(|c| word(*c)).count()
+        } else {
+            0
+        };
         (
             self.demote_unverified && unverified,
             quality,
-            std::cmp::Reverse(if quality < 2 {
-                query.chars().count()
+            std::cmp::Reverse(if quality < 2 { query.chars().count() } else { 0 }),
+            if quality == 1 && token_len <= 1 {
+                label_len + if finite_value { FINITE_BROWSE_COST } else { 0 }
             } else {
-                0
-            }),
-            label.chars().count(),
+                remaining
+            },
+            finite_value,
+            text.chars().count(),
         )
     }
     /// All retained entries already passed suffix validation. A worse label can
-    /// never enter the global top-k, regardless of its kind or output type.
+    /// never enter the global top-k. Use the best role as an admissible bound.
     pub fn may_accept(&mut self, label: &str, start: usize) -> bool {
-        let rank = self.rank(label, false, start);
+        self.may_accept_matching(label, label, start)
+    }
+    pub fn may_accept_matching(&mut self, text: &str, label: &str, start: usize) -> bool {
+        let rank = self.rank(text, false, start, false, label.chars().count());
         if self.entries.len() == MAX_ITEMS && self.entries.last().unwrap().rank <= rank {
             self.limited = true;
             false
@@ -65,7 +86,15 @@ impl<'a> Pool<'a> {
             true
         }
     }
-    pub fn push(&mut self, mut item: CompletionItem) {
+    pub fn push(&mut self, item: CompletionItem) {
+        self.insert(item, None);
+    }
+    /// Producers supply the same search text used for eligibility, independently
+    /// of presentation labels, parameter signatures and variable delimiters.
+    pub fn push_matching(&mut self, item: CompletionItem, text: &str) {
+        self.insert(item, Some(text));
+    }
+    fn insert(&mut self, mut item: CompletionItem, text: Option<&str>) {
         let Some(CompletionTextEdit::Edit(edit)) = &mut item.text_edit else {
             return;
         };
@@ -119,7 +148,12 @@ impl<'a> Pool<'a> {
             .data
             .as_ref()
             .is_some_and(|data| data["continuation"] == true);
-        let rank = self.rank(&item.label, unverified, start);
+        let finite_value = item.data.as_ref()
+            .is_some_and(|data| data["typeValue"].is_object());
+        let rank = self.rank(
+            text.unwrap_or(&item.label), unverified, start, finite_value,
+            item.label.chars().count(),
+        );
         if self.entries.len() == MAX_ITEMS && self.entries.last().unwrap().rank <= rank {
             self.limited = true;
             return;
@@ -278,5 +312,67 @@ mod regression_tests {
         let (items, limited) = pool.finish();
         assert_eq!(items.len(), MAX_ITEMS);
         assert!(!limited);
+    }
+}
+
+#[cfg(test)]
+mod value_ranking_tests {
+    use super::*;
+    fn candidate(source: &str, label: &str, value: bool) -> CompletionItem {
+        CompletionItem {
+            label: label.into(), kind: Some(CompletionItemKind::VALUE),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: lsp_types::Range::new(Position::new(0, 0), Position::new(0, source.encode_utf16().count() as u32)),
+                new_text: label.into(),
+            })),
+            data: Some(if value { serde_json::json!({"typeValue": {"registrationId":label}}) }
+                else { serde_json::json!({"syntaxKind":"Expression"}) }),
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn weak_queries_balance_browsing_before_cap_in_either_producer_order() {
+        for source in ["", "p"] {
+            for values_first in [false, true] {
+                let lines=LineIndex::new(source);let mut pool=Pool::new(source,&lines,source.len(),false);
+                let expression=candidate(source,"player",false);
+                if !values_first { pool.push(expression.clone()); }
+                for n in 0..MAX_ITEMS+50 { pool.push(candidate(source,&format!("p{n:04}"),true)); }
+                if values_first { pool.push(expression); }
+                let (items,limited)=pool.finish();assert!(limited);assert_eq!(items.len(),MAX_ITEMS);
+                assert_eq!(items[0].label,"player");assert!(items[0].data.as_ref().unwrap()["typeValue"].is_null());
+                assert!(items.iter().any(|i|i.data.as_ref().unwrap()["typeValue"].is_object()));
+            }
+        }
+    }
+    #[test]
+    fn strong_literal_and_exact_matches_remain_reachable() {
+        for (query,value,expression,wanted) in [
+            ("sto","stone","stored entity count","stone"),
+            ("re","red","result","red"),
+            ("p","player","player","expression"),
+            ("player","player","player","expression"),
+            ("red","red","redirection","red"),
+        ] {
+            let lines=LineIndex::new(query);let mut pool=Pool::new(query,&lines,query.len(),false);
+            pool.push(candidate(query,value,true));pool.push(candidate(query,expression,false));
+            let (items,_)=pool.finish();
+            if wanted=="expression" { assert!(items[0].data.as_ref().unwrap()["typeValue"].is_null()); }
+            else { assert_eq!(items[0].label,wanted); }
+        }
+    }
+    #[test]
+    fn producer_search_text_controls_rank_and_admissible_preflight() {
+        for (query,label,search) in [("_p","{_public}","_public"),("play","player(a: long.signature.Type)","player"),("é","élève(a: long)","élève")] {
+            let lines=LineIndex::new(query);let mut pool=Pool::new(query,&lines,query.len(),false);
+            for n in 0..MAX_ITEMS { pool.push(candidate(query,&format!("{search} long proposal {n:04}"),true)); }
+            assert!(pool.may_accept_matching(search,label,0));pool.push_matching(candidate(query,label,false),search);
+            let (items,_)=pool.finish();assert_eq!(items[0].label,label);
+        }
+        let source="dark g";let lines=LineIndex::new(source);let mut pool=Pool::new(source,&lines,source.len(),false);
+        let mut short=candidate(source,"grey",true);
+        if let Some(CompletionTextEdit::Edit(edit))=&mut short.text_edit { edit.range.start=Position::new(0,5); }
+        pool.push(short);pool.push(candidate(source,"dark grey",true));
+        assert_eq!(pool.finish().0[0].label,"dark grey");
     }
 }
