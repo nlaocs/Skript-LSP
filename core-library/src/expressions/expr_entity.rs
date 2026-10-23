@@ -94,7 +94,9 @@ fn with_entity_metadata(resolution: SemanticResolution, entity_class: &str) -> S
             metadata.push(super::metadata("entity-class", entity_class));
             SemanticResolution::Unresolved { reason, metadata }
         }
-        rejected @ SemanticResolution::Reject(_) => rejected,
+        rejected @ (SemanticResolution::Reject(_) | SemanticResolution::RejectAt { .. }) => {
+            rejected
+        }
     }
 }
 

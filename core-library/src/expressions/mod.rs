@@ -86,6 +86,11 @@ pub(crate) enum SemanticResolution {
         metadata: Vec<MetadataEntry>,
     },
     Reject(String),
+    /// A provider rejection attached to an existing mapped capture, not a guessed substring.
+    RejectAt {
+        reason: String,
+        span: crate::nlaocs::skript_parser_addon::types::MappedSpan,
+    },
 }
 
 pub(crate) fn completion_annotations()

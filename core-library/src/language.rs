@@ -26,25 +26,7 @@ pub(crate) fn optional_value(key: &str) -> Option<String> {
 }
 
 pub(crate) fn strip_indefinite_article(value: &str) -> &str {
-    for index in 0..100 {
-        let id_key = format!("genders.{index}.id");
-        let article_key = format!("genders.{index}.indefinite article");
-        if optional_value(&id_key).is_none() && optional_value(&article_key).is_none() {
-            break;
-        }
-        if let Some(stripped) = optional_value(&article_key)
-            .as_deref()
-            .and_then(|article| strip_prefix_ignore_ascii_case(value, article))
-        {
-            return stripped;
-        }
-    }
-    for article in ["a", "an"] {
-        if let Some(stripped) = strip_prefix_ignore_ascii_case(value, article) {
-            return stripped;
-        }
-    }
-    value
+    parser_wasm::type_language::strip_indefinite_article(value, optional_value)
 }
 
 pub(crate) fn is_indefinite_article(value: &str) -> bool {
@@ -64,14 +46,6 @@ pub(crate) fn is_indefinite_article(value: &str) -> bool {
     value.eq_ignore_ascii_case("a") || value.eq_ignore_ascii_case("an")
 }
 
-fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let head = value.get(..prefix.len())?;
-    let tail = value.get(prefix.len()..)?;
-    head.eq_ignore_ascii_case(prefix)
-        .then(|| tail.strip_prefix(' '))
-        .flatten()
-}
-
 pub(crate) fn clear() {
     VALUES.with(|values| values.borrow_mut().clear());
 }
@@ -79,6 +53,33 @@ pub(crate) fn clear() {
 #[cfg(test)]
 mod tests {
     use super::{is_indefinite_article, strip_indefinite_article};
+
+    #[test]
+    fn shared_type_preprocessing_keeps_localized_order_and_one_strip() {
+        let values = std::collections::HashMap::from([
+            ("genders.0.id", "article"),
+            ("genders.0.indefinite article", "une"),
+            // A gap ends the scan, just as in the existing Core parser.
+            ("genders.2.indefinite article", "ignored"),
+        ]);
+        for (input, expected) in [
+            ("UNE widget", "widget"),
+            ("a a widget", "a widget"),
+            ("an item", "item"),
+            ("une  widget", " widget"),
+            ("ignored widget", "ignored widget"),
+            ("another item", "another item"),
+            ("界widget", "界widget"),
+        ] {
+            assert_eq!(
+                parser_wasm::type_language::strip_indefinite_article(input, |key| {
+                    values.get(key).map(|v| (*v).to_owned())
+                }),
+                expected,
+                "{input}"
+            );
+        }
+    }
 
     #[test]
     fn strips_the_default_skript_indefinite_articles() {

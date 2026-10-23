@@ -3,6 +3,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Language preprocessing shared by native editing and guest ClassInfo parsing.
+pub mod type_language;
+
 #[cfg(feature = "host")]
 /// Wasmtime-generated Component Model bindings.
 ///

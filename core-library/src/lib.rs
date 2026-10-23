@@ -673,21 +673,10 @@ fn resolve_registered_expression(
                 });
             }
             expressions::SemanticResolution::Reject(reason) => {
-                let diagnostic = Diagnostic {
-                    code: "core.expression.semantic-rejected".to_owned(),
-                    message: reason.clone(),
-                    severity: DiagnosticSeverity::Error,
-                    span: payload.span.clone(),
-                    related: Vec::new(),
-                };
-                return Ok(HookOutput {
-                    decision: HookDecision::Reject(nlaocs::skript_parser_addon::types::Rejection {
-                        reason,
-                        diagnostics: vec![diagnostic],
-                    }),
-                    replacement: None,
-                    effects: empty_effects(),
-                });
+                return Ok(reject_registered_expression(reason, payload.span.clone()));
+            }
+            expressions::SemanticResolution::RejectAt { reason, span } => {
+                return Ok(reject_registered_expression(reason, span));
             }
         };
     payload.effective_return_type = Some(return_type);
@@ -700,6 +689,27 @@ fn resolve_registered_expression(
         replacement: Some(HookPayload::RegisteredExpression(payload)),
         effects: empty_effects(),
     })
+}
+
+fn reject_registered_expression(
+    reason: String,
+    span: nlaocs::skript_parser_addon::types::MappedSpan,
+) -> HookOutput {
+    let diagnostic = Diagnostic {
+        code: "core.expression.semantic-rejected".to_owned(),
+        message: reason.clone(),
+        severity: DiagnosticSeverity::Error,
+        span,
+        related: Vec::new(),
+    };
+    HookOutput {
+        decision: HookDecision::Reject(nlaocs::skript_parser_addon::types::Rejection {
+            reason,
+            diagnostics: vec![diagnostic],
+        }),
+        replacement: None,
+        effects: empty_effects(),
+    }
 }
 
 #[cfg(test)]
@@ -2586,6 +2596,92 @@ mod tests {
             public_data: Vec::new(),
             metadata: Vec::new(),
         }
+    }
+
+    #[test]
+    fn parse_target_missing_capability_is_unresolved_not_no_parser() {
+        for (has_parser, rejected) in [(None, false), (Some("false"), true)] {
+            let mut payload = registered_expression("ch.njol.skript.expressions.ExprParse");
+            let mut child = expression_child(
+                "fixture",
+                "ch.njol.skript.classes.ClassInfo",
+                DynamicMultiplicity::Single,
+            );
+            child
+                .metadata
+                .push(metadata("target-class", "fixture.Type"));
+            if let Some(value) = has_parser {
+                child.metadata.push(metadata("has-parser", value));
+            }
+            payload.children.push(child);
+            let result = expressions::resolve(&payload).unwrap();
+            assert_eq!(
+                matches!(result, expressions::SemanticResolution::Reject(_)),
+                rejected
+            );
+            if !rejected {
+                assert!(matches!(
+                    result,
+                    expressions::SemanticResolution::Unresolved { .. }
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn parse_target_rejection_uses_unique_native_capture_without_text_search() {
+        use nlaocs::skript_parser_addon::types::{ParseResultStatus, ParseSummary, ParsedCapture};
+        let mut payload = registered_expression("ch.njol.skript.expressions.ExprParse");
+        payload.span.virtual_range = TextRange { start: 40, end: 99 };
+        let mut child = expression_child(
+            "object",
+            "ch.njol.skript.classes.ClassInfo",
+            DynamicMultiplicity::Single,
+        );
+        child.metadata = vec![
+            metadata("target-class", "java.lang.Object"),
+            metadata("has-parser", "false"),
+        ];
+        let span = MappedSpan {
+            virtual_range: TextRange { start: 91, end: 97 },
+            origins: Vec::new(),
+        };
+        payload.parsed_captures.push(ParsedCapture {
+            capture_index: 1,
+            parser_id: "host.expression".into(),
+            status: ParseResultStatus::Success,
+            text: child.text.clone(),
+            span: span.clone(),
+            expected_types: Vec::new(),
+            summary: Some(ParseSummary {
+                kind: child.kind.clone(),
+                definition_id: None,
+                registration_id: None,
+                element_class: None,
+                pattern_index: None,
+                return_type: child.return_type.clone(),
+                possible_return_types: child.possible_return_types.clone(),
+                possible_return_types_state: child.possible_return_types_state,
+                multiplicity: child.multiplicity,
+                default_expression: None,
+                public_data: Vec::new(),
+                metadata: child.metadata.clone(),
+            }),
+            attachments: Vec::new(),
+            diagnostics: Vec::new(),
+        });
+        payload.children.push(child);
+        let result = expressions::resolve(&payload).unwrap();
+        assert!(
+            matches!(result,expressions::SemanticResolution::RejectAt { span: selected,.. } if selected.virtual_range.start == 91 && selected.virtual_range.end == 97)
+        );
+        payload
+            .parsed_captures
+            .push(payload.parsed_captures[0].clone());
+        assert!(matches!(
+            expressions::resolve(&payload),
+            Some(expressions::SemanticResolution::Reject(_))
+        ));
     }
 
     #[test]

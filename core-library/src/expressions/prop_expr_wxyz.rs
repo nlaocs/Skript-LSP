@@ -75,7 +75,9 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
                 }
             }
             unresolved @ SemanticResolution::Unresolved { .. } => unresolved,
-            rejection @ SemanticResolution::Reject(_) => rejection,
+            rejection @ (SemanticResolution::Reject(_) | SemanticResolution::RejectAt { .. }) => {
+                rejection
+            }
         }
     })
 }

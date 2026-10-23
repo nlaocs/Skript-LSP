@@ -19,38 +19,47 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
 }
 
 fn resolve_parse_expression(payload: &RegisteredExpressionPayload) -> SemanticResolution {
-    if let Some(class_info) = payload.children.iter().find_map(|child| {
-        let target = metadata_value(&child.metadata, "target-class")?;
-        Some((
-            target,
-            metadata_value(&child.metadata, "has-parser") == Some("true"),
-            metadata_value(&child.metadata, "type-parse-contexts"),
-        ))
+    if let Some((child, target)) = payload.children.iter().find_map(|child| {
+        metadata_value(&child.metadata, "target-class").map(|target| (child, target))
     }) {
-        if class_info.0 == "java.lang.String" {
-            return SemanticResolution::Reject("parsing text as text is not supported".to_owned());
+        let reject = |reason: String| target_rejection(payload, child, target, reason);
+        if target == "java.lang.String" {
+            return reject(format!(
+                "cannot parse text as {}: parsing text as text is not supported",
+                child.text
+            ));
         }
-        if !class_info.1 {
-            return SemanticResolution::Reject("target type has no parser".to_owned());
+        match metadata_value(&child.metadata, "has-parser") {
+            Some("false") => {
+                return reject(format!(
+                    "target type '{}' ({target}) has no parser",
+                    child.text
+                ));
+            }
+            Some("true") => {}
+            _ => return unresolved("target type parser availability is unknown"),
         }
         let Some(modern_types) = crate::runtime::skript_at_least(2, 8) else {
             return unresolved(
-                "Skript version is unavailable, so ExprParse's parser context is unresolved",
+                "Skript version is unavailable, so the required parser context is unresolved",
             );
         };
         let required_context = parse_type_context(modern_types);
-        if class_info.2.is_some_and(|contexts| {
-            !contexts
+        // Snapshot contexts are positive observations, not a complete negative
+        // capability table: collection may omit a context after a callback error.
+        if !metadata_value(&child.metadata, "type-parse-contexts").is_some_and(|contexts| {
+            contexts
                 .split(',')
                 .any(|context| context.eq_ignore_ascii_case(required_context))
         }) {
-            return SemanticResolution::Reject(format!(
-                "target type parser does not support the {required_context} context"
+            return unresolved(&format!(
+                "target type '{}' ({target}): parser support for {required_context} is unconfirmed",
+                child.text
             ));
         }
         return resolved_with_possible_types(
-            class_info.0.to_owned(),
-            vec![class_info.0.to_owned()],
+            target.to_owned(),
+            vec![target.to_owned()],
             ExpressionPossibleReturnTypesState::Complete,
             DynamicMultiplicity::Single,
             vec![metadata("semantic-mode", "parse-type")],
@@ -68,7 +77,8 @@ fn resolve_parse_expression(payload: &RegisteredExpressionPayload) -> SemanticRe
     let placeholders =
         match parse_pattern_placeholders(&pattern, &payload.type_options, required_context) {
             Ok(placeholders) => placeholders,
-            Err(reason) => return SemanticResolution::Reject(reason),
+            Err(error) if error.capability_unknown => return unresolved(&error.reason),
+            Err(error) => return SemanticResolution::Reject(error.reason),
         };
     let Some(pattern_can_be_single) = crate::runtime::skript_at_least(2, 7) else {
         return unresolved(
@@ -126,6 +136,50 @@ fn pattern_semantics(
     (return_type, multiplicity)
 }
 
+// Transport a range only when the native capture identifies this exact target.
+// Unbound regex captures currently have no mapped-span transport; those errors
+// retain the parent range rather than searching user text for a guessed match.
+fn target_rejection(
+    payload: &RegisteredExpressionPayload,
+    child: &crate::nlaocs::skript_parser_addon::types::RegisteredExpressionChild,
+    target: &str,
+    reason: String,
+) -> SemanticResolution {
+    use crate::nlaocs::skript_parser_addon::types::ParseResultStatus;
+    let mut captures = payload.parsed_captures.iter().filter(|capture| {
+        matches!(capture.status, ParseResultStatus::Success)
+            && capture.text == child.text
+            && capture.summary.as_ref().is_some_and(|summary| {
+                summary.return_type.as_deref() == child.return_type.as_deref()
+                    && metadata_value(&summary.metadata, "target-class") == Some(target)
+            })
+            && payload.span.virtual_range.start <= capture.span.virtual_range.start
+            && capture.span.virtual_range.end <= payload.span.virtual_range.end
+    });
+    let first = captures.next();
+    match (first, captures.next()) {
+        (Some(capture), None) => SemanticResolution::RejectAt {
+            reason,
+            span: capture.span.clone(),
+        },
+        _ => SemanticResolution::Reject(reason),
+    }
+}
+
+#[derive(Debug)]
+struct PatternError {
+    reason: String,
+    capability_unknown: bool,
+}
+impl From<String> for PatternError {
+    fn from(reason: String) -> Self {
+        Self {
+            reason,
+            capability_unknown: false,
+        }
+    }
+}
+
 struct ParsedPlaceholder {
     class_name: String,
     plural: bool,
@@ -135,8 +189,9 @@ fn parse_pattern_placeholders(
     pattern: &str,
     options: &[ExpressionTypeOption],
     required_context: &str,
-) -> Result<Vec<ParsedPlaceholder>, String> {
+) -> Result<Vec<ParsedPlaceholder>, PatternError> {
     let mut placeholders = Vec::new();
+    let mut unconfirmed_context = None;
     let mut groups = Vec::<(char, bool)>::new();
     let mut cursor = 0;
     while cursor < pattern.len() {
@@ -149,34 +204,42 @@ fn parse_pattern_placeholders(
             '\\' => {
                 cursor += width;
                 let Some(escaped) = pattern[cursor..].chars().next() else {
-                    return Err("parse pattern ends in an unescaped backslash".to_owned());
+                    return Err("parse pattern ends in an unescaped backslash"
+                        .to_owned()
+                        .into());
                 };
                 cursor += escaped.len_utf8();
             }
             '<' => {
                 let Some(relative_end) = pattern[cursor + width..].find('>') else {
-                    return Err("parse pattern has an unclosed regex".to_owned());
+                    return Err("parse pattern has an unclosed regex".to_owned().into());
                 };
                 cursor += width + relative_end + 1;
             }
-            '>' => return Err("parse pattern has an unexpected closing regex".to_owned()),
+            '>' => {
+                return Err("parse pattern has an unexpected closing regex"
+                    .to_owned()
+                    .into());
+            }
             '(' => {
                 groups.push(('(', false));
                 cursor += width;
             }
             '|' => {
                 let Some(('(', has_pipe)) = groups.last_mut() else {
-                    return Err("parse pattern uses '|' outside a group".to_owned());
+                    return Err("parse pattern uses '|' outside a group".to_owned().into());
                 };
                 *has_pipe = true;
                 cursor += width;
             }
             ')' => {
                 let Some(('(', has_pipe)) = groups.pop() else {
-                    return Err("parse pattern has an unexpected ')'".to_owned());
+                    return Err("parse pattern has an unexpected ')'".to_owned().into());
                 };
                 if !has_pipe {
-                    return Err("parse pattern group contains no '|' choice".to_owned());
+                    return Err("parse pattern group contains no '|' choice"
+                        .to_owned()
+                        .into());
                 }
                 cursor += width;
             }
@@ -186,32 +249,35 @@ fn parse_pattern_placeholders(
             }
             ']' => {
                 if groups.pop().is_none_or(|(kind, _)| kind != '[') {
-                    return Err("parse pattern has an unexpected ']'".to_owned());
+                    return Err("parse pattern has an unexpected ']'".to_owned().into());
                 }
                 cursor += width;
             }
             '%' => {
                 let body_start = cursor + width;
                 let Some(relative_end) = pattern[body_start..].find('%') else {
-                    return Err("parse pattern has an unclosed type placeholder".to_owned());
+                    return Err("parse pattern has an unclosed type placeholder"
+                        .to_owned()
+                        .into());
                 };
                 let body_end = body_start + relative_end;
                 let body = &pattern[body_start..body_end];
                 let (option, plural) = crate::types::match_type_option(body, options)
                     .ok_or_else(|| format!("unknown type in parse pattern: {body}"))?;
                 if !option.has_parser {
-                    return Err(format!("type has no parser: {}", option.code_name));
+                    return Err(format!("type has no parser: {}", option.code_name).into());
                 }
-                if !option.parse_contexts.is_empty()
-                    && !option
-                        .parse_contexts
-                        .iter()
-                        .any(|context| context.eq_ignore_ascii_case(required_context))
+                if !option
+                    .parse_contexts
+                    .iter()
+                    .any(|context| context.eq_ignore_ascii_case(required_context))
                 {
-                    return Err(format!(
-                        "type parser does not support the {required_context} context: {}",
-                        option.code_name
-                    ));
+                    unconfirmed_context.get_or_insert_with(|| {
+                        format!(
+                            "type parser support for {required_context} is unconfirmed: {}",
+                            option.code_name
+                        )
+                    });
                 }
                 placeholders.push(ParsedPlaceholder {
                     class_name: option.class_name.clone(),
@@ -226,7 +292,14 @@ fn parse_pattern_placeholders(
         return Err(format!(
             "parse pattern has an unclosed '{}'",
             if *kind == '(' { ')' } else { ']' }
-        ));
+        )
+        .into());
+    }
+    if let Some(reason) = unconfirmed_context {
+        return Err(PatternError {
+            reason,
+            capability_unknown: true,
+        });
     }
     Ok(placeholders)
 }
@@ -335,10 +408,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_placeholder_parsers_without_the_required_context() {
+    fn missing_context_is_unconfirmed_not_a_proven_unsupported_parser() {
         let mut option = option();
         option.parse_contexts = vec!["COMMAND".to_owned()];
-        assert!(parse_pattern_placeholders("%number%", &[option], "PARSE").is_err());
+        let error = parse_pattern_placeholders("%number%", &[option], "PARSE")
+            .err()
+            .unwrap();
+        assert!(error.capability_unknown);
     }
 
     #[test]
@@ -349,5 +425,27 @@ mod tests {
     #[test]
     fn ignores_escaped_and_regex_percent_signs() {
         assert!(parse_pattern_placeholders(r"\%unknown\% <%+>", &[], "PARSE").is_ok());
+    }
+    #[test]
+    fn unconfirmed_parser_context_does_not_mask_definite_pattern_errors() {
+        let mut number = option();
+        number.parse_contexts.clear();
+        for pattern in [
+            "%number% %unknown%",
+            "%number% [",
+            "%number% (a)",
+            "%number% <",
+        ] {
+            let error = parse_pattern_placeholders(pattern, &[number.clone()], "PARSE")
+                .err()
+                .unwrap();
+            assert!(!error.capability_unknown, "{pattern}: {:?}", error.reason);
+        }
+        assert!(
+            parse_pattern_placeholders("%number%", &[number], "PARSE")
+                .err()
+                .unwrap()
+                .capability_unknown
+        );
     }
 }

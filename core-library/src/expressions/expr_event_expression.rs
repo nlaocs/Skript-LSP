@@ -82,7 +82,9 @@ fn add_input_metadata(
                 metadata: entries,
             }
         }
-        SemanticResolution::Reject(reason) => SemanticResolution::Reject(reason),
+        rejected @ (SemanticResolution::Reject(_) | SemanticResolution::RejectAt { .. }) => {
+            rejected
+        }
     }
 }
 
