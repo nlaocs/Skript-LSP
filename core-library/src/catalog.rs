@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::nlaocs::skript_parser_addon::types::{MetadataEntry, MetadataResolutionState};
 
+mod property_storage;
+pub(crate) use property_storage::standard_property_source;
+
 pub(crate) const CHANGE_CONTRACT_METADATA_KEY: &str = "change-contract";
 const CHANGE_CONTRACT_SCHEMA_VERSION: u32 = 1;
 const MAX_CACHED_CHANGE_CONTRACTS: usize = 1_024;
@@ -822,19 +825,9 @@ fn standard_syntax_source(
                 && serde_json::from_slice::<serde_json::Value>(&records[0].bytes)
                     .ok()
                     .is_some_and(|record| {
-                        record["kind"].as_str() == Some(kind)
-                            && record["addon"]["name"].as_str() == Some("Skript")
-                            && record["addon"]["version"].as_str() == Some("2.15.4")
-                            && record["definitionId"].as_str() == Some(definition)
-                            && record["registrationId"].as_str() == Some(registration)
-                            && record["elementClass"].as_str() == Some(class)
-                            && record["patterns"]
-                                .as_array()
-                                .and_then(|patterns| patterns.get(index))
-                                .and_then(serde_json::Value::as_str)
-                                .is_some_and(|selected| {
-                                    pattern.is_none_or(|pattern| selected == pattern)
-                                })
+                        standard_syntax_record(
+                            &record, kind, definition, registration, class, index, pattern,
+                        )
                     })
         });
     let mut cache = STANDARD_RUNTIME_SOURCES
@@ -845,6 +838,28 @@ fn standard_syntax_source(
     }
     cache.insert(key, result);
     result
+}
+
+fn standard_syntax_record(
+    record: &serde_json::Value,
+    kind: &str,
+    definition: &str,
+    registration: &str,
+    class: &str,
+    index: usize,
+    pattern: Option<&str>,
+) -> bool {
+    record["kind"].as_str() == Some(kind)
+        && record["addon"]["name"].as_str() == Some("Skript")
+        && record["addon"]["version"].as_str() == Some("2.15.4")
+        && record["definitionId"].as_str() == Some(definition)
+        && record["registrationId"].as_str() == Some(registration)
+        && record["elementClass"].as_str() == Some(class)
+        && record["patterns"]
+            .as_array()
+            .and_then(|patterns| patterns.get(index))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|selected| pattern.is_none_or(|pattern| selected == pattern))
 }
 
 /// The closed final classes are eligible only when actual versioned ClassInfo
@@ -966,48 +981,6 @@ pub(crate) fn source_clone_identity(record: &serde_json::Value) -> bool {
         && runtime["cloneMethodUnknownReason"].is_null()
         && runtime["clonerUnknownReason"].is_null()
         && runtime["serializeAsUnknownReason"].is_null()
-}
-
-/// The supported 2.15.4 PropertyBaseExpression implementations inherit the
-/// default beforeChange. Bind that audit to the actual accepted registration;
-/// a similarly named addon expression does not obtain this guarantee.
-pub(crate) fn standard_property_source(
-    payload: &crate::nlaocs::skript_parser_addon::types::RegisteredExpressionPayload,
-) -> bool {
-    let parameters = [
-        "ch.njol.skript.lang.Expression".into(),
-        "java.lang.Object[]".into(),
-    ];
-    standard_expression_source(payload, &payload.element_class)
-        && [
-            payload.element_class.as_str(),
-            "org.skriptlang.skript.lang.properties.PropertyBaseExpression",
-            "ch.njol.skript.lang.util.SimpleExpression",
-        ]
-        .into_iter()
-        .all(|class| {
-            matches!(
-                declared_method_exists(class, "beforeChange", &parameters, None),
-                Ok(Some(false))
-            )
-        })
-        && registration_records(&payload.registration_id)
-            .ok()
-            .is_some_and(|records| {
-                let records = records
-                    .iter()
-                    .filter(|record| record.document == "Expressions.json")
-                    .collect::<Vec<_>>();
-                records.len() == 1
-                    && serde_json::from_slice::<serde_json::Value>(&records[0].bytes)
-                        .ok()
-                        .is_some_and(|record| {
-                            record["superClass"].as_str()
-                                == Some(
-                                    "org.skriptlang.skript.lang.properties.PropertyBaseExpression",
-                                )
-                        })
-            })
 }
 
 pub(crate) fn identity_delta_types_for_summary(

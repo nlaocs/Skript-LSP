@@ -93,9 +93,9 @@ pub(crate) fn annotate_property(
     };
     if *possible_return_types_state != ExpressionPossibleReturnTypesState::Complete
         || *multiplicity != DynamicMultiplicity::Single
+        || metadata.iter().any(|entry| entry.key == METADATA_KEY)
         || !crate::catalog::standard_property_source(payload)
         || !crate::types::storage_preserves_bounds(possible_return_types)
-        || metadata.iter().any(|entry| entry.key == METADATA_KEY)
     {
         return;
     }
