@@ -371,7 +371,14 @@ impl Analyzer for ParserAnalyzer {
                     Arc::clone(&job.source),
                     Arc::clone(&self.catalog),
                 ) {
-                    Ok(document) => inlay = Some(Arc::new(document)),
+                    Ok(mut document) => {
+                        if let Some(semantic) = &semantic {
+                            if let Err(error) = document.add_variable_types(semantic) {
+                                annotations_error = Some(error);
+                            }
+                        }
+                        inlay = Some(Arc::new(document));
+                    }
                     Err(error) => annotations_error = Some(error),
                 }
                 let status =

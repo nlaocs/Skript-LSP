@@ -720,3 +720,74 @@ fn current_parameter_values_follow_certified_return_and_formatter_boundaries() {
         }
     }
 }
+
+#[test]
+fn real_core_type_hints_use_only_binding_writes_and_preserve_nullable_parse_results() {
+    for text in ["123", "not a number"] {
+        let source = format!(
+            "function hint(value: text) :: text:\n    set {{_n}} to \"{text}\" parsed as number\n    set {{_value}} to \"fresh\"\n    set {{_copy}} to {{_value}}\n    return {{_value}}\n"
+        );
+        let (_, view, result, _) = parse(&source);
+        assert!(
+            result.syntax.diagnostics.is_empty(),
+            "{text}: {:?}",
+            result.syntax.diagnostics
+        );
+        let semantic = view.semantic_types.as_ref().unwrap();
+        let n = position(&source, "{_n}", 2);
+        assert!(
+            matches!(semantic.type_at(n).unwrap().1, crate::lsp::semantic::InferredType::Values {classes,maybe_unset:true,..} if classes.contains("java.lang.Number")),
+            "{:?}",
+            (
+                semantic.type_at(n),
+                result
+                    .ast
+                    .nodes
+                    .iter()
+                    .filter(|node| node
+                        .summary
+                        .as_ref()
+                        .and_then(|summary| summary.element_class.as_deref())
+                        == Some("ch.njol.skript.expressions.ExprParse"))
+                    .map(|node| (
+                        &node.text,
+                        &node.metadata,
+                        node.summary
+                            .as_ref()
+                            .map(|summary| (&summary.element_class, &summary.metadata))
+                    ))
+                    .collect::<Vec<_>>()
+            )
+        );
+        let mut inlay = crate::lsp::inlay::Document::from_result(
+            &result,
+            Arc::from(source.as_str()),
+            catalog(),
+        )
+        .unwrap();
+        inlay.add_variable_types(semantic).unwrap();
+        let hints = inlay.at(lsp_types::Range::new(
+            Position::new(0, 0),
+            Position::new(
+                4,
+                usize::try_from(source.lines().nth(4).unwrap().len()).unwrap() as u32,
+            ),
+        ));
+        let types = hints
+            .iter()
+            .filter(|hint| hint.kind == Some(lsp_types::InlayHintKind::TYPE))
+            .collect::<Vec<_>>();
+        assert_eq!(types.len(), 3, "{types:?}");
+        for (hint, row, label) in [
+            (types[0], 1, ": number?"),
+            (types[1], 2, ": string"),
+            (types[2], 3, ": string"),
+        ] {
+            assert_eq!(hint.position.line, row);
+            assert!(
+                matches!(&hint.label, lsp_types::InlayHintLabel::String(actual) if actual == label)
+            );
+            assert!(hint.text_edits.is_none());
+        }
+    }
+}

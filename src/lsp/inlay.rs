@@ -263,6 +263,19 @@ impl Document {
         })
     }
 
+    pub fn add_variable_types(
+        &mut self,
+        semantic: &super::semantic::Document,
+    ) -> Result<(), String> {
+        if !semantic.source_matches(&self.source) {
+            return Err("inlay and semantic sources differ".into());
+        }
+        self.hints.extend(semantic.write_type_hints());
+        self.hints
+            .sort_by_key(|hint| (hint.position.line, hint.position.character));
+        Ok(())
+    }
+
     pub fn at(&self, range: Range) -> Vec<InlayHint> {
         let Some(start) = self.lines.offset(&self.source, range.start) else {
             return Vec::new();

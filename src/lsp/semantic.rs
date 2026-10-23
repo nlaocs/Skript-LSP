@@ -20,8 +20,10 @@ use std::{
 use syntaxes::Catalog;
 mod call_hierarchy;
 mod document_symbols;
+mod history;
 mod navigation;
 mod type_knowledge;
+use history::{Invalidation, TypeHistory, invalidate, invalidate_where};
 pub(super) use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
 
 const CHANGE: &str = "skript.semantic.variable-change";
@@ -211,6 +213,13 @@ struct Fact {
     definitions: Vec<TextRange>,
     alias: Option<String>,
     list: bool,
+    history: Option<TypeHistory>,
+}
+impl Fact {
+    // History-only keys are retained for hover, never as current flow inputs.
+    fn has_current(&self) -> bool {
+        !matches!(self.ty, InferredType::Unknown) || !self.definitions.is_empty()
+    }
 }
 type Facts = BTreeMap<VariableKey, Fact>;
 
@@ -240,11 +249,19 @@ struct Occurrence {
     range: TextRange,
     reference: Reference,
     ty: InferredType,
+    history: Option<TypeHistory>,
 }
 #[derive(Clone, Debug)]
 struct Write {
     identity: Identity,
     range: TextRange,
+    role: WriteRole,
+    post_type: InferredType,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WriteRole {
+    Binding,
+    ExplicitDeclaration,
 }
 
 // A bounded view at an authenticated variable evaluation boundary, after all
@@ -598,6 +615,34 @@ impl Document {
             }
         }
     }
+    /// Only authenticated binding targets produce type hints. Declaration roles
+    /// already have explicit annotations, while reads and object-property targets
+    /// never enter this view. Geometry and facts share this document's revision.
+    pub fn write_type_hints(&self) -> Vec<lsp_types::InlayHint> {
+        self.writes
+            .iter()
+            .filter(|write| write.role == WriteRole::Binding)
+            .filter_map(|write| {
+                let range = self.lines.range(&self.source, write.range).ok()?;
+                Some(lsp_types::InlayHint {
+                    position: range.end,
+                    label: lsp_types::InlayHintLabel::String(format!(
+                        ": {}",
+                        super::type_display::compact(&write.post_type, &self.catalog)
+                    )),
+                    kind: Some(lsp_types::InlayHintKind::TYPE),
+                    text_edits: None,
+                    tooltip: Some(lsp_types::InlayHintTooltip::String(format!(
+                        "Type after this binding write: {}",
+                        write.post_type.description(&self.catalog)
+                    ))),
+                    padding_left: Some(false),
+                    padding_right: Some(false),
+                    data: None,
+                })
+            })
+            .collect()
+    }
     pub fn type_at(&self, position: Position) -> Option<(Range, &InferredType)> {
         let occurrence = self.at(position)?;
         if !matches!(occurrence.reference, Reference::Variable { .. }) {
@@ -632,7 +677,21 @@ impl Document {
             }
             _ => "Inferred type",
         };
+        fields.push((
+            "Current type",
+            super::type_display::compact(ty, &self.catalog),
+        ));
         fields.push((label, ty.description(&self.catalog)));
+        if let Some(history) = &occurrence.history {
+            fields.push((
+                "Previous type (history only)",
+                history.ty.description(&self.catalog),
+            ));
+            fields.push((
+                "Knowledge invalidated by",
+                history.description(&self.source, &self.lines),
+            ));
+        }
         if let InferredType::Values { support, .. } = ty {
             let evidence = support
                 .evidence
@@ -1026,7 +1085,7 @@ impl Engine<'_> {
         completion_owner: Option<CompletionOwner>,
     ) -> Result<InferredType, String> {
         let Some(range) = self.exact(node) else {
-            facts.clear();
+            invalidate(facts, None, Invalidation::Source);
             return Ok(InferredType::Unknown);
         };
         if node
@@ -1034,7 +1093,7 @@ impl Engine<'_> {
             .iter()
             .any(|entry| entry.key == "parser.editor-recovery")
         {
-            facts.clear();
+            invalidate(facts, Some(range), Invalidation::Source);
             return Ok(InferredType::Unknown);
         }
         if node.kind == SyntaxKind::Structure {
@@ -1062,10 +1121,11 @@ impl Engine<'_> {
                 // yields Unknown for this boundary rather than a partial map.
                 let mut types = BTreeMap::new();
                 let mut complete = true;
-                for (key, fact) in facts.iter().filter(|(key, _)| {
+                for (key, fact) in facts.iter().filter(|(key, fact)| {
                     key.local
                         && key.scope == identity.key.scope
                         && key.context == identity.key.context
+                        && fact.has_current()
                 }) {
                     if types.len() == remaining {
                         complete = false;
@@ -1116,9 +1176,10 @@ impl Engine<'_> {
                 reference: Reference::Variable { identity, reaching },
                 node: node.id,
                 ty: ty.clone(),
+                history: fact.and_then(|fact| fact.history.clone()),
             });
             if !safe {
-                facts.clear();
+                invalidate(facts, Some(range), Invalidation::Read);
             }
             for child in &node.children {
                 self.node(*child, scope, &mut Facts::new())?;
@@ -1150,6 +1211,7 @@ impl Engine<'_> {
                         witness: FunctionWitness::from_node(node, &call.name, self.document),
                     },
                     ty: known_type(node),
+                    history: None,
                 });
             }
         }
@@ -1192,7 +1254,7 @@ impl Engine<'_> {
         };
         let preserves = preserves_locals(node);
         if !transparent && prefix.is_none() && (!preserves || !nonbody.is_empty()) {
-            facts.clear();
+            invalidate(facts, Some(range), Invalidation::Provider);
         }
         let mut child_types = HashMap::new();
         let plan = prefix.unwrap_or(EvaluationPlan {
@@ -1208,7 +1270,13 @@ impl Engine<'_> {
                     .proven_present()
                     .is_some_and(|(actual, _)| actual.iter().all(|class| classes.contains(class)))
             {
-                facts.clear();
+                invalidate(
+                    facts,
+                    self.nodes
+                        .get(&step.child)
+                        .and_then(|child| self.exact(child)),
+                    Invalidation::Formatter,
+                );
             }
             child_types.insert(step.child, ty);
         }
@@ -1234,14 +1302,14 @@ impl Engine<'_> {
         });
         if !transparent && !target_only && ((!preserves && !plan.complete) || !unlisted.is_empty())
         {
-            facts.clear();
+            invalidate(facts, Some(range), Invalidation::Provider);
         }
         if node.kind == SyntaxKind::Effect {
             if let Some(change) = change {
                 self.change(node, scope, facts, &change, &child_types)?;
             } else {
                 // An unadvertised effect may invoke arbitrary addon code.
-                facts.clear();
+                invalidate(facts, Some(range), Invalidation::Provider);
             }
         }
         if !body.is_empty() {
@@ -1260,7 +1328,7 @@ impl Engine<'_> {
                     // Loops may re-enter; other extension control flow is opaque.
                     let mut nested = Facts::new();
                     self.body(node, &body, scope, &mut nested)?;
-                    facts.clear();
+                    invalidate(facts, Some(range), Invalidation::ControlFlow);
                 }
             }
         }
@@ -1353,21 +1421,28 @@ impl Engine<'_> {
         let mut barrier = 0;
         for (id, start) in ordered {
             if opaque {
-                facts.clear();
+                invalidate(facts, self.exact(owner), Invalidation::Source);
                 self.evaluation_context = None;
             }
             while barriers
                 .get(barrier)
                 .is_some_and(|at| start.is_none_or(|start| *at < start))
             {
-                facts.clear();
+                invalidate(
+                    facts,
+                    Some(TextRange::new(
+                        barriers[barrier] as usize,
+                        barriers[barrier] as usize,
+                    )),
+                    Invalidation::Source,
+                );
                 self.evaluation_context = None;
                 barrier += 1;
             }
             self.node(id, scope, facts)?;
         }
         if opaque || barrier < barriers.len() {
-            facts.clear();
+            invalidate(facts, self.exact(owner), Invalidation::Source);
             self.evaluation_context = None;
         }
         Ok(())
@@ -1384,11 +1459,11 @@ impl Engine<'_> {
             change.mode.as_str(),
             "set" | "add" | "remove" | "remove-all" | "delete" | "reset"
         ) {
-            facts.clear();
+            invalidate(facts, self.exact(node), Invalidation::Write);
             return Ok(());
         }
         let Some(target_id) = capture_node(node, change.target_capture, &self.nodes) else {
-            facts.clear();
+            invalidate(facts, self.exact(node), Invalidation::Write);
             return Ok(());
         };
         let target = *self
@@ -1396,29 +1471,31 @@ impl Engine<'_> {
             .get(&target_id)
             .ok_or("missing semantic change target")?;
         let Some(identity) = self.identity(target, scope) else {
-            facts.clear();
+            invalidate(facts, self.exact(node), Invalidation::Write);
             return Ok(());
         };
         let Some(range) = self.exact(target) else {
-            facts.clear();
+            invalidate(facts, self.exact(node), Invalidation::Write);
             return Ok(());
         };
-        self.document.writes.push(Write {
-            identity: identity.clone(),
-            range,
-        });
         let previous = facts.get(&identity.key).cloned();
         // A list/prefix or dynamic alias can affect any element family. Keep no
         // scalar facts across it until the provider publishes disjoint families.
         if identity.list {
-            facts.clear();
+            invalidate(facts, self.exact(node), Invalidation::Write);
         } else {
-            facts.retain(|key, fact| {
-                key == &identity.key
-                    || (!fact.list && !may_alias(key, fact.alias.as_ref(), &identity))
+            invalidate_where(facts, Some(range), Invalidation::Alias, |key, fact| {
+                key != &identity.key
+                    && (fact.list || may_alias(key, fact.alias.as_ref(), &identity))
             });
         }
         if !identity.key.local {
+            self.document.writes.push(Write {
+                identity,
+                range,
+                role: WriteRole::Binding,
+                post_type: InferredType::Unknown,
+            });
             return Ok(());
         }
         let value = change
@@ -1436,6 +1513,7 @@ impl Engine<'_> {
             "delete" if certified => InferredType::unset(),
             "add" if identity.list && certified && identity_delta => previous
                 .as_ref()
+                .filter(|fact| fact.has_current())
                 .map_or(InferredType::Unknown, |fact| fact.ty.join(&value)),
             "remove" | "remove-all" if identity.list && certified && identity_delta => previous
                 .as_ref()
@@ -1454,6 +1532,19 @@ impl Engine<'_> {
             *maybe_unset = true;
         }
         ty = ty.with_evidence(Evidence::Assignment);
+        let history = matches!(ty, InferredType::Unknown)
+            .then(|| previous.as_ref())
+            .flatten()
+            .and_then(|fact| {
+                TypeHistory::from_current(fact, Some(range), Invalidation::Write)
+                    .or_else(|| fact.history.clone())
+            });
+        self.document.writes.push(Write {
+            identity: identity.clone(),
+            range,
+            role: WriteRole::Binding,
+            post_type: ty.clone(),
+        });
         facts.insert(
             identity.key.clone(),
             Fact {
@@ -1461,6 +1552,7 @@ impl Engine<'_> {
                 definitions: vec![range],
                 alias: identity.alias.clone(),
                 list: identity.list,
+                history: history.clone(),
             },
         );
         // The target occurrence describes the value after this accepted write.
@@ -1469,9 +1561,10 @@ impl Engine<'_> {
             .occurrences
             .iter_mut()
             .rev()
-            .find(|occurrence| occurrence.range == range)
+            .find(|occurrence| occurrence.node == target_id && matches!(&occurrence.reference, Reference::Variable { identity: found, .. } if found.key == identity.key))
         {
             occurrence.ty = ty;
+            occurrence.history = history;
             if let Reference::Variable { reaching, .. } = &mut occurrence.reference {
                 *reaching = vec![range];
             }
@@ -1606,11 +1699,14 @@ impl Engine<'_> {
                     definitions: vec![range],
                     alias: identity.alias.clone(),
                     list: identity.list,
+                    history: None,
                 },
             );
             self.document.writes.push(Write {
                 identity: identity.clone(),
                 range,
+                role: WriteRole::ExplicitDeclaration,
+                post_type: ty.clone(),
             });
             self.document.occurrences.push(Occurrence {
                 range,
@@ -1620,6 +1716,7 @@ impl Engine<'_> {
                     reaching: vec![range],
                 },
                 ty,
+                history: None,
             });
         }
     }
@@ -1711,13 +1808,19 @@ fn join_facts(left: &Facts, right: &Facts) -> Facts {
             definitions.extend(right.definitions.iter().copied());
             definitions.sort_by_key(|range| (range.start, range.end));
             definitions.dedup();
+            if left.definitions.is_empty() || right.definitions.is_empty() {
+                definitions.clear();
+            }
             Some((
                 key.clone(),
                 Fact {
-                    ty: left
-                        .ty
-                        .join(&right.ty)
-                        .with_evidence(Evidence::ControlFlowJoin),
+                    ty: if left.has_current() && right.has_current() {
+                        left.ty
+                            .join(&right.ty)
+                            .with_evidence(Evidence::ControlFlowJoin)
+                    } else {
+                        InferredType::Unknown
+                    },
                     definitions,
                     alias: if left.alias == right.alias {
                         left.alias.clone()
@@ -1725,6 +1828,7 @@ fn join_facts(left: &Facts, right: &Facts) -> Facts {
                         None
                     },
                     list: left.list || right.list,
+                    history: TypeHistory::join(left.history.as_ref(), right.history.as_ref()),
                 },
             ))
         })

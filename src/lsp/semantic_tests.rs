@@ -1831,3 +1831,182 @@ fn accepted_assignment_and_branch_provenance_stays_current() {
     );
     assert_eq!(document.definitions_at(Position::new(4, 13), &[]).len(), 2);
 }
+
+#[test]
+fn type_inlays_use_post_write_roles_not_read_or_parameter_identity() {
+    let mut fixture =
+        Fixture::new("owner:\n    bind {_x} = 1\n    bind {_x} = text\n    inspect {_x}");
+    let first = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+    let second = fixture.assign(
+        2,
+        "{_x}",
+        "x",
+        "text",
+        "java.lang.String",
+        true,
+        false,
+        "set",
+    );
+    let read = fixture.read(3, "{_x}", "x", true, false);
+    let root = fixture.container(0, SyntaxKind::Structure, &[first, second, read], None);
+    let document = fixture.finish(&[root]);
+    let hints = document.write_type_hints();
+    assert_eq!(hints.len(), 2);
+    for (hint, line, label) in [(&hints[0], 1, ": number"), (&hints[1], 2, ": string")] {
+        assert_eq!(hint.position, Position::new(line, 13));
+        assert!(
+            matches!(&hint.label, lsp_types::InlayHintLabel::String(actual) if actual == label)
+        );
+        assert_eq!(hint.kind, Some(lsp_types::InlayHintKind::TYPE));
+        assert!(hint.text_edits.is_none());
+    }
+    assert_eq!(inferred(&document, 3, 13), string());
+}
+
+#[test]
+fn invalidated_types_are_hover_history_only_and_fresh_writes_replace_them() {
+    let mut fixture = Fixture::new(
+        "owner:\n    bind {_x} = 1\n    opaque\n    inspect {_x}\n    bind {_x} = text\n    inspect {_x}",
+    );
+    let first = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+    let opaque = fixture.push(SyntaxKind::Effect, "effect", fixture.line(2));
+    let old = fixture.read(3, "{_x}", "x", true, false);
+    let fresh = fixture.assign(
+        4,
+        "{_x}",
+        "x",
+        "text",
+        "java.lang.String",
+        true,
+        false,
+        "set",
+    );
+    let read = fixture.read(5, "{_x}", "x", true, false);
+    let root = fixture.container(
+        0,
+        SyntaxKind::Structure,
+        &[first, opaque, old, fresh, read],
+        None,
+    );
+    let document = fixture.finish(&[root]);
+    assert_eq!(inferred(&document, 3, 13), InferredType::Unknown);
+    let history = document.hover(Position::new(3, 13)).unwrap().1;
+    assert!(history.contains("Current type: ?"), "{history}");
+    assert!(
+        history.contains("Previous type (history only): number"),
+        "{history}"
+    );
+    assert!(
+        history.contains("provider current-frame effects are unverified (line 3"),
+        "{history}"
+    );
+    // Static navigation candidates remain available. They are not a proof
+    // that an old write still reaches this runtime lookup.
+    assert!(
+        matches!(&document.at(Position::new(3,13)).unwrap().reference,
+        Reference::Variable { reaching, .. } if reaching.is_empty())
+    );
+    assert_eq!(inferred(&document, 5, 13), string());
+    assert!(
+        !document
+            .hover(Position::new(5, 13))
+            .unwrap()
+            .1
+            .contains("history only")
+    );
+}
+
+#[test]
+fn alias_history_never_becomes_a_current_heuristic_or_reaching_write() {
+    let mut fixture =
+        Fixture::new("owner:\n    bind {_a} = 1\n    bind {_A} = 2\n    inspect {_a}");
+    let first = fixture.assign(1, "{_a}", "a", "1", "java.lang.Number", true, false, "set");
+    let alias = fixture.assign(2, "{_A}", "A", "2", "java.lang.Number", true, false, "set");
+    let read = fixture.read(3, "{_a}", "a", true, false);
+    let root = fixture.container(0, SyntaxKind::Structure, &[first, alias, read], None);
+    let document = fixture.finish(&[root]);
+    let hover = document.hover(Position::new(3, 13)).unwrap().1;
+    assert!(hover.contains("write may overlap"), "{hover}");
+    assert_eq!(inferred(&document, 3, 13), InferredType::Unknown);
+    // Static navigation candidates remain available. They are not a proof
+    // that an old write still reaches this runtime lookup.
+    assert!(
+        matches!(&document.at(Position::new(3,13)).unwrap().reference,
+        Reference::Variable { reaching, .. } if reaching.is_empty())
+    );
+}
+
+#[test]
+fn unverified_write_preserves_history_but_never_current_proof() {
+    let mut fixture =
+        Fixture::new("owner:\n    bind {_x} = 1\n    bind {_x} = text\n    inspect {_x}");
+    let first = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+    let second = fixture.assign(
+        2,
+        "{_x}",
+        "x",
+        "text",
+        "java.lang.String",
+        true,
+        false,
+        "set",
+    );
+    fixture.nodes[second as usize]
+        .metadata
+        .retain(|entry| entry.key != CHANGE);
+    fixture.nodes[second as usize].metadata.push(metadata(CHANGE,json!({"version":2,"mode":"set","targetCapture":0,"valueCapture":1,"identityDelta":false,"targetOnly":false})));
+    let read = fixture.read(3, "{_x}", "x", true, false);
+    let root = fixture.container(0, SyntaxKind::Structure, &[first, second, read], None);
+    let document = fixture.finish(&[root]);
+    assert_eq!(inferred(&document, 3, 13), InferredType::Unknown);
+    let hover = document.hover(Position::new(3, 13)).unwrap().1;
+    assert!(
+        hover.contains("Previous type (history only): number"),
+        "{hover}"
+    );
+    assert!(
+        matches!(&document.write_type_hints()[1].label, lsp_types::InlayHintLabel::String(label) if label == ": ?")
+    );
+}
+
+#[test]
+fn history_only_branch_keys_do_not_create_new_current_candidates() {
+    let mut fixture =
+        Fixture::new("owner:\n    bind {_x} = 1\n    maybe:\n        opaque\n    inspect {_x}");
+    let write = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+    let opaque = fixture.push(SyntaxKind::Effect, "effect", fixture.line(3));
+    let branch = fixture.container(2, SyntaxKind::Section, &[opaque], Some("branch"));
+    let read = fixture.read(4, "{_x}", "x", true, false);
+    let root = fixture.container(0, SyntaxKind::Structure, &[write, branch, read], None);
+    let document = fixture.finish(&[root]);
+    assert_eq!(inferred(&document, 4, 13), InferredType::Unknown);
+    // Static navigation candidates remain available. They are not a proof
+    // that an old write still reaches this runtime lookup.
+    assert!(
+        matches!(&document.at(Position::new(4,13)).unwrap().reference,
+        Reference::Variable { reaching, .. } if reaching.is_empty())
+    );
+}
+
+#[test]
+fn binding_hint_anchor_is_utf16_and_rejected_geometry_has_no_hint() {
+    let mut fixture = Fixture::new("owner:\n    😀 bind {_x} = 1\n    inspect {_x}");
+    let write = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+    let read = fixture.read(2, "{_x}", "x", true, false);
+    let root = fixture.container(0, SyntaxKind::Structure, &[write, read], None);
+    let target = fixture.part(1, "{_x}");
+    let document = fixture.finish(&[root]);
+    let hint = &document.write_type_hints()[0];
+    assert_eq!(
+        hint.position.character,
+        "    😀 bind {_x}".encode_utf16().count() as u32
+    );
+    assert_eq!(hint.position.line, 1);
+    let mut blocked = Fixture::new("owner:\n    bind {_x} = 1");
+    let write = blocked.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+    let root = blocked.container(0, SyntaxKind::Structure, &[write], None);
+    let span = blocked.part(1, "{_x}");
+    let document = blocked.finish_with(&[root], vec![span], Vec::new(), "file:///blocked.sk");
+    assert!(document.write_type_hints().is_empty());
+    assert!(target.end > target.start);
+}
