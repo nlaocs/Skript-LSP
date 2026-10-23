@@ -28,6 +28,7 @@ mod ranking;
 pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
 mod signature;
 mod structure;
+mod type_names;
 mod typing;
 #[cfg(test)]
 mod typing_tests;
@@ -903,6 +904,10 @@ impl Document {
                     );
                 }
             }
+        }
+        if expression && variable_start.is_none() {
+            frontier_limited |=
+                self.push_type_names(line, offset, word_start, word_end, references, &mut items)?;
         }
         if expression {
             let start = variable_start.unwrap_or(word_start);

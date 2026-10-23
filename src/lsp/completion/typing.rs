@@ -42,7 +42,9 @@ impl Actual {
     }
 }
 pub(super) struct Index {
-    catalog: Arc<Catalog>,
+    pub(super) catalog: Arc<Catalog>,
+    pub(super) type_names: Vec<(String, String)>,
+    pub(super) type_names_limited: bool,
     outputs: HashMap<String, Output>,
     pub(super) complete_patterns: bool,
     closed: bool,
@@ -55,6 +57,8 @@ impl Index {
     pub(super) fn new(catalog: Arc<Catalog>) -> Self {
         Self {
             catalog,
+            type_names: Vec::new(),
+            type_names_limited: false,
             outputs: HashMap::new(),
             complete_patterns: true,
             closed: false,
@@ -191,6 +195,7 @@ impl CatalogIndex {
         };
         // Unadvertised document-dependent registrations make the Catalog an
         // incomplete description of possible parent grammars.
+        (index.type_names, index.type_names_limited) = host.completion_type_names();
         index.closed = host.completion_catalog_patterns_are_closed();
         index.candidate_bindings_closed = host.completion_candidate_bindings_are_closed();
         index.static_locals_stable = host.completion_static_local_substitution_is_stable();
@@ -276,7 +281,7 @@ pub(super) fn accepted_slots(
         for (parameter, types) in pattern.graph.slot_types.iter().enumerate() {
             let Some(expected) = types
                 .as_ref()
-                .and_then(|t| expected_types(&typing.catalog, t))
+                .and_then(|t| expected_types(&typing.catalog, t, false))
             else {
                 continue;
             };
@@ -323,6 +328,25 @@ impl Document {
         references: bool,
         budget: &mut continuation::Budget,
     ) -> Option<Vec<ExpressionExpectedType>> {
+        self.expected_at_mode(line, edit, references, false, budget)
+    }
+    pub(super) fn expected_literal_at(
+        &self,
+        line: &Line,
+        edit: TextRange,
+        references: bool,
+        budget: &mut continuation::Budget,
+    ) -> Option<Vec<ExpressionExpectedType>> {
+        self.expected_at_mode(line, edit, references, true, budget)
+    }
+    fn expected_at_mode(
+        &self,
+        line: &Line,
+        edit: TextRange,
+        references: bool,
+        literals: bool,
+        budget: &mut continuation::Budget,
+    ) -> Option<Vec<ExpressionExpectedType>> {
         let index = self.index.typing.as_ref()?;
         if !index.current() || !index.closed || !self.type_context_exact || line.root {
             return None;
@@ -339,8 +363,10 @@ impl Document {
         {
             return None;
         }
-        if let Some(expected) = self.accepted_slots.get(&(edit.start, edit.end)) {
-            return Some(expected.clone());
+        if !literals {
+            if let Some(expected) = self.accepted_slots.get(&(edit.start, edit.end)) {
+                return Some(expected.clone());
+            }
         }
         if !index.complete_patterns {
             return None;
@@ -351,6 +377,7 @@ impl Document {
             line.scope,
             line.section,
             references,
+            literals,
             0,
             budget,
             &mut HashSet::new(),
@@ -392,6 +419,7 @@ impl Document {
         scope: Scope,
         section: bool,
         references: bool,
+        literals: bool,
         depth: usize,
         budget: &mut continuation::Budget,
         path: &mut HashSet<(String, u8, bool)>,
@@ -407,6 +435,7 @@ impl Document {
             scope,
             section,
             references,
+            literals,
             depth,
             budget,
             path,
@@ -420,6 +449,7 @@ impl Document {
         scope: Scope,
         section: bool,
         references: bool,
+        literals: bool,
         depth: usize,
         budget: &mut continuation::Budget,
         path: &mut HashSet<(String, u8, bool)>,
@@ -444,7 +474,7 @@ impl Document {
                 .then(Vec::new);
         }
         let result = self.expression_context_types_inner(
-            text, hole, candidate, scope, section, references, depth, budget, path,
+            text, hole, candidate, scope, section, references, literals, depth, budget, path,
         );
         path.remove(&key);
         result
@@ -457,6 +487,7 @@ impl Document {
         scope: Scope,
         section: bool,
         references: bool,
+        literals: bool,
         depth: usize,
         budget: &mut continuation::Budget,
         path: &mut HashSet<(String, u8, bool)>,
@@ -548,6 +579,7 @@ impl Document {
                                     Scope::Expressions,
                                     false,
                                     references,
+                                    literals,
                                     depth + 1,
                                     budget,
                                     path,
@@ -588,8 +620,11 @@ impl Document {
             };
             for (parameter, range) in slots {
                 let types = if let Some(types) = pattern.graph.slot_types.get(parameter)?.as_ref() {
-                    if !types.allow_expressions
-                        && matches!(scope, Scope::Expressions)
+                    if !(if literals {
+                        types.allow_literals
+                    } else {
+                        types.allow_expressions
+                    }) && matches!(scope, Scope::Expressions)
                         && index.candidate_bindings_closed
                     {
                         // A native literals-only slot cannot bind the proposed
@@ -597,7 +632,7 @@ impl Document {
                         // is a different candidate, not a return-type escape.
                         continue;
                     }
-                    expected_types(&index.catalog, types)?
+                    expected_types(&index.catalog, types, literals)?
                 } else {
                     if !matches!(scope, Scope::Expressions) {
                         return None;
@@ -615,8 +650,13 @@ impl Document {
                     if route.parser_id != "host.expression" {
                         return None;
                     }
-                    let (_, expressions) = skript_parser::capture_expression_flags(route).ok()?;
-                    if !expressions {
+                    let (allow_literals, expressions) =
+                        skript_parser::capture_expression_flags(route).ok()?;
+                    if !(if literals {
+                        allow_literals
+                    } else {
+                        expressions
+                    }) {
                         continue;
                     }
                     let captured = native_trim(text.get(range.clone())?);
@@ -629,6 +669,7 @@ impl Document {
                             Scope::Expressions,
                             false,
                             references,
+                            literals,
                             depth + 1,
                             budget,
                             path,
@@ -659,6 +700,7 @@ impl Document {
                         Scope::Expressions,
                         false,
                         references,
+                        literals,
                         depth + 1,
                         budget,
                         path,
@@ -734,6 +776,7 @@ impl Document {
             line.scope,
             line.section,
             references,
+            false,
             0,
             budget,
             &mut HashSet::new(),
@@ -972,8 +1015,14 @@ fn native_trim_end(input: &str) -> &str {
 fn expected_types(
     catalog: &Catalog,
     types: &PatternTypeExpr,
+    literals: bool,
 ) -> Option<Vec<ExpressionExpectedType>> {
-    if !types.allow_expressions || types.alternatives.is_empty() {
+    if !(if literals {
+        types.allow_literals
+    } else {
+        types.allow_expressions
+    }) || types.alternatives.is_empty()
+    {
         return None;
     }
     types

@@ -30,6 +30,7 @@ pub mod source_geometry;
 #[cfg(test)]
 mod source_mapping_tests;
 mod subscriptions;
+mod type_name_spellings;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
 pub use document::{
@@ -9160,6 +9161,17 @@ impl ParserHost {
         let entry = &mut self.components[index];
         entry.disabled = true;
         entry.disabled_reason = Some(error.clone());
+    }
+
+    /// Registered ClassInfo spellings for editing only. Verify against the same
+    /// ordered user-input matchers used by the Core's type-for-user-input import;
+    /// an internal code name or noun alone is not a user-facing type literal.
+    /// No guest or runtime parser is executed. Arbitrary regexes are not expanded.
+    pub fn completion_type_names(&self) -> (Vec<(String, String)>, bool) {
+        type_name_spellings::collect(
+            &self.type_user_input_matchers,
+            self.config.syntax_catalog.as_deref(),
+        )
     }
 
     /// A provider-owned, Catalog-bound upper bound for all successful outputs of

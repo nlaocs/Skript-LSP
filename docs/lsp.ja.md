@@ -220,6 +220,21 @@ UTF-16 surrogate途中・逆転rangeは待機前にInvalidParams、閉じたURI�
 未知の処理を副作用なしとはせず、失効した過去の型や宣言型を自動的にheuristic候補として復活させない。
 この基盤は新しいheuristic生成方針や、変数型inlay hintの配信を実装するものではない。
 
+### 型名の補完と parsed as
+
+ClassInfo を要求する式の位置では、登録されたユーザー入力patternに一致する型名を補完する。
+内部code nameや表示用nounだけで候補を作らず、有限に展開できるpatternも同じ登録順matcherで再検証する。
+Addonの型も同じ経路を使う。無限・未対応のregexや予算上限は不完全として扱い、非対応型と断定しない。
+一般のClassInfo位置ではparserを持たない型も合法なので一律には除外しない。
+補完詳細にはparserの有無と観測済みcontextを表示し、親provider固有の対象型条件は未検証と明示する。
+
+Coreの既存解析は parsed as の対象型から戻り値型と単複を解決する。
+parser不在やtextをtextとして解析する指定などの確定した拒否は、対応するnative captureが一意なら対象型の範囲を指す。
+能力metadataが無い場合やcontextが未観測の場合は未確定とし、非対応と断定しない。
+patternでは能力未確定のplaceholderより後も検査し、確定した構文エラーを隠さない。
+quoted patternのregex captureには現在mapped spanの輸送がないため、その診断は式全体を指す。
+これらはload-timeの検証であり、定数文字列でもruntime parserを実行したり解析成功・値の存在を保証したりしない。
+
 ## 安全なリネーム
 
 `workspace.workspaceEdit.documentChanges = true`を表明するclientだけに`renameProvider`を公開する。
