@@ -45,6 +45,7 @@ pub(super) fn parse(
         metadata("semantic-role", "target-type"),
         metadata("target-class", &option.class_name),
         metadata("type-code-name", &option.code_name),
+        metadata("type-registration-id", &option.registration_id),
         metadata("type-plural", if plural { "true" } else { "false" }),
         metadata(
             "has-parser",

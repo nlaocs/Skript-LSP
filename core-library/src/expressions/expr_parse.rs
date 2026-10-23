@@ -57,12 +57,18 @@ fn resolve_parse_expression(payload: &RegisteredExpressionPayload) -> SemanticRe
                 child.text
             ));
         }
+        let mut facts = vec![metadata("semantic-mode", "parse-type")];
+        if let Some(classes) = closed_output_classes(payload, child, target) {
+            facts.push(metadata(crate::public_data::CHANGE_INPUT_METADATA_KEY, &serde_json::json!({
+                "version":2, "kind":"default-clone", "runtimeClasses":classes, "classesComplete":true,
+            }).to_string()));
+        }
         return resolved_with_possible_types(
             target.to_owned(),
             vec![target.to_owned()],
             ExpressionPossibleReturnTypesState::Complete,
             DynamicMultiplicity::Single,
-            vec![metadata("semantic-mode", "parse-type")],
+            facts,
         );
     }
     let Some(pattern) = payload.regex_captures.first().map(|value| unquote(value)) else {
@@ -95,6 +101,54 @@ fn resolve_parse_expression(payload: &RegisteredExpressionPayload) -> SemanticRe
         multiplicity,
         vec![metadata("semantic-mode", "parse-pattern")],
     )
+}
+
+/// The standard parser's successful output classes, not a parse-success claim.
+/// Addon/world-dependent parsers remain unexecuted and receive no certificate.
+fn closed_output_classes(
+    payload: &RegisteredExpressionPayload,
+    child: &crate::nlaocs::skript_parser_addon::types::RegisteredExpressionChild,
+    target: &str,
+) -> Option<Vec<String>> {
+    if !crate::catalog::standard_expression_source(payload, "ch.njol.skript.expressions.ExprParse")
+    {
+        return None;
+    }
+    let registration = core_field(&child.metadata, "type-registration-id")?;
+    if core_field(&child.metadata, "target-class")? != target {
+        return None;
+    }
+    // A typed target does not request the regex-pattern all-type payload.
+    // Reuse the host lookup and bind it to the actual selected registration;
+    // a different/opaque registration cannot borrow the standard parser proof.
+    let active = crate::catalog::type_for_class(target).ok().flatten()?;
+    if active.registration_id != registration
+        || active.class_name != target
+        || !crate::catalog::standard_primitive_parser(&active)
+    {
+        return None;
+    }
+    // Pinned 2.15.4 NumberParser.parse returns Integer/Double or null. The
+    // virtual formatter for arbitrary Number subclasses is a separate contract.
+    match active.class_name.as_str() {
+        "java.lang.Number" => Some(vec!["java.lang.Integer".into(), "java.lang.Double".into()]),
+        _ => None,
+    }
+}
+fn core_field<'a>(
+    entries: &'a [crate::nlaocs::skript_parser_addon::types::MetadataEntry],
+    key: &str,
+) -> Option<&'a str> {
+    let mut found = entries.iter().filter(|entry| {
+        entry.key == key
+            || entry
+                .key
+                .rsplit_once('/')
+                .is_some_and(|(_, suffix)| suffix == key)
+    });
+    let entry = found.next()?;
+    (found.next().is_none() && entry.owner_component_id.as_deref() == Some(crate::COMPONENT_ID))
+        .then_some(entry.value.as_str())
 }
 
 /// `ExprParse` used `COMMAND` until Skript 2.8 introduced the dedicated

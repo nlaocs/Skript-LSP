@@ -713,6 +713,23 @@ fn standard_condition_source_record(
             == Some(candidate.pattern.as_str())
 }
 
+pub(crate) fn standard_expression_source(
+    candidate: &crate::nlaocs::skript_parser_addon::types::RegisteredExpressionPayload,
+    class: &str,
+) -> bool {
+    pinned_runtime()
+        && candidate.element_class == class
+        && standard_syntax_source(
+            "Expressions.json",
+            "expression",
+            &candidate.definition_id,
+            &candidate.registration_id,
+            class,
+            candidate.pattern_index,
+            Some(&candidate.pattern),
+        )
+}
+
 pub(crate) fn standard_effect_source(
     candidate: &crate::nlaocs::skript_parser_addon::types::EffectCandidate,
     class: &str,
@@ -980,18 +997,79 @@ fn default_clone_input(summary: &crate::nlaocs::skript_parser_addon::types::Pars
         .iter()
         .filter(|entry| entry.key == crate::public_data::CHANGE_INPUT_METADATA_KEY)
         .collect::<Vec<_>>();
-    matches!(summary.kind.as_str(), "literal" | "variable")
-        && entries.len() == 1
+    entries.len() == 1
         && entries[0].owner_component_id.as_deref() == Some(crate::COMPONENT_ID)
-        && serde_json::from_str::<serde_json::Value>(&entries[0].value)
-            .ok()
-            .is_some_and(|value| value["version"] == 1 && value["kind"] == "default-clone")
+        && clone_input_contract(&summary.kind, &entries[0].value).is_some()
+}
+// V2 certifies a closed runtime output domain independently of the advertised
+// return bound and absence. Only the authenticated provider may mint it. Storage
+// and cloning still require each actual ClassInfo's no-callback witness.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CloneInput {
+    version: u32,
+    kind: String,
+    #[serde(default)]
+    runtime_classes: Vec<String>,
+    #[serde(default)]
+    classes_complete: bool,
+}
+fn clone_input_contract(kind: &str, json: &str) -> Option<CloneInput> {
+    let input: CloneInput = serde_json::from_str(json).ok()?;
+    if input.kind != "default-clone" {
+        return None;
+    }
+    match input.version {
+        1 if matches!(kind, "literal" | "variable")
+            && input.runtime_classes.is_empty()
+            && !input.classes_complete =>
+        {
+            Some(input)
+        }
+        2 if input.classes_complete
+            && !input.runtime_classes.is_empty()
+            && input.runtime_classes.len() <= 16
+            && input.runtime_classes.iter().all(|class| !class.is_empty())
+            && input
+                .runtime_classes
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == input.runtime_classes.len() =>
+        {
+            Some(input)
+        }
+        _ => None,
+    }
+}
+fn closed_clone_identity(
+    summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary,
+    identity_classes: &[String],
+) -> bool {
+    let mut entries = summary
+        .metadata
+        .iter()
+        .filter(|entry| entry.key == crate::public_data::CHANGE_INPUT_METADATA_KEY);
+    let Some(entry) = entries.next() else {
+        return false;
+    };
+    if entries.next().is_some() || entry.owner_component_id.as_deref() != Some(crate::COMPONENT_ID)
+    {
+        return false;
+    }
+    clone_input_contract(&summary.kind, &entry.value).is_some_and(|input| {
+        input.version == 2
+            && input
+                .runtime_classes
+                .iter()
+                .all(|class| identity_classes.contains(class))
+    })
 }
 pub(crate) fn identity_delta_for_summary(
     summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary,
 ) -> bool {
     let classes = identity_delta_types_for_summary(summary);
-    summary.possible_return_types_state
+    closed_clone_identity(summary, &classes) || summary.possible_return_types_state
         == crate::nlaocs::skript_parser_addon::types::ExpressionPossibleReturnTypesState::Complete
         && !summary.possible_return_types.is_empty()
         && summary
@@ -1742,6 +1820,27 @@ mod tests {
         let mut changed = value.clone();
         changed.metadata[0].value = r#"{"version":2,"kind":"default-clone"}"#.into();
         assert!(!default_clone_input(&changed));
+    }
+
+    #[test]
+    fn closed_output_clone_contract_does_not_imply_presence_or_callback_purity() {
+        let json = serde_json::json!({"version":2,"kind":"default-clone","runtimeClasses":["java.lang.Integer","java.lang.Double"],"classesComplete":true});
+        assert!(clone_input_contract("registered-expression", &json.to_string()).is_some());
+        for (field, value) in [
+            ("classesComplete", serde_json::json!(false)),
+            ("runtimeClasses", serde_json::json!([])),
+            ("runtimeClasses", serde_json::json!(["x", "x"])),
+            ("runtimeClasses", serde_json::json!([""])),
+            ("nonEmpty", serde_json::json!(true)),
+            ("version", serde_json::json!(3)),
+        ] {
+            let mut changed = json.clone();
+            changed[field] = value;
+            assert!(
+                clone_input_contract("registered-expression", &changed.to_string()).is_none(),
+                "{changed}"
+            );
+        }
     }
 
     #[test]
