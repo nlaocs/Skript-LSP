@@ -17,12 +17,20 @@ it does not by itself implement every Skript or addon behavior.
 | Diagnostics | Structure entries, nested executable bodies, parser/provider failures, and expected/actual types where the parser has sufficient evidence. Safe results from independent regions can survive errors elsewhere. |
 | Hover and completion details | Syntax, return types, parameter declarations, inferred variable types, descriptions, examples, and definition information. Registration grammar and executable examples have separate code fences. |
 | Semantic highlighting | Adopted syntax, function names, variables, literals, and interpolation delimiters. Custom Skript token roles require client support. |
-| Completion and signature help | Structure entries, statement templates, grammar continuations, expressions, functions, and scoped variables. Known incompatible result types are filtered when the expected type is established; Unknown and unverified alternatives remain conservative. |
+| Completion and signature help | Structure entries, statement templates, grammar continuations, expressions, functions, scoped variables, and captured finite type values (enum/parser/supplier values and snapshot aliases). Known incompatible types are filtered when the expected type is established; Unknown and unverified alternatives remain conservative. |
 | Definitions and references | Resolved functions and statically identifiable variables, with source and scope checks. Project queries can include unopened files. |
 | Safe rename | Source-backed functions and eligible static scalar locals. Requires complete editable coverage, open edit targets, and a client that supports versioned edits. |
 | Call hierarchy | Incoming/outgoing calls between resolved source-backed function bodies, including recursion and project documents. |
 | Document symbols | Structure outlines from provider metadata, with validated source ranges and hierarchy. |
 | Inlay hints | Names of explicit function arguments and supported initialized implicit arguments. Hints do not modify source text. |
+
+Type-value completion reuses finite SSG parser strings, supplier values, enum
+values, and captured aliases; it does not assume that every parser is enumerable.
+It supports multiword spellings and bounded prefix search, recomputing proposals
+as the prefix narrows. Values are offered only at established literal-capable
+argument positions. Arbitrary parser inputs (for example RGB components),
+script-local aliases and runtime-only values are not enumerated. Suggestions
+do not guarantee that a runtime parser or addon-specific guard will accept them.
 
 See the [LSP behavior and limitations](docs/lsp.ja.md) for the exact contracts.
 This is static analysis, not runtime execution or a linter.

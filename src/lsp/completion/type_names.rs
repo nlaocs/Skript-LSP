@@ -21,24 +21,7 @@ impl Document {
             return Ok(index.type_names_limited);
         }
         let mut budget = continuation::Budget::new();
-        let mut start_offsets = vec![word_start];
-        // Multiword registered names may own earlier words. Never cross a
-        // source boundary or scan an unbounded expression to find a type slot.
-        let mut scan_start = word_start.saturating_sub(256).max(line.code_start);
-        while !self.source.is_char_boundary(scan_start) {
-            scan_start += 1;
-        }
-        let before = &self.source[scan_start..word_start];
-        let mut earlier = before.char_indices().rev().filter_map(|(i, c)| {
-            let absolute = scan_start + i;
-            (!c.is_whitespace()
-                && (absolute == line.code_start
-                    || self.source[..absolute].ends_with(char::is_whitespace)))
-            .then_some(absolute)
-        });
-        start_offsets.extend(earlier.by_ref().take(5));
-        // Detect omitted positions without running more grammar-hole queries.
-        let mut search_truncated = scan_start > line.code_start || earlier.next().is_some();
+        let (start_offsets, mut search_truncated) = self.type_literal_starts(line, word_start);
         for start in start_offsets {
             if offset - start > 256 {
                 search_truncated = true;
