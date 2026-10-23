@@ -841,19 +841,14 @@ impl Document {
         // A static scalar name replacement preserves this actual native lookup
         // under the explicit provider contract. Its requested types and incoming
         // facts are stronger evidence than a speculative parent Graph path.
-        let Some((
-            super::super::semantic::InferredType::Values {
-                classes,
-                multiple,
-                maybe_unset: false,
-            },
-            requested,
-            owner,
-        )) = self
+        let Some((ty, requested, owner)) = self
             .semantic_types
             .as_ref()
             .and_then(|s| s.completion_input(&self.source, edit, name))
         else {
+            return false;
+        };
+        let Some((classes, multiple)) = ty.proven_present() else {
             return false;
         };
         let adopted = self.accepted_slots.get(&(edit.start, edit.end));
@@ -873,7 +868,7 @@ impl Document {
             &index.catalog,
             &classes.iter().cloned().map(ClassName).collect::<Vec<_>>(),
             true,
-            (!*multiple).then_some(Multiplicity::Single),
+            (!multiple).then_some(Multiplicity::Single),
             &expected,
         ) && (adopted.is_some() || self.variable_parent_unchanged(edit, candidate, owner, budget))
     }

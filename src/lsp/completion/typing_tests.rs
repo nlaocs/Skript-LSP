@@ -1092,7 +1092,7 @@ fn native_function_result_assignment_reaches_hover_and_variable_type_filter() {
         let p = position(&source, "{_aaa");
         let (_, ty) = view.semantic_types.as_ref().unwrap().type_at(p).unwrap();
         assert!(
-            matches!(ty, InferredType::Values { classes, multiple: false, maybe_unset: true } if classes == &std::collections::BTreeSet::from(["java.lang.String".into()])),
+            matches!(ty, InferredType::Values { classes, multiple: false, maybe_unset: true, .. } if classes == &std::collections::BTreeSet::from(["java.lang.String".into()])),
             "{alias}: {ty:?}"
         );
         let list = view.at(p, false).unwrap();

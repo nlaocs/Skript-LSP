@@ -21,6 +21,8 @@ use syntaxes::Catalog;
 mod call_hierarchy;
 mod document_symbols;
 mod navigation;
+mod type_knowledge;
+use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
 
 const CHANGE: &str = "skript.semantic.variable-change";
 const FLOW: &str = "skript.semantic.control-flow";
@@ -39,6 +41,7 @@ pub(super) enum InferredType {
         classes: BTreeSet<String>,
         multiple: bool,
         maybe_unset: bool,
+        support: TypeSupport,
     },
 }
 impl InferredType {
@@ -47,6 +50,7 @@ impl InferredType {
             classes: BTreeSet::new(),
             multiple: false,
             maybe_unset: true,
+            support: TypeSupport::inferred(),
         }
     }
     fn join(&self, other: &Self) -> Self {
@@ -56,18 +60,80 @@ impl InferredType {
                     classes: left,
                     multiple: lm,
                     maybe_unset: lu,
+                    support: ls,
                 },
                 Self::Values {
                     classes: right,
                     multiple: rm,
                     maybe_unset: ru,
+                    support: rs,
                 },
             ) => Self::Values {
                 classes: left.union(right).cloned().collect(),
                 multiple: *lm || *rm,
                 maybe_unset: *lu || *ru,
+                support: ls.join(rs),
             },
+            (
+                Self::Values {
+                    classes,
+                    multiple,
+                    maybe_unset: _,
+                    support,
+                },
+                Self::Unknown,
+            )
+            | (
+                Self::Unknown,
+                Self::Values {
+                    classes,
+                    multiple,
+                    maybe_unset: _,
+                    support,
+                },
+            ) => {
+                let mut support = support.clone();
+                support.candidates_complete = false;
+                Self::Values {
+                    classes: classes.clone(),
+                    multiple: *multiple,
+                    maybe_unset: true,
+                    support,
+                }
+            }
             _ => Self::Unknown,
+        }
+    }
+    fn with_evidence(mut self, evidence: Evidence) -> Self {
+        if let Self::Values { support, .. } = &mut self {
+            support.evidence.insert(evidence);
+        }
+        self
+    }
+    /// The only boundary for definite diagnostics, filtering and preservation.
+    /// A complete union is proof; partial candidates or heuristics are not.
+    pub fn proven_types(&self) -> Option<(&BTreeSet<String>, bool)> {
+        match self {
+            Self::Values {
+                classes,
+                multiple,
+                support,
+                ..
+            } if support.is_proof() && !classes.is_empty() => Some((classes, *multiple)),
+            _ => None,
+        }
+    }
+    pub fn proven_present(&self) -> Option<(&BTreeSet<String>, bool)> {
+        if matches!(
+            self,
+            Self::Values {
+                maybe_unset: false,
+                ..
+            }
+        ) {
+            self.proven_types()
+        } else {
+            None
         }
     }
     pub fn description(&self, catalog: &Catalog) -> String {
@@ -77,6 +143,7 @@ impl InferredType {
                 classes,
                 multiple,
                 maybe_unset,
+                support,
             } => {
                 let mut names = classes
                     .iter()
@@ -85,7 +152,15 @@ impl InferredType {
                 if *maybe_unset {
                     names.push("unset".into());
                 }
-                let description = names.join(" | ");
+                if !support.candidates_complete {
+                    names.push("other types unresolved".into());
+                }
+                let names = names.join(" | ");
+                let description = match support.certainty {
+                    Certainty::Inferred => names,
+                    Certainty::Heuristic => format!("heuristic candidates: {names}"),
+                    Certainty::Unknown => format!("unverified candidates: {names}"),
+                };
                 if *multiple {
                     format!("{description} (list elements)")
                 } else {
@@ -535,7 +610,35 @@ impl Document {
                 declared.description(&self.catalog),
             ));
         }
-        fields.push(("Inferred type", ty.description(&self.catalog)));
+        let label = match ty {
+            InferredType::Values { support, .. } if support.certainty == Certainty::Heuristic => {
+                "Heuristic type candidates"
+            }
+            InferredType::Values { support, .. }
+                if !support.candidates_complete || support.certainty == Certainty::Unknown =>
+            {
+                "Type candidates"
+            }
+            _ => "Inferred type",
+        };
+        fields.push((label, ty.description(&self.catalog)));
+        if let InferredType::Values { support, .. } = ty {
+            let evidence = support
+                .evidence
+                .iter()
+                .map(|evidence| match evidence {
+                    Evidence::AcceptedResult => "accepted parser result",
+                    Evidence::ParameterBinding => "parameter entry binding",
+                    Evidence::Declaration => "parameter declaration",
+                    Evidence::Assignment => "accepted assignment",
+                    Evidence::ControlFlowJoin => "merged current control-flow paths",
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            if !evidence.is_empty() {
+                fields.push(("Type evidence", evidence));
+            }
+        }
         Some((range, fields))
     }
     #[cfg(test)]
@@ -1090,8 +1193,9 @@ impl Engine<'_> {
             self.pending_completion_owner = self.completion_owner(node, step.child);
             let ty = self.node(step.child, scope, facts)?;
             if let Some(classes) = &step.preserve_types
-                && !matches!(&ty, InferredType::Values { classes: actual, maybe_unset: false, .. }
-                    if !actual.is_empty() && actual.iter().all(|class| classes.contains(class)))
+                && !ty
+                    .proven_present()
+                    .is_some_and(|(actual, _)| actual.iter().all(|class| classes.contains(class)))
             {
                 facts.clear();
             }
@@ -1338,6 +1442,7 @@ impl Engine<'_> {
         {
             *maybe_unset = true;
         }
+        ty = ty.with_evidence(Evidence::Assignment);
         facts.insert(
             identity.key.clone(),
             Fact {
@@ -1465,6 +1570,7 @@ impl Engine<'_> {
                 classes: BTreeSet::from([parameter.class_name.clone()]),
                 multiple: !parameter.single,
                 maybe_unset: false,
+                support: TypeSupport::from(Evidence::Declaration),
             };
             let ty = if parameter.class_name == "java.lang.Object" {
                 InferredType::Unknown
@@ -1473,6 +1579,7 @@ impl Engine<'_> {
                     classes: BTreeSet::from([parameter.class_name]),
                     multiple: !parameter.single,
                     maybe_unset: true,
+                    support: TypeSupport::from(Evidence::ParameterBinding),
                 }
             };
             accepted.push((identity, TextRange::new(start, end), ty, declared));
@@ -1596,7 +1703,10 @@ fn join_facts(left: &Facts, right: &Facts) -> Facts {
             Some((
                 key.clone(),
                 Fact {
-                    ty: left.ty.join(&right.ty),
+                    ty: left
+                        .ty
+                        .join(&right.ty)
+                        .with_evidence(Evidence::ControlFlowJoin),
                     definitions,
                     alias: if left.alias == right.alias {
                         left.alias.clone()
@@ -1647,8 +1757,11 @@ fn preserves_locals(node: &AstNode) -> bool {
 fn identity_delta(change: &Change, value: &InferredType) -> bool {
     change.version == 2
         && (change.identity_delta
-            || matches!(value,
-        InferredType::Values { classes, .. } if !classes.is_empty() && classes.iter().all(|class| change.identity_delta_types.contains(class))))
+            || value.proven_types().is_some_and(|(classes, _)| {
+                classes
+                    .iter()
+                    .all(|class| change.identity_delta_types.contains(class))
+            }))
 }
 fn operand_prefix(
     node: &AstNode,
@@ -1732,12 +1845,7 @@ fn operand_prefix(
     }
 }
 fn read_preserves_type_facts(read: &VariableRead, ty: &InferredType, catalog: &Catalog) -> bool {
-    let InferredType::Values {
-        classes,
-        maybe_unset: false,
-        ..
-    } = ty
-    else {
+    let Some((classes, _)) = ty.proven_present() else {
         return false;
     };
     !classes.is_empty()
@@ -1837,6 +1945,7 @@ fn known_type(node: &AstNode) -> InferredType {
     InferredType::Values {
         classes,
         multiple: multiplicity == DynamicMultiplicity::Multiple,
+        support: TypeSupport::inferred(),
         maybe_unset: !unique_metadata(node, VALUE_RESULT)
             .and_then(|json| serde_json::from_str::<Flow>(json).ok())
             .is_some_and(|value| value.version == 1 && value.kind == "non-empty"),
@@ -1883,3 +1992,6 @@ fn overlaps(a: TextRange, b: TextRange) -> bool {
 mod tests;
 
 mod diagnostics;
+
+#[cfg(test)]
+mod type_fact_tests;

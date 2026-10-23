@@ -148,12 +148,7 @@ impl Document {
                 if occurrences.next().is_some() {
                     continue;
                 }
-                let InferredType::Values {
-                    classes,
-                    maybe_unset: false,
-                    ..
-                } = &occurrence.ty
-                else {
+                let Some((classes, _)) = occurrence.ty.proven_present() else {
                     continue;
                 };
                 if classes.is_empty()

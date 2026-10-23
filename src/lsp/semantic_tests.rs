@@ -239,6 +239,7 @@ fn number() -> InferredType {
         classes: BTreeSet::from(["java.lang.Number".into()]),
         multiple: false,
         maybe_unset: false,
+        support: TypeSupport::inferred(),
     }
 }
 fn string() -> InferredType {
@@ -246,14 +247,21 @@ fn string() -> InferredType {
         classes: BTreeSet::from(["java.lang.String".into()]),
         multiple: false,
         maybe_unset: false,
+        support: TypeSupport::inferred(),
     }
 }
 fn inferred(document: &Document, row: u32, column: u32) -> InferredType {
-    document
+    let mut ty = document
         .type_at(Position::new(row, column))
         .unwrap()
         .1
-        .clone()
+        .clone();
+    // These existing assertions compare type knowledge; provenance is asserted
+    // separately below. Do not normalize certainty or candidate completeness.
+    if let InferredType::Values { support, .. } = &mut ty {
+        support.evidence = TypeSupport::inferred().evidence;
+    }
+    ty
 }
 
 #[test]
@@ -514,7 +522,8 @@ fn branches_join_types_but_reentrant_or_opaque_flow_is_unknown() {
                 InferredType::Values {
                     classes: BTreeSet::from(["java.lang.Number".into(), "java.lang.String".into()]),
                     multiple: false,
-                    maybe_unset: false
+                    maybe_unset: false,
+                    support: TypeSupport::inferred(),
                 }
             );
             assert_eq!(document.definitions_at(Position::new(4, 13), &[]).len(), 2);
@@ -536,6 +545,7 @@ fn list_append_unions_delete_marks_unset_and_scalar_add_stays_unknown() {
                 classes: BTreeSet::from(["java.lang.Number".into(), "java.lang.String".into()]),
                 multiple: true,
                 maybe_unset: false,
+                support: TypeSupport::inferred(),
             },
         ),
     ] {
@@ -789,6 +799,7 @@ fn parameter_contract_seeds_declared_type_and_exact_definition_span() {
                     classes: BTreeSet::from(["java.lang.Number".into()]),
                     multiple: false,
                     maybe_unset: true,
+                    support: TypeSupport::inferred(),
                 }
             }
         );
@@ -1783,4 +1794,40 @@ fn semantic_contract_filter_keeps_owned_duplicates_and_foreign_nonsemantic_entri
             assert!(ast.metadata.is_empty(), "{key}");
         }
     }
+}
+
+#[test]
+fn accepted_assignment_and_branch_provenance_stays_current() {
+    let mut fixture = Fixture::new(
+        "owner:\n    bind {_a} = 1\n    branch:\n        bind {_a} = text\n    inspect {_a}",
+    );
+    let first = fixture.assign(1, "{_a}", "a", "1", "java.lang.Number", true, false, "set");
+    let second = fixture.assign(
+        3,
+        "{_a}",
+        "a",
+        "text",
+        "java.lang.String",
+        true,
+        false,
+        "set",
+    );
+    let branch = fixture.container(2, SyntaxKind::Section, &[second], Some("branch"));
+    let read = fixture.read(4, "{_a}", "a", true, false);
+    let root = fixture.container(0, SyntaxKind::Structure, &[first, branch, read], None);
+    let document = fixture.finish(&[root]);
+    let (_, ty) = document.type_at(Position::new(4, 13)).unwrap();
+    let InferredType::Values { support, .. } = ty else {
+        panic!("{ty:?}")
+    };
+    assert!(support.is_proof());
+    assert_eq!(
+        support.evidence,
+        BTreeSet::from([
+            Evidence::AcceptedResult,
+            Evidence::Assignment,
+            Evidence::ControlFlowJoin
+        ])
+    );
+    assert_eq!(document.definitions_at(Position::new(4, 13), &[]).len(), 2);
 }

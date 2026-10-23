@@ -485,11 +485,13 @@ fn inferred_variable_unknown_or_unset_facts_and_changed_sources_are_not_reused()
             classes: BTreeSet::from(["java.lang.Object".into()]),
             multiple: false,
             maybe_unset: false,
+            support: TypeSupport::inferred(),
         },
         InferredType::Values {
             classes: BTreeSet::from(["java.lang.String".into()]),
             multiple: false,
             maybe_unset: true,
+            support: TypeSupport::inferred(),
         },
     ] {
         let (mut document, ast, _, variable) = simple("java.lang.String", &["location"]);
@@ -507,4 +509,32 @@ fn inferred_variable_unknown_or_unset_facts_and_changed_sources_are_not_reused()
             .inferred_diagnostics(&ast, "different revision", &[], |_| true, |_| true)
             .is_err()
     );
+}
+
+#[test]
+fn heuristic_and_partial_type_candidates_never_issue_definite_mismatch_warnings() {
+    for certainty in [
+        Certainty::Inferred,
+        Certainty::Heuristic,
+        Certainty::Unknown,
+    ] {
+        for complete in [false, true] {
+            let (mut document, ast, _, variable) = simple("java.lang.String", &["location"]);
+            let range = exact_span(&ast.nodes[variable as usize].span).unwrap();
+            for occurrence in &mut document.occurrences {
+                if occurrence.range == range {
+                    let InferredType::Values { support, .. } = &mut occurrence.ty else {
+                        panic!()
+                    };
+                    support.certainty = certainty;
+                    support.candidates_complete = complete;
+                }
+            }
+            assert_eq!(
+                !diagnostics(&document, &ast).is_empty(),
+                certainty == Certainty::Inferred && complete,
+                "{certainty:?} complete={complete}"
+            );
+        }
+    }
 }
