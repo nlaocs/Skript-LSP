@@ -176,3 +176,72 @@ fn stale_provider_certificate_withdraws_value_proposals() {
         assert!(values(&list).is_empty());
     }
 }
+
+#[test]
+fn value_proposals_survive_unwritten_suffixes_and_expression_only_alternatives() {
+    for (source, needle, wanted, pending) in [
+        ("on load:\n    give sto\n", "give sto", "stone", true),
+        ("on join:\n    send \"test\" to player\n    give stone to player\n    give sto\n", "give sto", "stone", true),
+        ("command /public_value_probe:\n    trigger:\n        give sto\n", "give sto", "stone", true),
+        ("on join:\n    give sto to player\n", "give sto", "stone", false),
+        ("on join:\n    give player sto\n", "player sto", "stone", false),
+    ] {
+        let (early, view, _, _) = parse(source);
+        let offset = source.rfind(needle).unwrap() + needle.len();
+        let position = LineIndex::new(source).position(source, offset).unwrap();
+        let PreparedQuery::Ready(prepared) = early.at(position, false).unwrap() else {
+            panic!("prepared slot: {needle}")
+        };
+        for list in [prepared, view.at(position, false).unwrap()] {
+            let item = values(&list).into_iter().find(|i| i.label == wanted
+                && i.data.as_ref().unwrap()["typeValue"]["codeName"] == "itemtype")
+                .unwrap_or_else(|| panic!("missing {wanted}: {source}"));
+            assert_eq!(item.data.as_ref().unwrap()["typeValue"]["syntaxSuffixPending"], pending);
+            let Some(CompletionTextEdit::Edit(edit)) = &item.text_edit else { panic!() };
+            assert_eq!(edit.range.end, position);
+            assert_eq!(edit.new_text, wanted);
+        }
+    }
+}
+
+#[test]
+fn incomplete_literal_evidence_does_not_become_a_hard_type_proof() {
+    for (line, want_value) in [
+        ("consume r", true),
+        ("consume r to player", true),
+        ("consume r broken", false),
+        ("unrelated r", false),
+    ] {
+        let source = format!("on load:\n    {line}\n");
+        let (early, mut view, _, _) = parse(&source);
+        drop(early);
+        let index = Arc::get_mut(&mut view.index).unwrap();
+        index.patterns = ["consume %*color% to %~objects%", "consume %~objects% %objects%", "consume <.+>"]
+            .into_iter().map(|pattern| {
+                let parsed = syntax_pattern_parser::syntax::parse(pattern,
+                    index.typing.as_ref().unwrap().catalog.plural_rules()).unwrap();
+                Pattern { documentation: None, kind: SyntaxKind::Effect,
+                    label: pattern.into(), detail: "generic literal routing fixture".into(),
+                    identity: pattern.into(), graph: continuation::Graph::new(&parsed.elements).unwrap() }
+            }).collect();
+        let start = source.find(" r").map(|i| i + 1).unwrap_or_else(|| source.rfind('r').unwrap());
+        let offset = start + 1;
+        let position = LineIndex::new(&source).position(&source, offset).unwrap();
+        let list = view.at(position, false).unwrap();
+        let proposed = values(&list);
+        assert_eq!(proposed.iter().any(|i| i.label == "red"), want_value, "{source}");
+        assert!(!proposed.iter().any(|i| i.label == "redstone"), "{source}");
+        if line == "consume r" {
+            let line_info = &view.context[&position.line];
+            assert!(view.expected_at(line_info, TextRange::new(start, offset), false).is_none());
+        }
+    }
+    let parsed = syntax_pattern_parser::syntax::parse("consume %*color% to %objects%",
+        crate::lsp::completion::parameters::tests::catalog().plural_rules()).unwrap();
+    let graph = continuation::Graph::new(&parsed.elements).unwrap();
+    let input = format!("consume {}", typing::HOLE);
+    let start = input.find(typing::HOLE).unwrap();
+    let hole = start..input.len();
+    assert!(graph.hole_slots(&input, hole.clone(), &mut continuation::Budget::new()).unwrap().is_empty());
+    assert!(!graph.literal_prefix_slots(&input, hole, &mut continuation::Budget::new()).unwrap().is_empty());
+}

@@ -38,7 +38,7 @@ impl Document {
             let (ends, ends_limited) = self.type_value_ends(line, start, word_end, &index.catalog);
             limited |= ends_limited;
             for end in ends {
-                let Some(expected) = self.expected_literal_at(
+                let Some((expected, suffix_pending)) = self.literal_value_targets_at(
                     line, TextRange::new(start, end), references, &mut budget,
                 ) else {
                     continue;
@@ -91,6 +91,7 @@ impl Document {
                             "canonicalValue": value.canonical_value,
                             "pluralSpelling": value.plural,
                             "contextVerified": false,
+                            "syntaxSuffixPending": suffix_pending,
                         }
                     }));
                     item.documentation = Some(super::super::hover_text::markup(
@@ -100,6 +101,11 @@ impl Document {
                                 ("Type", ty.noun.singular.clone()),
                                 ("Source", format!("{source} ({})", ty.addon.name)),
                                 ("Canonical value", value.canonical_value.into()),
+                                ("Syntax", if suffix_pending {
+                                    "Structural prefix; required suffix not entered"
+                                } else {
+                                    "Complete structural path; semantic guards unverified"
+                                }.into()),
                                 ("Status", "Finite parser data; not excluded by expected-type rules. Runtime parser and addon guards unverified.".into()),
                             ], None, &self.index.documentation_format,
                         ), &self.index.documentation_format,

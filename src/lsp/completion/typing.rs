@@ -339,6 +339,83 @@ impl Document {
     ) -> Option<Vec<ExpressionExpectedType>> {
         self.expected_at_mode(line, edit, references, true, budget)
     }
+    /// Finite literal proposals may use a typed structural prefix when the
+    /// user has not entered the required suffix yet. This evidence is separate
+    /// from expected_at/replacement_types, which remain complete-path proofs.
+    pub(super) fn literal_value_targets_at(
+        &self,
+        line: &Line,
+        edit: TextRange,
+        references: bool,
+        budget: &mut continuation::Budget,
+    ) -> Option<(Vec<ExpressionExpectedType>, bool)> {
+        if let Some(types) = self.expected_literal_at(line, edit, references, budget) {
+            return Some((types, false));
+        }
+        let index = self.index.typing.as_ref()?;
+        if budget.exhausted() || !index.current() || !index.closed
+            || !index.complete_patterns || !self.type_context_exact || line.root
+        {
+            return None;
+        }
+        let text = self.editing_hole(line, edit)?;
+        let start = text.find(HOLE)?;
+        if !matches!(lexical_context(&text[..start]), Lexical::Code(_))
+            || text.contains('%') || text.starts_with('(')
+            || (text.contains('(') && !text.ends_with(')'))
+        {
+            return None;
+        }
+        let domain = skript_parser::BodySyntaxDomain::for_node(
+            if matches!(line.scope, Scope::Conditions) {
+                skript_parser::SectionBodyMode::Conditions
+            } else {
+                skript_parser::SectionBodyMode::Trigger
+            },
+            if line.section { RawNodeKind::Section } else { RawNodeKind::Simple },
+        );
+        for suffix_pending in [false, true] {
+            if suffix_pending && !text.ends_with(HOLE) { break; }
+            let mut types = Vec::new();
+            for pattern in &self.index.patterns {
+                if !budget.scan(1) { return None; }
+                let allowed = match line.scope {
+                    Scope::Expressions => pattern.kind == SyntaxKind::Expression,
+                    Scope::Conditions | Scope::Statements => domain.includes(
+                        pattern.kind,
+                        index.outputs.get(&pattern.identity).is_some_and(|o| o.section_expression),
+                    ),
+                    _ => false,
+                };
+                if !allowed { continue; }
+                let hole = start..start + HOLE.len();
+                let slots = if suffix_pending {
+                    pattern.graph.literal_prefix_slots(&text, hole, budget)
+                } else {
+                    pattern.graph.hole_slots(&text, hole, budget)
+                }.ok()?;
+                for (parameter, range) in slots {
+                    // Positive proposal evidence only. Unknown nested/regex
+                    // routes cannot erase another direct literal route, nor
+                    // donate an outer type to an unresolved inner expression.
+                    if native_trim(text.get(range)?) != HOLE { continue; }
+                    let Some(Some(slot)) = pattern.graph.slot_types.get(parameter) else { continue; };
+                    if !slot.allow_literals { continue; }
+                    if let Some(known) = expected_types(&index.catalog, slot, true) {
+                        types.extend(known);
+                    }
+                }
+            }
+            if budget.exhausted() { return None; }
+            if !types.is_empty() {
+                types.sort_by(|a, b| a.class_name.0.cmp(&b.class_name.0).then(a.plural.cmp(&b.plural)));
+                types.dedup();
+                return Some((types, suffix_pending));
+            }
+        }
+        None
+    }
+
     fn expected_at_mode(
         &self,
         line: &Line,

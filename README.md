@@ -28,7 +28,9 @@ Type-value completion reuses finite SSG parser strings, supplier values, enum
 values, and captured aliases; it does not assume that every parser is enumerable.
 It supports multiword spellings and bounded prefix search, recomputing proposals
 as the prefix narrows. Values are offered only at established literal-capable
-argument positions. Arbitrary parser inputs (for example RGB components),
+argument positions. When required trailing words are still unwritten, direct
+typed slots can supply proposals marked as an unfinished syntax suffix. This
+proposal evidence is separate from hard expression type filtering. Arbitrary parser inputs (for example RGB components),
 script-local aliases and runtime-only values are not enumerated. Suggestions
 do not guarantee that a runtime parser or addon-specific guard will accept them.
 

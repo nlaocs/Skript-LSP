@@ -177,6 +177,28 @@ impl Graph {
         hole: std::ops::Range<usize>,
         budget: &mut Budget,
     ) -> Result<Vec<(usize, std::ops::Range<usize>)>, ()> {
+        self.hole_slots_mode(input, hole, budget, false)
+    }
+
+    /// Proposal evidence only: existing input must match, but required grammar
+    /// after the current slot may still be unwritten. Never use this for a
+    /// complete expected-type proof or a hard candidate exclusion.
+    pub(super) fn literal_prefix_slots(
+        &self,
+        input: &str,
+        hole: std::ops::Range<usize>,
+        budget: &mut Budget,
+    ) -> Result<Vec<(usize, std::ops::Range<usize>)>, ()> {
+        self.hole_slots_mode(input, hole, budget, true)
+    }
+
+    fn hole_slots_mode(
+        &self,
+        input: &str,
+        hole: std::ops::Range<usize>,
+        budget: &mut Budget,
+        allow_unwritten_tail: bool,
+    ) -> Result<Vec<(usize, std::ops::Range<usize>)>, ()> {
         let mut pending = vec![(0, 0, None)];
         let mut visited = HashSet::new();
         let mut found = HashSet::new();
@@ -187,7 +209,9 @@ impl Graph {
             if !visited.insert((node, offset, active)) {
                 continue;
             }
-            if node == self.end && input[offset..].trim().is_empty() {
+            if (node == self.end || allow_unwritten_tail && offset == input.len())
+                && input[offset..].trim().is_empty()
+            {
                 if let Some(slot) = active {
                     found.insert(slot);
                 }
