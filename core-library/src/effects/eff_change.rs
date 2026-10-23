@@ -143,6 +143,11 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let target = changed.and_then(|capture| capture.summary.as_ref());
     let static_target = target.and_then(static_variable);
     let delta = changer.and_then(|capture| capture.summary.as_ref());
+    let storage_result = authentic
+        .then(|| {
+            crate::storage::for_local_set(delta, operation.mode == ChangeMode::Set, static_target)
+        })
+        .flatten();
     let context_preserving = authentic
         && target
             .and_then(|value| value.return_type.as_deref())
@@ -159,17 +164,21 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         && static_target.is_some()
         && (matches!(operation.mode, ChangeMode::Set | ChangeMode::Delete)
             || (operation.mode == ChangeMode::Add && static_target == Some(true)))
-        && (operation.mode == ChangeMode::Delete
+        && (storage_result
+            .as_ref()
+            .is_some_and(|result| result.preserves_local_bindings)
+            || operation.mode == ChangeMode::Delete
             || identity_delta
             || !identity_delta_types.is_empty());
     let contract = serde_json::json!({
-        "version": 2,
+        "version": 3,
         "mode": operation.mode.diagnostic_name(),
         "targetCapture": operation.changed_capture,
         "valueCapture": operation.changer_capture,
         "identityDelta": identity_delta,
         "identityDeltaTypes": identity_delta_types,
         "targetOnly": target_only,
+        "storageResult": storage_result,
     });
     super::annotate(
         &mut payload,

@@ -947,7 +947,7 @@ fn standard_immutable_type(class: &str) -> bool {
 /// Schema 7's optional versioned dispatch facts come from the actual ClassInfo.
 /// Missing facts (including every old snapshot) remain unknown. This is used
 /// only after the pinned runtime, exact closed value class and source are bound.
-fn source_clone_identity(record: &serde_json::Value) -> bool {
+pub(crate) fn source_clone_identity(record: &serde_json::Value) -> bool {
     const BASE: &str = "ch.njol.skript.classes.ClassInfo";
     let runtime = &record["typeRuntime"];
     runtime["version"].as_u64() == Some(1)
@@ -966,6 +966,48 @@ fn source_clone_identity(record: &serde_json::Value) -> bool {
         && runtime["cloneMethodUnknownReason"].is_null()
         && runtime["clonerUnknownReason"].is_null()
         && runtime["serializeAsUnknownReason"].is_null()
+}
+
+/// The supported 2.15.4 PropertyBaseExpression implementations inherit the
+/// default beforeChange. Bind that audit to the actual accepted registration;
+/// a similarly named addon expression does not obtain this guarantee.
+pub(crate) fn standard_property_source(
+    payload: &crate::nlaocs::skript_parser_addon::types::RegisteredExpressionPayload,
+) -> bool {
+    let parameters = [
+        "ch.njol.skript.lang.Expression".into(),
+        "java.lang.Object[]".into(),
+    ];
+    standard_expression_source(payload, &payload.element_class)
+        && [
+            payload.element_class.as_str(),
+            "org.skriptlang.skript.lang.properties.PropertyBaseExpression",
+            "ch.njol.skript.lang.util.SimpleExpression",
+        ]
+        .into_iter()
+        .all(|class| {
+            matches!(
+                declared_method_exists(class, "beforeChange", &parameters, None),
+                Ok(Some(false))
+            )
+        })
+        && registration_records(&payload.registration_id)
+            .ok()
+            .is_some_and(|records| {
+                let records = records
+                    .iter()
+                    .filter(|record| record.document == "Expressions.json")
+                    .collect::<Vec<_>>();
+                records.len() == 1
+                    && serde_json::from_slice::<serde_json::Value>(&records[0].bytes)
+                        .ok()
+                        .is_some_and(|record| {
+                            record["superClass"].as_str()
+                                == Some(
+                                    "org.skriptlang.skript.lang.properties.PropertyBaseExpression",
+                                )
+                        })
+            })
 }
 
 pub(crate) fn identity_delta_types_for_summary(

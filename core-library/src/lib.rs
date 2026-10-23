@@ -17,6 +17,7 @@ mod primitives;
 pub mod public_data;
 mod runtime;
 mod sections;
+mod storage;
 mod structures;
 mod types;
 

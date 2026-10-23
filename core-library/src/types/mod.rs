@@ -11,15 +11,23 @@ mod item_type;
 mod number;
 mod particle;
 mod registered_literal;
+mod storage;
 mod string_literal;
 mod time;
 mod time_period;
 mod timespan;
 
 use crate::nlaocs::skript_parser_addon::types::{
-    ExpressionLeafCandidate, ExpressionPayload, RegisteredSyntaxHandler,
+    ExpressionLeafCandidate, ExpressionPayload, ExpressionTypeOption, RegisteredSyntaxHandler,
     RegisteredSyntaxHandlerTarget, SyntaxKind, TypeParserUnresolved,
 };
+
+pub(crate) fn storage_preserves_bounds(
+    classes: &[String],
+    options: &[ExpressionTypeOption],
+) -> bool {
+    storage::preserves_bounds(classes, options)
+}
 
 pub(super) struct TypeParser {
     id: &'static str,

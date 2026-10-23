@@ -701,6 +701,7 @@ impl Document {
                     Evidence::ParameterBinding => "parameter entry binding",
                     Evidence::Declaration => "parameter declaration",
                     Evidence::Assignment => "accepted assignment",
+                    Evidence::StorageResult => "provider-certified post-storage type",
                     Evidence::ControlFlowJoin => "merged current control-flow paths",
                 })
                 .collect::<Vec<_>>()
@@ -943,6 +944,43 @@ struct Change {
     identity_delta_types: Vec<String>,
     #[serde(default)]
     target_only: bool,
+    #[serde(default)]
+    storage_result: Option<StorageResult>,
+}
+
+/// Result of the accepted provider's complete local-scalar storage operation.
+/// Independent from the input expression type and from other binding effects.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StorageResult {
+    version: u32,
+    scope: String,
+    types: Vec<String>,
+    complete: bool,
+    multiple: bool,
+    maybe_unset: bool,
+    preserves_local_bindings: bool,
+}
+impl StorageResult {
+    fn ty(&self) -> Option<InferredType> {
+        (self.version == 1
+            && self.scope == "local-scalar"
+            && self.complete
+            && !self.multiple
+            && !self.types.is_empty()
+            && self.types.len() <= 64
+            && self
+                .types
+                .iter()
+                .all(|ty| !ty.is_empty() && ty != "java.lang.Object")
+            && self.types.iter().collect::<BTreeSet<_>>().len() == self.types.len())
+        .then(|| InferredType::Values {
+            classes: self.types.iter().cloned().collect(),
+            multiple: false,
+            maybe_unset: self.maybe_unset,
+            support: TypeSupport::from(Evidence::StorageResult),
+        })
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1220,7 +1258,7 @@ impl Engine<'_> {
             .then(|| {
                 unique_metadata(node, CHANGE)
                     .and_then(|json| serde_json::from_str::<Change>(json).ok())
-                    .filter(|change| matches!(change.version, 1 | 2))
+                    .filter(|change| matches!(change.version, 1 | 2 | 3))
             })
             .flatten();
         let nonbody = node
@@ -1298,10 +1336,11 @@ impl Engine<'_> {
                 .value_capture
                 .and_then(|index| capture_node(node, index, &self.nodes))
                 .and_then(|id| child_types.get(&id));
-            change.version == 2
+            matches!(change.version, 2 | 3)
                 && change.target_only
                 && (change.mode == "delete"
-                    || value.is_some_and(|value| identity_delta(change, value)))
+                    || value.is_some_and(|value| identity_delta(change, value))
+                    || storage_result(change).is_some_and(|result| result.preserves_local_bindings))
         });
         if !transparent && !target_only && ((!preserves && !plan.complete) || !unlisted.is_empty())
         {
@@ -1508,10 +1547,12 @@ impl Engine<'_> {
             .cloned()
             .unwrap_or(InferredType::Unknown);
         let identity_delta = identity_delta(change, &value);
-        let certified = change.version == 2
+        let stored = (!identity.list).then(|| storage_result(change)).flatten();
+        let certified = matches!(change.version, 2 | 3)
             && change.target_only
             && (change.mode == "delete" || identity_delta);
         let mut ty = match change.mode.as_str() {
+            "set" if stored.is_some() => stored.and_then(StorageResult::ty).unwrap(),
             "set" if certified && identity_delta => value,
             "delete" if certified => InferredType::unset(),
             "add" if identity.list && certified && identity_delta => previous
@@ -1873,13 +1914,19 @@ fn preserves_locals(node: &AstNode) -> bool {
         .is_some_and(|data| data.version == 1 && data.kind == "preserve")
 }
 fn identity_delta(change: &Change, value: &InferredType) -> bool {
-    change.version == 2
+    matches!(change.version, 2 | 3)
         && (change.identity_delta
             || value.proven_types().is_some_and(|(classes, _)| {
                 classes
                     .iter()
                     .all(|class| change.identity_delta_types.contains(class))
             }))
+}
+fn storage_result(change: &Change) -> Option<&StorageResult> {
+    (change.version == 3 && change.mode == "set")
+        .then_some(change.storage_result.as_ref())
+        .flatten()
+        .filter(|result| result.ty().is_some())
 }
 fn operand_prefix(
     node: &AstNode,

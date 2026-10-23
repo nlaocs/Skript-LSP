@@ -133,6 +133,7 @@ fn heuristic_or_partial_types_cannot_certify_clone_or_read_preservation() {
         target_only: true,
         identity_delta: false,
         identity_delta_types: vec!["java.lang.Number".into()],
+        storage_result: None,
     };
     for heuristic in [false, true] {
         let mut candidate = value("java.lang.Number", false);

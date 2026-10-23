@@ -664,7 +664,9 @@ mod tests {
             .unwrap();
         assert_eq!(
             result.execution_status,
-            parser_wasm::DocumentExecutionStatus::Complete
+            parser_wasm::DocumentExecutionStatus::Complete,
+            "component failures: {:?}",
+            result.component_failures
         );
         assert!(
             result.component_failures.is_empty(),

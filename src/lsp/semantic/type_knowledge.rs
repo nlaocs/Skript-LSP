@@ -16,6 +16,7 @@ pub(in crate::lsp) enum Evidence {
     ParameterBinding,
     Declaration,
     Assignment,
+    StorageResult,
     ControlFlowJoin,
 }
 

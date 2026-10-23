@@ -4639,21 +4639,20 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 PatternCapture::TypeExpression { .. } => None,
             })
             .collect::<Vec<_>>();
-        let type_options = if !regex_captures.is_empty()
-            && registered_handler_requires_context(
-                &self.hooks.host.components,
-                RegisteredSyntaxIdentity {
-                    kind: CatalogSyntaxKind::Expression,
-                    definition_id: request.definition_id,
-                    registration_id: request.registration_id,
-                    pattern_index: Some(request.pattern_index),
-                    pattern_source: Some(request.pattern),
-                    tags: Some(request.tags),
-                    mark: Some(request.mark),
-                    dynamic_handler: request.dynamic_handler,
-                },
-                REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
-            ) {
+        let type_options = if registered_handler_requires_context(
+            &self.hooks.host.components,
+            RegisteredSyntaxIdentity {
+                kind: CatalogSyntaxKind::Expression,
+                definition_id: request.definition_id,
+                registration_id: request.registration_id,
+                pattern_index: Some(request.pattern_index),
+                pattern_source: Some(request.pattern),
+                tags: Some(request.tags),
+                mark: Some(request.mark),
+                dynamic_handler: request.dynamic_handler,
+            },
+            REGISTERED_CONTEXT_ALL_TYPE_OPTIONS,
+        ) {
             all_expression_type_options(self.hooks.host.config.syntax_catalog.as_deref())
         } else {
             Vec::new()

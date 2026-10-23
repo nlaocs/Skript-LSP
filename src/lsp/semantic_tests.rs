@@ -58,6 +58,155 @@ struct Fixture {
     source: Arc<str>,
     nodes: Vec<AstNode>,
 }
+
+#[test]
+fn post_storage_type_is_independent_from_rhs_type_and_other_binding_effects() {
+    for (preserves, maybe_unset) in [(false, false), (false, true), (true, true)] {
+        let mut fixture = Fixture::new(
+            "owner:\n    bind {_old} = 1\n    bind {_x} = source\n    inspect {_old}\n    inspect {_x}",
+        );
+        let first = fixture.assign(
+            1,
+            "{_old}",
+            "old",
+            "1",
+            "java.lang.Number",
+            true,
+            false,
+            "set",
+        );
+        let second = fixture.assign(
+            2,
+            "{_x}",
+            "x",
+            "source",
+            "fixture.Input",
+            true,
+            false,
+            "set",
+        );
+        fixture.nodes[second as usize]
+            .metadata
+            .retain(|entry| entry.key != CHANGE);
+        fixture.nodes[second as usize].metadata.push(metadata(CHANGE, json!({
+            "version":3,"mode":"set","targetCapture":0,"valueCapture":1,
+            "targetOnly":preserves,"identityDelta":false,
+            "storageResult":{"version":1,"scope":"local-scalar","types":["java.lang.String"],
+                "complete":true,"multiple":false,"maybeUnset":maybe_unset,"preservesLocalBindings":preserves}
+        })));
+        let old = fixture.read(3, "{_old}", "old", true, false);
+        let read = fixture.read(4, "{_x}", "x", true, false);
+        let root = fixture.container(0, SyntaxKind::Structure, &[first, second, old, read], None);
+        let document = fixture.finish(&[root]);
+        let InferredType::Values {
+            classes,
+            maybe_unset: actual_unset,
+            support,
+            ..
+        } = document.type_at(Position::new(2, 11)).unwrap().1.clone()
+        else {
+            panic!("stored type lost");
+        };
+        assert_eq!(classes, BTreeSet::from(["java.lang.String".into()]));
+        assert_eq!(actual_unset, maybe_unset);
+        assert!(support.evidence.contains(&Evidence::StorageResult));
+        assert_eq!(
+            inferred(&document, 3, 13).proven_types().is_some(),
+            preserves
+        );
+        let hints = document.write_type_hints();
+        assert_eq!(hints.len(), 2, "read occurrences add no hints");
+        assert!(
+            matches!(&hints[1].label, lsp_types::InlayHintLabel::String(label) if label == if maybe_unset { ": string?" } else { ": string" })
+        );
+        let hover = document.hover(Position::new(2, 11)).unwrap().1;
+        assert!(
+            hover.contains("provider-certified post-storage type"),
+            "{hover}"
+        );
+    }
+}
+
+#[test]
+fn unverified_storage_metadata_cannot_turn_rhs_or_history_into_current_guarantees() {
+    let valid = json!({"version":1,"scope":"local-scalar","types":["java.lang.String"],"complete":true,"multiple":false,"maybeUnset":true,"preservesLocalBindings":false});
+    for mutation in [
+        "missing",
+        "version",
+        "scope",
+        "complete",
+        "multiple",
+        "types",
+        "duplicate",
+        "foreign-owner",
+        "old-contract",
+    ] {
+        let mut fixture =
+            Fixture::new("owner:\n    bind {_x} = 1\n    bind {_x} = source\n    inspect {_x}");
+        let first = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+        let second = fixture.assign(
+            2,
+            "{_x}",
+            "x",
+            "source",
+            "java.lang.String",
+            true,
+            false,
+            "set",
+        );
+        let mut result = valid.clone();
+        match mutation {
+            "missing" => result = serde_json::Value::Null,
+            "version" => result["version"] = json!(2),
+            "scope" => result["scope"] = json!("global"),
+            "complete" => result["complete"] = json!(false),
+            "multiple" => result["multiple"] = json!(true),
+            "types" => result["types"] = json!(["java.lang.Object"]),
+            _ => {}
+        }
+        fixture.nodes[second as usize]
+            .metadata
+            .retain(|entry| entry.key != CHANGE);
+        let mut contract = metadata(
+            CHANGE,
+            json!({"version":if mutation=="old-contract" {2} else {3},"mode":"set","targetCapture":0,"valueCapture":1,"storageResult":result}),
+        );
+        if mutation == "foreign-owner" {
+            contract.owner_component_id = Some("unrelated.provider".into());
+        }
+        fixture.nodes[second as usize]
+            .metadata
+            .push(contract.clone());
+        if mutation == "duplicate" {
+            fixture.nodes[second as usize].metadata.push(contract);
+        }
+        // This fixture deliberately enters below production from_result's
+        // provider-witness boundary. Apply that same owner filter explicitly.
+        retain_semantic_contracts(
+            &mut fixture.nodes[second as usize],
+            Some("fixture.semantic-provider"),
+        );
+        let read = fixture.read(3, "{_x}", "x", true, false);
+        let root = fixture.container(0, SyntaxKind::Structure, &[first, second, read], None);
+        let document = fixture.finish(&[root]);
+        assert_eq!(
+            inferred(&document, 3, 13),
+            InferredType::Unknown,
+            "{mutation}"
+        );
+        let hints = document.write_type_hints();
+        if matches!(mutation, "foreign-owner" | "duplicate") {
+            // Without an accepted write-role contract the renderer cannot
+            // invent a binding target, even to attach an Unknown hint to it.
+            assert_eq!(hints.len(), 1, "{mutation}");
+        } else {
+            assert!(
+                matches!(&hints[1].label, lsp_types::InlayHintLabel::String(label) if label == ": ?"),
+                "{mutation}"
+            );
+        }
+    }
+}
 impl Fixture {
     fn new(source: &str) -> Self {
         Self {
