@@ -23,7 +23,7 @@ mod document_symbols;
 mod history;
 mod navigation;
 mod type_knowledge;
-use history::{Invalidation, TypeHistory, invalidate, invalidate_where};
+use history::{Invalidation, TypeHistory, historical_facts, invalidate, invalidate_where};
 pub(super) use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
 
 const CHANGE: &str = "skript.semantic.variable-change";
@@ -1287,8 +1287,11 @@ impl Engine<'_> {
             .collect::<Vec<_>>();
         for child in &unlisted {
             // An opaque caller can evaluate these in any order, repeatedly, or
-            // after a hidden callback. Never share operand-local state.
-            child_types.insert(*child, self.node(*child, scope, &mut Facts::new())?);
+            // after a hidden callback. Never share current operand-local state.
+            // Prior knowledge may still be explained as history; it cannot prove
+            // the value read by this opaque operand or a reaching definition.
+            let mut historical = historical_facts(facts);
+            child_types.insert(*child, self.node(*child, scope, &mut historical)?);
         }
         let target_only = change.as_ref().is_some_and(|change| {
             let value = change

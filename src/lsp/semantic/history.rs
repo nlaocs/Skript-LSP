@@ -68,6 +68,27 @@ impl TypeHistory {
         )
     }
 }
+/// Isolate an opaque operand without losing explanatory prior knowledge.
+/// Every copied entry is history-only: no current type or reaching proof.
+pub(super) fn historical_facts(facts: &Facts) -> Facts {
+    facts
+        .iter()
+        .filter_map(|(key, fact)| {
+            let history = fact.history.clone()?;
+            Some((
+                key.clone(),
+                Fact {
+                    ty: InferredType::Unknown,
+                    definitions: Vec::new(),
+                    alias: fact.alias.clone(),
+                    list: fact.list,
+                    history: Some(history),
+                },
+            ))
+        })
+        .take(4096)
+        .collect()
+}
 pub(super) fn invalidate(facts: &mut Facts, cause: Option<TextRange>, reason: Invalidation) {
     invalidate_where(facts, cause, reason, |_, _| true);
 }

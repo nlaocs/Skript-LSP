@@ -1917,6 +1917,57 @@ fn invalidated_types_are_hover_history_only_and_fresh_writes_replace_them() {
 }
 
 #[test]
+fn opaque_operands_keep_history_without_current_types_or_reaching_proof() {
+    for has_prior_invalidation in [false, true] {
+        let source = if has_prior_invalidation {
+            "owner:\n    bind {_x} = 1\n    opaque\n    inspect {_x}"
+        } else {
+            "owner:\n    bind {_x} = 1\n    inspect {_x}"
+        };
+        let mut fixture = Fixture::new(source);
+        let write = fixture.assign(1, "{_x}", "x", "1", "java.lang.Number", true, false, "set");
+        let opaque = has_prior_invalidation
+            .then(|| fixture.push(SyntaxKind::Effect, "effect", fixture.line(2)));
+        let read_row = if has_prior_invalidation { 3 } else { 2 };
+        let read = fixture.read(read_row, "{_x}", "x", true, false);
+        fixture.nodes[read as usize]
+            .metadata
+            .retain(|entry| entry.key != OPERANDS && entry.key != LOCAL_EFFECTS);
+        let mut body = vec![write];
+        body.extend(opaque);
+        body.push(read);
+        let root = fixture.container(0, SyntaxKind::Structure, &body, None);
+        let document = fixture.finish(&[root]);
+        let position = Position::new(read_row as u32, 13);
+        assert_eq!(
+            inferred(&document, position.line, position.character),
+            InferredType::Unknown
+        );
+        let hover = document.hover(position).unwrap().1;
+        assert!(hover.contains("Current type: ?"), "{hover}");
+        assert!(
+            hover.contains("Previous type (history only): number"),
+            "{hover}"
+        );
+        assert!(
+            hover.contains("provider current-frame effects are unverified (line 3"),
+            "{hover}"
+        );
+        assert!(matches!(
+            &document.at(position).unwrap().reference,
+            Reference::Variable { reaching, .. } if reaching.is_empty()
+        ));
+        assert!(
+            document
+                .completion_points
+                .iter()
+                .all(|point| point.types.is_empty())
+        );
+        assert_eq!(document.write_type_hints().len(), 1);
+    }
+}
+
+#[test]
 fn alias_history_never_becomes_a_current_heuristic_or_reaching_write() {
     let mut fixture =
         Fixture::new("owner:\n    bind {_a} = 1\n    bind {_A} = 2\n    inspect {_a}");
