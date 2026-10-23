@@ -121,6 +121,38 @@ fn scalar_local_rename_stays_in_its_execution_scope_and_preserves_name_geometry(
 }
 
 #[test]
+fn local_definitions_do_not_replace_lost_reaching_proof_with_future_assignments() {
+    let source = "on join:\n    set {_item} to \"one\"\n    send {_item}\n    set {_item} to \"two\"\n    send {_item}\n";
+    let result = analyze(&mut analyzer(), source, 1);
+    assert!(diagnostics(&result).0.is_empty(), "{:?}", diagnostics(&result).0);
+    let document = result.semantic.as_ref().unwrap();
+    let read = position(source, source.find("send {_item}").unwrap() + 8);
+    assert!(document.definitions_at(read, &[]).is_empty());
+    assert_eq!(document.references_at(read, &[], true).len(), 4);
+    assert_eq!(
+        document
+            .rename_plan(read, &[], Some("renamed"))
+            .unwrap()
+            .unwrap()
+            .edits
+            .len(),
+        4
+    );
+
+    let source = "function nav_arg(value: number) :: number:\n    send \"opaque\" to console\n    return {_value}\n";
+    let result = analyze(&mut analyzer(), source, 1);
+    assert!(diagnostics(&result).0.is_empty(), "{:?}", diagnostics(&result).0);
+    let document = result.semantic.as_ref().unwrap();
+    let read = position(source, source.rfind("_value").unwrap() + 1);
+    let definitions = document.definitions_at(read, &[]);
+    assert_eq!(definitions.len(), 1);
+    assert_eq!(
+        definitions[0].range.start,
+        position(source, source.find("value:").unwrap())
+    );
+}
+
+#[test]
 fn local_rename_refuses_case_alias_dynamic_list_and_parameter_bindings() {
     for source in [
         "on join:\n    set {_item} to 1\n    send {_ITEM}\n",

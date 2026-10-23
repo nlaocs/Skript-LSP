@@ -750,6 +750,18 @@ impl Document {
                     )
                 }))
     }
+    fn explicit_local_declaration(&self, identity: &Identity) -> Option<TextRange> {
+        let mut declarations = self
+            .writes
+            .iter()
+            .filter(|write| {
+                write.role == WriteRole::ExplicitDeclaration && write.identity.key == identity.key
+            })
+            .map(|write| write.range);
+        let first = declarations.next()?;
+        declarations.all(|range| range == first).then_some(first)
+    }
+
     pub fn definitions_at(&self, position: Position, project: &[&Document]) -> Vec<Location> {
         let Some(occurrence) = self.at(position) else {
             return Vec::new();
@@ -778,9 +790,17 @@ impl Document {
                 }
             }
             Reference::Variable { identity, reaching } => {
-                if identity.key.local && !reaching.is_empty() {
-                    for range in reaching {
-                        if let Ok(range) = self.lines.range(&self.source, *range) {
+                if identity.key.local {
+                    // Loss of reaching-value evidence is not permission to
+                    // search every assignment, including later writes. An
+                    // exact declaration remains a source binding even when
+                    // its current value is unknown; ambiguous declarations do not.
+                    let declaration = reaching
+                        .is_empty()
+                        .then(|| self.explicit_local_declaration(identity))
+                        .flatten();
+                    for range in reaching.iter().copied().chain(declaration) {
+                        if let Ok(range) = self.lines.range(&self.source, range) {
                             locations.push(Location::new(self.uri.clone(), range));
                         }
                     }
@@ -788,9 +808,6 @@ impl Document {
                     for document in std::iter::once(self)
                         .chain(project.iter().copied().filter(|d| d.uri != self.uri))
                     {
-                        if identity.key.local && document.uri != self.uri {
-                            continue;
-                        }
                         for write in &document.writes {
                             if definition_may_bind(&write.identity, identity) {
                                 if let Ok(range) =

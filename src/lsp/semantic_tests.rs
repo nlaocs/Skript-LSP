@@ -678,6 +678,7 @@ fn branches_join_types_but_reentrant_or_opaque_flow_is_unknown() {
             assert_eq!(document.definitions_at(Position::new(4, 13), &[]).len(), 2);
         } else {
             assert_eq!(inferred(&document, 4, 13), InferredType::Unknown);
+            assert!(document.definitions_at(Position::new(4, 13), &[]).is_empty());
         }
     }
 }
@@ -958,6 +959,56 @@ fn parameter_contract_seeds_declared_type_and_exact_definition_span() {
                 Range::new(Position::new(0, 9), Position::new(0, 14))
             );
         }
+    }
+}
+
+#[test]
+fn invalidated_local_definition_uses_only_an_unambiguous_exact_declaration() {
+    for mutation in ["none", "alias", "scope", "context", "ambiguous"] {
+        let mut fixture = Fixture::new(
+            "function value: number:\n    opaque\n    inspect {_value}\n    bind {_value} = 1",
+        );
+        let opaque = fixture.push(SyntaxKind::Effect, "effect", fixture.line(1));
+        let read = fixture.read(2, "{_value}", "value", true, false);
+        let later = fixture.assign(
+            3, "{_value}", "value", "1", "java.lang.Number", true, false, "set",
+        );
+        let later_range = fixture.part(3, "{_value}");
+        let root = fixture.container(0, SyntaxKind::Structure, &[opaque, read, later], None);
+        fixture.nodes[root as usize].metadata.push(metadata(PARAMETERS, json!({
+            "version":2,"parameters":[{
+                "identity":{"scope":"local","resolution":"static","name":"value","aliasKey":"value","list":false,"casePolicy":"unknown"},
+                "className":"java.lang.Number","single":true,"start":9,"end":14
+            }]
+        })));
+        let mut document = fixture.finish(&[root]);
+        let declaration = document
+            .writes
+            .iter_mut()
+            .find(|write| write.role == WriteRole::ExplicitDeclaration)
+            .unwrap();
+        match mutation {
+            "alias" => declaration.identity.key.name = "VALUE".into(),
+            "scope" => declaration.identity.key.scope += 1,
+            "context" => declaration.identity.key.context += 1,
+            "ambiguous" => {
+                let mut other = declaration.clone();
+                other.range = later_range;
+                document.writes.push(other);
+            }
+            _ => {}
+        }
+        let position = Position::new(2, 13);
+        assert_eq!(inferred(&document, 2, 13), InferredType::Unknown);
+        let expected = if mutation == "none" {
+            vec![Location::new(
+                document.uri.clone(),
+                Range::new(Position::new(0, 9), Position::new(0, 14)),
+            )]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(document.definitions_at(position, &[]), expected, "{mutation}");
     }
 }
 #[test]
@@ -2049,13 +2100,21 @@ fn invalidated_types_are_hover_history_only_and_fresh_writes_replace_them() {
         history.contains("provider current-frame effects are unverified (line 3"),
         "{history}"
     );
-    // Static navigation candidates remain available. They are not a proof
-    // that an old write still reaches this runtime lookup.
+    // History and unrelated later writes are not current definition evidence.
     assert!(
         matches!(&document.at(Position::new(3,13)).unwrap().reference,
         Reference::Variable { reaching, .. } if reaching.is_empty())
     );
+    assert!(document.definitions_at(Position::new(3, 13), &[]).is_empty());
+    assert_eq!(
+        document.references_at(Position::new(3, 13), &[], true).len(),
+        4
+    );
     assert_eq!(inferred(&document, 5, 13), string());
+    assert_eq!(
+        document.definitions_at(Position::new(5, 13), &[])[0].range.start.line,
+        4
+    );
     assert!(
         !document
             .hover(Position::new(5, 13))
@@ -2106,6 +2165,7 @@ fn opaque_operands_keep_history_without_current_types_or_reaching_proof() {
             &document.at(position).unwrap().reference,
             Reference::Variable { reaching, .. } if reaching.is_empty()
         ));
+        assert!(document.definitions_at(position, &[]).is_empty());
         assert!(
             document
                 .completion_points
@@ -2128,12 +2188,12 @@ fn alias_history_never_becomes_a_current_heuristic_or_reaching_write() {
     let hover = document.hover(Position::new(3, 13)).unwrap().1;
     assert!(hover.contains("write may overlap"), "{hover}");
     assert_eq!(inferred(&document, 3, 13), InferredType::Unknown);
-    // Static navigation candidates remain available. They are not a proof
-    // that an old write still reaches this runtime lookup.
+    // An uncertain alias cannot turn historical assignments into definitions.
     assert!(
         matches!(&document.at(Position::new(3,13)).unwrap().reference,
         Reference::Variable { reaching, .. } if reaching.is_empty())
     );
+    assert!(document.definitions_at(Position::new(3, 13), &[]).is_empty());
 }
 
 #[test]
@@ -2180,12 +2240,12 @@ fn history_only_branch_keys_do_not_create_new_current_candidates() {
     let root = fixture.container(0, SyntaxKind::Structure, &[write, branch, read], None);
     let document = fixture.finish(&[root]);
     assert_eq!(inferred(&document, 4, 13), InferredType::Unknown);
-    // Static navigation candidates remain available. They are not a proof
-    // that an old write still reaches this runtime lookup.
+    // Static identity and references remain; old writes are not current definitions.
     assert!(
         matches!(&document.at(Position::new(4,13)).unwrap().reference,
         Reference::Variable { reaching, .. } if reaching.is_empty())
     );
+    assert!(document.definitions_at(Position::new(4, 13), &[]).is_empty());
 }
 
 #[test]

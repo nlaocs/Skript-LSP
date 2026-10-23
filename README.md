@@ -123,6 +123,11 @@ depend on `parser-wasm` with `default-features = false`.
   reparse points. Incomplete discovery is reported rather than treated as a
   complete namespace. Multi-document analysis requires every component's
   `parser.project-stable-semantics` v1 opt-in.
+- **Local definitions:** use proven reaching writes, or an exact, unambiguous
+  explicit declaration when current-value evidence is unavailable. An opaque
+  operation can therefore leave a local without a jump target; historical or
+  later assignments are not substituted for missing reaching evidence.
+  References still follow the static scoped identity.
 - **Rename:** static scalar locals only, with ASCII identifier names. Globals,
   list families, parameters, dynamic names, ambiguous origins, and incomplete
   editable coverage are excluded. Function rename also checks project-wide
