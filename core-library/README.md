@@ -13,6 +13,21 @@ behavior that must use the same addon ABI as third-party parser addons.
 
 Older schema-7 snapshots remain readable. Where authoritative cloner/`beforeChange` facts are absent, affected assignment and read facts remain Unknown; a declared type alone does not supply those guarantees.
 
+The provider-owned `skript.semantic.storage-result` contract describes the complete
+post-storage type, cardinality and possible absence for a local scalar binding.
+It is separate from preservation of other local bindings and from RHS evaluation
+effects. `EffChange` forwards it in version 3 of `skript.semantic.variable-change`;
+missing, duplicate, foreign or unsupported facts retain Unknown.
+
+For standard 2.15.4 properties, certificates are generated after final type
+resolution and conversion. The standard Component family uses Adventure's
+immutable/NonExtendable API contract plus source-bound ClassInfo clone/storage
+evidence. This initial policy requires the complete source-bound stock Type headers
+and the selected raw ClassInfo record: even an
+unrelated addon Type disables it. Custom Component implementations outside that
+API contract and unknown clone/conversion callbacks are not certified. This does
+not grant arbitrary Slot, list or global storage a type-preservation guarantee.
+
 ## Current Behavior
 
 The component currently provides the integration foundation:

@@ -205,6 +205,19 @@ global変数の実行時の値や別eventの実行順を推測せず、手続き
 古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
 影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
 
+providerは`skript.semantic.storage-result`で、`beforeChange`・複製・`serializeAs`変換を通した後の
+ローカルscalarへの保存型を公開できます。完全な型集合・単複・未設定の可能性と、ほかのローカルbindingを
+保持できるかは別々の情報です。型保証があっても未知の読取やcallbackをpure扱いせず、失効した過去の型を
+現在型へ戻しません。保存後型の根拠はHoverで`provider-certified post-storage type`と表示します。
+
+標準2.15.4のproperty式は、最終的な型解決と変換の後にこの契約を生成します。textcomponentはAdventureの
+immutable／NonExtendableというAPI契約と、実ClassInfoの複製・保存情報に基づく対応です。標準登録だけの
+Type登録一覧と該当ClassInfoの原データを確認できる場合に限定し、Addon型・複製override・情報欠落があれば保証を出しません。
+無関係なAddon型の登録でもこの保証が止まる保守的な制限があります。API契約外の独自Component実装は
+対象外で、任意のAddon値・Slot変換・global/listへの保存型を一律に保証するものではありません。
+たとえば`player's name`の右辺はこの版ではstringではなくtextcomponentです。存在保証がない場合、
+代入先には`textcomponent?`を表示します。通常の読取位置には型inlayを追加しません。
+
 定義移動は現在の到達書込を返す。証明できない場合の静的候補やglobalの書込が複数あれば複数位置に
 なり得るため、一意なruntime bindingを保証しない。動的identityや曖昧なmacro originは省略する。
 解析中の要求は文書64件・server全体256件まで保持し、超過分はRequestFailedにする。
