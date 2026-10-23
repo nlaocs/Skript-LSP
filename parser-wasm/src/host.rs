@@ -1371,11 +1371,14 @@ impl wit_catalog_data::Host for StoreData {
         offset: u64,
         limit: u32,
     ) -> Result<Option<wit_catalog_data::CatalogFieldPage>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let mut measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::ReadRecordFields));
         let catalog = self.catalog()?;
         let Some(source) = catalog.source() else {
             return Ok(None);
         };
-        catalog_field_source(
+        let result = catalog_field_source(
             source,
             &source_digest,
             &snapshot_id,
@@ -1384,7 +1387,12 @@ impl wit_catalog_data::Host for StoreData {
             offset,
             limit,
             self.max_catalog_response_bytes,
-        )
+        );
+        #[cfg(test)]
+        if let (Some(measurement), Ok(Some(page))) = (measurement.as_mut(), &result) {
+            measurement.returned_bytes(page.items.iter().map(|item| item.json.len()).sum());
+        }
+        result
     }
 
     fn declared_method_exists(
@@ -1394,6 +1402,9 @@ impl wit_catalog_data::Host for StoreData {
         parameter_types: Vec<String>,
         return_type: Option<String>,
     ) -> Result<Option<bool>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::DeclaredMethodExists));
         let parameter_types = parameter_types
             .iter()
             .map(String::as_str)
@@ -1486,6 +1497,9 @@ impl wit_catalog_data::Host for StoreData {
         handler_id: String,
         registration_id: String,
     ) -> Result<bool, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::RegisteredHandlerMatches));
         Ok(self.registered_handler_bindings.iter().any(|binding| {
             binding.handler_id == handler_id
                 && binding
@@ -12370,10 +12384,17 @@ impl ParserHost {
                     {
                         entry.store.data_mut().guest_hook_calls += 1;
                     }
+                    #[cfg(test)]
+                    let measurement = entry.store.data().catalog_measurement.as_ref()
+                        .map(|probe| probe.hook(&subscription_id, &invocation, entry.store.get_fuel().ok()));
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
                         .call_invoke(&mut entry.store, &invocation);
+                    #[cfg(test)]
+                    if let Some(measurement) = measurement {
+                        measurement.finish(entry.store.get_fuel().ok());
+                    }
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",

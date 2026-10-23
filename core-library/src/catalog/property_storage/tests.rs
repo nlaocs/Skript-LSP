@@ -1,6 +1,42 @@
 use super::*;
 use std::cell::Cell;
 
+#[test]
+#[ignore = "manual native key/lookup cost model; not real Wasm time; requires public measurement plan"]
+fn measure_property_certificate_key_cost() {
+    use std::{hint::black_box, time::Instant};
+    let plan = std::fs::read(std::env::var("SKRIPT_STORAGE_MEASUREMENT_PLAN").unwrap()).unwrap();
+    let plan: serde_json::Value = serde_json::from_slice(&plan).unwrap();
+    let model: Key = serde_json::from_value(plan["keyModel"].clone()).unwrap();
+    assert!(model.cacheable());
+    let cache = RwLock::new(HashMap::new());
+    assert_eq!(cached(&cache, &model, || Some(true)), Some(true));
+    let sample = |run: &mut dyn FnMut()| {
+        let started = Instant::now();
+        for _ in 0..10_000 { run(); }
+        started.elapsed().as_secs_f64() * 1e9 / 10_000.0
+    };
+    let mut rows = Vec::new();
+    for round in 0..7 {
+        let clone_ns = sample(&mut || { black_box(model.clone()); });
+        let bounded_key_check_ns = sample(&mut || { black_box(model.cacheable()); });
+        let clone_and_hit_ns = sample(&mut || {
+            let key = black_box(model.clone());
+            assert_eq!(black_box(cached(&cache, &key, || panic!("warm key unexpectedly missed"))), Some(true));
+        });
+        let previous_authentication_key_ns = sample(&mut || {
+            black_box(serde_json::json!([model.source.digest, "Expressions.json", model.definition,
+                model.registration, model.class, model.index, model.pattern]).to_string());
+        });
+        rows.push(serde_json::json!({"round":round,"cloneNs":clone_ns,"boundedKeyCheckNs":bounded_key_check_ns,
+            "cloneAndCacheHitNs":clone_and_hit_ns,"previousAuthenticationKeyNs":previous_authentication_key_ns}));
+    }
+    println!("storage_key_cost_model {}", serde_json::json!({"rows":rows,
+        "ownedStringBytes":model.source.format.len()+model.source.snapshot.len()+model.source.digest.len()+model.definition.len()+model.registration.len()+model.class.len()+model.pattern.len(),
+        "iterationsPerSample":10_000,
+        "limits":"Native debug-test cost model with actual public snapshot key lengths. Excludes runtime checks, source import, WIT lifting/lowering and Wasm execution. Old serialized key also excludes its source import and cached lookup. No end-to-end speedup is asserted."}));
+}
+
 fn key() -> Key {
     Key {
         source: Source {

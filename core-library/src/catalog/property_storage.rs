@@ -13,6 +13,7 @@ static SOURCES: LazyLock<RwLock<HashMap<Key, bool>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 struct Source {
     format: String,
     schema: u32,
@@ -21,6 +22,7 @@ struct Source {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 struct Key {
     source: Source,
     definition: String,
