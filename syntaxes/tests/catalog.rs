@@ -1154,6 +1154,31 @@ fn detailed_matches_keep_type_parse_order_and_source_order() {
 }
 
 #[test]
+fn literal_prefix_lookup_reuses_exact_sources_order_and_snapshot_lifetime() {
+    let mut source = parts();
+    let mut ty = match type_syntax("finite", &[], 0) {
+        Syntax::Type(value) => value,
+        _ => unreachable!(),
+    };
+    ty.has_parser = true;
+    ty.literal_values = vec!["Dark Grey".into(), "stone".into()];
+    ty.enum_values = vec!["stone".into()];
+    source.syntaxes.push(Syntax::Type(ty));
+    let catalog = Catalog::new(source);
+    let matches = catalog.type_literal_prefix_matches(" ST ").collect::<Vec<_>>();
+    assert!(!matches.is_empty());
+    for (spelling, value) in matches {
+        assert!(spelling.starts_with("st"));
+        assert!(catalog.type_literal_matches(spelling).any(|exact| exact == value));
+    }
+    let all = catalog.type_literal_prefix_matches("").map(|(s, _)| s).collect::<Vec<_>>();
+    assert!(all.windows(2).all(|w| w[0] <= w[1]));
+    assert!(catalog.type_literal_prefix_matches("dark g").any(|(s, v)| s == "dark grey" && v.canonical_value == "Dark Grey"));
+    assert_eq!(catalog.type_literal_prefix_matches("absent").count(), 0);
+    assert_eq!(Catalog::new(parts()).type_literal_prefix_matches("").count(), 0);
+}
+
+#[test]
 fn declared_method_queries_preserve_unavailable_and_exact_signatures() {
     let mut parts = parts();
     let mut player = class("org.bukkit.entity.Player", None, &[]);

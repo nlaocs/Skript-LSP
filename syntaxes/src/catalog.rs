@@ -320,6 +320,9 @@ struct CatalogIndex {
     // Only immutable, known class-index pairs are retained; unknown names stay uncached.
     conversions: Arc<Mutex<HashMap<(usize, usize), bool>>>,
     type_literals: HashMap<String, Vec<TypeLiteralIndexEntry>>,
+    // Prefix lookup shares the exact parser data, without scanning the map on
+    // every completion request or changing native exact-match ordering.
+    type_literal_spellings: Vec<String>,
     registered_type_patterns: HashMap<String, Vec<RegisteredTypePatternIndexEntry>>,
 }
 
@@ -522,6 +525,8 @@ impl Catalog {
             });
             positions.dedup();
         }
+        index.type_literal_spellings = index.type_literals.keys().cloned().collect();
+        index.type_literal_spellings.sort_unstable();
 
         for (position, event_value) in parts.event_values.iter().enumerate() {
             index
@@ -720,6 +725,36 @@ impl Catalog {
                     source: entry.source,
                 }),
                 _ => None,
+            })
+    }
+
+    /// Finite parser-data spellings starting with `prefix`, in lexical order.
+    /// The spelling is normalized exactly like native literal lookup; the
+    /// canonical value and registration remain distinct. This enumerates data,
+    /// not successful contextual parses, and never expands parser patterns.
+    pub fn type_literal_prefix_matches(
+        &self,
+        prefix: &str,
+    ) -> impl Iterator<Item = (&str, TypeLiteralMatch<'_>)> {
+        let prefix = normalize_literal(prefix);
+        let start = self.index.type_literal_spellings.partition_point(|s| s < &prefix);
+        self.index.type_literal_spellings[start..]
+            .iter()
+            .take_while(move |spelling| spelling.starts_with(&prefix))
+            .flat_map(move |spelling| {
+                self.index.type_literals[spelling].iter().filter_map(move |entry| {
+                    let Syntax::Type(value) = &self.parts.syntaxes[entry.type_position] else {
+                        return None;
+                    };
+                    Some((spelling.as_str(), TypeLiteralMatch {
+                        type_info: value,
+                        literal: entry.literal_position.and_then(|p| value.type_literals.get(p)),
+                        literal_index: entry.literal_position,
+                        canonical_value: &entry.canonical_value,
+                        plural: entry.plural,
+                        source: entry.source,
+                    }))
+                })
             })
     }
 
