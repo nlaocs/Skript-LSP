@@ -22,7 +22,7 @@ mod call_hierarchy;
 mod document_symbols;
 mod navigation;
 mod type_knowledge;
-use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
+pub(super) use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
 
 const CHANGE: &str = "skript.semantic.variable-change";
 const FLOW: &str = "skript.semantic.control-flow";
@@ -587,6 +587,17 @@ impl Document {
         Some((point.types.get(name)?, &point.requested_types, &point.owner))
     }
 
+    #[cfg(test)]
+    pub fn visit_type_facts_for_test(&mut self, mut visit: impl FnMut(&mut InferredType)) {
+        for occurrence in &mut self.occurrences {
+            visit(&mut occurrence.ty);
+        }
+        for point in &mut self.completion_points {
+            for ty in point.types.values_mut() {
+                visit(ty);
+            }
+        }
+    }
     pub fn type_at(&self, position: Position) -> Option<(Range, &InferredType)> {
         let occurrence = self.at(position)?;
         if !matches!(occurrence.reference, Reference::Variable { .. }) {

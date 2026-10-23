@@ -212,6 +212,14 @@ UTF-16 surrogate途中・逆転rangeは待機前にInvalidParams、閉じたURI�
 編集・project更新・closeは旧要求へContentModified、個別取消とshutdownはRequestCancelledを返す。
 要求の取消は共有解析を止めず、旧世代のannotationを後から返さない。
 
+型候補の集合、候補集合の完全性、推論・heuristic・Unknownの根拠区分、未設定の可能性を独立して保持する。
+既知の完全なunionはheuristicへ格下げしない。現在の分岐に未知の型が混ざる場合は、得られた候補を不完全な集合として
+保持できるが、それだけで補完候補を除外したり確定的な型不一致診断を出したりしない。根拠の区分は代入・合流でも維持する。
+型依存の保持判定にも完全な推論根拠を要求し、非空の保証が必要な場合は未設定の可能性も確認する。
+ホバーでは候補の由来を採用済み結果・parameter・代入・現在の制御flow合流と区別する。
+未知の処理を副作用なしとはせず、失効した過去の型や宣言型を自動的にheuristic候補として復活させない。
+この基盤は新しいheuristic生成方針や、変数型inlay hintの配信を実装するものではない。
+
 ## 安全なリネーム
 
 `workspace.workspaceEdit.documentChanges = true`を表明するclientだけに`renameProvider`を公開する。

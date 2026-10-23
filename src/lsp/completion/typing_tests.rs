@@ -1374,3 +1374,54 @@ fn expression_return_detail_reaches_preview_without_claiming_cardinality() {
         );
     }
 }
+
+#[test]
+fn actual_completion_keeps_heuristic_and_partial_current_type_candidates() {
+    use crate::lsp::semantic::{Certainty, InferredType};
+    let source = "function typed(arg_number: number):\n    set {_arg_number} to 1\n    send \"ready\" to {_arg_}\n";
+    let (_, mut view, result, _) = parse(source);
+    assert!(
+        result.syntax.diagnostics.is_empty(),
+        "{:?}",
+        result.syntax.diagnostics
+    );
+    let p = position(source, "{_arg_");
+    let edit_start = source.rfind("{_arg_}").unwrap();
+    let edit = TextRange::new(edit_start, edit_start + "{_arg_}".len());
+    assert!(view.accepted_slots.contains_key(&(edit.start, edit.end)));
+    for (certainty, complete, keep) in [
+        (Certainty::Inferred, true, false),
+        (Certainty::Heuristic, true, true),
+        (Certainty::Inferred, false, true),
+        (Certainty::Heuristic, false, true),
+        (Certainty::Unknown, true, true),
+    ] {
+        // Simulate a future producer's evidence grade without changing source,
+        // registered class, presence, owner, expected slot, or request identity.
+        Arc::get_mut(view.semantic_types.as_mut().unwrap())
+            .unwrap()
+            .visit_type_facts_for_test(|ty| {
+                if let InferredType::Values { support, .. } = ty {
+                    support.certainty = certainty;
+                    support.candidates_complete = complete;
+                }
+            });
+        let incoming = view
+            .semantic_types
+            .as_ref()
+            .unwrap()
+            .completion_input(source, edit, "arg_number")
+            .expect("current incoming fact")
+            .0;
+        assert!(
+            matches!(incoming, InferredType::Values { classes, maybe_unset: false, .. } if classes.contains("java.lang.Long"))
+        );
+        let list = view.at(p, false).unwrap();
+        assert_eq!(
+            declaration_labels(&list).contains(&"{_arg_number}"),
+            keep,
+            "{certainty:?} complete={complete}: {:?}",
+            declaration_labels(&list)
+        );
+    }
+}
