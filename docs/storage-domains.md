@@ -49,3 +49,11 @@ An option expansion no longer makes every unaffected sibling statement opaque. T
 - [Event getter registrations](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/classes/data/BukkitEventValues.java)
 - [Paper CraftServer](https://github.com/PaperMC/Paper/blob/c5eb079/paper-server/src/main/java/org/bukkit/craftbukkit/CraftServer.java)
 - [Paper CraftEntity](https://github.com/PaperMC/Paper/blob/c5eb079/paper-server/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java)
+
+## Scalar change dispatch
+
+The provider change contract (version 4) distinguishes definite binding operations from runtime-dependent dispatch. The semantic layer resolves conditional rules after evaluating the delta and before invalidating target knowledge. It uses current, inferred, complete, present scalar inputs; historical candidates, nullable/default paths and unknown effects cannot satisfy those rules. Unresolved dispatch creates neither a binding-write hint nor an assignment definition. It still invalidates unproved current knowledge; changing an object is not a promise that callbacks are pure. SET/DELETE and list binding roles remain independent of local storage precision, including global navigation.
+
+The captured standard profile currently certifies scalar ADD for closed boxed numeric inputs when the actual arithmetic registration is uncontested and delta cloning and result storage are identity-preserving. The implementation follows direct operation lookup without converters. Integer overflow can promote the result, so the complete result is Long or Double, not always Long. Repeated updates preserve that union. Static rules, including negative results, are cached only within the immutable source/snapshot model. Abstract/custom Number, missing values, global arithmetic, unknown callbacks and unsupported operation registrations remain unresolved. No spelling-based distinction between add and give is made.
+
+The source basis is Skript 2.15.4 Variable.change, EffChange.execute and DefaultOperations, under the same exact runtime profile described above. This is static type/effect evidence, not runtime execution or general interprocedural analysis.

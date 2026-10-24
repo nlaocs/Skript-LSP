@@ -1,7 +1,7 @@
 mod domain;
 mod backend;
 pub(crate) mod context;
-pub(crate) use backend::{command_argument, event_reference};
+pub(crate) use backend::{command_argument, event_reference, local_add_rules};
 // Provider-owned facts about a value AFTER beforeChange, clone and storage
 // conversion. These do not certify the evaluation of the original expression.
 use serde::{Deserialize, Serialize};

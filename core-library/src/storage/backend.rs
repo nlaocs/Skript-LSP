@@ -23,6 +23,8 @@ struct Model {
     snapshot: String,
     digest: String,
     proofs: RwLock<HashMap<(String,String), bool>>,
+    operations: Option<Value>,
+    add_rules: RwLock<Option<Vec<Value>>>,
 }
 
 fn profile(manifest: &Value) -> bool {
@@ -208,7 +210,10 @@ fn load_model() -> Option<Arc<Model>> {
         let records = read_fields(&source,"Types.json", &["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"],1024)?;
         if records.is_empty() || records.iter().any(|r|r["addon"]["name"]!="Skript" || r["addon"]["version"]!="2.15.4") { return None; }
         let graph = graph_from_records(&records)?;
-        Some(Arc::new(Model {records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),proofs:RwLock::new(HashMap::new())}))
+        let operations=catalog_data::read_document("Operations.json",0,64*1024).ok().flatten()
+            .filter(|chunk|chunk.offset==0 && chunk.bytes.len() as u64==chunk.total_length)
+            .and_then(|chunk|serde_json::from_slice(&chunk.bytes).ok());
+        Some(Arc::new(Model {records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),proofs:RwLock::new(HashMap::new()),operations,add_rules:RwLock::new(None)}))
     })();
     let after = catalog_data::source().ok()??;
     if after.source_digest!=source.source_digest || after.snapshot_id!=source.snapshot_id { return None; }
@@ -251,7 +256,7 @@ mod tests {
         assert!(profile(&manifest));
         let records:Vec<Value>=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
         let graph=graph_from_records(&records).unwrap();
-        let model=Model {records,graph,snapshot:manifest["snapshotId"].as_str().unwrap().into(),digest:"fixture.raw-source-digest".into(),proofs:RwLock::new(HashMap::new())};
+        let model=Model {records,graph,snapshot:manifest["snapshotId"].as_str().unwrap().into(),digest:"fixture.raw-source-digest".into(),proofs:RwLock::new(HashMap::new()),operations:None,add_rules:RwLock::new(None)};
         for public in ["org.bukkit.entity.Player","org.bukkit.entity.Entity"] {
             assert!(model.stored(public,IMPLEMENTATION), "genuine bounded storage: {public}");
             assert!(model.stored(public,IMPLEMENTATION), "cached proof: {public}");
@@ -283,5 +288,85 @@ mod tests {
         }
         m["plugins"].as_array_mut().unwrap().push(serde_json::json!({"name":"addon"}));
         assert!(!profile(&m),"foreign event injection/custom runtime providers are unsupported");
+    }
+}
+
+/// Rules cover the complete operation, not just its declared return type.
+/// Variable.change uses direct operation lookup, without implicit converters.
+/// The exact runtime profile authenticates DefaultOperations' implementation;
+/// all applicable registrations are still checked before publishing a rule.
+pub(crate) fn local_add_rules() -> Vec<Value> {
+    let Some(model) = model() else { return Vec::new(); };
+    if let Some(rules)=model.add_rules.read().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {return rules.clone();}
+    let rules=numerical_add_rules(&model, &crate::catalog::identity_delta_classes());
+    *model.add_rules.write().unwrap_or_else(std::sync::PoisonError::into_inner)=Some(rules.clone());
+    rules
+}
+
+fn numerical_add_rules(model: &Model, immutable: &[String]) -> Vec<Value> {
+    const NUMBER: &str = "java.lang.Number";
+    const RESULTS: [&str; 2] = ["java.lang.Long", "java.lang.Double"];
+    const REGISTRATION: &str = "operation:skript:0a20c1c4b6d87f1ad8f91d5a16ddc0d3d517acffc944d47fa9a9b0f859bca434";
+    let Some(operations) = model.operations.as_ref().and_then(|o| o["+"].as_array()) else { return Vec::new(); };
+    if operations.is_empty() || operations.len() > 128
+        || operations.windows(2).any(|p| p[0]["registrationOrder"].as_u64().zip(p[1]["registrationOrder"].as_u64()).is_none_or(|(a,b)|a>=b))
+        || operations.iter().any(|o|o["operatorSign"]!="+" || o["left"].as_str().is_none() || o["right"].as_str().is_none()) {
+        return Vec::new();
+    }
+    let inputs = immutable.iter().filter(|class| model.graph.assignable(class, NUMBER)==Some(true)).cloned().collect::<Vec<_>>();
+    if inputs.is_empty() || inputs.len()>16 || !RESULTS.iter().all(|class|immutable.iter().any(|c|c==class) && model.stored(class,class)) {
+        return Vec::new();
+    }
+    for left in &inputs {
+        for right in &inputs {
+            let mut selected = Vec::new();
+            for operation in operations {
+                let (Some(l),Some(r))=(operation["left"].as_str(),operation["right"].as_str()) else { return Vec::new(); };
+                match (model.graph.assignable(left,l),model.graph.assignable(right,r)) {
+                    (Some(true),Some(true)) => selected.push(operation),
+                    (Some(false),_) | (_,Some(false)) => {},
+                    _ => return Vec::new(),
+                }
+            }
+            // Reject competing applicable entries, including later exact pairs;
+            // never substitute an arbitrary Number-returning callback.
+            if selected.len()!=1 { return Vec::new(); }
+            let operation=selected[0];
+            if operation["registrationId"]!=REGISTRATION || operation["left"]!=NUMBER || operation["right"]!=NUMBER
+                || operation["returnType"]!=NUMBER || operation["addon"]["name"]!="Skript" || operation["addon"]["version"]!="2.15.4" {
+                return Vec::new();
+            }
+        }
+    }
+    vec![serde_json::json!({"targetTypes":inputs,"deltaTypes":inputs,
+        "result":{"version":1,"scope":"local-scalar","types":RESULTS,"complete":true,"multiple":false,
+            "maybeUnset":false,"preservesLocalBindings":true}})]
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+    fn fixture() -> Model {
+        let records:Vec<Value>=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
+        let graph=graph_from_records(&records).unwrap();
+        Model {records,graph,snapshot:"fixture.snapshot".into(),digest:"fixture.source".into(),proofs:RwLock::new(HashMap::new()),
+            operations:Some(serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Operations.json")).unwrap()),add_rules:RwLock::new(None)}
+    }
+    #[test]
+    fn numeric_dispatch_requires_actual_uncontested_registration_and_result_storage() {
+        let mut model=fixture();let immutable=vec!["java.lang.Long".into(),"java.lang.Double".into()];
+        let rules=numerical_add_rules(&model,&immutable);assert_eq!(rules.len(),1);
+        assert_eq!(rules[0]["result"]["types"],serde_json::json!(["java.lang.Long","java.lang.Double"]));
+        assert_eq!(rules[0]["result"]["maybeUnset"],false);
+        assert!(numerical_add_rules(&model,&["java.lang.Number".into()]).is_empty(),"abstract/custom Numbers are not a concrete domain");
+        let original=model.operations.clone();
+        let competing=serde_json::json!({"operatorSign":"+","left":"java.lang.Long","right":"java.lang.Long","returnType":"java.lang.Long","registrationOrder":21,"registrationId":"custom.operation","addon":{"name":"Other","version":"1"}});
+        model.operations.as_mut().unwrap()["+"].as_array_mut().unwrap().push(competing);
+        assert!(numerical_add_rules(&model,&immutable).is_empty(),"later exact override must not inherit the default proof");
+        model.operations=original.clone();
+        model.operations.as_mut().unwrap()["+"].as_array_mut().unwrap().iter_mut().find(|o|o["left"]=="java.lang.Number").unwrap()["registrationId"]=Value::from("different.source");
+        assert!(numerical_add_rules(&model,&immutable).is_empty());
+        model.operations=None;assert!(numerical_add_rules(&model,&immutable).is_empty());
+        assert!(local_add_rules().is_empty(),"native/cold execution has no prepared source profile");
     }
 }

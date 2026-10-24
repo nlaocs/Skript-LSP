@@ -174,3 +174,53 @@ fn legacy_properties_certify_storage_in_event_command_and_parameter_scopes() {
         }
     }
 }
+
+#[test]
+fn scalar_add_dispatch_tracks_present_numeric_results_and_repeated_updates() {
+    let source="on load:\n    set {_n} to 1\n    add 1 to {_n}\n    add 0.5 to {_n}\n    set {_copy} to {_n}\n    set {_n} to \"new\"\n";
+    let (_,document)=parse(source);
+    let hints=document.write_type_hints();
+    let labels=hints.iter().map(|h|(h.position.line,match &h.label {InlayHintLabel::String(s)=>s.clone(),_=>panic!("unexpected label")})).collect::<Vec<_>>();
+    assert_eq!(labels,[(1,": long".into()),(2,": double | long".into()),(3,": double | long".into()),(4,": double | long".into()),(5,": string".into())]);
+    let copy=source.find("set {_copy} to {_n}").unwrap()+"set {_copy} to ".len();
+    let definitions=document.definitions_at(LineIndex::new(source).position(source,copy+2).unwrap(),&[]);
+    assert_eq!(definitions.len(),1);assert_eq!(definitions[0].range.start.line,3,"reaching definition is the latest proved update");
+    let (_,same_operation)=parse("on load:\n    set {_n} to 1\n    give 2 to {_n}\n");
+    assert!(matches!(&same_operation.write_type_hints()[1].label,InlayHintLabel::String(s) if s==": double | long"),"dispatch follows current values, not the give spelling");
+    let overflow="on load:\n    set {_n} to 9223372036854775807\n    add 1 to {_n}\n";
+    let (_,document)=parse(overflow);
+    assert!(matches!(&document.write_type_hints()[1].label,InlayHintLabel::String(s) if s==": double | long"),"overflow must allow Double, never retain only Long");
+}
+
+#[test]
+fn unresolved_value_changes_are_not_binding_definitions_and_do_not_preserve_old_types() {
+    let cases=[
+        ("give", "on join:\n    set {_target} to player\n    give stone to {_target}\n    set {_copy} to {_target}\n",2usize,"{_target}"),
+        ("unknown-delta", "on load:\n    set {_target} to 1\n    add {public.unknown} to {_target}\n    set {_copy} to {_target}\n",2,"{_target}"),
+        ("reassigned-nonnumeric", "on load:\n    set {_target} to 1\n    set {_target} to \"fresh\"\n    add 1 to {_target}\n    set {_copy} to {_target}\n",3,"{_target}"),
+        ("unset", "on load:\n    delete {_target}\n    add 1 to {_target}\n    set {_copy} to {_target}\n",2,"{_target}"),
+        ("nullable-argument", "function publicMutation(value: number):\n    add 1 to {_value}\n    set {_copy} to {_value}\n",1,"{_value}"),
+    ];
+    for (name,source,row,target) in cases {
+        let (_,document)=parse(source);let hints=document.write_type_hints();
+        assert!(hints.iter().all(|h|h.position.line!=row as u32),"{name}: no definite binding write was proved: {hints:?}");
+        let last=hints.last().unwrap();assert!(matches!(&last.label,InlayHintLabel::String(s) if s==": ?"),"{name}: unknown effects must not preserve a historical type: {hints:?}");
+        let offset=source.rfind(target).unwrap()+2;
+        let definitions=document.definitions_at(LineIndex::new(source).position(source,offset).unwrap(),&[]);
+        assert!(definitions.iter().all(|location|location.range.start.line!=row as u32),"{name}: unknown dispatch cannot become a definition: {definitions:?}");
+        if name=="nullable-argument" {
+            assert!(definitions.iter().all(|location|location.range.start.line==0),"only the explicit parameter declaration may remain: {definitions:?}");
+        } else {assert!(definitions.is_empty(),"{name}: historical writes cannot revive: {definitions:?}");}
+    }
+}
+
+#[test]
+fn explicit_global_and_local_list_binding_writes_keep_existing_navigation_roles() {
+    let source="on load:\n    set {public.mutation} to 1\n    delete {public.mutation}\n    set {_copy} to {public.mutation}\n    set {_items::*} to 1\n    add 2 to {_items::*}\n";
+    let (_,document)=parse(source);let hints=document.write_type_hints();
+    for row in [1,2,4,5] {assert!(hints.iter().any(|h|h.position.line==row),"definite binding role preserved at {row}: {hints:?}");}
+    let at=source.rfind("{public.mutation}").unwrap()+2;
+    let locations=document.definitions_at(LineIndex::new(source).position(source,at).unwrap(),&[]);
+    assert!(locations.iter().any(|l|l.range.start.line==1),"global SET stays a definition");
+    assert!(locations.iter().any(|l|l.range.start.line==2),"global DELETE stays a binding operation");
+}

@@ -170,8 +170,18 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
             || operation.mode == ChangeMode::Delete
             || identity_delta
             || !identity_delta_types.is_empty());
+    // Scalar ADD/REMOVE may rebind through arithmetic or mutate a value.
+    // Only proved binding dispatch is an assignment occurrence in consumers.
+    let binding_role = if authentic && (matches!(operation.mode,ChangeMode::Set|ChangeMode::Delete)
+        || changed.and_then(|capture|capture.summary.as_ref()).and_then(variable_list)==Some(true)
+            && matches!(operation.mode,ChangeMode::Add|ChangeMode::Remove|ChangeMode::RemoveAll)) { "binding" } else { "dispatch" };
+    let dispatch_rules = if authentic && static_target==Some(false) && operation.mode==ChangeMode::Add {
+        crate::storage::local_add_rules()
+    } else { Vec::new() };
     let contract = serde_json::json!({
-        "version": 3,
+        "version": 4,
+        "bindingRole": binding_role,
+        "dispatchRules": dispatch_rules,
         "mode": operation.mode.diagnostic_name(),
         "targetCapture": operation.changed_capture,
         "valueCapture": operation.changer_capture,
@@ -201,6 +211,14 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         );
     }
     Some(continue_with(payload))
+}
+
+fn variable_list(summary: &ParseSummary) -> Option<bool> {
+    if summary.kind!="variable" { return None; }
+    let mut records=summary.public_data.iter().filter(|record|record.schema_id==crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID);
+    let record=records.next()?;
+    if records.next().is_some() || record.schema_version!=crate::public_data::VARIABLE_IDENTITY_SCHEMA_VERSION {return None;}
+    serde_json::from_str::<serde_json::Value>(&record.json).ok()?["list"].as_bool()
 }
 
 fn static_variable(summary: &ParseSummary) -> Option<bool> {

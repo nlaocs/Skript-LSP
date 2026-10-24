@@ -134,6 +134,8 @@ fn heuristic_or_partial_types_cannot_certify_clone_or_read_preservation() {
         identity_delta: false,
         identity_delta_types: vec!["java.lang.Number".into()],
         storage_result: None,
+        binding_role: String::new(),
+        dispatch_rules: Vec::new(),
     };
     for heuristic in [false, true] {
         let mut candidate = value("java.lang.Number", false);

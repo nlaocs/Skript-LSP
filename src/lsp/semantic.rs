@@ -19,6 +19,7 @@ use std::{
 };
 use syntaxes::Catalog;
 mod call_hierarchy;
+mod change_dispatch;
 mod document_symbols;
 mod history;
 mod navigation;
@@ -980,11 +981,15 @@ struct Change {
     target_only: bool,
     #[serde(default)]
     storage_result: Option<StorageResult>,
+    #[serde(default)]
+    binding_role: String,
+    #[serde(default)]
+    dispatch_rules: Vec<change_dispatch::Rule>,
 }
 
 /// Result of the accepted provider's complete local-scalar storage operation.
 /// Independent from the input expression type and from other binding effects.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StorageResult {
     version: u32,
@@ -1297,7 +1302,7 @@ impl Engine<'_> {
             .then(|| {
                 unique_metadata(node, CHANGE)
                     .and_then(|json| serde_json::from_str::<Change>(json).ok())
-                    .filter(|change| matches!(change.version, 1 | 2 | 3))
+                    .filter(|change| matches!(change.version, 1 | 2 | 3 | 4))
             })
             .flatten();
         let nonbody = node
@@ -1362,7 +1367,30 @@ impl Engine<'_> {
             .filter(|child| !ordered.contains(child))
             .copied()
             .collect::<Vec<_>>();
+        // The boundary is AFTER delta evaluation, before unknown target/callback
+        // effects. History cannot establish either input to a dispatch rule.
+        let mut dispatched = change.as_ref().and_then(|change| {
+            if change.version!=4 || change.binding_role!="dispatch" || unlisted.len()!=1 { return None; }
+            let target_id=capture_node(node,change.target_capture,&self.nodes)?;
+            if unlisted[0]!=target_id { return None; }
+            let identity=self.identity(self.nodes[&target_id],scope)?;
+            if !identity.key.local || identity.list || self.exact(self.nodes[&target_id]).is_none() { return None; }
+            let target=&facts.get(&identity.key)?.ty;
+            let value=child_types.get(&capture_node(node,change.value_capture?,&self.nodes)?)?;
+            if !identity_delta(change,value) { return None; }
+            change_dispatch::resolve(&change.dispatch_rules,target,value).cloned().map(|result|(target_id,result))
+        });
         for child in &unlisted {
+            if dispatched.as_ref().is_some_and(|(target,_)|target==child) {
+                let ty=self.node(*child,scope,facts)?;
+                let valid=change.as_ref().and_then(|change|{
+                    let value=child_types.get(&capture_node(node,change.value_capture?,&self.nodes)?)?;
+                    change_dispatch::resolve(&change.dispatch_rules,&ty,value)
+                }).is_some();
+                child_types.insert(*child,ty);
+                if !valid { dispatched=None; }
+                continue;
+            }
             // An opaque caller can evaluate these in any order, repeatedly, or
             // after a hidden callback. Never share current operand-local state.
             // Prior knowledge may still be explained as history; it cannot prove
@@ -1370,12 +1398,12 @@ impl Engine<'_> {
             let mut historical = historical_facts(facts);
             child_types.insert(*child, self.node(*child, scope, &mut historical)?);
         }
-        let target_only = change.as_ref().is_some_and(|change| {
+        let target_only = dispatched.is_some() || change.as_ref().is_some_and(|change| {
             let value = change
                 .value_capture
                 .and_then(|index| capture_node(node, index, &self.nodes))
                 .and_then(|id| child_types.get(&id));
-            matches!(change.version, 2 | 3)
+            matches!(change.version, 2 | 3 | 4)
                 && change.target_only
                 && (change.mode == "delete"
                     || value.is_some_and(|value| identity_delta(change, value))
@@ -1387,7 +1415,7 @@ impl Engine<'_> {
         }
         if node.kind == SyntaxKind::Effect {
             if let Some(change) = change {
-                self.change(node, scope, facts, &change, &child_types)?;
+                self.change(node, scope, facts, &change, &child_types, dispatched.as_ref().map(|(_,result)|result))?;
             } else {
                 // An unadvertised effect may invoke arbitrary addon code.
                 invalidate(facts, range, Invalidation::Provider);
@@ -1539,7 +1567,15 @@ impl Engine<'_> {
         facts: &mut Facts,
         change: &Change,
         children: &HashMap<u64, InferredType>,
+        dispatched: Option<&StorageResult>,
     ) -> Result<(), String> {
+        if change.version==4 && change.binding_role!="binding" && dispatched.is_none() {
+            // Unknown callback effects remain unknown, but no definite binding
+            // occurrence or reaching-definition is invented for a value change.
+            invalidate(facts,self.exact(node),Invalidation::Provider);
+            self.evaluation_context=None;
+            return Ok(());
+        }
         if !matches!(
             change.mode.as_str(),
             "set" | "add" | "remove" | "remove-all" | "delete" | "reset"
@@ -1591,10 +1627,10 @@ impl Engine<'_> {
             .unwrap_or(InferredType::Unknown);
         let identity_delta = identity_delta(change, &value);
         let stored = (!identity.list).then(|| storage_result(change)).flatten();
-        let certified = matches!(change.version, 2 | 3)
+        let certified = matches!(change.version, 2 | 3 | 4)
             && change.target_only
             && (change.mode == "delete" || identity_delta);
-        let mut ty = match change.mode.as_str() {
+        let mut ty = if let Some(result)=dispatched { result.ty().unwrap_or(InferredType::Unknown) } else { match change.mode.as_str() {
             "set" if stored.is_some() => stored.and_then(StorageResult::ty).unwrap(),
             "set" if certified && identity_delta => value,
             "delete" if certified => InferredType::unset(),
@@ -1606,7 +1642,7 @@ impl Engine<'_> {
                 .as_ref()
                 .map_or(InferredType::Unknown, |fact| fact.ty.clone()),
             _ => InferredType::Unknown,
-        };
+        }};
         if identity.list
             && let InferredType::Values { multiple, .. } = &mut ty
         {
@@ -2036,7 +2072,7 @@ fn preserves_locals(node: &AstNode) -> bool {
         .is_some_and(|data| data.version == 1 && data.kind == "preserve")
 }
 fn identity_delta(change: &Change, value: &InferredType) -> bool {
-    matches!(change.version, 2 | 3)
+    matches!(change.version, 2 | 3 | 4)
         && (change.identity_delta
             || value.proven_types().is_some_and(|(classes, _)| {
                 classes
@@ -2045,7 +2081,7 @@ fn identity_delta(change: &Change, value: &InferredType) -> bool {
             }))
 }
 fn storage_result(change: &Change) -> Option<&StorageResult> {
-    (change.version == 3 && change.mode == "set")
+    (matches!(change.version, 3 | 4) && change.mode == "set")
         .then_some(change.storage_result.as_ref())
         .flatten()
         .filter(|result| result.ty().is_some())
