@@ -32,6 +32,8 @@ mod type_names;
 mod type_values;
 mod typing;
 #[cfg(test)]
+mod statement_function_tests;
+#[cfg(test)]
 mod typing_tests;
 pub(super) use signature::{SignatureCapabilities, SignatureQuery};
 use structure::{EntryScope, Scope};
@@ -781,6 +783,17 @@ impl Document {
                                 SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
                             ) && t.folded.starts_with(&folded_prefix)
                         })));
+        let statement_call_position = !line.root
+            && matches!(line.scope, Scope::Statements)
+            && self.source[line.code_start..word_start].trim().is_empty()
+            && skript_parser::BodySyntaxDomain::for_node(
+                skript_parser::SectionBodyMode::Trigger,
+                if line.section {
+                    RawNodeKind::Section
+                } else {
+                    RawNodeKind::Simple
+                },
+            ).allows_function_call();
         let type_edit_start = variable_start.unwrap_or(word_start);
         let type_edit_end = if let Some(start) = variable_start {
             match cursor::variable_edit_end(&self.source[start..line.range.end], offset - start) {
@@ -1006,167 +1019,179 @@ impl Document {
                     )?, search);
                 }
             }
-            if variable_start.is_none() && references && self.function_namespace_complete {
-                let query = &self.source[word_start..offset];
-                for (index, function) in self
-                    .functions
-                    .iter()
-                    .chain(&self.index.functions)
-                    .enumerate()
+        }
+        if variable_start.is_none()
+            && (expression || statement_call_position)
+            && references
+            && self.function_namespace_complete
+        {
+            let query = &self.source[word_start..offset];
+            for (index, function) in self
+                .functions
+                .iter()
+                .chain(&self.index.functions)
+                .enumerate()
+            {
+                if (!function.returns_value && !statement_call_position)
+                    || !starts(&function.name, query)
                 {
-                    if !function.returns_value || !starts(&function.name, query) {
-                        continue;
-                    }
-                    if index >= self.functions.len()
-                        && self.functions.iter().any(|f| {
-                            f.name == function.name && f.shape_iter().eq(function.shape_iter())
-                        })
-                    {
-                        continue;
-                    }
-                    let existing_call = self.source[word_end..line.range.end]
-                        .trim_start()
-                        .starts_with('(');
-                    let use_snippets = snippets && !existing_call;
-                    let insertion = if existing_call {
-                        function.name.clone()
+                    continue;
+                }
+                if index >= self.functions.len()
+                    && self.functions.iter().any(|f| {
+                        f.name == function.name && f.shape_iter().eq(function.shape_iter())
+                    })
+                {
+                    continue;
+                }
+                let existing_call = self.source[word_end..line.range.end]
+                    .trim_start()
+                    .starts_with('(');
+                let use_snippets = snippets && !existing_call;
+                let insertion = if existing_call {
+                    function.name.clone()
+                } else {
+                    let required = function
+                        .parameters
+                        .iter()
+                        .filter(|p| !p.3)
+                        .collect::<Vec<_>>();
+                    if use_snippets {
+                        format!(
+                            "{}({})",
+                            escape(&function.name),
+                            required
+                                .iter()
+                                .enumerate()
+                                .map(|(i, p)| format!("${{{}:{}}}", i + 1, escape(&p.0)))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else if required.is_empty() {
+                        format!("{}()", function.name)
                     } else {
-                        let required = function
-                            .parameters
-                            .iter()
-                            .filter(|p| !p.3)
-                            .collect::<Vec<_>>();
-                        if use_snippets {
-                            format!(
-                                "{}({})",
-                                escape(&function.name),
-                                required
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, p)| format!("${{{}:{}}}", i + 1, escape(&p.0)))
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            )
-                        } else if required.is_empty() {
-                            format!("{}()", function.name)
-                        } else {
-                            format!("{}(", function.name)
+                        format!("{}(", function.name)
+                    }
+                };
+                // A name-only edit inside an existing call does not own
+                // the complete expression. New calls have their declared
+                // output type even before required arguments are entered.
+                if !statement_call_position
+                    && !existing_call
+                    && self.incompatible_function(function, expected)
+                {
+                    continue;
+                }
+                let label = format!(
+                    "{}({})",
+                    function.name,
+                    function
+                        .parameters
+                        .iter()
+                        .map(|p| format!(
+                            "{}: {}{}{}",
+                            p.0,
+                            p.1,
+                            if p.2 { "" } else { "[]" },
+                            if p.3 { "?" } else { "" }
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if !items.may_accept_matching(&function.name, &label, word_start) {
+                    continue;
+                }
+                let return_detail = function
+                    .definition
+                    .as_ref()
+                    .map(|definition| {
+                        if definition.return_type.is_none() {
+                            return format!("return: none (declared); {}", function.detail);
                         }
-                    };
-                    // A name-only edit inside an existing call does not own
-                    // the complete expression. New calls have their declared
-                    // output type even before required arguments are entered.
-                    if !existing_call && self.incompatible_function(function, expected) {
-                        continue;
-                    }
-                    let label = format!(
-                        "{}({})",
-                        function.name,
-                        function
-                            .parameters
-                            .iter()
-                            .map(|p| format!(
-                                "{}: {}{}{}",
-                                p.0,
-                                p.1,
-                                if p.2 { "" } else { "[]" },
-                                if p.3 { "?" } else { "" }
-                            ))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
-                    if !items.may_accept_matching(&function.name, &label, word_start) {
-                        continue;
-                    }
-                    let return_detail = function
-                        .definition
-                        .as_ref()
-                        .map(|definition| {
-                            format!(
-                                "return: {} (declared; {}); {}",
-                                definition
-                                    .return_type
-                                    .as_ref()
-                                    .map(|class| self.display_type(class.as_str()))
-                                    .unwrap_or_else(|| "none".into()),
-                                if definition.return_type_is_single {
-                                    "single"
-                                } else {
-                                    "plural"
-                                },
-                                function.detail
-                            )
-                        })
-                        .unwrap_or_else(|| format!("return: unknown; {}", function.detail));
-                    let mut item = self.item(
-                        &label,
-                        &insertion,
-                        &return_detail,
-                        &function.identity,
-                        CompletionItemKind::FUNCTION,
-                        TextRange::new(word_start, word_end),
-                        use_snippets,
-                    )?;
-                    let mut fields = vec![
-                        ("Signature", label.clone()),
-                        ("Information", function.detail.clone()),
-                    ];
-                    if let Some(definition) = &function.definition {
-                        fields.push((
-                            "Return type",
+                        format!(
+                            "return: {} (declared; {}); {}",
                             definition
                                 .return_type
                                 .as_ref()
                                 .map(|class| self.display_type(class.as_str()))
                                 .unwrap_or_else(|| "none".into()),
-                        ));
-                        if definition.return_type.is_some() {
-                            fields.push((
-                                "Multiplicity",
-                                if definition.return_type_is_single {
-                                    "single"
-                                } else {
-                                    "plural"
-                                }
-                                .into(),
-                            ));
-                        }
-                        fields.push(("Return information", "declared".into()));
-                        if let Some(class) = &definition.return_type {
-                            fields.push(("Value class", class.0.clone()));
-                        }
-                    } else {
-                        fields.push(("Return type", "unknown".into()));
-                    }
-                    fields.push(("Registration", function.identity.clone()));
-                    item.documentation = Some(super::hover_text::markup(
-                        super::hover_text::render_cached(
-                            "Function",
-                            &fields,
-                            function.documentation.as_deref(),
-                            &self.index.documentation_format,
-                        ),
-                        &self.index.documentation_format,
-                    ));
-                    if existing_call {
-                        let tail = &self.source[word_end..line.range.end];
-                        let opening = tail.len() - tail.trim_start().len();
-                        let end = word_end + opening + 1;
-                        // Menu clients that only insert the prefix retain the
-                        // ordinary edit below. Clients with an exact-edit adapter
-                        // can own the existing opening delimiter in this item.
-                        item.data = Some(serde_json::json!({
-                            "nlaocs.lsp.completion-edit": {
-                                "version": 1,
-                                "edit": TextEdit {
-                                    range: self.lines.range(&self.source, TextRange::new(word_start, end))?,
-                                    new_text: format!("{}{}", function.name, &self.source[word_end..end]),
-                                },
+                            if definition.return_type_is_single {
+                                "single"
+                            } else {
+                                "plural"
                             },
-                        }));
+                            function.detail
+                        )
+                    })
+                    .unwrap_or_else(|| format!("return: unknown; {}", function.detail));
+                let mut item = self.item(
+                    &label,
+                    &insertion,
+                    &return_detail,
+                    &function.identity,
+                    CompletionItemKind::FUNCTION,
+                    TextRange::new(word_start, word_end),
+                    use_snippets,
+                )?;
+                let mut fields = vec![
+                    ("Signature", label.clone()),
+                    ("Information", function.detail.clone()),
+                ];
+                if let Some(definition) = &function.definition {
+                    fields.push((
+                        "Return type",
+                        definition
+                            .return_type
+                            .as_ref()
+                            .map(|class| self.display_type(class.as_str()))
+                            .unwrap_or_else(|| "none".into()),
+                    ));
+                    if definition.return_type.is_some() {
+                        fields.push((
+                            "Multiplicity",
+                            if definition.return_type_is_single {
+                                "single"
+                            } else {
+                                "plural"
+                            }
+                            .into(),
+                        ));
                     }
-                    items.push_matching(item, &function.name);
+                    fields.push(("Return information", "declared".into()));
+                    if let Some(class) = &definition.return_type {
+                        fields.push(("Value class", class.0.clone()));
+                    }
+                } else {
+                    fields.push(("Return type", "unknown".into()));
                 }
+                fields.push(("Registration", function.identity.clone()));
+                item.documentation = Some(super::hover_text::markup(
+                    super::hover_text::render_cached(
+                        "Function",
+                        &fields,
+                        function.documentation.as_deref(),
+                        &self.index.documentation_format,
+                    ),
+                    &self.index.documentation_format,
+                ));
+                if existing_call {
+                    let tail = &self.source[word_end..line.range.end];
+                    let opening = tail.len() - tail.trim_start().len();
+                    let end = word_end + opening + 1;
+                    // Menu clients that only insert the prefix retain the
+                    // ordinary edit below. Clients with an exact-edit adapter
+                    // can own the existing opening delimiter in this item.
+                    item.data = Some(serde_json::json!({
+                        "nlaocs.lsp.completion-edit": {
+                            "version": 1,
+                            "edit": TextEdit {
+                                range: self.lines.range(&self.source, TextRange::new(word_start, end))?,
+                                new_text: format!("{}{}", function.name, &self.source[word_end..end]),
+                            },
+                        },
+                    }));
+                }
+                items.push_matching(item, &function.name);
             }
         }
         if variable_start.is_none() {
