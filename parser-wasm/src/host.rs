@@ -15,6 +15,8 @@ mod catalog_measurement;
 #[cfg(test)]
 mod tree_macro_measurement;
 #[cfg(test)]
+mod tree_view;
+#[cfg(test)]
 mod checkpoint_tests;
 mod default_expression;
 mod hook_calls;
