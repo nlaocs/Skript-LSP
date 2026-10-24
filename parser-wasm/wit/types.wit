@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.42.0;
+package nlaocs:skript-parser-addon@0.43.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -1758,10 +1758,77 @@ interface types {
         effects: hook-effects,
     }
 
+    record tree-reference {
+        epoch-high: u64,
+        epoch-low: u64,
+        token: u64,
+        generation: u64,
+    }
+
+    /// Constant-sized target metadata; no child vector or mapped-origin arrays.
+    record node-header {
+        id: u64,
+        kind: raw-node-kind,
+        parent: option<u64>,
+        syntax-context: u64,
+        child-count: u64,
+    }
+
+    record node-summary {
+        header: node-header,
+        text: string,
+    }
+
+    /// Lossless node data except children, obtained through an ordered page.
+    record node-details {
+        summary: node-summary,
+        span: mapped-span,
+        line: raw-line,
+        code-span: option<mapped-span>,
+        header-span: option<mapped-span>,
+        body-span: option<mapped-span>,
+        indent-level: option<u32>,
+        invalid-reason: option<raw-invalid-reason>,
+    }
+
+    record tree-info {
+        node-count: u64,
+        root-count: u64,
+        diagnostic-count: u64,
+        indentation: option<indentation>,
+    }
+
+    record node-page {
+        nodes: list<node-header>,
+        next: option<u64>,
+    }
+
+    record diagnostic-page {
+        diagnostics: list<raw-diagnostic>,
+        next: option<u64>,
+    }
+
+    enum tree-error {
+        unavailable,
+        stale,
+        cancelled,
+        query-quota,
+        byte-quota,
+        invalid-page,
+    }
+
+    enum node-span-kind {
+        node,
+        code,
+        header,
+        body,
+    }
+
+
     record tree-macro-input {
         context: invocation-context,
-        tree: raw-tree,
-        target: node-id,
+        tree: tree-reference,
+        target: node-header,
         depth: u32,
     }
 

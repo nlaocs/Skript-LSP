@@ -132,7 +132,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(24, 0)
+        parser_wasm::AbiVersion::new(25, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -149,7 +149,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.42.0")
+        Some("0.43.0")
     );
 
     let world = package
@@ -173,6 +173,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             "catalog-data",
             "dynamic-syntax-registry",
             "state-store",
+            "tree-data",
             "types"
         ]
     );
@@ -599,4 +600,12 @@ fn bindings_expose_typed_matching_payload() {
     assert_eq!(payload.pattern_index, Some(0));
     assert_eq!(payload.element_path.len(), 2);
     assert_eq!(payload.span.origins[0].original_range.start, 20);
+}
+
+#[test]
+fn immutable_tree_queries_are_an_explicit_bounded_import_contract() {
+    let mut resolve = wit_parser::Resolve::default();
+    let (package, _) = resolve.push_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit")).unwrap();
+    let actual = surface_names(&resolve, package, "tree-data", None);
+    compare_names(&actual, &["children", "details", "diagnostics", "info", "node", "roots", "span"]).unwrap();
 }

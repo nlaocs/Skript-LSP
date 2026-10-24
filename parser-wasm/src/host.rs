@@ -14,8 +14,8 @@ mod capture_view_tests;
 mod catalog_measurement;
 #[cfg(test)]
 mod tree_macro_measurement;
-#[cfg(test)]
 mod tree_view;
+mod tree_access;
 #[cfg(test)]
 mod checkpoint_tests;
 mod default_expression;
@@ -950,6 +950,7 @@ struct TreeMacroCycleKey {
 }
 
 struct TreeMacroPipeline {
+    generation: u64,
     effects: HookEffects,
     calls: Vec<TreeMacroCall>,
     failures: Vec<ComponentFailure>,
@@ -961,6 +962,7 @@ struct TreeMacroPipeline {
 impl TreeMacroPipeline {
     fn new() -> Self {
         Self {
+            generation: 0,
             effects: empty_effects(),
             calls: Vec::new(),
             failures: Vec::new(),
@@ -1040,6 +1042,7 @@ impl ResourceLimiter for HostResourceLimiter {
 }
 
 struct StoreData {
+    tree_view: Option<tree_view::Lease>,
     limits: HostResourceLimiter,
     invocation: Option<InvocationTransaction>,
     #[cfg(test)]
@@ -11333,7 +11336,7 @@ impl ParserHost {
             None,
         );
         let mut source = request.source;
-        let mut tree = request.tree;
+        let mut tree = Arc::new(request.tree);
         let mut pipeline = TreeMacroPipeline::new();
         let mut root_index = 0usize;
         let mut decision = HookDecision::ContinueProcessing;
@@ -11367,7 +11370,7 @@ impl ParserHost {
         Ok(TreeMacroResult {
             decision,
             source,
-            tree,
+            tree: Arc::unwrap_or_clone(tree),
             effects: pipeline.effects,
             calls: pipeline.calls,
             failures: pipeline.failures,
@@ -11381,7 +11384,7 @@ impl ParserHost {
         request_context: &InvocationContext,
         candidates: &[RegisteredSubscription],
         source: &mut MappedSource,
-        tree: &mut ParserRawTree,
+        tree: &mut Arc<ParserRawTree>,
         path: &[usize],
         depth: usize,
         pipeline: &mut TreeMacroPipeline,
@@ -11498,10 +11501,13 @@ impl ParserHost {
             context.subscription_id = subscription_id.clone();
             context.expansion = parent.map(|id| u64::from(id.get()));
             context.syntax_context = u64::from(node.syntax_context.get());
+            let lease = tree_view::Lease::new(
+                Arc::clone(tree), pipeline.generation, self.native_cancellation.clone(),
+            ).map_err(|error| StateError::Internal { message: error.to_string() })?;
             let input = TreeMacroInput {
                 context,
-                tree: parser_raw_tree_to_wit(tree),
-                target: current_target.get(),
+                tree: tree_access::reference(lease.reference()),
+                target: tree_access::header(&node),
                 depth: u32::try_from(depth).unwrap_or(u32::MAX),
             };
 
@@ -11510,7 +11516,8 @@ impl ParserHost {
             let call =
                 {
                     let entry = &mut self.components[candidate.component_index];
-                    if entry.store.data().invocation.is_some()
+                    if entry.store.data().tree_view.is_some()
+                        || entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
                     {
                         pipeline.active.pop();
@@ -11522,6 +11529,7 @@ impl ParserHost {
                         .into());
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
+                    entry.store.data_mut().tree_view = Some(lease);
                     entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     if let Err(error) = prepare_store(
                         &mut entry.store,
@@ -11530,6 +11538,7 @@ impl ParserHost {
                         &component_id,
                         "tree macro",
                     ) {
+                        entry.store.data_mut().tree_view.take();
                         entry
                             .store
                             .data_mut()
@@ -11544,6 +11553,7 @@ impl ParserHost {
                         .bindings
                         .nlaocs_skript_parser_addon_tree_macro()
                         .call_expand(&mut entry.store, &input);
+                    entry.store.data_mut().tree_view.take();
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",
@@ -11788,11 +11798,14 @@ impl ParserHost {
                 });
             }
 
+            let generation = pipeline.generation.checked_add(1)
+                .ok_or_else(|| StateError::Internal { message: "tree generation exhausted".into() })?;
             state_invocation.commit()?;
             let expansion = application.expansion;
             let replacement_roots = application.replacement_roots;
             *source = application.source;
-            *tree = application.tree;
+            *tree = Arc::new(application.tree);
+            pipeline.generation = generation;
             pipeline.calls.push(TreeMacroCall {
                 component_id,
                 subscription_id,
@@ -14272,6 +14285,7 @@ fn create_store(
     let mut store = Store::new(
         engine,
         StoreData {
+            tree_view: None,
             limits: HostResourceLimiter {
                 memory_bytes: config.max_memory_bytes,
                 table_elements: config.max_table_elements,
@@ -14944,125 +14958,21 @@ fn tree_macro_cycle_diagnostic(
 }
 
 fn parser_raw_tree_to_wit(tree: &ParserRawTree) -> RawTree {
-    use crate::bindings::nlaocs::skript_parser_addon::types::{
-        Indentation, RawDiagnostic, RawLine, RawRelatedSpan, RawTrivia, UnexpectedIndentation,
-    };
-
     RawTree {
         roots: tree.roots.iter().map(|id| id.get()).collect(),
-        nodes: tree
-            .nodes
-            .iter()
-            .map(|node| RawTreeNode {
-                id: node.id.get(),
-                kind: match node.kind {
-                    ParserRawNodeKind::Blank => WitRawNodeKind::Blank,
-                    ParserRawNodeKind::Comment => WitRawNodeKind::Comment,
-                    ParserRawNodeKind::Simple => WitRawNodeKind::Simple,
-                    ParserRawNodeKind::Section => WitRawNodeKind::Section,
-                    ParserRawNodeKind::Invalid => WitRawNodeKind::Invalid,
-                },
-                text: node.text.clone(),
-                span: mapped_span_to_wit(node.span.clone()),
-                line: RawLine {
-                    number: node.line.number as u64,
-                    raw_text: node.line.raw_text.clone(),
-                    line_ending: match node.line.line_ending {
-                        ParserLineEnding::None => WitLineEnding::None,
-                        ParserLineEnding::Lf => WitLineEnding::Lf,
-                        ParserLineEnding::CrLf => WitLineEnding::CrLf,
-                        ParserLineEnding::Cr => WitLineEnding::Cr,
-                    },
-                    span: mapped_span_to_wit(node.line.span.clone()),
-                    content_span: mapped_span_to_wit(node.line.content_span.clone()),
-                    line_ending_span: mapped_span_to_wit(node.line.line_ending_span.clone()),
-                    indentation: RawTrivia {
-                        kind: WitRawTriviaKind::Whitespace,
-                        text: node.line.indentation.text.clone(),
-                        span: mapped_span_to_wit(node.line.indentation.span.clone()),
-                    },
-                    trailing_trivia: node
-                        .line
-                        .trailing_trivia
-                        .iter()
-                        .map(|trivia| RawTrivia {
-                            kind: match trivia.kind {
-                                ParserRawTriviaKind::Whitespace => WitRawTriviaKind::Whitespace,
-                                ParserRawTriviaKind::LineComment => WitRawTriviaKind::LineComment,
-                                ParserRawTriviaKind::BlockComment => WitRawTriviaKind::BlockComment,
-                                ParserRawTriviaKind::LineEnding => WitRawTriviaKind::LineEnding,
-                            },
-                            text: trivia.text.clone(),
-                            span: mapped_span_to_wit(trivia.span.clone()),
-                        })
-                        .collect(),
-                },
-                code_span: node.code_span.clone().map(mapped_span_to_wit),
-                header_span: node.header_span.clone().map(mapped_span_to_wit),
-                body_span: node.body_span.clone().map(mapped_span_to_wit),
-                indent_level: node.indent_level,
-                invalid_reason: node.invalid_reason.as_ref().map(|reason| match reason {
-                    ParserRawInvalidReason::MixedIndentation => {
-                        WitRawInvalidReason::MixedIndentation
-                    }
-                    ParserRawInvalidReason::InvalidIndentation => {
-                        WitRawInvalidReason::InvalidIndentation
-                    }
-                    ParserRawInvalidReason::UnexpectedIndentation {
-                        expected_level,
-                        actual_level,
-                    } => WitRawInvalidReason::UnexpectedIndentation(UnexpectedIndentation {
-                        expected_level: *expected_level,
-                        actual_level: *actual_level,
-                    }),
-                }),
-                syntax_context: u64::from(node.syntax_context.get()),
-                parent: node.parent.map(|id| id.get()),
+        nodes: tree.nodes.iter().map(|node| {
+            let value = tree_access::details(node);
+            RawTreeNode {
+                id: value.summary.header.id, kind: value.summary.header.kind,
+                parent: value.summary.header.parent, syntax_context: value.summary.header.syntax_context,
+                text: value.summary.text, span: value.span, line: value.line,
+                code_span: value.code_span, header_span: value.header_span, body_span: value.body_span,
+                indent_level: value.indent_level, invalid_reason: value.invalid_reason,
                 children: node.children.iter().map(|id| id.get()).collect(),
-            })
-            .collect(),
-        diagnostics: tree
-            .diagnostics
-            .iter()
-            .map(|diagnostic| RawDiagnostic {
-                code: match diagnostic.code {
-                    ParserRawDiagnosticCode::MixedIndentation => {
-                        WitRawDiagnosticCode::MixedIndentation
-                    }
-                    ParserRawDiagnosticCode::InvalidIndentation => {
-                        WitRawDiagnosticCode::InvalidIndentation
-                    }
-                    ParserRawDiagnosticCode::UnexpectedIndentation => {
-                        WitRawDiagnosticCode::UnexpectedIndentation
-                    }
-                    ParserRawDiagnosticCode::EmptySection => WitRawDiagnosticCode::EmptySection,
-                    ParserRawDiagnosticCode::UnclosedBlockComment => {
-                        WitRawDiagnosticCode::UnclosedBlockComment
-                    }
-                },
-                severity: match diagnostic.severity {
-                    ParserRawDiagnosticSeverity::Error => WitRawDiagnosticSeverity::Error,
-                    ParserRawDiagnosticSeverity::Warning => WitRawDiagnosticSeverity::Warning,
-                },
-                message: diagnostic.message.clone(),
-                span: mapped_span_to_wit(diagnostic.span.clone()),
-                related: diagnostic
-                    .related
-                    .iter()
-                    .map(|related| RawRelatedSpan {
-                        message: related.message.clone(),
-                        span: mapped_span_to_wit(related.span.clone()),
-                    })
-                    .collect(),
-            })
-            .collect(),
-        indentation: tree.indentation.as_ref().map(|indentation| Indentation {
-            kind: match indentation.kind {
-                ParserIndentKind::Space => WitIndentKind::Space,
-                ParserIndentKind::Tab => WitIndentKind::Tab,
-            },
-            unit: indentation.unit.clone(),
-        }),
+            }
+        }).collect(),
+        diagnostics: tree.diagnostics.iter().map(tree_access::raw_diagnostic).collect(),
+        indentation: tree_access::indentation(tree),
     }
 }
 

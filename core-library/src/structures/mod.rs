@@ -50,7 +50,7 @@ pub(crate) fn register_missing(
 
 pub(crate) fn expand_options(
     input: crate::nlaocs::skript_parser_addon::types::TreeMacroInput,
-) -> crate::nlaocs::skript_parser_addon::types::TreeMacroOutput {
+) -> Result<crate::nlaocs::skript_parser_addon::types::TreeMacroOutput, AddonError> {
     options_macro::expand(input)
 }
 

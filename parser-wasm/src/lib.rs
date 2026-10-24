@@ -34,7 +34,7 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(24, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(25, 0);
 
 /// Explicit immutable/local semantic hook result contract for incremental analysis.
 pub const CAPABILITY_INCREMENTAL_LOCAL_SYNTAX: &str = "parser.incremental-local-syntax";
@@ -361,6 +361,7 @@ mod tests {
             AbiVersion::new(2, 0),
             AbiVersion::new(21, 0),
             AbiVersion::new(22, 0),
+            AbiVersion::new(24, 0),
         ] {
             let error = validate_compatibility(ABI_VERSION, actual, &[], &[]).unwrap_err();
             assert_eq!(

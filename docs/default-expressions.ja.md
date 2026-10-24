@@ -49,7 +49,7 @@ expansion IDを保持し、各originを`Anchored`にします。
 
 ## WASM Addon contract
 
-WIT `nlaocs:skript-parser-addon@0.42.0`、ABI `24.0`を使用します。旧componentはこの契約で再buildしてください。
+WIT `nlaocs:skript-parser-addon@0.43.0`、ABI `25.0`を使用します。旧componentはこの契約で再buildしてください。
 capability `parser.default-expression` version 1を要求し、既存の`HookSubscription`、
 target、selectorでphase `default-expression`へ登録します。dispatch対象は要求された
 **Type**のregistrationです。親syntaxとcaptureのidentityは

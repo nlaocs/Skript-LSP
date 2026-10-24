@@ -1,0 +1,18 @@
+package nlaocs:skript-parser-addon@0.43.0;
+
+/// Read-only, bounded access to the active Tree macro snapshot.
+interface tree-data {
+    use types.{tree-reference, node-header, node-summary, node-details, tree-info, node-page, diagnostic-page, tree-error, node-span-kind, mapped-span};
+
+    /// Each query checks active-call ownership and cancellation. Pages contain
+    /// at most 128 nodes; every response is at most 64 KiB under conservative
+    /// wire-size accounting. Per call: 4096 queries and 8 MiB total responses.
+    /// An absent node is distinct from an invalid handle or exhausted quota.
+    info: func(tree: tree-reference) -> result<tree-info, tree-error>;
+    node: func(tree: tree-reference, id: u64) -> result<option<node-summary>, tree-error>;
+    details: func(tree: tree-reference, id: u64) -> result<option<node-details>, tree-error>;
+    span: func(tree: tree-reference, id: u64, kind: node-span-kind) -> result<option<mapped-span>, tree-error>;
+    roots: func(tree: tree-reference, cursor: u64, limit: u32) -> result<node-page, tree-error>;
+    children: func(tree: tree-reference, parent: u64, cursor: u64, limit: u32) -> result<option<node-page>, tree-error>;
+    diagnostics: func(tree: tree-reference, cursor: u64, limit: u32) -> result<diagnostic-page, tree-error>;
+}

@@ -118,19 +118,34 @@ impl addon::Guest for TreeMacroAddon {
     }
 }
 
+static SAVED_TREE_REFERENCE: std::sync::Mutex<Option<nlaocs::skript_parser_addon::types::TreeReference>> = std::sync::Mutex::new(None);
+
 impl tree_macro::Guest for TreeMacroAddon {
     fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonError> {
-        let target = input
-            .tree
-            .nodes
-            .iter()
-            .find(|node| node.id == input.target)
+        let target = nlaocs::skript_parser_addon::tree_data::details(input.tree, input.target.id)
+            .map_err(|error| addon_error(AddonErrorKind::Internal, &format!("Tree view failed: {error:?}")))?
             .ok_or_else(|| addon_error(AddonErrorKind::InvalidPayload, "target node is absent"))?;
-        record_invocation(&input, &target.text)?;
+        record_invocation(&input, &target.summary.text)?;
 
-        match target.text.as_str() {
+        match target.summary.text.as_str() {
+            "remember-view" | "remember-edit-view" => {
+                *SAVED_TREE_REFERENCE.lock().unwrap() = Some(input.tree.clone());
+                if target.summary.text == "remember-edit-view" {
+                    Ok(changed(replace_single("check-old-view")))
+                } else { Ok(unchanged()) }
+            }
+            "check-old-view" => {
+                let old = SAVED_TREE_REFERENCE.lock().unwrap().clone()
+                    .ok_or_else(|| addon_error(AddonErrorKind::InvalidPayload, "no saved Tree view"))?;
+                match nlaocs::skript_parser_addon::tree_data::info(old) {
+                    Err(nlaocs::skript_parser_addon::types::TreeError::Stale) => Ok(changed(replace_single("old-view-rejected"))),
+                    _ => Err(addon_error(AddonErrorKind::InvalidPayload, "previous invocation Tree view was not rejected")),
+                }
+            }
             "inspect-wire" => {
-                let indentation_ok = input.tree.indentation.as_ref().is_some_and(|indentation| {
+                let info = nlaocs::skript_parser_addon::tree_data::info(input.tree)
+                    .map_err(|error| addon_error(AddonErrorKind::Internal, &format!("Tree info failed: {error:?}")))?;
+                let indentation_ok = info.indentation.as_ref().is_some_and(|indentation| {
                     matches!(indentation.kind, IndentKind::Space) && indentation.unit == "    "
                 });
                 let line_ok = target.line.number == 2
@@ -142,8 +157,8 @@ impl tree_macro::Guest for TreeMacroAddon {
                         .any(|trivia| matches!(trivia.kind, RawTriviaKind::LineComment));
                 let span_ok = !target.span.origins.is_empty()
                     && target.code_span.is_some()
-                    && target.syntax_context == 0;
-                if indentation_ok && line_ok && span_ok && input.tree.diagnostics.is_empty() {
+                    && target.summary.header.syntax_context == 0;
+                if indentation_ok && line_ok && span_ok && info.diagnostic_count == 0 {
                     Ok(changed(replace_single("wire-ok")))
                 } else {
                     Err(addon_error(

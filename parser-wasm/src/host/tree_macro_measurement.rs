@@ -1,4 +1,4 @@
-//! Opt-in single-call attribution with unchanged Core/WIT/fuel. This does not
+//! Opt-in single-call attribution with a pinned Core and unchanged fuel budget. This does not
 //! split guest argument lifting, Rust input destruction and automatic post-return.
 
 use super::*;
@@ -88,20 +88,28 @@ fn measure_tree_macro_transport_and_noop_controls() {
                 let mut depth = 0;
                 let mut parent = raw.get(target).unwrap().parent;
                 while let Some(id) = parent { depth += 1; parent = raw.get(id).unwrap().parent; }
+                let cancellation = DocumentCancellationToken::new();
+                let snapshot = if minimal {
+                    ParserRawTree { roots: vec![target], nodes: vec![raw.get(target).unwrap().clone()],
+                        diagnostics: Vec::new(), indentation: raw.indentation.clone() }
+                } else { raw.clone() };
+                let lease = tree_view::Lease::new(Arc::new(snapshot), 0, Some(cancellation.clone())).unwrap();
                 let input = TreeMacroInput {
                     context: InvocationContext { invocation_id:1, subscription_id:"core.options-preprocessor".into(),
                         document_id:"file:///tree-measurement/public.sk".into(), document_revision:1,
-                        expansion:None, syntax_context:0 }, tree, target:target.get(), depth,
+                        expansion:None, syntax_context:0 }, tree: tree_access::reference(lease.reference()), target:tree_access::header(raw.get(target).unwrap()), depth,
                 };
                 let entry = &mut host.components[0];
                 entry.store.data_mut().invocation = Some(state_invocation);
-                let cancellation = DocumentCancellationToken::new();
+                entry.store.data_mut().tree_view = Some(lease);
                 entry.store.data_mut().cancellation = Some(cancellation.clone());
                 let cancellation_polling = entry.store.data().interrupt_safe;
                 prepare_store(&mut entry.store, config.fuel_per_call, 200, CORE_LIBRARY_COMPONENT_ID, "tree macro").unwrap();
                 let before = entry.store.get_fuel().unwrap();
                 let call_started = Instant::now();
                 let call = entry.bindings.nlaocs_skript_parser_addon_tree_macro().call_expand(&mut entry.store, &input);
+                let (tree_queries, tree_response_budget_bytes) = entry.store.data().tree_view.as_ref().unwrap().measurement();
+                entry.store.data_mut().tree_view.take();
                 let call_ms = call_started.elapsed().as_secs_f64() * 1000.0;
                 let after = entry.store.get_fuel().unwrap();
                 entry.store.data_mut().invocation.take().unwrap().rollback();
@@ -120,10 +128,10 @@ fn measure_tree_macro_transport_and_noop_controls() {
                 }
                 let row = serde_json::json!({"block":block,"case":case["name"],"sourceSha256":case["sha256"],
                     "sourceBytes":source.len(),"lines":source.lines().count(),"mode":mode,
-                    "wireNodes":node_count,"roots":roots,"partialStringBytes":text_bytes,"partialOriginCount":origins,
+                    "legacyDiagnosticWireNodes":node_count,"roots":roots,"partialStringBytes":text_bytes,"partialOriginCount":origins,
                     "targetIndex":node_index,"targetKind":target_kind,"targetHasMarker":target_has_marker,
-                    "targetTextBytes":target_text_bytes,"hostSetupMs":host_setup_ms,"wireConversionMs":conversion_ms,
-                    "callMs":call_ms,"fuelBefore":before,"fuelAfter":after,"fuelConsumed":before-after,
+                    "targetTextBytes":target_text_bytes,"hostSetupMs":host_setup_ms,"legacyDiagnosticWireConversionMs":conversion_ms,
+                    "treeQueryCalls":tree_queries,"treeResponseBudgetBytes":tree_response_budget_bytes,"callMs":call_ms,"fuelBefore":before,"fuelAfter":after,"fuelConsumed":before-after,
                     "inFlightCancellationPolling":cancellation_polling,
                     "status":status,"edit":edit,"diagnostics":diagnostics});
                 println!("tree_macro_measurement_row {row}");
@@ -133,6 +141,6 @@ fn measure_tree_macro_transport_and_noop_controls() {
     }
     println!("tree_macro_measurement {}", serde_json::json!({"rows":rows,"fuelPerCall":config.fuel_per_call,
         "coreSha256":plan["coreSha256"],"wallBoundPerCallMs":2000,"wholeTestBudgetSeconds":120,
-        "preCancelledPreparationRejected":true,"coreAndAbiUnchanged":true,
-        "limits":"Single direct tree-macro calls on fresh initialized hosts without a syntax catalog, not full document or editor timing. Wasmtime43 call includes automatic post-return. Native conversion measured separately and before minimal-tree pruning; call fuel aggregates realloc/lower/lift, Core body, Rust input drop and output cleanup. No-op controls constrain attribution but do not split these subphases. Partial string/origin counts are not canonical ABI byte totals. The one-comment tree is a diagnostic ablation only. Pre-cancel is tested; in-flight polling follows the actual Core capability and is not forced on. A fixed two-second epoch trap deadline and outer owned-process watchdog bound the experiment."}));
+        "preCancelledPreparationRejected":true,"coreAndAbiUnchanged":false,"treeTransport":"invocation-scoped immutable handle",
+        "limits":"Single direct tree-macro calls on fresh initialized hosts without a syntax catalog, not full document or editor timing. Wasmtime43 call includes automatic post-return. Legacy full-WIT conversion is diagnostic-only, measured outside the current handle call and before minimal-tree pruning. Current input is a fixed header/reference plus on-demand reads; response bytes are conservative quota accounting, not canonical transfer bytes; call fuel aggregates realloc/lower/lift, Core body, Rust input drop and output cleanup. No-op controls constrain attribution but do not split these subphases. Partial string/origin counts are not canonical ABI byte totals. The one-comment tree is a diagnostic ablation only. Pre-cancel is tested; in-flight polling follows the actual Core capability and is not forced on. A fixed two-second epoch trap deadline and outer owned-process watchdog bound the experiment."}));
 }

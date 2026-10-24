@@ -497,3 +497,38 @@ fn raw_tree_and_macro_expansion_depth_quotas_are_independent() {
         transaction.cancel().expect("test parse may be cancelled");
     }
 }
+
+#[test]
+fn immutable_tree_handles_expire_after_edits_revisions_and_rollback() {
+    for first in ["remember-view\n", "remember-view\nreject\n"] {
+        let mut host = host(HostConfig::default());
+        let first_result = host.expand_tree("file:///workspace", request(71, first)).unwrap();
+        if first.contains("reject") {
+            assert!(matches!(first_result.decision, HookDecision::Reject(_)));
+        } else { assert!(first_result.failures.is_empty()); }
+        let next = host.expand_tree("file:///workspace", request(72, "check-old-view\n")).unwrap();
+        assert!(next.failures.is_empty(), "{:?}", next.failures);
+        assert_eq!(root_texts(&next.tree), ["old-view-rejected"]);
+    }
+    let mut host = host(HostConfig::default());
+    let same_revision = host.expand_tree("file:///workspace", request(73, "remember-view\ncheck-old-view\n")).unwrap();
+    assert!(same_revision.failures.is_empty(), "{:?}", same_revision.failures);
+    assert_eq!(root_texts(&same_revision.tree), ["remember-view", "old-view-rejected"]);
+    let result = host.expand_tree("file:///workspace", request(74, "remember-edit-view\n")).unwrap();
+    assert!(result.failures.is_empty(), "{:?}", result.failures);
+    assert_eq!(root_texts(&result.tree), ["old-view-rejected"]);
+}
+
+#[test]
+fn options_reads_do_not_materialize_unrelated_large_comment_text() {
+    let config = HostConfig::default();
+    assert_eq!(config.fuel_per_call, 20_000_000);
+    let comment = "x".repeat(70_000);
+    let input = format!("#{comment}\noptions:\n    message: public\n    #{comment}\non load:\n    send \"{{@message}}\"\n");
+    let mut host = core_host(config);
+    let result = host.expand_tree("file:///workspace", request(74, &input)).unwrap();
+    assert!(result.failures.is_empty(), "{:?}", result.failures);
+    assert!(result.effects.diagnostics.is_empty());
+    let event = root(&result.tree, 2);
+    assert_eq!(result.tree.get(event.children[0]).unwrap().text, "send \"public\"");
+}

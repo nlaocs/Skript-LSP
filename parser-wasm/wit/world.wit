@@ -1,8 +1,9 @@
-package nlaocs:skript-parser-addon@0.42.0;
+package nlaocs:skript-parser-addon@0.43.0;
 
 world parser-addon {
     import catalog-data;
     import state-store;
+    import tree-data;
     import dynamic-syntax-registry;
 
     export addon;

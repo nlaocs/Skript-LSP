@@ -741,7 +741,7 @@ impl text_macro::Guest for CoreLibrary {
 
 impl tree_macro::Guest for CoreLibrary {
     fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonError> {
-        Ok(structures::expand_options(input))
+        structures::expand_options(input)
     }
 }
 

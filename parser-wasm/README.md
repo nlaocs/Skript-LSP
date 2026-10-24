@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.42.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.43.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -102,7 +102,8 @@ multiple targets for each registered semantic handler, including dynamic
   it to 0.39.0; Function bindings on final AST and additional-parse nodes changed
   it to 0.40.0. Native omission provenance and the opt-in incremental
   subscription manifest changed it to 0.41.0; explicit header-local Structure
-  handler promises changed it to 0.42.0. The manifest's current `abi` value is 24.0 and
+  handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
+changed it to 0.43.0. The manifest's current `abi` value is 25.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -124,7 +125,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 24.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 25.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts
@@ -662,9 +663,27 @@ source and StateStore savepoint.
 
 A Tree macro subscribes to `ParseStage` during the `Tree` phase with
 `Transform` mode. The host walks the lossless RawTree in pre-order. Every call
-receives the current complete tree, the target node ID, and generated-node
-depth, including raw lines, trivia, invalid-node reasons, diagnostics,
-indentation metadata, spans, and syntax contexts.
+receives a constant-sized target header, an invocation-scoped immutable tree
+reference, and generated-node depth. The read-only `tree-data` import supplies
+ordered root/child pages, node text/details, selected mapped spans, indentation,
+and diagnostics on demand. Raw lines, trivia, invalid reasons and all source
+origins remain available through these bounded reads.
+
+References are bound to the active component call, document revision and tree
+generation. Edits create a new generation; old references also expire after
+failure, cancellation or rollback. Native snapshots share immutable storage
+instead of cloning the complete tree for each invocation.
+
+Root and child pages contain at most 128 constant-sized headers; unrelated
+node text is not materialized. Diagnostic pages may return a smaller nonempty
+prefix with a continuation cursor to fit the conservative 64 KiB response
+bound. A call may
+perform at most 4096 queries and receive 8 MiB under conservative wire-size
+accounting. A single summary/detail larger than 64 KiB returns an explicit
+byte-quota error; text/detail chunking is not provided. This is distinct from
+the larger document source limit. Missing nodes, stale/unavailable references,
+cancellation and quota failures are separate results and must not be treated as
+successful unchanged macros.
 
 A `TreeEdit` targets the current node implicitly. It can replace that node with
 zero, one, or many generated nodes, replace only a Section body, or attach the

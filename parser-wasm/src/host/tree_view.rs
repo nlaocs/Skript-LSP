@@ -1,16 +1,26 @@
 //! Invocation-scoped read-only ownership for Tree macro queries. No guest state
 //! or accepted edits are stored here; dropping the lease revokes all access.
 use super::*;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{collections::hash_map::RandomState, hash::{BuildHasher, Hasher}, sync::atomic::{AtomicU64, Ordering}};
 
 pub(super) const MAX_PAGE: usize = 128;
 pub(super) const MAX_REPLY_BYTES: usize = 64 * 1024;
 const MAX_QUERY_CALLS: usize = 4096;
 const MAX_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
+// A random process namespace prevents persisted old handles from aliasing the
+// counter of another process. This is opaque identity, never semantic evidence.
+static PROCESS_EPOCH: LazyLock<(u64, u64)> = LazyLock::new(|| {
+    let state = RandomState::new();
+    let mut high = state.build_hasher(); high.write_u8(0);
+    let mut low = state.build_hasher(); low.write_u8(1);
+    (high.finish(), low.finish())
+});
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Reference {
+    pub epoch_high: u64,
+    pub epoch_low: u64,
     pub token: u64,
     pub generation: u64,
 }
@@ -53,8 +63,13 @@ impl Lease {
                 Err(current) => token = current,
             }
         }
-        Ok(Self { reference: Reference { token, generation }, tree, cancellation,
+        Ok(Self { reference: Reference { epoch_high: PROCESS_EPOCH.0, epoch_low: PROCESS_EPOCH.1, token, generation }, tree, cancellation,
             calls: 0, bytes: 0 })
+    }
+
+    #[cfg(test)]
+    pub(super) fn measurement(&self) -> (usize, usize) {
+        (self.calls, self.bytes)
     }
 
     pub fn reference(&self) -> Reference {
@@ -119,6 +134,8 @@ mod tests {
         assert_ne!(first.reference(), next_call.reference());
         assert!(Arc::ptr_eq(&first.read(first.reference()).unwrap(), &original));
         assert_eq!(next_call.read(first.reference()).unwrap_err(), AccessError::Stale);
+        let mut foreign_epoch = first.reference(); foreign_epoch.epoch_high ^= 1;
+        assert_eq!(first.read(foreign_epoch).unwrap_err(), AccessError::Stale);
         let mut wrong_generation = first.reference();
         wrong_generation.generation += 1;
         assert_eq!(first.read(wrong_generation).unwrap_err(), AccessError::Stale);
