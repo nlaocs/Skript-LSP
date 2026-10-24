@@ -48,6 +48,7 @@ mod expr_type_of;
 mod expr_value_within;
 mod expr_whether;
 mod expr_x_of;
+mod fixed_property;
 pub(crate) mod input_cardinality;
 mod prop_expr_amount;
 mod prop_expr_custom_name;
@@ -165,6 +166,7 @@ pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     simple_literal::register(&mut handlers);
     wrapper_expression::register(&mut handlers);
     input_cardinality::register(&mut handlers);
+    fixed_property::register(&mut handlers);
     handlers
 }
 
@@ -249,6 +251,7 @@ fn resolve_selected(
         .or_else(|| prop_expr_wxyz::resolve(payload))
         .or_else(|| simple_literal::resolve(payload))
         .or_else(|| wrapper_expression::resolve(payload))
+        .or_else(|| fixed_property::resolve(payload))
         .map(|mut resolution| {
             crate::storage::annotate_property(payload, &mut resolution);
             resolution

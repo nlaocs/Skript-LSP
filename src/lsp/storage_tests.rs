@@ -19,7 +19,7 @@ fn parse(source: &str) -> (parser_wasm::DocumentParseResult, semantic::Document)
     }).unwrap();
     let result = host.parse_document(DocumentParseRequest::new("file:///storage-public", "file:///storage-public/test.sk",1,source),DocumentParserConfig::default()).unwrap();
     assert!(result.component_failures.is_empty(),"source: {source}\n{:?}",result.component_failures);
-    assert!(result.syntax.diagnostics.is_empty(),"{:?}",result.syntax.diagnostics);
+    assert!(result.syntax.diagnostics.is_empty(),"source: {source}\n{:?}",result.syntax.diagnostics);
     let document=semantic::Document::from_result(&result,Arc::from(source),"file:///storage-public/test.sk".parse().unwrap(),catalog()).unwrap();
     (result,document)
 }
@@ -147,4 +147,30 @@ fn source_map_only_mutation_cannot_relocate_private_semantic_proof() {
     assert!(result.ast.nodes.iter().all(|node|!result.semantic_witnesses().native_valid(node)));
     let altered=semantic::Document::from_result(&result,Arc::from(source),"file:///storage-public/test.sk".parse().unwrap(),catalog()).unwrap();
     assert!(altered.write_type_hints().is_empty());
+}
+
+#[test]
+fn legacy_properties_certify_storage_in_event_command_and_parameter_scopes() {
+    for source in [
+        "on join:\n    set {_id} to uuid of player\n    send {_id}\n",
+        "command /publicuuid <offlineplayer>:\n    trigger:\n        set {_id} to uuid of arg-1\n        send {_id}\n",
+        "command /publicoptionaluuid [<offlineplayer>]:\n    trigger:\n        set {_id} to uuid of arg-1\n",
+        "function publicUUIDScope(person: offlineplayer):\n    set {_id} to uuid of {_person}\non join:\n    set {_id} to \"fresh\"\n",
+    ] {
+        let (result,document)=parse(source);
+        let hints=document.write_type_hints();
+        assert_eq!(hints.len(),if source.starts_with("function ") {2}else{1},"{source}: {hints:?}");
+        let first=hints.first().expect(source);
+        assert!(matches!(&first.label,InlayHintLabel::String(label) if label==": uuid?"),"{source}: {hints:?}");
+        let at=source.find("{_id}").unwrap()+2;
+        let hover=document.hover(LineIndex::new(source).position(source,at).unwrap()).unwrap().1;
+        assert!(hover.contains("provider-certified post-storage type"),"{hover}");
+        if hints.len()>1 { assert!(matches!(&hints[1].label,InlayHintLabel::String(label) if label==": string"),"separate scope: {hints:?}"); }
+        let changed=source.replacen("uuid of player","123",1);
+        if changed!=source {
+            assert!(semantic::Document::from_result(&result,Arc::from(changed.as_str()),"file:///storage-public/test.sk".parse().unwrap(),catalog()).is_err());
+            let (_,edited)=parse(&changed);
+            assert!(matches!(&edited.write_type_hints()[0].label,InlayHintLabel::String(label) if label==": long"));
+        }
+    }
 }

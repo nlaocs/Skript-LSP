@@ -8,6 +8,9 @@ use super::{SourceRecord, declared_method_exists, pinned_runtime, registration_r
 use crate::nlaocs::skript_parser_addon::types::RegisteredExpressionPayload;
 
 const PROPERTY_BASE: &str = "org.skriptlang.skript.lang.properties.PropertyBaseExpression";
+const LEGACY_SIMPLE_PROPERTY: &str = "ch.njol.skript.expressions.base.SimplePropertyExpression";
+const LEGACY_PROPERTY: &str = "ch.njol.skript.expressions.base.PropertyExpression";
+const SIMPLE_EXPRESSION: &str = "ch.njol.skript.lang.util.SimpleExpression";
 const MAX_KEY_BYTES: usize = 4096;
 static SOURCES: LazyLock<RwLock<HashMap<Key, bool>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -167,15 +170,19 @@ fn from_records(
         &key.class,
         index,
         Some(&key.pattern),
-    ) || record["superClass"].as_str() != Some(PROPERTY_BASE)
-    {
+    ) {
         return Some(false);
     }
-    for class in [
-        key.class.as_str(),
-        PROPERTY_BASE,
-        "ch.njol.skript.lang.util.SimpleExpression",
-    ] {
+    // Audited inheritance paths in the pinned Skript source. Authenticate the
+    // concrete registration first, then check every possible override between
+    // it and Expression's default storage hook, including both property APIs.
+    let bases: &[&str] = match record["superClass"].as_str()? {
+        PROPERTY_BASE => &[PROPERTY_BASE, SIMPLE_EXPRESSION],
+        LEGACY_SIMPLE_PROPERTY => &[LEGACY_SIMPLE_PROPERTY, LEGACY_PROPERTY, SIMPLE_EXPRESSION],
+        LEGACY_PROPERTY => &[LEGACY_PROPERTY, SIMPLE_EXPRESSION],
+        _ => return Some(false),
+    };
+    for class in std::iter::once(key.class.as_str()).chain(bases.iter().copied()) {
         if has_before_change(class)? {
             return Some(false);
         }

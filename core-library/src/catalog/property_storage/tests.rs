@@ -207,3 +207,26 @@ fn property_source_missing_facts_and_overrides_never_certify_storage() {
     }), Some(true));
     assert_eq!(queried, [key().class, PROPERTY_BASE.into(), "ch.njol.skript.lang.util.SimpleExpression".into()]);
 }
+
+#[test]
+fn both_property_families_require_the_complete_override_free_storage_path() {
+    for (base,path) in [
+        (PROPERTY_BASE,vec![PROPERTY_BASE,SIMPLE_EXPRESSION]),
+        (LEGACY_SIMPLE_PROPERTY,vec![LEGACY_SIMPLE_PROPERTY,LEGACY_PROPERTY,SIMPLE_EXPRESSION]),
+        (LEGACY_PROPERTY,vec![LEGACY_PROPERTY,SIMPLE_EXPRESSION]),
+    ] {
+        let mut value=record();
+        value["superClass"]=base.into();
+        let records=records(value);
+        let mut expected=vec![key().class];
+        expected.extend(path.into_iter().map(str::to_owned));
+        let mut queried=Vec::new();
+        assert_eq!(from_records(&key(),&records,|class|{queried.push(class.to_owned());Some(false)}),Some(true));
+        assert_eq!(queried,expected);
+        for rejected in &expected {
+            for outcome in [None,Some(true)] {
+                assert_eq!(from_records(&key(),&records,|class|if class==rejected {outcome}else{Some(false)}),outcome.map(|_|false),"{base}: {rejected}");
+            }
+        }
+    }
+}
