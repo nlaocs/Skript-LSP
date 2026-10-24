@@ -11,3 +11,5 @@ skript-parser/tests/data/selection-oracle-2.15.4/snapshot/*.json text eol=lf
 skript-parser/tests/data/selection-oracle-2.15.4/observer/** text eol=lf
 # A JAR manifest requires an empty line after its main section.
 skript-parser/tests/data/selection-oracle-2.15.4/observer/agent.mf whitespace=-blank-at-eof
+
+parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/*.json -text
