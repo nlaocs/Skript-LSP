@@ -175,8 +175,10 @@ depend on `parser-wasm` with `default-features = false`.
 
 Unknown types are not silently treated as compatible proof or removed from
 completion. Unverified grammar continuations are identified separately from
-typed candidates. Variable-type inlay hints and additional type-certainty states
-are not implemented features.
+typed candidates. Variable-type inlay hints show post-write facts at authenticated
+binding targets; ordinary reads use hover. Generated or unproved targets can be
+omitted. See [storage type guarantees](docs/storage-domains.md) for supported
+profiles and conservative limits.
 
 ## Development and tests
 
