@@ -615,3 +615,25 @@ fn instantiate_cancellation_and_resource_markers_keep_their_typed_causes() {
     assert!(matches!(error, HostError::Cancelled(_)));
     assert!(!error.disables_component());
 }
+
+// Immutable proof preparation must not publish state for reusable headers.
+// Core does not currently promise restart-safe cancellation; do not fake that capability.
+#[test]
+fn storage_model_preparation_preserves_header_reuse_without_forging_restart_safety() {
+    let catalog=Arc::new(ssg::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/type-parser-versions/skript-2.15.4-storage-domain")).unwrap().into_catalog());
+    let mut host=ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../artifacts/core-library.wasm")),HostConfig {
+        syntax_catalog:Some(catalog),runtime_profile:RuntimeProfile {skript_version:Some("2.15.4".into()),..RuntimeProfile::default()},
+        ..HostConfig::default()
+    }).unwrap();
+    let source="function publicStorageBody() :: number:\n    set {_value} to abs(3)\n    return {_value}\n";
+    let first=host.parse_document(DocumentParseRequest::new("file:///storage-restart","file:///storage-restart/test.sk",1,source),DocumentParserConfig::default()).unwrap();
+    assert!(first.component_failures.is_empty(),"{:?}",first.component_failures);
+    assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
+    let index=host.components.iter().position(|entry|entry.manifest.component_id=="nlaocs.core-library").unwrap();
+    assert!(!host.components[index].store.data().interrupt_safe,"Core has no restart-safe promise; a forced restart is not a valid test path");
+    let second=host.parse_document(DocumentParseRequest::new("file:///storage-restart","file:///storage-restart/test.sk",2,source.replace("abs(3)","abs(4)")),DocumentParserConfig::default()).unwrap();
+    assert!(second.component_failures.is_empty(),"{:?}",second.component_failures);
+    assert!(second.syntax.diagnostics.is_empty(),"{:?}",second.syntax.diagnostics);
+    assert!(host.incremental_metrics().header_hits>0,"immutable model preparation must not invalidate an unchanged function header");
+}

@@ -17,6 +17,8 @@ mod semantic;
 mod semantic_tokens;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod storage_tests;
 mod type_display;
 mod worker;
 
