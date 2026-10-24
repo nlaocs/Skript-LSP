@@ -53,11 +53,13 @@ Host imports:
 - `catalog-data`: complete read-only SSG documents, ID lookups, type relations,
   and Skript-compatible hierarchy distances
 - `state-store`: scoped key/value storage with compare-and-swap and prefix scan
+- `tree-data`: invocation-scoped immutable Tree views with bounded queries
 - `dynamic-syntax-registry`: add, override, and remove syntax definitions
 
 Parser payloads are WIT records and variants. The only JSON crossing the ABI is
-opaque SSG source returned as `catalog-data` bytes. RawTree and AST values use
-node-ID arenas so their payloads remain non-recursive Component Model values.
+opaque SSG source returned as `catalog-data` bytes. Tree macro inputs use an
+invocation-scoped reference and target header; `tree-data` reads the immutable
+view. Generated trees and AST values use non-recursive node-ID arenas.
 
 ## Compatibility
 

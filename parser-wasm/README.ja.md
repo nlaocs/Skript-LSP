@@ -50,10 +50,12 @@ Host import:
 
 - `catalog-data`: SSGの全read-only document、ID lookup、型関係query、Skript互換の継承距離
 - `state-store`: compare-and-swapとprefix scanを備えたscope付きkey/value storage
+- `tree-data`: invocation単位のimmutable Tree viewに対する上限付きquery
 - `dynamic-syntax-registry`: syntax definitionの追加、override、削除
 
 parser payloadはWITのrecordとvariantです。ABIを通るJSONは`catalog-data`がopaque bytesとして返す
-SSG sourceだけです。RawTreeとASTはnode ID arenaを使い、Component Model上で再帰しない値として表現します。
+SSG sourceだけです。Tree macro入力はinvocation単位の参照とtarget headerを持ち、
+`tree-data`でimmutable viewを読みます。生成treeとASTは再帰しないnode ID arenaで表現します。
 
 ## 互換性
 
@@ -84,8 +86,9 @@ implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefa
 追加で0.36.0へ、SSG runtime snapshot capabilityの追加で0.37.0へ、host側の
 完全一致Alias・BlockData検索の追加で0.38.0へ、構造化Function leaf callの追加で0.39.0へ、
 最終ASTと追加解析nodeへのFunction binding投影で0.40.0へ変わりました。
-nativeの省略根拠とopt-inのincremental subscription manifest追加で0.42.0へ変わりました。
-manifestの現在の`abi`値は24.0で、
+nativeの省略根拠とopt-inのincremental subscription manifest追加で0.41.0へ、
+header-local Structure handler契約の追加で0.42.0へ、invocation単位のimmutable Tree access追加で
+0.43.0へ変わりました。manifestの現在の`abi`値は25.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -102,7 +105,7 @@ Function情報は不正なhook出力として拒否し、providerのstateをroll
 このWIT/ABI変更ではCoreLibraryと外部componentの再ビルドが必要です。
 WIT 0.40.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
 `@0.40.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 22.0の
-componentは、必要なABI 24.0を示すhandshake診断で拒否されます。
+componentは、必要なABI 25.0を示すhandshake診断で拒否されます。
 現行WITとSDKを使って再ビルドしてください。manifestのversion変更だけでは移行できません。
 
 ### WIT 0.41: 省略の根拠と明示的な再利用契約
