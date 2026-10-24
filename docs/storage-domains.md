@@ -12,6 +12,8 @@ Audited Player/Entity command parser paths and the initial PlayerEvent/CommandEv
 
 The common checker rejects possible Slot interception, checks exact runtime-class registrations before the ordered superclass search, and verifies all potentially selected clone and serialization dispatches. Even registrations after the first guaranteed ordered match matter for exact-class lookup. Missing accessor evidence and overlapping unknown interfaces fail closed. Serialization to a supertype is identity only when the value is already guaranteed to satisfy that type; it does not widen the published type.
 
+Both the modern and legacy property families use the common storage checker. A fallback resolver handles only an authenticated fixed declared class with one consistent, complete type candidate and known multiplicity. It does not overwrite a preceding provider's different effective result, replace a specific semantic resolver, or certify getter effects. Every class between the concrete property and the default storage hook must have complete method evidence with no beforeChange override. Dynamic/incomplete bounds and unknown or overridden methods remain unsupported. UUID properties in the captured profile can consequently retain `uuid?` after local assignment, including offline-player inputs; presence is not inferred from the declared class.
+
 An authenticated property or native function with a concrete declared class bound may use the same dispatch checker. Open interfaces need additional producer evidence. Existing independent closed-family guarantees remain available.
 
 ## Presence, scope and presentation
@@ -36,6 +38,8 @@ An option expansion no longer makes every unaffected sibling statement opaque. T
 
 ## Source references
 
+- [Legacy SimplePropertyExpression](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/expressions/base/SimplePropertyExpression.java)
+- [Legacy PropertyExpression](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/expressions/base/PropertyExpression.java)
 - [Skript Expression.beforeChange](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/lang/Expression.java)
 - [Skript Classes dispatch and clone](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/registrations/Classes.java)
 - [Skript variable storage](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/variables/Variables.java)
