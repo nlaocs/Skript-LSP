@@ -143,10 +143,12 @@ pub(super) fn resolve_target(
         .map(|value| value.registration_id.as_str())
         .collect::<Vec<_>>()
         .join(";");
+    let storage = crate::storage::event_reference(payload, &matches, return_type, multiplicity == DynamicMultiplicity::Single);
     let mut metadata_entries = vec![
         metadata("semantic-mode", "event-value"),
         metadata("event-value-registration-ids", &registration_ids),
     ];
+    metadata_entries.extend(storage);
     if matches
         .iter()
         .all(|value| crate::catalog::event_value_preserves_locals(value, return_type))

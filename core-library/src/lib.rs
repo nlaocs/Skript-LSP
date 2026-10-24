@@ -32,7 +32,7 @@ use nlaocs::skript_parser_addon::types::{
     AbiVersion, AddonError, AddonErrorKind, AstMacroInput, AstMacroOutput, CapabilityRequirement,
     CompatibilityError, CompatibilityErrorKind, ComponentManifest, Diagnostic, DiagnosticSeverity,
     ExpressionPayload, HookDecision, HookEffects, HookInvocation, HookMode, HookOutput,
-    HookPayload, HookPhase, HookSelector, HookSubscription, HookTarget, HostProfile, ParseResult,
+    HookPayload, InvocationContext, HookPhase, HookSelector, HookSubscription, HookTarget, HostProfile, ParseResult,
     RegisteredExpressionPayload, StateNamespaceDeclaration, StateNamespaceVisibility, SyntaxKind,
     TextMacroInput, TextMacroOutput, TreeMacroInput, TreeMacroOutput, TypeParserOutcome,
 };
@@ -282,6 +282,7 @@ impl addon::Guest for CoreLibrary {
             },
             catalog_annotations: expressions::completion_annotations(),
             state_namespaces: vec![
+                StateNamespaceDeclaration {name:storage::context::NAMESPACE.into(),visibility:StateNamespaceVisibility::Private,schema_id:storage::context::SCHEMA.into(),schema_version:1,readers:Vec::new(),writers:Vec::new()},
                 StateNamespaceDeclaration {
                     name: "commands".to_owned(),
                     visibility: StateNamespaceVisibility::Private,
@@ -451,7 +452,7 @@ fn parse_registered_expression(input: HookInvocation) -> Result<HookOutput, Addo
         ));
     }
     match input.payload {
-        HookPayload::RegisteredExpression(payload) => resolve_registered_expression(payload),
+        HookPayload::RegisteredExpression(payload) => resolve_registered_expression(payload, Some(&input.context)),
         _ => Err(addon_error(
             AddonErrorKind::InvalidPayload,
             "CoreLibrary registered Expression semantics require a registered Expression payload",
@@ -617,12 +618,13 @@ fn interpolation_output(
 
 fn resolve_registered_expression(
     mut payload: RegisteredExpressionPayload,
+    invocation: Option<&InvocationContext>,
 ) -> Result<HookOutput, AddonError> {
     let input_multiplicity = expressions::input_cardinality::multiplicity(&payload);
     if let Some(multiplicity) = input_multiplicity {
         payload.effective_multiplicity = Some(multiplicity);
     }
-    let Some(resolution) = expressions::resolve_with_public_data(&mut payload) else {
+    let Some(mut resolution) = expressions::resolve_with_public_data(&mut payload) else {
         return Ok(HookOutput {
             decision: if input_multiplicity.is_some() {
                 HookDecision::ContinueProcessing
@@ -633,6 +635,7 @@ fn resolve_registered_expression(
             effects: empty_effects(),
         });
     };
+    storage::context::retain_certificates(invocation,&payload,&mut resolution);
     let (return_type, possible_return_types, possible_return_types_state, multiplicity, metadata) =
         match resolution {
             expressions::SemanticResolution::Resolved {
@@ -877,7 +880,7 @@ mod tests {
             r#"{"version":1,"captureIndex":2,"fullyParsedInput":true}"#,
         ));
         let original = payload.clone();
-        let output = resolve_registered_expression(payload).unwrap();
+        let output = resolve_registered_expression(payload,None).unwrap();
         let Some(HookPayload::RegisteredExpression(actual)) = output.replacement else {
             panic!("resolved payload");
         };
@@ -1037,9 +1040,9 @@ mod tests {
         assert_eq!(manifest.capabilities[9].id, CAPABILITY_CATALOG_DATA);
         assert_eq!(manifest.capabilities[9].minimum_version, 4);
         assert!(!manifest.capabilities[9].required);
-        assert_eq!(manifest.state_namespaces.len(), 2);
-        assert_eq!(manifest.state_namespaces[0].name, "commands");
-        assert_eq!(manifest.state_namespaces[1].name, "aliases");
+        assert_eq!(manifest.state_namespaces.len(), 3);
+        assert_eq!(manifest.state_namespaces[1].name, "commands");
+        assert_eq!(manifest.state_namespaces[2].name, "aliases");
         assert_eq!(
             manifest.capabilities[10].id,
             parser_wasm::CAPABILITY_DEFAULT_EXPRESSION

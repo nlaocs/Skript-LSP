@@ -289,6 +289,7 @@ impl CommandHeader {
             for (suffix, value) in [
                 ("class", argument.class_name.as_str()),
                 ("single", if argument.single { "true" } else { "false" }),
+                ("native-parser-input", if argument.parse_context_known && argument.default_source.is_none() { "true" } else { "false" }),
                 ("optional", if argument.optional { "true" } else { "false" }),
             ] {
                 updates.push(ContextUpdate {

@@ -1,5 +1,9 @@
-//! Provider-owned facts about a value AFTER beforeChange, clone and storage
-//! conversion. These do not certify the evaluation of the original expression.
+mod domain;
+mod backend;
+pub(crate) mod context;
+pub(crate) use backend::{command_argument, event_reference};
+// Provider-owned facts about a value AFTER beforeChange, clone and storage
+// conversion. These do not certify the evaluation of the original expression.
 use serde::{Deserialize, Serialize};
 
 use crate::nlaocs::skript_parser_addon::types::{MetadataEntry, ParseSummary};
@@ -52,7 +56,7 @@ pub(crate) fn for_summary(summary: &ParseSummary) -> Option<ResultType> {
         .metadata
         .iter()
         .filter(|entry| entry.key == METADATA_KEY);
-    let entry = entries.next()?;
+    let Some(entry) = entries.next() else { return backend::native_function(summary); };
     if entries.next().is_some() || entry.owner_component_id.as_deref() != Some(crate::COMPONENT_ID)
     {
         return None;
@@ -95,7 +99,7 @@ pub(crate) fn annotate_property(
         || *multiplicity != DynamicMultiplicity::Single
         || metadata.iter().any(|entry| entry.key == METADATA_KEY)
         || !crate::catalog::standard_property_source(payload)
-        || !crate::types::storage_preserves_bounds(possible_return_types)
+        || !(crate::types::storage_preserves_bounds(possible_return_types) || backend::declared_bounds(possible_return_types))
     {
         return;
     }

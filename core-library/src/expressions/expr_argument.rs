@@ -149,14 +149,18 @@ fn resolve_argument(payload: &RegisteredExpressionPayload) -> SemanticResolution
     match selected {
         Some(argument) => resolved_with_possible_types(
             argument.class_name.clone(),
-            vec![argument.class_name],
+            vec![argument.class_name.clone()],
             ExpressionPossibleReturnTypesState::Complete,
             if argument.single {
                 DynamicMultiplicity::Single
             } else {
                 DynamicMultiplicity::Multiple
             },
-            vec![metadata("semantic-mode", "script-command-argument")],
+            {
+                let mut metadata = vec![metadata("semantic-mode", "script-command-argument")];
+                metadata.extend(crate::storage::command_argument(payload, &argument.class_name, argument.single, argument.native_parser_input));
+                metadata
+            },
         ),
         None => string_result(DynamicMultiplicity::Single, "command-event-argument"),
     }
@@ -183,6 +187,7 @@ fn string_result(multiplicity: DynamicMultiplicity, mode: &str) -> SemanticResol
 struct CommandArgument {
     class_name: String,
     single: bool,
+    native_parser_input: bool,
 }
 
 fn command_arguments(payload: &RegisteredExpressionPayload) -> Option<Vec<CommandArgument>> {
@@ -197,6 +202,7 @@ fn command_arguments(payload: &RegisteredExpressionPayload) -> Option<Vec<Comman
                     &format!("core.command.argument.{index}.class"),
                 )?
                 .to_owned(),
+                native_parser_input: context_value(payload, &format!("core.command.argument.{index}.native-parser-input")) == Some("true"),
                 single: context_value(payload, &format!("core.command.argument.{index}.single"))?
                     == "true",
             })

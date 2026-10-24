@@ -67,7 +67,8 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
             "CoreLibrary Structure semantics require a Structure payload",
         ));
     };
-    Ok(if struct_aliases::matches(&payload) {
+    let context=input.context.clone();
+    let mut output=if struct_aliases::matches(&payload) {
         struct_aliases::resolve(input.context, payload)
     } else if struct_auto_reload::matches(&payload) {
         struct_auto_reload::resolve(input.context, payload)
@@ -87,7 +88,9 @@ pub(crate) fn parse(input: HookInvocation) -> Result<HookOutput, AddonError> {
         struct_variables::resolve(input.context, payload, &input.parse_results)
     } else {
         not_applicable()
-    })
+    };
+    crate::storage::context::publish(&context,&mut output);
+    Ok(output)
 }
 
 /// Core owns the semantic label/kind; host owns extent and parentage. A more

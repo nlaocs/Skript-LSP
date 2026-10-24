@@ -163,9 +163,9 @@ pub(crate) struct CatalogExperiment {
     pub known: bool,
 }
 
-struct SourceRecord {
-    document: String,
-    bytes: Vec<u8>,
+pub(crate) struct SourceRecord {
+    pub(crate) document: String,
+    pub(crate) bytes: Vec<u8>,
 }
 
 pub(crate) fn experiments() -> Result<Vec<CatalogExperiment>, String> {
@@ -965,7 +965,12 @@ fn standard_immutable_type(class: &str) -> bool {
 pub(crate) fn source_clone_identity(record: &serde_json::Value) -> bool {
     const BASE: &str = "ch.njol.skript.classes.ClassInfo";
     let runtime = &record["typeRuntime"];
-    runtime["version"].as_u64() == Some(1)
+    matches!(runtime["version"].as_u64(), Some(1 | 2 | 3))
+        && (runtime["version"].as_u64() == Some(1)
+            || (runtime["classGetterDeclaringClass"].as_str() == Some(BASE)
+                && runtime["classState"].as_str() == Some("present")
+                && runtime["classValue"] == record["originalClass"]
+                && runtime["classUnknownReason"].is_null()))
         && runtime["classInfoClass"]
             .as_str()
             .is_some_and(|value| !value.is_empty())
@@ -1370,7 +1375,7 @@ pub(crate) fn expression_bound_sources(_matches: fn(&[u8]) -> bool) -> Option<Ve
 }
 
 #[cfg(target_arch = "wasm32")]
-fn registration_records(registration_id: &str) -> Result<Vec<SourceRecord>, String> {
+pub(crate) fn registration_records(registration_id: &str) -> Result<Vec<SourceRecord>, String> {
     use crate::nlaocs::skript_parser_addon::catalog_data;
 
     const PAGE_SIZE: u32 = 256;
@@ -1573,7 +1578,7 @@ pub(crate) fn block_data(_id: &str) -> Result<Option<BlockDataEntry>, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn registration_records(_registration_id: &str) -> Result<Vec<SourceRecord>, String> {
+pub(crate) fn registration_records(_registration_id: &str) -> Result<Vec<SourceRecord>, String> {
     Ok(Vec::new())
 }
 
@@ -2437,7 +2442,7 @@ fn stringification_prefix(records: &[serde_json::Value]) -> Vec<String> {
             || record["addon"]["version"].as_str() != Some("2.15.4")
             || record["hasParser"].as_bool() != Some(true)
             || record["parserClass"].as_str() != Some(parser.as_str())
-            || record["typeRuntime"]["version"].as_u64() != Some(1)
+            || !matches!(record["typeRuntime"]["version"].as_u64(), Some(1 | 2 | 3))
             || record["typeRuntime"]["classInfoClass"].as_str() != Some(BASE)
         {
             break;
@@ -2518,7 +2523,7 @@ pub(crate) fn base_type_dispatch(class: &str) -> bool {
                         record["originalClass"].as_str() == Some(class)
                             && record["registrationId"].as_str()
                                 == Some(option.registration_id.as_str())
-                            && record["typeRuntime"]["version"].as_u64() == Some(1)
+                            && matches!(record["typeRuntime"]["version"].as_u64(), Some(1 | 2 | 3))
                             && record["typeRuntime"]["classInfoClass"].as_str()
                                 == Some("ch.njol.skript.classes.ClassInfo")
                     })
