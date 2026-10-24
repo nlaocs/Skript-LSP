@@ -1089,6 +1089,7 @@ fn reports_interpolated_variable_public_data_and_embedded_children() {
         child_records[IDENTITY],
         serde_json::json!({
             "scope": "local", "resolution": "static", "name": "key", "aliasKey": "key", "list": false, "casePolicy": "unknown",
+            "nameRange": {"start": 2, "end": 5, "grammar": "ascii-identifier-v1"},
         })
     );
 

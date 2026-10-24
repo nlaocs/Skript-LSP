@@ -367,14 +367,24 @@ fn completion_uses_real_catalog_and_current_document_with_safe_original_edits() 
         );
         let documentation = first["documentation"].as_str().unwrap();
         assert!(
-            documentation.starts_with("Syntax:\n")
+            documentation.starts_with("Effect /")
+                && documentation.contains("Pattern: ")
                 && documentation.contains("%")
-                && documentation.contains("Registration: ")
+                && documentation.contains("Registration: "),
+            "version {version}: {documentation}"
         );
-        assert!(
-            result["items"].as_array().unwrap().len() <= 10,
-            "context alternatives are bounded: {result}"
-        );
+        if first["data"]["continuation"] == true {
+            assert!(documentation.contains("Status: Alternative grammar continuation (arguments unverified)"),
+                "version {version}: {documentation}");
+        }
+        // Expressions and values share the global pool; this local budget
+        // concerns grammar continuations, not the complete response.
+        let continuations = result["items"]
+            .as_array().unwrap().iter()
+            .filter(|item| item["data"]["continuation"] == true)
+            .count();
+        assert!((1..=10).contains(&continuations),
+            "version {version}: {continuations} grammar continuations");
     }
     client.finish();
 }
@@ -1211,7 +1221,7 @@ fn hover_formats_real_ssg_docs_examples_and_implementation_classes_for_both_clie
             );
             assert_eq!(
                 text.matches(if formats[0] == "markdown" {
-                    "### Examples"
+                    "**Examples**"
                 } else {
                     "Examples:"
                 })

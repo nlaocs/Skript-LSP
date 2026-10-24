@@ -397,8 +397,14 @@ fn grouped_and_interpolated_variables_keep_data_on_the_underlying_node() {
             child_records[IDENTITY],
             serde_json::json!({
                 "scope": "local", "resolution": "static", "name": name,
-                "aliasKey": name, "list": false, "casePolicy": "unknown"
+                "aliasKey": name, "list": false, "casePolicy": "unknown",
+                "nameRange": {"start": 2, "end": 2 + name.len(), "grammar": "ascii-identifier-v1"}
             })
+        );
+        let start = child.span.mapped.virtual_range.start + 2;
+        assert_eq!(
+            text.get(start..start + name.len()), Some(name),
+            "identity range is relative to the underlying variable, not its interpolation parent"
         );
         let read: serde_json::Value = serde_json::from_str(
             child
