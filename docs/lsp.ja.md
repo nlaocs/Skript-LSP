@@ -533,3 +533,6 @@ prepared補完の到達時刻、全文解析完了、semantic tokens応答、cli
 
 補完phaseの更新では、clientのmenu再表示によりちらつく場合がある。同じ候補の再通知抑制やclient側の
 更新方法も含め、ちらつきの完全解消は保証していない。headless/APIの受信結果と、実際の画面描画を混同しない。
+
+
+[Source-backed storage type guarantees and limitations](storage-domains.md)
