@@ -78,11 +78,26 @@ fn effect_catalog() -> Arc<Catalog> {
 }
 
 fn full_dynamic_catalog() -> Arc<Catalog> {
+    full_dynamic_catalog_with_player_contexts(true)
+}
+
+fn full_dynamic_catalog_with_player_contexts(include_contexts: bool) -> Arc<Catalog> {
     let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
     let source = snapshot.catalog();
     let source_view = source.source().cloned().expect("SSG source view");
     let mut syntaxes = source.syntaxes().to_vec();
     for syntax in &mut syntaxes {
+        if include_contexts
+            && let Syntax::Type(value) = syntax
+            && value.code_name.as_str() == "player"
+        {
+            // Schema 3 predates parser-context capture. Model the actual 2.15.4
+            // PlayerParser.canParse: COMMAND or PARSE. Do not make missing
+            // capabilities globally affirmative (the negative test below). This
+            // augments the modeled Catalog, not the raw SSG source receipt.
+            // https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/org/skriptlang/skript/bukkit/types/PlayerClassInfo.java#L120-L122
+            value.parse_contexts = vec!["COMMAND".into(), "PARSE".into()];
+        }
         if let Syntax::Type(value) = syntax
             && value.code_name.as_str() == "entitydata"
         {
@@ -1578,6 +1593,56 @@ fn conditional_effect_retains_its_nested_effect_and_condition() {
         call.component_id == "nlaocs.core-library"
             && call.subscription_id == "core.effect-semantics"
     }));
+    transaction.cancel().unwrap();
+}
+
+#[test]
+fn legacy_missing_player_parser_context_does_not_certify_a_target_type() {
+    let catalog = full_dynamic_catalog_with_player_contexts(false);
+    assert!(catalog.syntaxes().iter().any(|syntax| {
+        matches!(syntax, Syntax::Type(value) if value.code_name.as_str() == "player"
+            && value.has_parser && value.parse_contexts.is_empty())
+    }));
+    let mut host = ParserHost::new(
+        CORE_LIBRARY,
+        HostConfig {
+            syntax_catalog: Some(catalog),
+            ..HostConfig::default()
+        },
+    )
+    .expect("CoreLibrary must load");
+    let transaction = host
+        .begin_parse("file:///workspace", "file:///workspace/effect.sk", 701)
+        .unwrap();
+    let result = parse_effect(
+        &mut host,
+        &transaction,
+        701,
+        "set {_unconfirmed} to \"public\" parsed as player",
+    );
+    assert!(result.effects.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "core.expression.unresolved-semantics"
+            && diagnostic.message.contains("parser support for PARSE is unconfirmed")
+    }));
+    let selected = result
+        .matches
+        .selected
+        .expect("an Object target may retain an unresolved expression");
+    let parsed = selected
+        .expressions()
+        .find(|expression| {
+            expression.metadata.get("nlaocs.core-library/semantic-mode").map(String::as_str)
+                == Some("parse")
+        })
+        .expect("unresolved parsed expression");
+    assert_eq!(
+        parsed.metadata.get("nlaocs.core-library/semantic-state").map(String::as_str),
+        Some("unresolved")
+    );
+    assert_ne!(
+        parsed.return_type.as_ref().map(ClassName::as_str),
+        Some("org.bukkit.entity.Player")
+    );
     transaction.cancel().unwrap();
 }
 
