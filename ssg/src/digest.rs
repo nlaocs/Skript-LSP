@@ -41,13 +41,18 @@ pub(crate) fn snapshot_id(manifest: &Manifest) -> String {
 }
 
 fn server_fingerprint(server: &Server) -> String {
-    fingerprint(&[
+    let mut parts = vec![
         server.name.clone(),
         server.version.clone(),
         server.bukkit_version.clone(),
         server.minecraft_version.clone(),
         server.java_version.clone(),
-    ])
+    ];
+    if server.implementation_class.is_some() || server.implementation_jar_sha256.is_some() {
+        parts.push(server.implementation_class.clone().unwrap_or_default());
+        parts.push(server.implementation_jar_sha256.clone().unwrap_or_default());
+    }
+    fingerprint(&parts)
 }
 
 fn plugin_fingerprint(plugin: &Plugin) -> String {

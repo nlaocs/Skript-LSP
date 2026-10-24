@@ -1,0 +1,61 @@
+{
+  "schemaVersion" : 7,
+  "snapshotId" : "4162e2cd52af942daf9d47099093f530be8139a5b117f5c42052e2cb54dcecec",
+  "contentDigest" : "4c36b4a5bb6629a6aa31a1ea3b8dab7d7168d82e5bf3b98f72e041b2a074a204",
+  "generatedAt" : "2026-10-24T09:40:41.541743399Z",
+  "server" : {
+    "name" : "Paper",
+    "version" : "1.21.11-132-c5eb079 (MC: 1.21.11)",
+    "bukkitVersion" : "1.21.11-R0.1-SNAPSHOT",
+    "minecraftVersion" : "1.21.11",
+    "javaVersion" : "21.0.3",
+    "implementationClass" : "org.bukkit.craftbukkit.CraftServer",
+    "implementationJarSha256" : "3a73f0cc4020a5eb45629a67629b14263331c68de45552f8505df8060fa8ed43"
+  },
+  "language" : "english",
+  "plugins" : [ {
+    "loadOrder" : 0,
+    "name" : "SkriptSyntaxGenerator",
+    "version" : "1.0",
+    "main" : "jp.nlaocs.skriptSyntaxGenerator.SkriptSyntaxGenerator",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ ],
+    "loadBefore" : [ "Skript" ],
+    "jarSha256" : "e020f22f423efef832041dc10656be8d2233b4ddeb842c07d94c1e7e7df48325"
+  }, {
+    "loadOrder" : 1,
+    "name" : "Skript",
+    "version" : "2.15.4",
+    "main" : "ch.njol.skript.Skript",
+    "enabled" : true,
+    "depend" : [ ],
+    "softDepend" : [ "SQLibrary", "Vault", "WorldGuard", "Residence", "PreciousStones", "GriefPrevention" ],
+    "loadBefore" : [ ],
+    "jarSha256" : "277393a965e164e854f5280aa1c30ce92e69b3fab4df5063711743f9d7847327"
+  } ],
+  "capabilities" : {
+    "syntaxApi" : "registry",
+    "eventValueApi" : "modern-2.16",
+    "syntaxKinds" : {
+      "conditions" : true,
+      "effects" : true,
+      "events" : true,
+      "expressions" : true,
+      "types" : true,
+      "functions" : true,
+      "sections" : true,
+      "structures" : true,
+      "properties" : true,
+      "arithmetic" : true,
+      "converters" : true,
+      "comparators" : true,
+      "eventValues" : true
+    },
+    "aliases" : {
+      "supported" : true,
+      "collected" : true
+    }
+  },
+  "files" : [ "Aliases.json", "BlockData.json", "ClassHierarchy.json", "Comparators.json", "Conditions.json", "Converters.json", "Differences.json", "Effects.json", "EventValues.json", "Events.json", "Expressions.json", "Functions.json", "Language.json", "Manifest.json", "Operations.json", "Operators.json", "PluralRules.json", "Properties.json", "Sections.json", "Structures.json", "Types.json" ]
+}

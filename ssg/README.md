@@ -162,3 +162,5 @@ Fixtures cover:
 
 Fixture directories are complete, unmodified generated snapshots. Their
 provenance is recorded in [`tests/data/README.md`](./tests/data/README.md).
+
+The schema 7 server manifest may include an implementation class and code-origin JAR SHA-256. Both join the snapshot identity when present; manifests lacking both retain their original identity algorithm. SSG data contentDigest and CatalogSource source_digest identify different byte sets: the retained raw-source digest includes Manifest.json as well.

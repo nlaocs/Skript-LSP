@@ -1044,3 +1044,11 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
+
+#[test]
+fn server_origin_evidence_participates_in_snapshot_identity() {
+    let snapshot=load(Path::new(env!("CARGO_MANIFEST_DIR")).join("../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain")).unwrap();
+    assert_eq!(snapshot.catalog().source().unwrap().snapshot_id,snapshot.manifest().snapshot_id);
+    assert_ne!(snapshot.catalog().source().unwrap().source_digest,snapshot.manifest().content_digest,"raw source identity also covers Manifest; it is not the SSG data-only digest");
+    assert_eq!(snapshot.manifest().server.implementation_class.as_deref(),Some("org.bukkit.craftbukkit.CraftServer"));
+}

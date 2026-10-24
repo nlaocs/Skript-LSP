@@ -94,6 +94,12 @@ pub(crate) fn manifest(
         });
     }
 
+    if let Some(hash)=&manifest.server.implementation_jar_sha256 {
+        validate_sha("Manifest.json.server.implementationJarSha256",hash)?;
+    }
+    if let Some(class)=&manifest.server.implementation_class {
+        non_blank("Manifest.json.server.implementationClass",class)?;
+    }
     validate_sha("Manifest.json.snapshotId", &manifest.snapshot_id)?;
     validate_sha("Manifest.json.contentDigest", &manifest.content_digest)?;
     contiguous(

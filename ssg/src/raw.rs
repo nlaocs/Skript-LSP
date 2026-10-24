@@ -31,6 +31,8 @@ pub struct Server {
     pub bukkit_version: String,
     pub minecraft_version: String,
     pub java_version: String,
+    pub implementation_class: Option<String>,
+    pub implementation_jar_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
