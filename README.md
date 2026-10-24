@@ -40,6 +40,13 @@ expressions. Stronger prefixes still favor nearby word completions such as
 `sto` → `stone`. Clients may apply their own fuzzy scores and usage history;
 the server order alone cannot guarantee the displayed order.
 
+Function proposals include void calls at native statement positions; expression
+positions still require a return value. Script functions require a complete,
+current function namespace and may wait for final analysis. Grammar continuations
+can follow provider-declared condition captures, including nested conditions.
+These bounded proposals retain their unverified-argument status; they do not
+certify a parser context or replace type-filtering proofs.
+
 See the [LSP behavior and limitations](docs/lsp.ja.md) for the exact contracts.
 This is static analysis, not runtime execution or a linter.
 

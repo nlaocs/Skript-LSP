@@ -50,6 +50,8 @@ pub(super) struct Graph {
 
 pub(super) struct Frontier {
     pub words: Vec<(String, usize, usize)>,
+    /// Capture index, balanced source start, fixed evidence and consumed slots.
+    pub captures: Vec<(usize, usize, usize, usize)>,
     pub limited: bool,
 }
 
@@ -279,6 +281,7 @@ impl Graph {
         let mut pending = vec![(0, 0, 0, 0)];
         let mut visited = HashSet::new();
         let mut words = HashMap::<String, (usize, usize)>::new();
+        let mut captures = BTreeSet::new();
         let mut limited = false;
         while let Some((node, offset, fixed, slots)) = pending.pop() {
             if !budget.spend() {
@@ -331,10 +334,13 @@ impl Graph {
                         }
                         _ => {}
                     },
-                    Edge::Slot(next, _) if fixed > 0 && offset < committed.len() => {
+                    Edge::Slot(next, parameter) if offset < committed.len() => {
                         let (ends, clipped) =
                             slot_ends(committed, offset, budget, &self.slot_boundaries[next]);
                         limited |= clipped;
+                        if fixed > 0 && ends.contains(&committed.len()) {
+                            captures.insert((*parameter, offset, fixed, slots + 1));
+                        }
                         pending.extend(ends.into_iter().map(|end| (*next, end, fixed, slots + 1)));
                     }
                     Edge::Slot(..) => {}
@@ -349,6 +355,7 @@ impl Graph {
         words.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
         Frontier {
             words,
+            captures: captures.into_iter().collect(),
             limited: limited || budget.exhausted(),
         }
     }
@@ -663,6 +670,24 @@ mod tests {
                 .join("|")
         );
         assert_eq!(keywords(&pattern, "move player ", "option39"), ["option39"]);
+    }
+
+    #[test]
+    fn leading_slots_need_fixed_grammar_and_routed_captures_are_balanced() {
+        assert_eq!(keywords("%players% (is|are) [not] op", "player is ", "o"), ["op"]);
+        assert!(keywords("%objects% op", "player ", "o").is_empty());
+        let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
+            "../../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
+        )).unwrap();
+        let parsed = syntax_pattern_parser::syntax::parse("guard %objects% using <.+>", &rules).unwrap();
+        let graph = Graph::new(&parsed.elements).unwrap();
+        let frontier = graph.next_words("guard {_p} using player is ", "o", &mut Budget::new());
+        assert!(frontier.captures.iter().any(|&(capture, start, _, _)|
+            capture == 1 && &"guard {_p} using player is "[start..] == "player is "));
+        for input in ["guard {_p} using call( player is ", "guard {_p} using \"player is "] {
+            let frontier = graph.next_words(input, "o", &mut Budget::new());
+            assert!(!frontier.captures.iter().any(|&(capture, _, _, _)| capture == 1));
+        }
     }
 
     #[test]

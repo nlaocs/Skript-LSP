@@ -22,6 +22,9 @@ use syntaxes::{Catalog, Syntax, SyntaxKind};
 mod continuation;
 mod cursor;
 mod finite;
+mod nested_frontiers;
+#[cfg(test)]
+mod nested_condition_tests;
 mod parameters;
 mod prepared;
 mod ranking;
@@ -117,6 +120,7 @@ impl Function {
 pub(super) struct CatalogIndex {
     templates: Vec<Template>,
     patterns: Vec<Pattern>,
+    capture_routes: HashMap<String, Vec<(usize, String)>>,
     functions: Vec<Function>,
     limited: bool,
     typing: Option<typing::Index>,
@@ -132,6 +136,7 @@ impl CatalogIndex {
         let mut index = Self {
             templates: Vec::new(),
             patterns: Vec::new(),
+            capture_routes: HashMap::new(),
             functions: Vec::new(),
             limited: false,
             raw_options,
@@ -822,35 +827,11 @@ impl Document {
             let committed = &self.source[line.code_start..word_start];
             let query = &self.source[word_start..offset];
             let folded_query = query.to_lowercase();
-            let mut continuations = Vec::new();
             let mut budget = continuation::Budget::new();
-            for (order, pattern) in self.index.patterns.iter().enumerate() {
-                if budget.exhausted() {
-                    frontier_limited = true;
-                    break;
-                }
-                let allowed = if line.root {
-                    matches!(pattern.kind, SyntaxKind::Event | SyntaxKind::Structure)
-                } else {
-                    matches!(
-                        pattern.kind,
-                        SyntaxKind::Effect | SyntaxKind::Condition | SyntaxKind::Section
-                    )
-                };
-                if !allowed
-                    || matches!(line.scope, Scope::Conditions)
-                        && pattern.kind != SyntaxKind::Condition
-                {
-                    continue;
-                }
-                let frontier = pattern
-                    .graph
-                    .next_words(committed, &folded_query, &mut budget);
-                frontier_limited |= frontier.limited;
-                for (keyword, fixed, slots) in frontier.words {
-                    continuations.push((fixed, slots, order, keyword, pattern));
-                }
-            }
+            let (mut continuations, limited) = self.continuation_words(
+                line, committed, &folded_query, &mut budget,
+            );
+            frontier_limited |= limited;
             continuations.sort_by(|a, b| {
                 b.0.cmp(&a.0)
                     .then(a.1.cmp(&b.1))
@@ -1584,6 +1565,7 @@ impl Document {
                 functions: Vec::new(),
                 limited: false,
                 patterns: Vec::new(),
+                capture_routes: HashMap::new(),
                 raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
                 documentation_format: lsp_types::MarkupKind::PlainText,
                 typing: None,
@@ -1833,6 +1815,7 @@ mod tests {
             functions: vec![function("sin", "Number", true)],
             limited: false,
             patterns: Vec::new(),
+            capture_routes: HashMap::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
             typing: None,
@@ -2035,6 +2018,7 @@ mod tests {
             functions: Vec::new(),
             limited: false,
             patterns: Vec::new(),
+            capture_routes: HashMap::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
             typing: None,
@@ -2189,6 +2173,7 @@ mod tests {
                 .collect(),
             limited: false,
             patterns: Vec::new(),
+            capture_routes: HashMap::new(),
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,
             typing: None,

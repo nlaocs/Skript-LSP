@@ -592,6 +592,7 @@ mod tests {
                 graph: continuation::Graph::new(&parsed.elements).unwrap(),
             }],
             functions: Vec::new(),
+            capture_routes: HashMap::new(),
             limited: false,
             raw_options: skript_parser::RawTreeOptions::for_skript_version(2, 15),
             documentation_format: lsp_types::MarkupKind::PlainText,

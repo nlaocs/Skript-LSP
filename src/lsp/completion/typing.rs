@@ -219,6 +219,32 @@ impl CatalogIndex {
                 );
             }
         }
+        self.capture_routes.clear();
+        if index.finite_captures_current() {
+            let routed_patterns = self.patterns.iter()
+                .filter(|pattern| pattern.graph.slot_types.iter().any(Option::is_none))
+                .map(|pattern| pattern.identity.as_str()).collect::<HashSet<_>>();
+            for syntax in index.catalog.syntaxes() {
+                let Some(common) = syntax.common() else { continue };
+                if !matches!(syntax.kind(), SyntaxKind::Effect | SyntaxKind::Condition | SyntaxKind::Section) {
+                    continue;
+                }
+                let identities = common.patterns.iter().enumerate()
+                    .map(|(number, _)| format!("{}:{number}", common.registration_id.as_str()))
+                    .filter(|identity| routed_patterns.contains(identity.as_str()))
+                    .collect::<Vec<_>>();
+                if identities.is_empty() {
+                    continue;
+                }
+                if let Some(routes) = host.completion_capture_parser_ids(
+                    syntax.kind(), common.definition_id.as_str(), common.registration_id.as_str(),
+                ) {
+                    for identity in identities {
+                        self.capture_routes.insert(identity, routes.clone());
+                    }
+                }
+            }
+        }
         let catalog = Arc::clone(&index.catalog);
         let routes = if index.finite_captures_current() {
             index
