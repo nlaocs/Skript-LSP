@@ -9316,6 +9316,41 @@ impl ParserHost {
             })
     }
 
+    /// Advisory nested-parser domains, never argument acceptance or a type proof.
+    /// Tag/mark/context options remain unverified: branches may share a parser
+    /// domain while requiring different contexts. Conflicting domains fail closed.
+    pub fn completion_capture_parser_ids(
+        &self,
+        kind: CatalogSyntaxKind,
+        definition: &str,
+        registration: &str,
+    ) -> Option<Vec<(usize, String)>> {
+        if !self.completion_candidate_bindings_are_closed() {
+            return None;
+        }
+        let mut domains = BTreeMap::new();
+        for component in self.components.iter().filter(|c| !c.unloaded) {
+            for handler in &component.manifest.registered_syntax_handlers {
+                if handler.phase == HookPhase::DefaultExpression
+                    || catalog_syntax_kind(handler.kind) != kind
+                    || !registered_handler_target_matches(
+                        component, handler, definition, registration, None,
+                    )
+                {
+                    continue;
+                }
+                for binding in &handler.capture_parsers {
+                    let index = usize::try_from(binding.capture_index).ok()?;
+                    if domains.get(&index).is_some_and(|old| old != &binding.parser_id) {
+                        return None;
+                    }
+                    domains.insert(index, binding.parser_id.clone());
+                }
+            }
+        }
+        Some(domains.into_iter().collect())
+    }
+
     /// Conservative union of declared capture routes for this registration.
     /// Pattern/tag restrictions are ignored so an unobserved branch cannot hide
     /// a child position. Conflicting routes and unknown providers remain unknown.
@@ -19957,7 +19992,13 @@ mod tests {
                 env!("CARGO_MANIFEST_DIR"),
                 "/../artifacts/core-library.wasm"
             )),
-            core_test_config(),
+            HostConfig {
+                syntax_catalog: Some(Arc::new(ssg::load(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("tests/data/type-parser-versions/skript-2.15.4-type-runtime"),
+                ).unwrap().into_catalog())),
+                ..core_test_config()
+            },
         )
         .expect("core fixture must initialize");
         {
@@ -19972,6 +20013,10 @@ mod tests {
             ];
         }
 
+        assert_eq!(
+            host.completion_capture_parser_ids(CatalogSyntaxKind::Expression, DEFINITION_ID, REGISTRATION_ID),
+            Some(vec![(0, "fixture.parser".into())]),
+        );
         let deduplicated = registered_capture_bindings(&host.components, syntax)
             .expect("equal capture bindings must compose");
         assert_eq!(deduplicated.len(), 1);
@@ -19983,6 +20028,7 @@ mod tests {
         let error = registered_capture_bindings(&host.components, syntax)
             .expect_err("different parsers for one capture must conflict");
         assert!(error.contains("conflicting capture parsers at index 0"));
+        assert!(host.completion_capture_parser_ids(CatalogSyntaxKind::Expression, DEFINITION_ID, REGISTRATION_ID).is_none());
 
         let dynamic_handler = handler("fixture.capture.dynamic", "fixture.dynamic-parser");
         let mut dynamic_syntax = syntax;

@@ -156,8 +156,20 @@ fn public_candidate_binding_routes_require_all_provider_opt_in() {
         .unwrap()
         .is_empty()
     );
+    let conditional = catalog.syntaxes().iter().find(|syntax| syntax.common().is_some_and(|common|
+        common.element_class.as_str() == "ch.njol.skript.sections.SecConditional")).unwrap();
+    let common = conditional.common().unwrap();
+    let conditional_identity = (common.definition_id.as_str(), common.registration_id.as_str());
+    let domains = host.completion_capture_parser_ids(conditional.kind(), conditional_identity.0, conditional_identity.1).unwrap();
+    assert!(domains.contains(&(0, "host.condition".into())), "context options do not erase an advisory domain");
+    let conditional_effect = catalog.syntaxes().iter().find(|syntax| syntax.common().is_some_and(|common|
+        common.element_class.as_str() == "ch.njol.skript.effects.EffDoIf")).unwrap();
+    let common = conditional_effect.common().unwrap();
+    let domains = host.completion_capture_parser_ids(conditional_effect.kind(), common.definition_id.as_str(), common.registration_id.as_str()).unwrap();
+    assert_eq!(domains, vec![(0, "host.effect".into()), (1, "host.condition".into())]);
     let certificate = host.completion_type_certificate();
     host.load_addon(TEXT).unwrap();
+    assert!(host.completion_capture_parser_ids(conditional.kind(), conditional_identity.0, conditional_identity.1).is_none());
     assert!(!certificate.is_current());
     assert!(!host.completion_candidate_bindings_are_closed());
     assert!(
