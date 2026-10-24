@@ -418,10 +418,12 @@ impl Document {
             .iter()
             .map(|node| (node.id, node))
             .collect::<HashMap<_, _>>();
+        let mut witnessed_nodes = HashSet::new();
         for node in &mut ast.nodes {
             let original = originals[&node.id];
             let provider = witnesses.unique_issuer(original);
             let trusted = witnesses.native_valid(original) || provider.is_some();
+            if trusted { witnessed_nodes.insert(node.id); }
             retain_semantic_contracts(node, provider);
             if !trusted {
                 node.summary = None;
@@ -443,6 +445,8 @@ impl Document {
             blocked,
             functions,
             Some(result.functions.document_id().to_owned()),
+            Some(&result.source),
+            witnessed_nodes,
         )?;
         document.symbols = document_symbols::collect(result, &document.lines, |node, issuer| {
             witnesses.provider_valid(node, issuer)
@@ -518,7 +522,12 @@ impl Document {
         blocked: Vec<TextRange>,
         functions: Vec<FunctionSymbol>,
         native_owner: Option<String>,
+        mapped_source: Option<&skript_parser::MappedSource>,
+        witnessed_nodes: HashSet<u64>,
     ) -> Result<Self, String> {
+        if mapped_source.is_some_and(|mapped| mapped.original()!=source.as_ref()) {
+            return Err("semantic mapping differs from parsed source".into());
+        }
         let lines = LineIndex::new(&source);
         let mut document = Self {
             uri,
@@ -551,8 +560,16 @@ impl Document {
         if nodes.len() != ast.nodes.len() {
             return Err("duplicate semantic AST node ID".into());
         }
+        let projections = mapped_source.map(|mapped| ast.nodes.iter()
+            .filter(|node| witnessed_nodes.contains(&node.id))
+            .filter_map(|node| exact_projection(mapped, node))
+            .collect::<Vec<_>>()).unwrap_or_default();
+        let ambiguous_projections = projection_conflicts(&projections);
         let mut engine = Engine {
             document: &mut document,
+            mapped_source,
+            witnessed_nodes,
+            ambiguous_projections,
             raw_tree,
             nodes,
             blocked,
@@ -1062,6 +1079,9 @@ struct Flow {
 
 struct Engine<'a> {
     document: &'a mut Document,
+    mapped_source: Option<&'a skript_parser::MappedSource>,
+    witnessed_nodes: HashSet<u64>,
+    ambiguous_projections: Vec<TextRange>,
     raw_tree: &'a skript_parser::RawTree,
     nodes: HashMap<u64, &'a AstNode>,
     blocked: Vec<TextRange>,
@@ -1120,7 +1140,7 @@ impl Engine<'_> {
             .as_ref()
             .is_some_and(|summary| summary.kind == "grouped-expression")
             && node.children.len() == 1;
-        let safe = self.exact(node).is_some()
+        let safe = self.evaluation_range(node).is_some()
             && (intrinsic || grouped)
             && node.children.iter().all(|id| {
                 self.nodes
@@ -1139,22 +1159,24 @@ impl Engine<'_> {
         facts: &mut Facts,
         completion_owner: Option<CompletionOwner>,
     ) -> Result<InferredType, String> {
-        let Some(range) = self.exact(node) else {
+        let range = self.exact(node);
+        if self.evaluation_range(node).is_none() {
             invalidate(facts, None, Invalidation::Source);
             return Ok(InferredType::Unknown);
-        };
+        }
         if node
             .metadata
             .iter()
             .any(|entry| entry.key == "parser.editor-recovery")
         {
-            invalidate(facts, Some(range), Invalidation::Source);
+            invalidate(facts, range, Invalidation::Source);
             return Ok(InferredType::Unknown);
         }
-        if node.kind == SyntaxKind::Structure {
+        if node.kind == SyntaxKind::Structure && let Some(range) = range {
             self.parameters(node, scope, range, facts);
         }
         if node.kind == SyntaxKind::Expression
+            && let Some(range) = range
             && let Some(identity) = self.identity(node, scope)
         {
             let read = unique_metadata(node, VARIABLE_READ)
@@ -1251,7 +1273,7 @@ impl Engine<'_> {
                 .insert(Dependency::UnknownVariableAlias);
             self.document.unknown_variable_scopes.insert(scope);
         }
-        if let Some(call) = &node.function {
+        if let Some(call) = &node.function && let Some(range) = range {
             self.document.dependencies.insert(Dependency::Function {
                 definition: call.definition_id.clone(),
                 registration: call.registration_id.clone(),
@@ -1309,7 +1331,7 @@ impl Engine<'_> {
         };
         let preserves = preserves_locals(node);
         if !transparent && prefix.is_none() && (!preserves || !nonbody.is_empty()) {
-            invalidate(facts, Some(range), Invalidation::Provider);
+            invalidate(facts, range, Invalidation::Provider);
         }
         let mut child_types = HashMap::new();
         let plan = prefix.unwrap_or(EvaluationPlan {
@@ -1361,14 +1383,14 @@ impl Engine<'_> {
         });
         if !transparent && !target_only && ((!preserves && !plan.complete) || !unlisted.is_empty())
         {
-            invalidate(facts, Some(range), Invalidation::Provider);
+            invalidate(facts, range, Invalidation::Provider);
         }
         if node.kind == SyntaxKind::Effect {
             if let Some(change) = change {
                 self.change(node, scope, facts, &change, &child_types)?;
             } else {
                 // An unadvertised effect may invoke arbitrary addon code.
-                invalidate(facts, Some(range), Invalidation::Provider);
+                invalidate(facts, range, Invalidation::Provider);
             }
         }
         if !body.is_empty() {
@@ -1387,7 +1409,7 @@ impl Engine<'_> {
                     // Loops may re-enter; other extension control flow is opaque.
                     let mut nested = Facts::new();
                     self.body(node, &body, scope, &mut nested)?;
-                    invalidate(facts, Some(range), Invalidation::ControlFlow);
+                    invalidate(facts, range, Invalidation::ControlFlow);
                 }
             }
         }
@@ -1441,42 +1463,49 @@ impl Engine<'_> {
             .iter()
             .map(|id| {
                 let node = *self.nodes.get(id).ok_or("missing semantic body node")?;
-                Ok((*id, self.exact(node).map(|range| range.start)))
+                Ok((*id, self.evaluation_range(node).map(|range| range.start)))
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let reordered = ordered
+        let original_order=ids.iter().filter_map(|id|self.nodes.get(id).and_then(|node|self.exact(node)).map(|range|range.start)).collect::<Vec<_>>();
+        let reordered = original_order.windows(2).any(|pair|pair[0]>=pair[1]) || ordered
             .windows(2)
             .any(|pair| pair[0].1.is_none() || pair[1].1.is_none() || pair[0].1 >= pair[1].1);
         // Missing or rejected raw statements are barriers, even though no AST
         // node was published for them. Comments and blank lines are harmless.
-        let raw_owner = self.raw_tree.nodes.iter().find(|raw| {
-            raw.code_span.as_ref().is_some_and(|span| {
-                usize::try_from(owner.span.virtual_range.start).ok()
-                    == Some(span.virtual_range.start)
-            })
+        let mut owners=self.raw_tree.nodes.iter().filter(|raw| {
+            raw.code_span.as_ref().is_some_and(|span|span.virtual_range.start as u64==owner.span.virtual_range.start
+                && owner.span.virtual_range.end<=span.virtual_range.end as u64)
         });
-        let opaque = reordered || raw_owner.is_none() || raw_owner.into_iter().flat_map(|raw| raw.children.iter()).filter_map(|id| self.raw_tree.get(*id)).any(|raw| {
-            !matches!(raw.kind, RawNodeKind::Blank | RawNodeKind::Comment) && raw.code_span.as_ref().is_none_or(|span| {
-                !matches!(span.origins.as_slice(), [origin] if origin.kind == skript_parser::OriginKind::Exact)
-            })
-        });
+        let raw_owner=owners.next();
+        let unique_owner=owners.next().is_none();
+        let membership=raw_owner.is_some_and(|raw_owner|ids.iter().all(|id| {
+            let node=self.nodes[id];
+            if node.span.virtual_range.start>=owner.span.virtual_range.start && node.span.virtual_range.end<=owner.span.virtual_range.end {
+                // Native Structure body captures also contain parsed header operands.
+                return owner.captures.iter().filter_map(|capture|capture.name.split_once(':')?.0.parse::<u64>().ok())
+                    .any(|index|capture_node(owner,index,&self.nodes)==Some(*id));
+            }
+            let mut found=self.raw_tree.nodes.iter().filter(|raw|raw.code_span.as_ref().is_some_and(|span|
+                span.virtual_range.start as u64==node.span.virtual_range.start && node.span.virtual_range.end<=span.virtual_range.end as u64));
+            let Some(raw)=found.next() else { return false; };
+            found.next().is_none() && raw.parent==Some(raw_owner.id)
+                && raw_owner.children.iter().filter(|child|**child==raw.id).count()==1
+        }));
+        let opaque = reordered || !unique_owner || !membership || raw_owner.into_iter()
+            .flat_map(|raw|raw.children.iter()).filter_map(|id|self.raw_tree.get(*id))
+            .any(|raw|!matches!(raw.kind,RawNodeKind::Blank|RawNodeKind::Comment) && raw.code_span.is_none());
         let mut barriers = raw_owner
             .into_iter()
             .flat_map(|raw| raw.children.iter())
             .filter_map(|id| self.raw_tree.get(*id))
             .filter(|raw| !matches!(raw.kind, RawNodeKind::Blank | RawNodeKind::Comment))
             .filter_map(|raw| {
-                let range = raw.code_span.as_ref()?.origins.as_slice();
-                let [origin] = range else {
-                    return None;
-                };
-                (!ordered
-                    .iter()
-                    .any(|(_, start)| *start == Some(origin.original_range.start)))
-                .then_some(origin.original_range.start)
+                let at = raw.code_span.as_ref()?.virtual_range.start;
+                (!ordered.iter().any(|(_, start)| *start == Some(at)))
+                    .then_some((at, self.original_point(at)))
             })
             .collect::<Vec<_>>();
-        barriers.sort_unstable();
+        barriers.sort_unstable_by_key(|(at, _)| *at);
         let mut barrier = 0;
         for (id, start) in ordered {
             if opaque {
@@ -1485,14 +1514,11 @@ impl Engine<'_> {
             }
             while barriers
                 .get(barrier)
-                .is_some_and(|at| start.is_none_or(|start| *at < start))
+                .is_some_and(|(at, _)| start.is_none_or(|start| *at < start))
             {
                 invalidate(
                     facts,
-                    Some(TextRange::new(
-                        barriers[barrier] as usize,
-                        barriers[barrier] as usize,
-                    )),
+                    barriers[barrier].1,
                     Invalidation::Source,
                 );
                 self.evaluation_context = None;
@@ -1781,12 +1807,91 @@ impl Engine<'_> {
             });
         }
     }
-    fn exact(&self, node: &AstNode) -> Option<TextRange> {
-        let range = exact_span(&node.span)?;
-        (self.document.source.get(range.start..range.end)? == node.text
-            && !self.blocked.iter().any(|blocked| overlaps(*blocked, range)))
-        .then_some(range)
+    /// Semantic evaluation uses the current accepted virtual forest. Source UI
+    /// still needs one Exact original range; a generated value is never an edit.
+    fn evaluation_range(&self, node: &AstNode) -> Option<TextRange> {
+        let range=TextRange::new(usize::try_from(node.span.virtual_range.start).ok()?,usize::try_from(node.span.virtual_range.end).ok()?);
+        if let Some(mapped)=self.mapped_source {
+            if !self.witnessed_nodes.contains(&node.id) || mapped.virtual_source().get(range.start..range.end)?!=node.text { return None; }
+            let span=mapped.map_range(range).ok()?;
+            if span.origins.iter().any(|origin|self.blocked.iter().any(|blocked|overlaps(*blocked,origin.original_range))) { return None; }
+        } else { self.exact(node)?; }
+        Some(range)
     }
+    fn original_point(&self, at: usize) -> Option<TextRange> {
+        let Some(mapped)=self.mapped_source else { return Some(TextRange::empty(at)); };
+        let span=mapped.map_range(TextRange::empty(at)).ok()?;
+        let [origin]=span.origins.as_slice() else { return None; };
+        (origin.kind==skript_parser::OriginKind::Exact).then_some(origin.original_range)
+    }
+    fn exact(&self, node: &AstNode) -> Option<TextRange> {
+        let range=if let Some(mapped)=self.mapped_source {
+            if !self.witnessed_nodes.contains(&node.id) { return None; }
+            let virtual_range=TextRange::new(usize::try_from(node.span.virtual_range.start).ok()?,usize::try_from(node.span.virtual_range.end).ok()?);
+            if mapped.virtual_source().get(virtual_range.start..virtual_range.end)?!=node.text { return None; }
+            let span=mapped.map_range(virtual_range).ok()?;
+            let [origin]=span.origins.as_slice() else { return None; };
+            if origin.kind!=skript_parser::OriginKind::Exact || !unique_projection(&self.ambiguous_projections,origin.original_range) { return None; }
+            origin.original_range
+        } else { exact_span(&node.span)? };
+        (self.document.source.get(range.start..range.end)?==node.text
+            && !self.blocked.iter().any(|blocked|overlaps(*blocked,range))).then_some(range)
+    }
+}
+
+/// Only accepted final AST projections participate: TreeEdit can retain unused
+/// old virtual bytes while appending the replacement fragment.
+#[derive(Clone, Copy)]
+struct ExactProjection { virtual_range: TextRange, original: TextRange, context: u64 }
+
+fn exact_projection(mapped: &skript_parser::MappedSource, node: &AstNode) -> Option<ExactProjection> {
+    let virtual_range=TextRange::new(node.span.virtual_range.start.try_into().ok()?,node.span.virtual_range.end.try_into().ok()?);
+    if mapped.virtual_source().get(virtual_range.start..virtual_range.end)?!=node.text { return None; }
+    let span=mapped.map_range(virtual_range).ok()?;
+    let [origin]=span.origins.as_slice() else { return None; };
+    (origin.kind==skript_parser::OriginKind::Exact).then_some(ExactProjection {virtual_range,original:origin.original_range,context:node.syntax_context})
+}
+
+/// Union each affine/hygiene family first so nested nodes count only once.
+/// Then sweep half-open endpoints; more than one family means ambiguous origin.
+fn projection_conflicts(active: &[ExactProjection]) -> Vec<TextRange> {
+    let mut groups: BTreeMap<(i128,u64),Vec<TextRange>> = BTreeMap::new();
+    for projection in active.iter().filter(|p|!p.original.is_empty()) {
+        groups.entry((projection.virtual_range.start as i128-projection.original.start as i128,projection.context))
+            .or_default().push(projection.original);
+    }
+    let mut events: BTreeMap<usize,i64> = BTreeMap::new();
+    for ranges in groups.values_mut() {
+        ranges.sort_by_key(|r|(r.start,r.end));
+        let mut merged: Vec<TextRange> = Vec::new();
+        for range in ranges.iter().copied() {
+            if let Some(last)=merged.last_mut() && range.start<=last.end {
+                last.end=last.end.max(range.end);
+            } else { merged.push(range); }
+        }
+        for range in merged {
+            *events.entry(range.start).or_default()+=1;
+            *events.entry(range.end).or_default()-=1;
+        }
+    }
+    let mut conflicts: Vec<TextRange> = Vec::new();
+    let mut count=0i64;
+    let mut previous=0;
+    for (at,delta) in events {
+        if count>1 && previous<at {
+            if let Some(last)=conflicts.last_mut() && last.end==previous { last.end=at; }
+            else { conflicts.push(TextRange::new(previous,at)); }
+        }
+        count+=delta;
+        previous=at;
+    }
+    conflicts
+}
+
+fn unique_projection(conflicts: &[TextRange], original: TextRange) -> bool {
+    if original.is_empty() { return false; }
+    let next=conflicts.partition_point(|range|range.end<=original.start);
+    conflicts.get(next).is_none_or(|range|range.start>=original.end)
 }
 
 impl FunctionWitness {

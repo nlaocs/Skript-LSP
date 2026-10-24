@@ -91,3 +91,60 @@ fn storage_model_cold_standalone_effect_remains_recoverable_without_preparation(
     assert!(change["storageResult"].is_null(),"cold backend must not add a storage guarantee: {change}");
     transaction.cancel().unwrap();
 }
+
+#[test]
+fn option_source_projection_preserves_unaffected_copies_and_exact_write_targets() {
+    for value in ["1", "{@value}"] {
+        let source=format!("options:\n    value: 1\non load:\n    set {{_a}} to 7\n    set {{_b}} to {{_a}}\n    set {{_option}} to {value}\n    set {{_c}} to 8\n    set {{_d}} to {{_c}}\n");
+        let (_,document)=parse(&source);
+        let hints=document.write_type_hints();
+        assert_eq!(hints.len(),if value=="1" {5}else{4},"{value}: {hints:?}");
+        if value!="1" { assert!(hints.iter().all(|hint|hint.position.line!=5),"generated target has no Exact source/context certificate"); }
+        assert!(hints.iter().all(|hint|matches!(&hint.label,InlayHintLabel::String(label) if label==": long")),"{value}: {hints:?}");
+        let hover=document.hover(Position::new(7,18)).unwrap().1;
+        assert!(hover.contains("Current type: long") || hover.contains("**Current type:** `long`"),"{hover}");
+    }
+}
+
+#[test]
+fn generated_option_source_targets_do_not_emit_hints_or_preserve_unproved_reaching_facts() {
+    let source="options:\n    target: {_hidden}\non load:\n    set {_old} to 7\n    set {@target} to \"fresh\"\n    set {_copy} to {_old}\n";
+    let (_,document)=parse(source);
+    let hints=document.write_type_hints();
+    assert_eq!(hints.len(),2,"{hints:?}");
+    assert!(hints.iter().all(|hint|hint.position.line!=4),"generated binding must not become an original source target");
+    assert!(matches!(&hints[1].label,InlayHintLabel::String(label) if label==": ?"),"uneditable generated writes still invalidate possibly affected facts: {hints:?}");
+}
+
+#[test]
+fn option_source_projection_rejects_stale_witnesses_and_preserves_utf16_target_geometry() {
+    let source="options:\n    value: 123456\non load:\n    set {_x\u{1f98a}} to 7\n    set {_expanded} to {@value}\n    set {_copy} to 8\n";
+    let (mut result,document)=parse(source);
+    let hints=document.write_type_hints();
+    assert_eq!(hints.len(),2,"{hints:?}");
+    assert!(hints.iter().all(|h|matches!(&h.label,InlayHintLabel::String(s) if s==": long")));
+    let offset=source.find("{_x\u{1f98a}}").unwrap()+"{_x\u{1f98a}}".len();
+    assert_eq!(hints[0].position,LineIndex::new(source).position(source,offset).unwrap());
+    let changed=source.replace("123456","\"fresh\"");
+    assert!(semantic::Document::from_result(&result,Arc::from(changed),"file:///storage-public/test.sk".parse().unwrap(),catalog()).is_err());
+    // A public AST mutation cannot borrow the private final-forest witness.
+    result.ast.nodes.iter_mut().find(|n|n.kind==parser_wasm::host::SyntaxKind::Effect).unwrap().text.push(' ');
+    let altered=semantic::Document::from_result(&result,Arc::from(source),"file:///storage-public/test.sk".parse().unwrap(),catalog()).unwrap();
+    assert!(altered.write_type_hints().is_empty());
+}
+
+#[test]
+fn source_map_only_mutation_cannot_relocate_private_semantic_proof() {
+    use skript_parser::{ExpansionGraph,MappedSource,SourceMapSegment,SourceOrigin,TextRange};
+    let source="on load:\n    set {_x} to 1\n    set {_x} to 2\n";
+    let (mut result,document)=parse(source);
+    assert_eq!(document.write_type_hints().len(),2);
+    let first=source.find("{_x}").unwrap();
+    let second=source.rfind("{_x}").unwrap();
+    let len="{_x}".len();
+    let spans=[(0,first,0,first),(first,first+len,second,second+len),(first+len,second,first+len,second),(second,second+len,first,first+len),(second+len,source.len(),second+len,source.len())];
+    result.source=MappedSource::new(source,source,ExpansionGraph::default(),spans.into_iter().map(|(a,b,c,d)|SourceMapSegment::new(TextRange::new(a,b),SourceOrigin::exact(TextRange::new(c,d),None))).collect()).unwrap();
+    assert!(result.ast.nodes.iter().all(|node|!result.semantic_witnesses().native_valid(node)));
+    let altered=semantic::Document::from_result(&result,Arc::from(source),"file:///storage-public/test.sk".parse().unwrap(),catalog()).unwrap();
+    assert!(altered.write_type_hints().is_empty());
+}

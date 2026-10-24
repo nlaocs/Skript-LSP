@@ -379,6 +379,8 @@ impl Fixture {
             blocked,
             functions,
             None,
+            None,
+            HashSet::new(),
         )
         .unwrap()
     }
@@ -2269,4 +2271,37 @@ fn binding_hint_anchor_is_utf16_and_rejected_geometry_has_no_hint() {
     let document = blocked.finish_with(&[root], vec![span], Vec::new(), "file:///blocked.sk");
     assert!(document.write_type_hints().is_empty());
     assert!(target.end > target.start);
+}
+
+#[test]
+fn duplicated_source_projections_cannot_mint_unique_original_write_locations() {
+    let first=ExactProjection {virtual_range:TextRange::new(0,3),original:TextRange::new(0,3),context:0};
+    let second=ExactProjection {virtual_range:TextRange::new(3,6),..first};
+    assert!(!unique_projection(&projection_conflicts(&[first,second]),first.original));
+    assert!(unique_projection(&projection_conflicts(&[first]),first.original));
+    assert!(unique_projection(&projection_conflicts(&[second]),second.original),"unused original fragment is not a second execution");
+    for other in [
+        ExactProjection {virtual_range:TextRange::new(2,5),original:TextRange::new(1,4),..first},
+        ExactProjection {virtual_range:TextRange::new(1,2),original:TextRange::new(0,1),..first},
+        ExactProjection {context:1,..first},
+    ] { assert!(!unique_projection(&projection_conflicts(&[first,other]),first.original)); }
+    let child=ExactProjection {virtual_range:TextRange::new(1,2),original:TextRange::new(1,2),..first};
+    let adjacent=ExactProjection {virtual_range:TextRange::new(7,9),original:TextRange::new(3,5),..first};
+    assert!(projection_conflicts(&[first,child,adjacent]).is_empty());
+    assert!(!unique_projection(&[],TextRange::empty(0)));
+}
+
+#[test]
+fn reassigned_raw_body_membership_does_not_recover_reaching_definitions() {
+    let mut fixture=Fixture::new("owner:\n    bind {_a} = 1\n    inspect {_a}\nother:\n    opaque\n");
+    let write=fixture.assign(1,"{_a}","a","1","java.lang.Number",true,false,"set");
+    let read=fixture.read(2,"{_a}","a",true,false);
+    let root=fixture.container(0,SyntaxKind::Structure,&[write,read],None);
+    let mapped=skript_parser::MappedSource::identity(Arc::clone(&fixture.source));
+    let mut raw=skript_parser::parse_raw_tree(&mapped,skript_parser::RawTreeOptions::for_skript_version(2,15));
+    let other=raw.roots[1];
+    raw.nodes.iter_mut().find(|node|node.text.contains("bind {_a}")).unwrap().parent=Some(other);
+    let document=Document::from_ast(fixture.source,"file:///fixture.sk".parse().unwrap(),catalog(),&AstTree {roots:vec![root],nodes:fixture.nodes},&raw,Vec::new(),Vec::new(),None,None,HashSet::new()).unwrap();
+    assert_eq!(inferred(&document,2,13),InferredType::Unknown);
+    assert!(document.definitions_at(Position::new(2,13),&[]).is_empty());
 }

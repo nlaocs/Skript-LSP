@@ -395,6 +395,7 @@ pub(super) fn restore_output_receipts(original: &HookPayload, output: &mut HookO
 #[derive(Debug, Default)]
 pub(super) struct SemanticProofRegistry {
     forest: Option<[u8; 32]>,
+    source: Option<[u8; 32]>,
     writers: BTreeMap<u64, BTreeSet<String>>,
     valid: bool,
 }
@@ -498,7 +499,7 @@ fn canonical(tree: &AstTree, ignore_recovery: bool) -> Option<Canonical> {
     })
 }
 
-fn digest(tree: &AstTree) -> [u8; 32] {
+fn debug_digest(domain: &str, value: &impl fmt::Debug) -> [u8; 32] {
     struct Sink(Sha256);
     impl fmt::Write for Sink {
         fn write_str(&mut self, value: &str) -> fmt::Result {
@@ -507,8 +508,12 @@ fn digest(tree: &AstTree) -> [u8; 32] {
         }
     }
     let mut sink = Sink(Sha256::new());
-    write!(&mut sink, "semantic-forest-v1:{tree:?}").expect("hash sink is infallible");
+    write!(&mut sink, "{domain}:{value:?}").expect("hash sink is infallible");
     sink.0.finalize().into()
+}
+
+fn digest(tree: &AstTree) -> [u8; 32] {
+    debug_digest("semantic-forest-v1", tree)
 }
 
 impl SemanticProofRegistry {
@@ -522,6 +527,7 @@ impl SemanticProofRegistry {
         };
         let mut result = Self {
             forest: Some(digest(&canonical.tree)),
+            source: None,
             writers: BTreeMap::new(),
             valid: !receipts.is_some_and(|registry| registry.exhausted),
         };
@@ -629,6 +635,24 @@ impl SemanticProofRegistry {
             result.writers.insert(rank, writers);
         }
         result
+    }
+
+    /// Bind the native proof before mutable AST phases. A public source-map swap
+    /// must not relocate otherwise unchanged semantic facts.
+    pub(super) fn bind_source(mut self, source: &skript_parser::MappedSource) -> Self {
+        self.source = Some(debug_digest("semantic-source-v1", source));
+        self
+    }
+
+    pub(super) fn view_for_source<'a>(
+        &self,
+        tree: &'a AstTree,
+        source: &skript_parser::MappedSource,
+    ) -> SemanticWitnesses<'a> {
+        if self.source != Some(debug_digest("semantic-source-v1", source)) {
+            return SemanticWitnesses { nodes: BTreeMap::new(), writers: BTreeMap::new() };
+        }
+        self.view(tree)
     }
 
     pub(super) fn view<'a>(&self, tree: &'a AstTree) -> SemanticWitnesses<'a> {

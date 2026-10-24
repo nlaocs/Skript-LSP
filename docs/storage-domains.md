@@ -28,6 +28,12 @@ Write-site hints describe the state after that particular assignment. A later as
 - Proof inputs are prepared once per source/snapshot in an accepted structure hook. Consumers recheck runtime/source identity and use bounded caches. A standalone body parse or fresh Store without preparation receives no additional guarantee from this model; independent primitive/closed-family contracts may still prove a type. It does not transfer the full registry inside that body hook. No production fuel ceiling is increased.
 - The matching new snapshot is required along with Core and host. Merely replacing the executable while retaining an old snapshot cannot activate this guarantee.
 
+## Macro source boundaries
+
+Native facts are bound privately to both the accepted AST and its source map before AST addon phases. Original locations require an exact, unambiguous projection in the active witnessed forest; unused virtual fragments from earlier tree edits do not count as duplicate execution. Missing raw statements, reordered bodies, unavailable regions and generated writes still invalidate affected knowledge conservatively. Macro expansion does not grant editable rename coverage.
+
+An option expansion no longer makes every unaffected sibling statement opaque. The expanded line itself is still generated: the current TreeEdit contract replaces the whole line and assigns a new syntax context, without a certificate for preserved source slices or caller context. Such a target receives no source inlay, and its write cannot preserve unproved reaching facts. Matching text alone does not restore original binding identity. A generic source/context preservation contract is needed before this limitation can be removed.
+
 ## Source references
 
 - [Skript Expression.beforeChange](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/lang/Expression.java)

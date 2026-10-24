@@ -247,6 +247,8 @@ impl Fixture {
             Vec::new(),
             Vec::new(),
             None,
+            None,
+            HashSet::new(),
         )
         .unwrap();
         (document, ast)

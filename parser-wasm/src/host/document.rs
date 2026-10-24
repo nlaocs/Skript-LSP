@@ -281,7 +281,7 @@ impl DocumentParseResult {
 
     /// Validates provider/native facts against the immutable pre-AST semantic proof.
     pub fn semantic_witnesses(&self) -> super::semantic_proof::SemanticWitnesses<'_> {
-        self.semantic_proofs.view(&self.ast)
+        self.semantic_proofs.view_for_source(&self.ast, &self.source)
     }
 
     /// Convenience query; build `semantic_witnesses` once when checking many nodes.
@@ -714,7 +714,7 @@ impl ParserHost {
             &ast,
             self.semantic_receipts.as_ref(),
             &syntax_calls,
-        );
+        ).bind_source(&source);
         let AstMacroResult {
             decision: ast_macro_decision,
             source,
