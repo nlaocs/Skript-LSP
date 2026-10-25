@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.43.0;
+package nlaocs:skript-parser-addon@0.44.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -1567,6 +1567,12 @@ interface types {
     variant tree-edit {
         replace-node(replace-node-edit),
         replace-children(generated-raw-tree),
+        /// Non-hygienic edits of current decoded code. The native node kind,
+        /// children and context stay unchanged. Ranges are UTF-8 byte offsets
+        /// in node-summary.text; physical code must be identical (excluding a
+        /// Section's colon). Nonempty, nonoverlapping ranges, no anchors/newlines.
+        /// Remaining providers see the edit; the current provider is not rerun.
+        edit-code(list<text-edit>),
     }
     variant capture-value {
         text(string),

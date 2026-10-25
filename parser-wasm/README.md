@@ -34,7 +34,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.43.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.44.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -105,7 +105,7 @@ multiple targets for each registered semantic handler, including dynamic
   it to 0.40.0. Native omission provenance and the opt-in incremental
   subscription manifest changed it to 0.41.0; explicit header-local Structure
   handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
-changed it to 0.43.0. The manifest's current `abi` value is 25.0 and
+changed it to 0.43.0. The manifest's current `abi` value is 26.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -1134,3 +1134,9 @@ unavailable. Likewise, a macro-generated or mixed-origin full extent is omitted
 even when its header is exact. Neither condition is silently promoted to native
 source ownership. This feature exposes accepted final semantics and does not
 remove the existing initial-analysis wait.
+
+### Retained code edits and editor geometry
+
+WIT 0.44.0 / ABI 26.0 adds the generic EditCode Tree operation. It keeps the current native node kind, children and syntax context, preserving untouched source slices and recording replacement provenance. Offsets address byte-identical decoded code; anchors, empty/overlapping ranges, line breaks and ambiguous decoded/physical offsets are rejected. No-op edits produce no expansion. Later providers observe the edited snapshot; the current provider is not restarted. ReplaceNode retains its generated-source context and re-entry behavior.
+
+Outline ranges use native original extents bound to the full original document, with an exact authenticated header/selection and unique current owner. An expanded body does not make an unchanged header disappear. These display extents do not authorize source edits or prove body type facts.

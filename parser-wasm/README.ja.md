@@ -33,7 +33,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.43.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.44.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -88,7 +88,7 @@ implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefa
 最終ASTと追加解析nodeへのFunction binding投影で0.40.0へ変わりました。
 nativeの省略根拠とopt-inのincremental subscription manifest追加で0.41.0へ、
 header-local Structure handler契約の追加で0.42.0へ、invocation単位のimmutable Tree access追加で
-0.43.0へ変わりました。manifestの現在の`abi`値は25.0で、
+0.43.0へ変わりました。manifestの現在の`abi`値は26.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -105,7 +105,7 @@ Function情報は不正なhook出力として拒否し、providerのstateをroll
 このWIT/ABI変更ではCoreLibraryと外部componentの再ビルドが必要です。
 WIT 0.40.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
 `@0.40.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 22.0の
-componentは、必要なABI 25.0を示すhandshake診断で拒否されます。
+componentは、必要なABI 26.0を示すhandshake診断で拒否されます。
 現行WITとSDKを使って再ビルドしてください。manifestのversion変更だけでは移行できません。
 
 ### WIT 0.41: 省略の根拠と明示的な再利用契約
@@ -858,3 +858,9 @@ workspace全体のcheckでは、host専用dependencyがguest componentへ誤っ�
 `1`以上の`schema-version`、およびJSON objectでなければならない`json` stringを
 持ちます。hostが検証するのはこのenvelopeだけで、object内部のaddon固有fieldは検証
 しません。schemaを定義したaddonがその意味を解釈します。
+
+### ソースを保持するコード編集と表示範囲
+
+WIT 0.44.0 / ABI 26.0 では汎用の EditCode Tree 操作を追加した。現在のネイティブノードの種類・子・syntax context を保持し、未変更のソース区間と置換部分の出所を分離する。オフセットは物理ソースとバイト単位で一致する decoded code に対する値で、anchor・空または重複する範囲・改行・字句変換で対応が曖昧な範囲は拒否する。変更のない編集は展開を作らない。後続providerは編集済みsnapshotを参照し、同じproviderを再実行しない。ReplaceNode の生成文脈と再入動作は維持する。
+
+構造一覧には、元文書全体に結び付いたネイティブの元範囲を使用する。ヘッダーと選択範囲の完全なソース一致・provider証明・現在の所有者の一意性を検証し、本文の展開だけで元のヘッダーを失わないようにする。この表示範囲をソース編集や本文の型保証には使用しない。

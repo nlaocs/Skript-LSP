@@ -11738,6 +11738,7 @@ impl ParserHost {
                 WitTreeEdit::ReplaceChildren(_) => {
                     path.len().saturating_add(wit_tree_edit_depth(&edit))
                 }
+                WitTreeEdit::EditCode(_) => path.len(),
             };
             if resulting_depth > self.config.max_raw_tree_depth {
                 state_invocation.rollback();
@@ -11746,9 +11747,8 @@ impl ParserHost {
                     limit: self.config.max_raw_tree_depth,
                 });
             }
-            let parser_edit = parser_tree_edit(edit);
-            let replaces_node = matches!(parser_edit, ParserTreeEdit::ReplaceNode { .. });
-            let application = match apply_tree_edit(
+            let replaces_node = matches!(edit, WitTreeEdit::ReplaceNode(_));
+            let application = match parser_tree_edit(edit).and_then(|parser_edit| apply_tree_edit(
                 source,
                 tree,
                 current_target,
@@ -11757,7 +11757,7 @@ impl ParserHost {
                     component: component_id.clone(),
                     hook: subscription_id.clone(),
                 },
-            ) {
+            ).map_err(|error| error.to_string())) {
                 Ok(application) => application,
                 Err(error) => {
                     state_invocation.rollback();
@@ -11811,7 +11811,7 @@ impl ParserHost {
                 subscription_id,
                 target: current_target,
                 accepted: true,
-                expansion: Some(expansion),
+                expansion,
                 state_accesses: accesses,
             });
             merge_effects(&mut pipeline.effects, effects);
@@ -14969,6 +14969,7 @@ fn parser_raw_node_to_wit(node: &skript_parser::RawNode) -> RawTreeNode {
     }
 }
 
+#[cfg(test)]
 fn parser_raw_tree_to_wit(tree: &ParserRawTree) -> RawTree {
     RawTree {
         roots: tree.roots.iter().map(|id| id.get()).collect(),
@@ -15032,8 +15033,8 @@ fn parser_raw_subtree_to_wit(tree: &ParserRawTree, root: ParserRawNodeId) -> Raw
     }
 }
 
-fn parser_tree_edit(edit: WitTreeEdit) -> ParserTreeEdit {
-    match edit {
+fn parser_tree_edit(edit: WitTreeEdit) -> Result<ParserTreeEdit, String> {
+    Ok(match edit {
         WitTreeEdit::ReplaceNode(edit) => ParserTreeEdit::ReplaceNode {
             replacement: parser_generated_raw_tree(edit.replacement),
             retained_children: edit
@@ -15053,7 +15054,8 @@ fn parser_tree_edit(edit: WitTreeEdit) -> ParserTreeEdit {
         WitTreeEdit::ReplaceChildren(replacement) => ParserTreeEdit::ReplaceChildren {
             replacement: parser_generated_raw_tree(replacement),
         },
-    }
+        WitTreeEdit::EditCode(edits) => ParserTreeEdit::EditCode { edits: parser_text_edits(edits)? },
+    })
 }
 
 fn parser_generated_raw_tree(
@@ -15137,6 +15139,7 @@ fn tree_macro_output_size(output: &TreeMacroOutput) -> usize {
 
 fn wit_tree_edit_depth(edit: &WitTreeEdit) -> usize {
     let tree = match edit {
+        WitTreeEdit::EditCode(_) => return 0,
         WitTreeEdit::ReplaceNode(edit) => &edit.replacement,
         WitTreeEdit::ReplaceChildren(tree) => tree,
     };
@@ -15171,6 +15174,9 @@ fn wit_tree_edit_depth(edit: &WitTreeEdit) -> usize {
 }
 fn wit_tree_edit_size(edit: &WitTreeEdit) -> usize {
     let tree = match edit {
+        WitTreeEdit::EditCode(edits) => return edits.iter().map(|edit| {
+            mem::size_of::<WitTextEdit>().saturating_add(edit.replacement.len())
+        }).fold(0usize, usize::saturating_add),
         WitTreeEdit::ReplaceNode(edit) => &edit.replacement,
         WitTreeEdit::ReplaceChildren(tree) => tree,
     };

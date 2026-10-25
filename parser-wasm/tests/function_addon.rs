@@ -96,8 +96,9 @@ fn function_state(
 }
 
 #[test]
-#[ignore = "requires preserved WIT 0.39 / ABI 21 CoreLibrary and Function addon"]
+#[ignore = "requires preserved previous CoreLibrary and Function addon"]
 fn diagnoses_previous_wit_components() {
+    let previous = std::env::var("SKRIPT_PREVIOUS_WIT_VERSION").unwrap_or_else(|_| "0.39.0".into());
     let old_core = std::fs::read(
         std::env::var_os("SKRIPT_PREVIOUS_CORE_LIBRARY").expect("set SKRIPT_PREVIOUS_CORE_LIBRARY"),
     )
@@ -114,11 +115,11 @@ fn diagnoses_previous_wit_components() {
         Ok(_) => panic!("previous CoreLibrary must be rejected"),
     };
     eprintln!("previous-core: {error}");
-    assert!(error.to_string().contains("@0.39.0"));
+    assert!(error.to_string().contains(&format!("@{previous}")));
     let mut host = function_host(HostConfig::default().max_generated_output_bytes);
     let error = host.load_addon(&old_addon).unwrap_err();
     eprintln!("previous-addon: {error}");
-    assert!(error.to_string().contains("@0.39.0"));
+    assert!(error.to_string().contains(&format!("@{previous}")));
     let transaction = host
         .begin_parse("file:///workspace", "file:///function.sk", 1)
         .unwrap();

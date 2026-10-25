@@ -23,7 +23,7 @@ use nlaocs::skript_parser_addon::{
         HookSubscription, HookTarget, HostProfile, IndentKind, RawTriviaKind, Rejection,
         ReplaceNodeEdit, RetainedChildren, RetainedChildrenPlacement, StateEncoding,
         StateNamespaceDeclaration, StateNamespaceVisibility, StateScope, StateValue,
-        TextMacroInput, TextMacroOutput, TreeEdit, TreeMacroInput, TreeMacroOutput,
+        TextEdit, TextRange, TextMacroInput, TextMacroOutput, TreeEdit, TreeMacroInput, TreeMacroOutput,
     },
 };
 use parser_wasm::{
@@ -128,6 +128,13 @@ impl tree_macro::Guest for TreeMacroAddon {
         record_invocation(&input, &target.summary.text)?;
 
         match target.summary.text.as_str() {
+            "edit-code" => Ok(changed(TreeEdit::EditCode(vec![TextEdit {
+                range: TextRange { start:0,end:9 }, replacement:"code-edited".into(), anchor:None,
+            }]))),
+            "edit-code-noop" => Ok(changed(TreeEdit::EditCode(Vec::new()))),
+            "edit-code-invalid" => Ok(changed(TreeEdit::EditCode(vec![TextEdit {
+                range: TextRange { start:1,end:u64::MAX }, replacement:"invalid".into(), anchor:None,
+            }]))),
             "remember-view" | "remember-edit-view" => {
                 *SAVED_TREE_REFERENCE.lock().unwrap() = Some(input.tree.clone());
                 if target.summary.text == "remember-edit-view" {

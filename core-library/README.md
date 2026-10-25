@@ -38,7 +38,7 @@ implements the API but has no Catalog still retains Unknown.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.43.0` and ABI `25.0`
+- WIT package `nlaocs:skript-parser-addon@0.44.0` and ABI `26.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -332,3 +332,5 @@ cargo test -p skript-lsp --locked
 
 When adding built-in behavior, keep the manifest capability list, WIT
 subscription, host capability advertisement, and integration tests in sync.
+
+Options use EditCode for certified first-pass substitutions, so unchanged assignment targets and reads keep their source identity. The expanded option token itself remains generated. Non-bijective lexical decoding, unavailable bounded detail capacity, and second-pass preload substitutions requiring composition retain the conservative generated replacement; their precise source UI may remain unavailable. Storage and effect guarantees are unchanged.

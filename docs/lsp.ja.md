@@ -107,7 +107,7 @@ clientがdynamic watcher登録に対応する場合、`**/*.sk`のcreate/change/
 
 ## Incremental処理とAddon契約
 
-公開WITは`nlaocs:skript-parser-addon@0.43.0`、ABIは`25.0`である。旧ABIのcomponentは再buildする。
+公開WITは`nlaocs:skript-parser-addon@0.44.0`、ABIは`26.0`である。旧ABIのcomponentは再buildする。
 `parser.incremental-local-syntax` v1とmanifestの`incremental-local-subscriptions`へ
 明示したhookだけが再利用候補になる。現在payload/context、物理source行、不変Catalog/runtime/binding、
 観測したStateのget/scan値が返却値を完全に決め、guest履歴や未観測の入力へ依存しないという契約である。

@@ -73,6 +73,9 @@ pub struct RetainedChildren {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Atomic structural operation targeting the current RawTree node.
 pub enum TreeEdit {
+    /// Byte edits in the current decoded code, retaining its native node,
+    /// children and syntax context. Physical and decoded code must agree.
+    EditCode { edits: Vec<crate::TextEdit> },
     ReplaceNode {
         replacement: GeneratedRawTree,
         retained_children: Option<RetainedChildren>,
@@ -94,14 +97,16 @@ pub struct TreeEditMetadata {
 pub struct TreeEditApplication {
     pub source: MappedSource,
     pub tree: RawTree,
-    pub expansion: ExpansionId,
+    pub expansion: Option<ExpansionId>,
     pub syntax_context: SyntaxContextId,
     pub replacement_roots: usize,
 }
 
 /// Validates and atomically applies one generated Tree macro operation.
 ///
-/// Generated node IDs are local to the supplied fragment. After complete
+/// Code edits retain the existing node context and exact untouched slices.
+/// Empty/no-op code edit batches produce no expansion. Generated node IDs are
+/// local to a replacement fragment. After complete
 /// validation, the host assigns stable arena IDs, attaches a new expansion and
 /// syntax context, and returns a new tree without mutating the input tree.
 ///
@@ -165,7 +170,11 @@ pub fn apply_tree_edit(
     edit: TreeEdit,
     metadata: TreeEditMetadata,
 ) -> Result<TreeEditApplication, TreeEditError> {
+    if let TreeEdit::EditCode { edits } = edit {
+        return apply_code_edit(source, tree, target, edits, metadata);
+    }
     let fragment = match &edit {
+        TreeEdit::EditCode { .. } => unreachable!(),
         TreeEdit::ReplaceNode { replacement, .. } | TreeEdit::ReplaceChildren { replacement } => {
             replacement
         }
@@ -211,6 +220,7 @@ pub fn apply_tree_edit(
                 return Err(TreeEditError::UnknownTarget { target });
             }
         }
+        TreeEdit::EditCode { .. } => unreachable!(),
     }
 
     let projected_source = project_forest(
@@ -223,15 +233,83 @@ pub fn apply_tree_edit(
     Ok(TreeEditApplication {
         source: projected_source,
         tree: flatten_tree(forest, tree),
-        expansion: expansion.expansion,
+        expansion: Some(expansion.expansion),
         syntax_context: expansion.syntax_context,
         replacement_roots,
+    })
+}
+
+fn apply_code_edit(
+    source: &MappedSource, tree: &RawTree, target: RawNodeId,
+    mut edits: Vec<crate::TextEdit>, metadata: TreeEditMetadata,
+) -> Result<TreeEditApplication, TreeEditError> {
+    let invalid = |reason: &str| TreeEditError::InvalidCodeEdit(reason.to_owned());
+    let node = tree.get(target).ok_or(TreeEditError::UnknownTarget { target })?;
+    if !matches!(node.kind, RawNodeKind::Simple | RawNodeKind::Section) {
+        return Err(invalid("target is not code"));
+    }
+    let code = node.code_span.as_ref().ok_or_else(|| invalid("missing code span"))?;
+    if code.virtual_range.start < node.line.content_span.virtual_range.start
+        || code.virtual_range.end > node.line.content_span.virtual_range.end
+        || node.line.span.virtual_range.start > node.line.content_span.virtual_range.start
+        || node.line.content_span.virtual_range.end > node.line.span.virtual_range.end
+    {
+        return Err(invalid("code is not contained in its native line"));
+    }
+    let physical = code.virtual_range.slice(source.virtual_source())
+        .ok_or_else(|| invalid("code span is outside the active source"))?;
+    let physical = if node.kind == RawNodeKind::Section {
+        physical.strip_suffix(':').ok_or_else(|| invalid("section colon is absent"))?
+    } else { physical };
+    if physical != node.text || node.line.content_span.virtual_range.slice(source.virtual_source()) != Some(node.line.raw_text.as_str()) {
+        return Err(invalid("decoded and physical code are not byte-identical"));
+    }
+    edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+    let mut end = 0;
+    for edit in &edits {
+        if edit.anchor.is_some() || edit.range.is_empty() || !edit.range.is_valid_for(&node.text)
+            || edit.range.start < end || edit.replacement.contains(['\r', '\n'])
+        {
+            return Err(invalid("edits must be disjoint nonempty UTF-8 code ranges without anchors or line breaks"));
+        }
+        end = edit.range.end;
+    }
+    edits.retain(|edit| edit.range.slice(&node.text) != Some(edit.replacement.as_str()));
+    if edits.is_empty() {
+        return Ok(TreeEditApplication {
+            source: source.clone(), tree: tree.clone(), expansion: None,
+            syntax_context: node.syntax_context, replacement_roots: 1,
+        });
+    }
+    let mut text = String::new();
+    let mut cursor = 0;
+    for edit in &edits {
+        text.push_str(&node.text[cursor..edit.range.start]);
+        text.push_str(&edit.replacement);
+        cursor = edit.range.end;
+    }
+    text.push_str(&node.text[cursor..]);
+    if text.trim().is_empty() || node.kind == RawNodeKind::Section && text.trim_end().ends_with(':') {
+        return Err(invalid("edited code does not preserve the node kind"));
+    }
+    let mut forest = inflate_tree(tree)?;
+    let selected = find_subtree_mut(&mut forest, target).ok_or(TreeEditError::UnknownTarget { target })?;
+    selected.code_edits = Some(edits);
+    let expansion = source.register_tree_expansion(
+        &node.span, TreeExpansion::new(metadata.component, metadata.hook),
+    )?;
+    let projected = project_forest(&expansion.source, &mut forest, &node.span, expansion.expansion)?;
+    Ok(TreeEditApplication {
+        source: projected, tree: flatten_tree(forest, tree), expansion: Some(expansion.expansion),
+        syntax_context: node.syntax_context, replacement_roots: 1,
     })
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 /// Rejected generated tree, target, retained-child policy, or provenance operation.
 pub enum TreeEditError {
+    #[error("invalid node code edit: {0}")]
+    InvalidCodeEdit(String),
     #[error("RawTree references unknown node {id}")]
     UnknownInputNode { id: RawNodeId },
     #[error("RawTree contains a parent/child cycle at node {id}")]
@@ -279,6 +357,7 @@ struct OwnedSubtree {
     local_id: Option<GeneratedRawNodeId>,
     node: RawNode,
     children: Vec<OwnedSubtree>,
+    code_edits: Option<Vec<crate::TextEdit>>,
 }
 
 fn inflate_tree(tree: &RawTree) -> Result<Vec<OwnedSubtree>, TreeEditError> {
@@ -322,6 +401,7 @@ fn inflate_node(
         local_id: None,
         node,
         children,
+        code_edits: None,
     })
 }
 
@@ -514,6 +594,7 @@ fn build_generated_node(
         local_id: Some(id),
         node,
         children,
+        code_edits: None,
     }
 }
 
@@ -574,7 +655,9 @@ fn append_projected_subtree(
     segments: &mut Vec<SourceMapSegment>,
 ) -> Result<(), SourceMapError> {
     let new_start = virtual_source.len();
-    if subtree.local_id.is_some() {
+    if let Some(edits) = &subtree.code_edits {
+        append_edited_line(source, &mut subtree.node, edits, generated_origins, virtual_source, segments)?;
+    } else if subtree.local_id.is_some() {
         virtual_source.push_str(&subtree.node.line.raw_text);
         virtual_source.push('\n');
         let new_end = virtual_source.len();
@@ -596,6 +679,57 @@ fn append_projected_subtree(
     for child in &mut subtree.children {
         append_projected_subtree(source, child, generated_origins, virtual_source, segments)?;
     }
+    Ok(())
+}
+
+fn append_edited_line(
+    source: &MappedSource, node: &mut RawNode, edits: &[crate::TextEdit],
+    generated_origins: &[SourceOrigin], output: &mut String, segments: &mut Vec<SourceMapSegment>,
+) -> Result<(), SourceMapError> {
+    let old_line = node.line.span.virtual_range;
+    let old_code = node.code_span.as_ref().expect("validated code").virtual_range;
+    let new_start = output.len();
+    let mut cursor = old_line.start;
+    let mut new_text = String::new();
+    let mut text_cursor = 0;
+    for edit in edits {
+        let range = TextRange::new(old_code.start + edit.range.start, old_code.start + edit.range.end);
+        source.append_preserved_range(TextRange::new(cursor, range.start), output, segments)?;
+        let start = output.len();
+        output.push_str(&edit.replacement);
+        if start != output.len() {
+            let expansion = generated_origins.first().and_then(|origin| origin.expansion);
+            let origins = source.map_range(range)?.origins.into_iter().map(|origin| SourceOrigin {
+                original_range: origin.original_range,
+                kind: if origin.original_range.is_empty() { OriginKind::Anchored } else { OriginKind::Replaced },
+                expansion,
+            });
+            segments.push(SourceMapSegment::with_origins(TextRange::new(start, output.len()), origins));
+        }
+        new_text.push_str(&node.text[text_cursor..edit.range.start]);
+        new_text.push_str(&edit.replacement);
+        text_cursor = edit.range.end;
+        cursor = range.end;
+    }
+    new_text.push_str(&node.text[text_cursor..]);
+    source.append_preserved_range(TextRange::new(cursor, old_line.end), output, segments)?;
+    let colon = usize::from(node.kind == RawNodeKind::Section);
+    let new_code_end = new_start + old_code.start - old_line.start + new_text.len() + colon;
+    let at = |old: usize| if old >= old_code.end {
+        new_code_end + old - old_code.end
+    } else { new_start + old - old_line.start };
+    let shift = |span: &mut MappedSpan| {
+        span.virtual_range = TextRange::new(at(span.virtual_range.start), at(span.virtual_range.end));
+    };
+    shift(&mut node.line.span);
+    shift(&mut node.line.content_span);
+    shift(&mut node.line.line_ending_span);
+    shift(&mut node.line.indentation.span);
+    for trivia in &mut node.line.trailing_trivia { shift(&mut trivia.span); }
+    if let Some(span) = &mut node.code_span { shift(span); }
+    if let Some(span) = &mut node.header_span { shift(span); }
+    node.line.raw_text = output[node.line.content_span.virtual_range.start..node.line.content_span.virtual_range.end].to_owned();
+    node.text = new_text;
     Ok(())
 }
 
@@ -742,6 +876,14 @@ fn find_subtree(forest: &[OwnedSubtree], target: RawNodeId) -> Option<&OwnedSubt
     None
 }
 
+fn find_subtree_mut(forest: &mut [OwnedSubtree], target: RawNodeId) -> Option<&mut OwnedSubtree> {
+    for subtree in forest {
+        if subtree.node.id == target { return Some(subtree); }
+        if let Some(found) = find_subtree_mut(&mut subtree.children, target) { return Some(found); }
+    }
+    None
+}
+
 fn replace_node(
     forest: &mut Vec<OwnedSubtree>,
     target: RawNodeId,
@@ -861,6 +1003,110 @@ mod tests {
         (source, tree)
     }
 
+    fn code_edit(start: usize, end: usize, replacement: &str) -> crate::TextEdit {
+        crate::TextEdit { range: TextRange::new(start, end), replacement: replacement.into(), anchor: None }
+    }
+
+    fn edit_metadata() -> TreeEditMetadata {
+        TreeEditMetadata { component: "test".into(), hook: "edit-code".into() }
+    }
+
+    #[test]
+    fn edit_code_preserves_exact_fragments_context_trivia_and_native_extent() {
+        let (source, tree) = source_tree("# \u{65e5}\u{1f98a}\r\non join:\r\n    set {_x} to {@value} # tail\r\n    send {_x}\r\n");
+        let owner = tree.roots[1];
+        let target = tree.get(owner).unwrap().children[0];
+        let before = tree.get(target).unwrap();
+        let at = before.text.find("{@value}").unwrap();
+        let result = apply_tree_edit(&source, &tree, target, TreeEdit::EditCode {
+            edits: vec![code_edit(at, at + "{@value}".len(), "1 day")],
+        }, edit_metadata()).unwrap();
+        let node = result.tree.get(target).unwrap();
+        assert_eq!(node.text, "set {_x} to 1 day");
+        assert_eq!(node.line.raw_text, "    set {_x} to 1 day # tail");
+        assert_eq!(node.line.line_ending, LineEnding::CrLf);
+        assert_eq!(node.syntax_context, before.syntax_context);
+        assert_eq!(result.tree.get(owner).unwrap().children, tree.get(owner).unwrap().children);
+        assert_eq!(result.tree.original_source(), Some(source.original()));
+        assert_eq!(result.tree.original_extent(node), tree.original_extent(before));
+        let code = node.code_span.as_ref().unwrap().virtual_range.start;
+        let x = node.text.find("{_x}").unwrap();
+        let origin = result.source.map_range(TextRange::new(code+x, code+x+4)).unwrap();
+        assert!(matches!(origin.origins.as_slice(), [origin] if origin.kind==OriginKind::Exact
+            && origin.original_range.slice(source.original())==Some("{_x}")));
+        let value = node.text.find("1 day").unwrap();
+        let origin = result.source.map_range(TextRange::new(code+value, code+value+5)).unwrap();
+        assert!(matches!(origin.origins.as_slice(), [origin] if origin.kind==OriginKind::Replaced
+            && origin.original_range.slice(source.original())==Some("{@value}")
+            && origin.expansion==result.expansion));
+        assert_eq!(source.virtual_source(), source.original(), "input source is immutable");
+        assert_eq!(tree.get(target).unwrap().text, "set {_x} to {@value}");
+    }
+
+    #[test]
+    fn edit_code_rejects_invalid_ranges_and_keeps_noops_inert() {
+        let (source, tree) = source_tree("send \u{65e5}\u{672c}\n");
+        let target = tree.roots[0];
+        for edits in [Vec::new(), vec![code_edit(0,4,"send")]] {
+            let result = apply_tree_edit(&source, &tree, target, TreeEdit::EditCode { edits }, edit_metadata()).unwrap();
+            assert_eq!(result.expansion, None);
+            assert_eq!(result.source, source);
+            assert_eq!(result.tree, tree);
+        }
+        let mut anchored = code_edit(0,4,"show");anchored.anchor=Some(0);
+        for edits in [
+            vec![code_edit(0,0,"a")], vec![code_edit(6,7,"a")],
+            vec![code_edit(0,999,"a")], vec![code_edit(0,4,"a\nb")],
+            vec![code_edit(0,3,"a"),code_edit(2,4,"b")], vec![anchored],
+        ] {
+            assert!(matches!(apply_tree_edit(&source, &tree, target, TreeEdit::EditCode { edits }, edit_metadata()),
+                Err(TreeEditError::InvalidCodeEdit(_))));
+        }
+    }
+
+    #[test]
+    fn edit_code_preserves_section_colon_and_rejects_decoded_offset_aliases() {
+        let (source, tree) = source_tree("command /old:\r\n    send 1\r\n");
+        let target = tree.roots[0];
+        let result = apply_tree_edit(&source, &tree, target, TreeEdit::EditCode {
+            edits: vec![code_edit(9,12,"new-name")],
+        }, edit_metadata()).unwrap();
+        let node = result.tree.get(target).unwrap();
+        assert_eq!(node.text, "command /new-name");
+        assert_eq!(node.line.raw_text, "command /new-name:");
+        assert_eq!(node.kind, RawNodeKind::Section);
+        assert_eq!(node.line.line_ending, LineEnding::CrLf);
+        assert_eq!(node.children, tree.get(target).unwrap().children);
+        let (source, tree) = source_tree("send ## {@value}\n");
+        let target = tree.roots[0];
+        let node = tree.get(target).unwrap();
+        assert_ne!(node.code_span.as_ref().unwrap().virtual_range.slice(source.virtual_source()), Some(node.text.as_str()));
+        let at=node.text.find("{@value}").unwrap();
+        assert!(matches!(apply_tree_edit(&source, &tree, target, TreeEdit::EditCode {
+            edits: vec![code_edit(at,at+8,"1")],
+        }, edit_metadata()), Err(TreeEditError::InvalidCodeEdit(_))));
+    }
+
+    #[test]
+    fn edit_code_never_launders_a_generated_binding_or_context() {
+        let (source, tree)=source_tree("original\n");
+        let generated=apply_tree_edit(&source,&tree,tree.roots[0],TreeEdit::ReplaceNode {
+            replacement:GeneratedRawTree { roots:vec![GeneratedRawNodeId::new(0)],nodes:vec![
+                generated_node(0,GeneratedRawNodeKind::Simple,"set {_x} to marker",&[])
+            ]},retained_children:None,
+        },edit_metadata()).unwrap();
+        let target=generated.tree.roots[0];let before=generated.tree.get(target).unwrap();
+        let at=before.text.find("marker").unwrap();
+        let result=apply_tree_edit(&generated.source,&generated.tree,target,TreeEdit::EditCode {
+            edits:vec![code_edit(at,at+6,"1")],
+        },edit_metadata()).unwrap();
+        let node=result.tree.get(target).unwrap();
+        assert_eq!(node.syntax_context,before.syntax_context);
+        assert_ne!(node.syntax_context,SyntaxContextId::ROOT);
+        assert_eq!(result.tree.original_extent(node),None);
+        assert!(node.code_span.as_ref().unwrap().origins.iter().all(|o|o.kind!=OriginKind::Exact));
+    }
+
     fn generated_node(
         id: u64,
         kind: GeneratedRawNodeKind,
@@ -943,12 +1189,12 @@ mod tests {
                 .span
                 .origins
                 .iter()
-                .all(|origin| origin.expansion == Some(application.expansion))
+                .all(|origin| origin.expansion == application.expansion)
         );
         assert_eq!(
             application
                 .source
-                .expansion_backtrace(application.expansion)
+                .expansion_backtrace(application.expansion.unwrap())
                 .unwrap()[0]
                 .hook
                 .as_str(),

@@ -117,6 +117,48 @@ fn core_options_macro_follows_skripts_header_and_body_timing() {
 }
 
 #[test]
+fn code_edits_preserve_context_do_not_reenter_and_reject_invalid_output_atomically() {
+    for (input, expected, changed) in [
+        ("edit-code","code-edited",true),("edit-code-noop","edit-code-noop",false),
+        ("edit-code-invalid","edit-code-invalid",false),
+    ] {
+        let mut host=host(HostConfig::default());
+        let transaction=host.begin_parse("file:///workspace","file:///workspace/test.sk",51).unwrap();
+        let result=host.expand_tree_in_parse(&transaction,request(51,input)).unwrap();
+        assert_eq!(root_texts(&result.tree),[expected]);
+        assert_eq!(root(&result.tree,0).syntax_context,SyntaxContextId::ROOT);
+        assert_eq!(addon_calls(&result).count(),1,"node-preserving edit does not restart its own provider");
+        assert_eq!(addon_calls(&result).next().unwrap().expansion.is_some(),changed);
+        if input=="edit-code-invalid" {
+            assert_eq!(result.failures.len(),1);
+            assert!(!addon_calls(&result).next().unwrap().accepted);
+            assert!(written_keys(&transaction).is_empty(),"invalid edit rolls back staged provider writes");
+        } else { assert!(result.failures.is_empty(),"{:?}",result.failures); }
+        transaction.cancel().unwrap();
+    }
+}
+
+#[test]
+fn options_code_edits_keep_exact_targets_and_are_visible_to_later_providers() {
+    let mut host=host(HostConfig::default());
+    let transaction=host.begin_parse("file:///workspace","file:///workspace/test.sk",52).unwrap();
+    let result=host.expand_tree_in_parse(&transaction,request(52,
+        "options:\n    value: 7\non load:\n    set {_x} to {@value}\n",
+    )).unwrap();
+    assert!(result.failures.is_empty(),"{:?}",result.failures);
+    let owner=root(&result.tree,1);let target=result.tree.get(owner.children[0]).unwrap();
+    assert_eq!(target.text,"set {_x} to 7");
+    assert_eq!(target.syntax_context,SyntaxContextId::ROOT);
+    let at=target.code_span.as_ref().unwrap().virtual_range.start+target.text.find("{_x}").unwrap();
+    let span=result.source.map_range(skript_parser::TextRange::new(at,at+4)).unwrap();
+    assert!(matches!(span.origins.as_slice(),[origin] if origin.kind==skript_parser::OriginKind::Exact));
+    let keys=written_keys(&transaction);
+    assert!(keys.contains(&"tree.expand:set {_x} to 7".to_owned()),"later provider observes committed code");
+    assert!(!keys.contains(&"tree.expand:set {_x} to {@value}".to_owned()));
+    transaction.cancel().unwrap();
+}
+
+#[test]
 fn replaces_one_node_with_zero_one_or_many_and_reenters_generated_nodes() {
     let mut host = host(HostConfig::default());
     let transaction = host

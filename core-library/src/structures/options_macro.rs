@@ -4,7 +4,7 @@ use crate::nlaocs::skript_parser_addon::{tree_data, types::{
     AddonError, AddonErrorKind, Diagnostic, DiagnosticSeverity, GeneratedRawNode,
     GeneratedRawNodeKind, GeneratedRawTree, HookDecision, HookEffects, NodePage,
     NodeHeader, NodeSpanKind, NodeSummary, RawNodeKind, ReplaceNodeEdit, RetainedChildren,
-    RetainedChildrenPlacement, TreeEdit, TreeError, TreeMacroInput, TreeMacroOutput, TreeReference,
+    RetainedChildrenPlacement, TextEdit, TextRange, TreeEdit, TreeError, TreeMacroInput, TreeMacroOutput, TreeReference,
 }};
 
 fn access_error(error: TreeError) -> AddonError {
@@ -67,10 +67,15 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
     let first = replace_options(&target.text, options);
     let mut text = first.text;
     let mut missing = first.missing;
+    let mut edits = Some(first.edits);
     // Preserve the original single-pass and command/function preload behavior.
     // Generated nodes still re-enter the normal host macro pipeline.
     if target.header.parent.is_none() && preload_replaces_options(&text) {
         let second = replace_options(&text, &all_options);
+        // Second-pass substitutions can cross a generated/retained boundary.
+        // Keep the established generated replacement until composition of that
+        // case has an explicit source witness; never guess first-pass offsets.
+        if second.text != text { edits = None; }
         text = second.text;
         missing.extend(second.missing);
     }
@@ -86,6 +91,14 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
         severity: DiagnosticSeverity::Error, span: diagnostic_span.as_ref().unwrap().clone(), related: Vec::new(),
     }).collect();
     if text == target.text { return Ok(unchanged(diagnostics)); }
+    if let Some(edits) = edits
+        && edit_code_supported(&input.tree, &target)?
+    {
+        return Ok(TreeMacroOutput {
+            decision: HookDecision::ContinueProcessing,
+            edit: Some(TreeEdit::EditCode(edits)), effects: effects(diagnostics),
+        });
+    }
     let (kind, retained_children) = match target.header.kind {
         RawNodeKind::Simple => (GeneratedRawNodeKind::Simple, None),
         RawNodeKind::Section => (GeneratedRawNodeKind::Section, Some(RetainedChildren {
@@ -100,6 +113,25 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
             }] }, retained_children,
         })), effects: effects(diagnostics),
     })
+}
+
+fn edit_code_supported(tree: &TreeReference, target: &NodeSummary) -> Result<bool, AddonError> {
+    let details = match tree_data::details(*tree, target.header.id) {
+        Ok(Some(details)) => details,
+        Err(TreeError::ByteQuota | TreeError::QueryQuota) => return Ok(false),
+        Err(error) => return Err(access_error(error)),
+        Ok(None) => return Err(invalid("Tree macro target disappeared from its active view")),
+    };
+    let Some(code) = details.code_span else { return Ok(false); };
+    let Some(start) = code.virtual_range.start.checked_sub(details.line.content_span.virtual_range.start)
+        .and_then(|at| usize::try_from(at).ok()) else { return Ok(false); };
+    let Some(end) = code.virtual_range.end.checked_sub(details.line.content_span.virtual_range.start)
+        .and_then(|at| usize::try_from(at).ok()) else { return Ok(false); };
+    let physical = details.line.raw_text.get(start..end);
+    let physical = if target.header.kind == RawNodeKind::Section {
+        physical.and_then(|code| code.strip_suffix(':'))
+    } else { physical };
+    Ok(physical == Some(target.text.as_str()))
 }
 
 fn inside_options(tree: &TreeReference, target: &NodeSummary) -> Result<bool, AddonError> {
@@ -166,11 +198,13 @@ fn preload_replaces_options(text: &str) -> bool {
 struct Replacement {
     text: String,
     missing: Vec<String>,
+    edits: Vec<TextEdit>,
 }
 
 fn replace_options(input: &str, options: &HashMap<String, String>) -> Replacement {
     let mut text = String::with_capacity(input.len());
     let mut missing = Vec::new();
+    let mut edits = Vec::new();
     let mut rest = input;
     while let Some(start) = rest.find("{@") {
         text.push_str(&rest[..start]);
@@ -184,6 +218,13 @@ fn replace_options(input: &str, options: &HashMap<String, String>) -> Replacemen
         let name = &marker[2..end];
         if let Some(value) = options.get(name) {
             text.push_str(value);
+            if value != &marker[..=end] {
+                let offset = input.len() - rest.len() + start;
+                edits.push(TextEdit {
+                    range: TextRange { start: offset as u64, end: (offset + end + 1) as u64 },
+                    replacement: value.clone(), anchor: None,
+                });
+            }
         } else {
             text.push_str(&marker[..=end]);
             missing.push(name.to_owned());
@@ -191,7 +232,7 @@ fn replace_options(input: &str, options: &HashMap<String, String>) -> Replacemen
         rest = &marker[end + 1..];
     }
     text.push_str(rest);
-    Replacement { text, missing }
+    Replacement { text, missing, edits }
 }
 
 fn unchanged(diagnostics: Vec<Diagnostic>) -> TreeMacroOutput {
@@ -214,6 +255,17 @@ fn effects(diagnostics: Vec<Diagnostic>) -> HookEffects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_edits_use_original_utf8_byte_offsets() {
+        let result=replace_options("\u{65e5}{@x}/{@x}", &HashMap::from([("x".into(),"longer".into())]));
+        assert_eq!(result.text,"\u{65e5}longer/longer");
+        assert!(result.missing.is_empty());
+        assert_eq!(result.edits.len(),2);
+        assert_eq!((result.edits[0].range.start,result.edits[0].range.end),(3,7));
+        assert_eq!((result.edits[1].range.start,result.edits[1].range.end),(8,12));
+        assert!(result.edits.iter().all(|edit|edit.anchor.is_none()));
+    }
 
     #[test]
     fn replacement_is_single_pass_and_preserves_missing_markers() {

@@ -19,7 +19,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.43.0`とABI `25.0`
+- WIT package `nlaocs:skript-parser-addon@0.44.0`とABI `26.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -257,3 +257,5 @@ cargo test -p skript-lsp --locked
 
 標準処理を追加するときは、manifestのcapability一覧、WIT subscription、hostのcapability
 advertisement、integration testを同期させてください。
+
+options の証明可能な1回目の置換には EditCode を使い、未変更の代入先・参照のソース同一性を保持する。展開されたoptionトークン自体は生成扱いのままとする。字句変換で対応が一対一でない入力、bounded detailの容量不足、合成が必要なpreloadの2回目の置換は従来の生成ノード置換へ保守的に戻すため、詳細なソース表示は利用できない場合がある。保存処理・副作用の保証は変更しない。

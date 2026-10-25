@@ -1579,6 +1579,42 @@ fn document_symbols_option_expansion_keeps_original_outline_geometry() {
 }
 
 #[test]
+fn option_expansion_keeps_exact_binding_hovers_and_write_hints() {
+    for (value, rhs, expected) in [("3", "{@value}", ": long"), ("1 day", "{@value} - {_elapsed}", ": ?")] {
+        let catalog = crate::lsp::test_support::runtime_catalog();
+        let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+            syntax_catalog: Some(Arc::clone(&catalog)),
+            runtime_profile: parser_wasm::RuntimeProfile { skript_version:Some("2.15.4".into()), ..Default::default() },
+            ..Default::default()
+        }).unwrap();
+        let source: Arc<str> = Arc::from(format!("# \u{65e5}\u{1f98a}\r\noptions:\r\n    value: {value}\r\non join:\r\n    set {{_remaining}} to {rhs}\r\n"));
+        let uri: Uri="file:///option-provenance/public.sk".parse().unwrap();
+        let result=host.parse_document(parser_wasm::DocumentParseRequest::new(
+            "file:///option-provenance",uri.as_str(),1,source.as_ref(),
+        ),Default::default()).unwrap();
+        assert_eq!(result.execution_status,parser_wasm::DocumentExecutionStatus::Complete);
+        assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+        let semantic=Document::from_result(&result,Arc::clone(&source),uri,Arc::clone(&catalog)).unwrap();
+        let hint=semantic.write_type_hints().into_iter().find(|h|h.position.line==4).expect("exact retained target has a write hint");
+        assert_eq!(hint.position,Position::new(4,20));
+        assert!(matches!(&hint.label,lsp_types::InlayHintLabel::String(label) if label==expected), "{hint:?}");
+        let target=Position::new(4,9);
+        assert!(semantic.hover_fields(target).is_some());
+        let hover=crate::lsp::hover::Document::from_result(
+            result,Arc::clone(&source),catalog,lsp_types::MarkupKind::Markdown,
+        ).unwrap();
+        let shown=hover.at(target).expect("source-backed target hover");
+        assert_eq!(shown.range,Some(Range::new(Position::new(4,8),Position::new(4,20))));
+        assert!(hover.at(Position::new(4,25)).is_none(),"expanded literal must not gain an exact original hover");
+        if rhs.contains("{_elapsed}") {
+            let line=source.lines().nth(4).unwrap();
+            let col=line.find("{_elapsed}").unwrap()+1;
+            assert!(hover.at(Position::new(4,col as u32)).is_some(),"retained RHS variable survives beside the expansion");
+        }
+    }
+}
+
+#[test]
 fn document_symbols_use_native_hierarchy_exact_utf16_ranges_and_owned_records() {
     let mut fixture = Fixture::new("# 🌳\n親:\n    子:\n        value\nnext:");
     let child = fixture.push(SyntaxKind::Section, "section", fixture.line(2));
@@ -1758,8 +1794,8 @@ fn document_symbols_cannot_borrow_an_enclosing_original_owner_extent() {
     let mut raw = skript_parser::parse_raw_tree(
         &mapped, skript_parser::RawTreeOptions::for_skript_version(2,15),
     );
-    let owner = raw.roots[0].index();
-    let child = raw.nodes[owner].children[0].index();
+    let owner = usize::try_from(raw.roots[0].get()).unwrap();
+    let child = usize::try_from(raw.nodes[owner].children[0].get()).unwrap();
     raw.nodes[owner].code_span = raw.nodes[child].code_span.take();
     let ast = AstTree { roots: vec![inner], nodes: fixture.nodes };
     assert!(document_symbols::from_ast(
