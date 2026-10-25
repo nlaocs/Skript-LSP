@@ -4294,6 +4294,11 @@ struct DeferredExpressionEffects {
 }
 
 impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
+    #[cfg(test)]
+    fn measurement_scope(&self, name: &'static str) -> skript_parser::ParserMeasurementScope {
+        self.hooks.host.measurement_scope(name)
+            .map(skript_parser::ParserMeasurementScope::new).unwrap_or_default()
+    }
     fn cancellation_requested(&mut self) -> bool {
         self.hooks.cancellation_requested()
     }
@@ -4596,6 +4601,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         #[cfg(test)]
         let _measurement = self.hooks.host.measurement_scope("environment.expression_leaf");
         #[cfg(test)]
+        let request_prepared = self.hooks.host.measurement_scope("leaf.request_prepare");
+        #[cfg(test)]
         let _sample_context = self.hooks.host.measurement_probe().and_then(|probe| probe.context(
             self.hooks.dynamic_snapshot.map(|value| (value.document_revision, value.registry_revision)),
             self.function_registry.as_deref().map(FunctionRegistryTransaction::savepoint),
@@ -4689,6 +4696,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             let _copy = self.hooks.host.measurement_copy("copy.leaf_expected", payload.input.len());
             payload.clone()
         };
+        #[cfg(test)]
+        drop(request_prepared);
         let mut result = self
             .hooks
             .host
@@ -4702,6 +4711,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 },
             )
             .map_err(|error| self.hooks.host_error(error))?;
+        #[cfg(test)]
+        let response = self.hooks.host.measurement_scope("leaf.stage_response");
         let mut available_parse_results = BTreeMap::new();
         let mut leaf_failure = None;
         available_parse_results.append(&mut result.available_parse_results);
@@ -4744,6 +4755,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 Ok(candidate)
             })
             .collect::<Result<Vec<_>, String>>()?;
+        #[cfg(test)]
+        drop(response);
         let mut unresolved_type_reasons = Vec::new();
         for active_type in &parser_types {
             if self.hooks.cancellation_requested() {
@@ -4788,6 +4801,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 #[cfg(not(test))]
                 type_expected::TypeExpected::capture(&payload,native_input)
             };
+            #[cfg(test)]
+            let checkpoint = self.hooks.host.measurement_scope("leaf.type_checkpoint");
             let type_savepoint = self
                 .hooks
                 .transaction
@@ -4798,6 +4813,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 &self.hooks.calls,
                 &self.hooks.failures,
             );
+            #[cfg(test)]
+            drop(checkpoint);
             let result = self
                 .hooks
                 .host
@@ -4815,6 +4832,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     },
                 )
                 .map_err(|error| self.hooks.host_error(error))?;
+            #[cfg(test)]
+            let _response = self.hooks.host.measurement_scope("leaf.type_response");
             let rejection_diagnostics =
                 semantic_rejection_diagnostics(&result.decision, &result.effects)?;
             let result = self.hooks.checked_dispatch(result)?;
@@ -10222,6 +10241,8 @@ impl ParserHost {
             &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
         >,
     ) -> Result<WasmStructureParseResult, HostError> {
+        #[cfg(test)]
+        let measurement = self.measurement_scope("syntax.host_prepare");
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
         if document_id != context.document_id || document_revision != context.document_revision {
@@ -10302,6 +10323,10 @@ impl ParserHost {
             function_registry: Some(&mut function_registry),
             structure_preparation: Some(&mut observe),
         };
+        #[cfg(test)]
+        drop(measurement);
+        #[cfg(test)]
+        let measurement = environment.hooks.host.measurement_scope("syntax.native_parse");
         let parsed = run_structure_parser(
             catalog.as_ref(),
             Some(&dynamic_snapshot),
@@ -10309,6 +10334,10 @@ impl ParserHost {
             &mut environment,
             config,
         );
+        #[cfg(test)]
+        drop(measurement);
+        #[cfg(test)]
+        let _measurement = environment.hooks.host.measurement_scope("syntax.host_finalize");
         if parsed.is_ok() {
             debug_assert!(
                 environment.semantic_candidates.is_empty(),
@@ -12404,6 +12433,8 @@ impl ParserHost {
             .map(|registry| registry.begin(&request.payload));
         #[cfg(test)]
         drop(measured);
+        #[cfg(test)]
+        let measured = self.measurement_scope("dispatch.context_annotations");
         let fault_phase = format!("{:?}", request.phase);
         let fault_target = format!("{:?}", request.target);
         let document_id = transaction.document_id()?;
@@ -12416,6 +12447,8 @@ impl ParserHost {
         let mut available_parse_results = BTreeMap::new();
         let mut generated_output = 0usize;
         let mut decision = HookDecision::ContinueProcessing;
+        #[cfg(test)]
+        drop(measured);
 
         'candidate: for candidate in candidates {
             if self.components[candidate.component_index].unloaded {
@@ -12467,6 +12500,8 @@ impl ParserHost {
                         limit: self.config.max_calls_per_dispatch,
                     });
                 }
+                #[cfg(test)]
+                let prepared = self.measurement_scope("dispatch.invocation_prepare");
                 let mut context = request.context.clone();
                 context.subscription_id = subscription_id.clone();
                 let mut invocation =
@@ -12520,6 +12555,8 @@ impl ParserHost {
                 } else {
                     None
                 };
+                #[cfg(test)]
+                drop(prepared);
                 let call = if let Some(output) = cached_output {
                     (Ok(Ok(output)), state_invocation, dynamic_update)
                 } else {
@@ -12545,6 +12582,9 @@ impl ParserHost {
                         probe.sample_before(transaction, &invocation, incremental_key.as_deref(),
                             entry.store.data().epoch_clock.as_ref().map(|clock| clock.ticks.load(Ordering::Acquire)))
                     });
+                    #[cfg(test)]
+                    let guest_prepare = entry.store.data().catalog_measurement.as_ref()
+                        .map(|probe| probe.scope("dispatch.guest_prepare"));
                     let prepared = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -12567,6 +12607,8 @@ impl ParserHost {
                     {
                         entry.store.data_mut().guest_hook_calls += 1;
                     }
+                    #[cfg(test)]
+                    drop(guest_prepare);
                     #[cfg(test)]
                     let measurement = entry.store.data().catalog_measurement.as_ref()
                         .map(|probe| probe.hook(&subscription_id, &invocation, entry.store.get_fuel().ok()));
@@ -12595,6 +12637,8 @@ impl ParserHost {
                     (call, state_invocation, dynamic_update)
                 };
                 // The immutable request is borrowed by WASM lowering; recover its ownership.
+                #[cfg(test)]
+                let call_result = self.measurement_scope("dispatch.call_result");
                 payload = invocation.payload;
                 let (call, state_invocation, dynamic_update) = call;
                 if call.is_ok()
@@ -12668,6 +12712,10 @@ impl ParserHost {
                     )?;
                 }
 
+                #[cfg(test)]
+                drop(call_result);
+                #[cfg(test)]
+                let measured = self.measurement_scope("dispatch.output_accounting");
                 generated_output = generated_output.saturating_add(hook_output_size(&output));
                 if generated_output > self.config.max_generated_output_bytes {
                     state_invocation.rollback();
@@ -12686,6 +12734,8 @@ impl ParserHost {
                     continue 'candidate;
                 }
 
+                #[cfg(test)]
+                drop(measured);
                 #[cfg(test)]
                 let measured = self.measurement_scope("dispatch.output_validation");
                 candidate_semantic_effects |= !output.effects.context_updates.is_empty()
@@ -12849,6 +12899,8 @@ impl ParserHost {
                     available_parse_results.append(&mut candidate_parse_results);
                     #[cfg(test)]
                     drop(measured);
+                    #[cfg(test)]
+                    let _retained = self.measurement_scope("dispatch.output_retain");
                     let previous_payload = mem::replace(&mut payload, next_payload);
                     original_payload.retain(previous_payload)?;
                     merge_effects(&mut effects, next_effects);
@@ -12879,6 +12931,8 @@ impl ParserHost {
             }
         }
 
+        #[cfg(test)]
+        let _finalize = self.measurement_scope("dispatch.finalize");
         let fault = failures
             .first()
             .map(|failure| extension_failure(failure, fault_phase, fault_target));

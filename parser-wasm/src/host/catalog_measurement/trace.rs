@@ -43,7 +43,9 @@ pub(super) struct Guard {
 fn nanos(origin: Instant, time: Instant) -> u64 {
     u64::try_from(time.saturating_duration_since(origin).as_nanos()).unwrap_or(u64::MAX)
 }
-fn coarse(name: &str, kind: Kind) -> bool { kind == Kind::Scope && name.starts_with("document.") }
+fn coarse(name: &str, kind: Kind) -> bool {
+    kind == Kind::Scope && (name.starts_with("document.") || name.starts_with("syntax."))
+}
 
 impl Trace {
     pub(super) fn new(origin: Instant, limit: usize, minimum_ns: u64) -> Self {

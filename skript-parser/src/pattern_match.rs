@@ -326,6 +326,22 @@ pub trait PatternMatchHooks {
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String>;
 }
 
+/// Owned, optional diagnostic cleanup independent of parser state.
+#[doc(hidden)]
+#[derive(Default)]
+#[must_use]
+pub struct ParserMeasurementScope {
+    _guard: Option<Box<dyn std::any::Any>>,
+}
+
+impl ParserMeasurementScope {
+    /// Owns diagnostic cleanup, including on early return. Parsing does not
+    /// inspect this value. No allocation occurs for the default inactive guard.
+    pub fn new(guard: impl std::any::Any) -> Self {
+        Self { _guard: Some(Box::new(guard)) }
+    }
+}
+
 /// Unified extension environment used by recursive pattern matching.
 ///
 /// Keeping typed-expression resolution and hook dispatch behind one mutable
@@ -333,6 +349,14 @@ pub trait PatternMatchHooks {
 /// hook host. This is particularly important for WASM-backed expression
 /// parsing, where both operations share one transactional parse session.
 pub trait PatternMatchEnvironment {
+    /// Optional diagnostic timing only. The default does not allocate or read a
+    /// clock. An observer must not change parsing state, and its owned guard
+    /// cannot borrow the environment across recursive mutable parsing.
+    #[doc(hidden)]
+    fn measurement_scope(&self, _name: &'static str) -> ParserMeasurementScope {
+        ParserMeasurementScope::default()
+    }
+
     /// Cooperative probe. Once requested, cancellation remains active for this parse.
     fn cancellation_requested(&mut self) -> bool {
         false
@@ -1272,6 +1296,7 @@ pub fn match_pattern_candidates_with_environment<E: PatternMatchEnvironment>(
     environment: &mut E,
     config: PatternMatcherConfig,
 ) -> Result<CandidateMatches, PatternMatchError> {
+    let _measurement = environment.measurement_scope("native.pattern_match");
     config.validate()?;
     if environment.cancellation_requested() {
         return Err(crate::ParseCancelled.into());
@@ -1331,6 +1356,7 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
     // Different syntax kinds represent parser phases, not one shared registry.
     // Preserve the caller's first-seen kind order, then apply registry ordering
     // within each phase.
+    let measurement = engine.environment.measurement_scope("native.pattern_rank");
     let mut kind_order = HashMap::new();
     for candidate in candidates {
         let next = kind_order.len();
@@ -1348,6 +1374,7 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
         )
     });
 
+    drop(measurement);
     let mut matches = Vec::new();
     let mut aggregate_failure = FailureTracker::default();
     let mut candidate_failures = Vec::new();
@@ -1411,6 +1438,7 @@ fn match_pattern_candidates_in_environment<E: PatternMatchEnvironment>(
         }
     }
 
+    let _measurement = engine.environment.measurement_scope("native.pattern_results");
     engine.failure = aggregate_failure;
 
     let selected = (!matches.is_empty()).then(|| matches.remove(0));

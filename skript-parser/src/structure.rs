@@ -397,6 +397,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         expression,
         headers_only,
     } = config;
+    let measurement = environment.measurement_scope("native.session_prepare");
     let mut session = ExpressionSession::new(
         catalog,
         dynamic_snapshot,
@@ -405,6 +406,7 @@ pub fn parse_structures_with_snapshot<E: ExpressionParseEnvironment>(
         request.context,
         expression,
     );
+    drop(measurement);
     let parsed =
         parse_structures_with_session(&mut session, request.source, request.tree, headers_only);
     if parsed.is_err() {
@@ -438,7 +440,9 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                 let checkpoint = session
                     .begin_recovery_scope()
                     .map_err(|message| session.environment_error(message))?;
+                let measurement = session.environment().measurement_scope("native.structure_header");
                 let header = parse_structure_header(&mut session, tree, node);
+                drop(measurement);
                 session
                     .finish_recovery_scope(checkpoint, header.is_ok())
                     .map_err(|message| session.environment_error(message))?;
@@ -1222,6 +1226,7 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
     depth: usize,
 ) -> Result<ParsedStructureBody, StructureParseError> {
+    let _measurement = session.environment().measurement_scope("native.structure_body");
     validate_structure_body_layout(mode, validator, entry_body_modes)
         .map_err(|message| StructureParseError::from(session.environment_error(message)))?;
     match mode {

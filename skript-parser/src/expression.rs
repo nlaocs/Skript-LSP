@@ -1910,6 +1910,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         range: TextRange,
         candidates: &mut Vec<PatternCandidate<'a>>,
     ) -> Result<(), ExpressionParseError> {
+        let _measurement = self.environment.measurement_scope("native.candidate_prefilter");
         let input = range
             .slice(self.source.virtual_source())
             .ok_or(ExpressionParseError::InvalidInputRange { range })?;
@@ -1938,6 +1939,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
     }
 
     pub(crate) fn syntax_candidates(&mut self, kind: SyntaxKind) -> Vec<PatternCandidate<'a>> {
+        let _measurement = self.environment.measurement_scope("native.candidate_tables");
         if let Some(candidates) = self.syntax_candidate_templates.get(&kind) {
             return candidates.clone();
         }
@@ -2383,6 +2385,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         depth: usize,
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
+        let measurement = self.environment.measurement_scope("native.prefix_memo_prepare");
         self.check_cancelled()?;
         if depth > self.config.max_depth {
             return Err(ExpressionParseError::DepthLimit {
@@ -2418,6 +2421,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             });
         }
 
+        drop(measurement);
         let result = (|| {
             let base = self.parse_prefixes_uncached(
                 range,
@@ -2592,6 +2596,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .environment
                 .parse_expression_leaf(leaf_request)
                 .map_err(|message| self.environment_error(message))?;
+            let measurement = self.environment.measurement_scope("native.leaf_validation");
             failure = choose_expression_failure_trace(failure, leaves.failure);
             let mut accepted_leaves = Vec::new();
             for leaf in leaves.candidates {
@@ -2677,7 +2682,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 .map_err(|message| self.environment_error(message))?;
             candidates.extend(accepted_leaves);
 
+            drop(measurement);
             if allow_expressions {
+                let _measurement = self.environment.measurement_scope("native.arithmetic_and_functions");
                 candidates.extend(crate::arithmetic::parse_arithmetic(
                     self,
                     range,
@@ -2720,6 +2727,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 self.frame_depths.pop();
                 self.frame_starts.pop();
                 let matched = matched?;
+                let _measurement = self.environment.measurement_scope("native.registered_results");
                 let first_candidate = candidates.len();
                 failure =
                     choose_expression_failure_trace(failure, matched.primary_failure().cloned());
@@ -3012,6 +3020,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         expected_types: &[ExpressionExpectedType],
         registered_pass: RegisteredPass,
     ) -> Vec<PatternCandidate<'a>> {
+        let _measurement = self.environment.measurement_scope("native.expression_candidates");
         let initial = input
             .chars()
             .find(|character| *character != ' ')
@@ -4378,6 +4387,9 @@ fn list_return_type(catalog: &Catalog, children: &[ExpressionNode]) -> Option<Cl
 }
 
 impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSession<'_, E> {
+    fn measurement_scope(&self, name: &'static str) -> crate::ParserMeasurementScope {
+        self.environment.measurement_scope(name)
+    }
     fn cancellation_requested(&mut self) -> bool {
         let cancelled = self.environment.cancellation_requested();
         if cancelled {

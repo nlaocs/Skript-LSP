@@ -355,6 +355,29 @@ fn incomplete_fingerprints_never_provide_an_identity_digest() {
 }
 
 #[test]
+fn owned_native_measurements_close_on_error_and_unwind() {
+    fn failing(probe: &Probe) -> Result<(), ()> {
+        let _scope = skript_parser::ParserMeasurementScope::new(probe.scope("native.error"));
+        Err(())?;
+        Ok(())
+    }
+    let probe = Probe::default();
+    let outer = probe.scope("outer");
+    assert!(failing(&probe).is_err());
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _scope = skript_parser::ParserMeasurementScope::new(probe.scope("native.unwind"));
+        panic!("diagnostic scope unwind");
+    }));
+    assert!(panic.is_err());
+    drop(outer);
+    let result = probe.take_all();
+    assert_eq!(result.scopes["outer"].calls, 1);
+    assert_eq!(result.scopes["outer"].inclusive_ns,
+        result.scopes["outer"].exclusive_ns + result.scopes["native.error"].inclusive_ns
+            + result.scopes["native.unwind"].inclusive_ns);
+}
+
+#[test]
 #[ignore = "bounded public-document attribution; requires SKRIPT_DOCUMENT_MEASUREMENT_PLAN"]
 fn measure_public_document_phases() {
     use sha2::{Digest, Sha256};
@@ -394,8 +417,13 @@ fn measure_public_document_phases() {
         assert_eq!(format!("{:x}", Sha256::digest(source.as_bytes())), case["sha256"]);
         let mut expected = None;
         for block in 0..blocks {
-        for variant in if (index + block) % 2 == 0 { [false, true] } else { [true, false] } {
-            let enabled = trace_directory.is_some() || comparison || variant;
+        let mut variants = if trace_directory.is_some() && plan["includeProbeOff"] == true {
+            vec![(false, false), (true, false), (true, true)]
+        } else {
+            vec![(trace_directory.is_some() || comparison, false), (true, true)]
+        };
+        if (index + block) % 2 != 0 { variants.reverse(); }
+        for (enabled, variant) in variants {
             let setup = Instant::now();
             let mut host = ParserHost::new(&core, HostConfig {
                 syntax_catalog: Some(Arc::clone(&catalog)), ..Default::default()
@@ -497,7 +525,8 @@ fn measure_public_document_phases() {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
         .open(plan["output"].as_str().unwrap()).unwrap();
     file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"rows":rows,
-        "schedule":if trace_directory.is_some() { "one trace-off/on pair per fixture, same aggregate counters on both; one actual trace per fixture; reverse order for medium" }
+        "schedule":if trace_directory.is_some() && plan["includeProbeOff"] == true { "probe off / aggregate only / aggregate plus trace per fixture; reverse order for medium; one actual trace per fixture" }
+            else if trace_directory.is_some() { "one trace-off/on pair per fixture, same aggregate counters on both; one actual trace per fixture; reverse order for medium" }
             else if compare_type { "two blocks ABBA/BAAB per fixture, legacy Type expectation clone versus borrowed native input, priority1 retained and probes on for both" }
             else if compare_original { "two blocks ABBA/BAAB per fixture, legacy versus retained original, probes on for both" } else { "one off/on pair per fixture" },
         "limits":"Same optimized test executable and saved Core. Fresh hosts retain default incremental declarations; same-process compilation caches can warm. Scope exclusive times exclude nested instrumented scopes only. Regular hook wall includes WIT and all imports; measured Catalog callbacks exclude argument lifting and return lowering. Other imports and guest/ABI costs remain unseparated. Initialization and canonicalization are outside parse timers."})).unwrap()).unwrap();
