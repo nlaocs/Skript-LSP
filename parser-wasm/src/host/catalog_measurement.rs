@@ -5,6 +5,7 @@
 use super::*;
 use crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation;
 use std::time::Instant;
+mod trace;
 
 #[derive(Clone, Default)]
 pub(super) struct Probe(Arc<Mutex<Measurement>>);
@@ -19,6 +20,7 @@ struct Measurement {
     scope_stack: Vec<(&'static str, u64)>,
     input_bytes_at_clone_sites: BTreeMap<&'static str, u64>,
     sampling: Option<Sampling>,
+    trace: Option<trace::Trace>,
 }
 
 struct Sampling {
@@ -105,11 +107,13 @@ pub(super) struct ScopeTimer {
     probe: Probe,
     name: &'static str,
     started: Instant,
+    trace: Option<trace::Guard>,
 }
 
 impl Drop for ScopeTimer {
     fn drop(&mut self) {
-        let ns = u64::try_from(self.started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let ended = Instant::now();
+        let ns = u64::try_from(ended.duration_since(self.started).as_nanos()).unwrap_or(u64::MAX);
         let mut measurement = self.probe.0.lock().unwrap();
         let (name, children) = measurement.scope_stack.pop().unwrap();
         assert_eq!(name, self.name);
@@ -120,6 +124,8 @@ impl Drop for ScopeTimer {
         if let Some((_, children)) = measurement.scope_stack.last_mut() {
             *children = children.saturating_add(ns);
         }
+        drop(measurement);
+        if let Some(trace) = self.trace.take() { trace.finish(ended,None); }
     }
 }
 
@@ -131,7 +137,7 @@ impl ParserHost {
         self.measurement_probe().map(|probe| {
             let mut measurement = probe.0.lock().unwrap();
             *measurement.input_bytes_at_clone_sites.entry(name).or_default() += bytes as u64;
-            drop(measurement); probe.scope(name)
+            drop(measurement); probe.scope_bytes(name,Some(bytes as u64))
         })
     }
     pub(super) fn measurement_scope(&self, name: &'static str) -> Option<ScopeTimer> {
@@ -172,6 +178,12 @@ const OPERATIONS: [&str; 8] = [
     "read_record_fields",
     "declared_method_exists",
     "registered_handler_matches",
+];
+
+const TRACE_OPERATIONS: [&str; 8] = [
+    "catalog.source", "catalog.records_by_registration_id", "catalog.read_record",
+    "catalog.type_for_class", "catalog.change_contract_for_type", "catalog.read_record_fields",
+    "catalog.declared_method_exists", "catalog.registered_handler_matches",
 ];
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
@@ -222,17 +234,33 @@ impl Probe {
         Some(IdentitySample { probe: self.clone(), index })
     }
     pub(super) fn scope(&self, name: &'static str) -> ScopeTimer {
-        self.0.lock().unwrap().scope_stack.push((name, 0));
-        ScopeTimer { probe: self.clone(), name, started: Instant::now() }
+        self.scope_bytes(name,None)
+    }
+
+    fn scope_bytes(&self, name: &'static str, bytes: Option<u64>) -> ScopeTimer {
+        let trace = {
+            let mut measurement = self.0.lock().unwrap();
+            measurement.scope_stack.push((name,0)); measurement.trace.clone()
+        };
+        let started = Instant::now();
+        let trace = trace.and_then(|trace|trace.begin(name,trace::Kind::Scope,started,bytes));
+        ScopeTimer { probe:self.clone(),name,started,trace }
     }
 
     pub(super) fn start(&self, operation: Operation) -> Call {
+        let (hook,trace) = {
+            let measurement = self.0.lock().unwrap();
+            (measurement.active.last().cloned(),measurement.trace.clone())
+        };
+        let started = Instant::now();
+        let trace = trace.and_then(|trace|trace.begin(TRACE_OPERATIONS[operation as usize],trace::Kind::Catalog,started,None));
         Call {
             probe: self.clone(),
             operation,
-            hook: self.0.lock().unwrap().active.last().cloned(),
-            started: Instant::now(),
+            hook,
+            started,
             returned_raw_bytes: 0,
+            trace,
         }
     }
 
@@ -346,6 +374,8 @@ fn measure_public_document_phases() {
     let cases = plan["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 3);
     let compare_original = plan["compareDispatchOriginal"].as_bool().unwrap_or(false);
+    let trace_directory = plan["traceDirectory"].as_str().map(std::path::PathBuf::from);
+    assert!(!(compare_original && trace_directory.is_some()), "trace and legacy comparison are separate investigations");
     let blocks = if compare_original { 2 } else { 1 };
     let mut rows = Vec::new();
     for (index, case) in cases.iter().enumerate() {
@@ -355,7 +385,7 @@ fn measure_public_document_phases() {
         let mut expected = None;
         for block in 0..blocks {
         for variant in if (index + block) % 2 == 0 { [false, true] } else { [true, false] } {
-            let enabled = compare_original || variant;
+            let enabled = trace_directory.is_some() || compare_original || variant;
             let setup = Instant::now();
             let mut host = ParserHost::new(&core, HostConfig {
                 syntax_catalog: Some(Arc::clone(&catalog)), ..Default::default()
@@ -364,10 +394,12 @@ fn measure_public_document_phases() {
             let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
             let probe = Probe::default();
             if enabled {
-                probe.0.lock().unwrap().sampling = Some(Sampling {
-                    subscription: plan["sampleSubscription"].as_str().unwrap().to_owned(),
-                    seen: 0, samples: Vec::new(), contexts: Vec::new(),
-                });
+                if trace_directory.is_none() {
+                    probe.0.lock().unwrap().sampling = Some(Sampling {
+                        subscription: plan["sampleSubscription"].as_str().unwrap().to_owned(),
+                        seen: 0, samples: Vec::new(), contexts: Vec::new(),
+                    });
+                }
                 for entry in &mut host.components {
                     entry.store.data_mut().catalog_measurement = Some(probe.clone());
                 }
@@ -380,6 +412,9 @@ fn measure_public_document_phases() {
                 if deadline.recv_timeout(Duration::from_secs(180)).is_err() { cancellation.cancel(); }
             });
             let parse = Instant::now();
+            if trace_directory.is_some() && variant {
+                probe.0.lock().unwrap().trace = Some(trace::Trace::new(parse,20_000,2_000_000));
+            }
             let mut headers = Vec::new();
             let parsed = host.parse_document_with_preparation(
                 DocumentParseRequest::new("file:///document-measurement", "file:///document-measurement/public.sk", 1, source.as_str()),
@@ -394,7 +429,8 @@ fn measure_public_document_phases() {
                     }
                 },
             );
-            let parse_ms = parse.elapsed().as_secs_f64() * 1000.0;
+            let parse_elapsed = parse.elapsed();
+            let parse_ms = parse_elapsed.as_secs_f64() * 1000.0;
             let _ = stop.send(()); timer.join().unwrap();
             let result = parsed.unwrap();
             assert_eq!(result.execution_status, DocumentExecutionStatus::Complete);
@@ -416,7 +452,18 @@ fn measure_public_document_phases() {
             let digest = format!("{:x}", Sha256::digest(observed.as_bytes()));
             assert_eq!(expected.get_or_insert_with(|| digest.clone()).as_str(), digest.as_str(),
                 "probe must preserve the complete semantic observation");
+            // Export is outside parse/probe timers. Only fixed labels and numeric
+            // counters enter trace files, never source/payload or identity samples.
+            let export_started = Instant::now();
+            let trace_export = measurement.trace.as_ref().map(|trace| {
+                let name = case["name"].as_str().unwrap();
+                assert!(["small","medium","large"].contains(&name));
+                trace.write(&trace_directory.as_ref().unwrap().join(format!("{name}.trace.json")),
+                    u64::try_from(parse_elapsed.as_nanos()).unwrap())
+            });
+            let export_ms = export_started.elapsed().as_secs_f64()*1000.0;
             let row = serde_json::json!({"case":case["name"],"probeEnabled":enabled,"block":block,
+                "traceEnabled":measurement.trace.is_some(),"traceExport":trace_export,"traceExportMs":export_ms,
                 "dispatchOriginal":if host.legacy_dispatch_original { "legacy" } else { "retained" },
                 "sourceSha256":case["sha256"],"sourceBytes":source.len(),"setupMs":setup_ms,"parseMs":parse_ms,
                 "headerObservations":headers,"regularHookCalls":regular_calls,
@@ -437,7 +484,8 @@ fn measure_public_document_phases() {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
         .open(plan["output"].as_str().unwrap()).unwrap();
     file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"rows":rows,
-        "schedule":if compare_original { "two blocks ABBA/BAAB per fixture, legacy versus retained original, probes on for both" } else { "one off/on pair per fixture" },
+        "schedule":if trace_directory.is_some() { "one trace-off/on pair per fixture, same aggregate counters on both; one actual trace per fixture; reverse order for medium" }
+            else if compare_original { "two blocks ABBA/BAAB per fixture, legacy versus retained original, probes on for both" } else { "one off/on pair per fixture" },
         "limits":"Same optimized test executable and saved Core. Fresh hosts retain default incremental declarations; same-process compilation caches can warm. Scope exclusive times exclude nested instrumented scopes only. Regular hook wall includes WIT and all imports; measured Catalog callbacks exclude argument lifting and return lowering. Other imports and guest/ABI costs remain unseparated. Initialization and canonicalization are outside parse timers."})).unwrap()).unwrap();
 }
 
@@ -566,6 +614,7 @@ pub(super) struct Call {
     hook: Option<String>,
     started: Instant,
     returned_raw_bytes: u64,
+    trace: Option<trace::Guard>,
 }
 
 impl Call {
@@ -576,7 +625,8 @@ impl Call {
 
 impl Drop for Call {
     fn drop(&mut self) {
-        let elapsed = u64::try_from(self.started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let ended = Instant::now();
+        let elapsed = u64::try_from(ended.duration_since(self.started).as_nanos()).unwrap_or(u64::MAX);
         let mut samples = self
             .probe
             .0
@@ -591,6 +641,8 @@ impl Drop for Call {
         if let Some(key) = &self.hook {
             update(&mut samples.hooks.get_mut(key).unwrap().imports[self.operation as usize]);
         }
+        drop(samples);
+        if let Some(trace) = self.trace.take() { trace.finish(ended,Some(self.returned_raw_bytes)); }
     }
 }
 
