@@ -97,12 +97,27 @@ fn option_source_projection_preserves_unaffected_copies_and_exact_write_targets(
     for value in ["1", "{@value}"] {
         let source=format!("options:\n    value: 1\non load:\n    set {{_a}} to 7\n    set {{_b}} to {{_a}}\n    set {{_option}} to {value}\n    set {{_c}} to 8\n    set {{_d}} to {{_c}}\n");
         let (_,document)=parse(&source);
-        let hints=document.write_type_hints();
-        assert_eq!(hints.len(),if value=="1" {5}else{4},"{value}: {hints:?}");
-        if value!="1" { assert!(hints.iter().all(|hint|hint.position.line!=5),"generated target has no Exact source/context certificate"); }
-        assert!(hints.iter().all(|hint|matches!(&hint.label,InlayHintLabel::String(label) if label==": long")),"{value}: {hints:?}");
+        assert_exact_long_write_targets(&source, &document, &["{_a}", "{_b}", "{_option}", "{_c}", "{_d}"]);
+        if value == "{@value}" {
+            let marker = source.find("{@value}").unwrap();
+            assert!(document.hover(LineIndex::new(&source).position(&source, marker + 2).unwrap()).is_none());
+        }
         let hover=document.hover(Position::new(7,18)).unwrap().1;
         assert!(hover.contains("Current type: long") || hover.contains("**Current type:** `long`"),"{hover}");
+    }
+}
+
+fn assert_exact_long_write_targets(source: &str, document: &semantic::Document, targets: &[&str]) {
+    let hints = document.write_type_hints();
+    assert_eq!(hints.len(), targets.len(), "{hints:?}");
+    let index = LineIndex::new(source);
+    for (target, hint) in targets.iter().zip(&hints) {
+        let start = source.find(*target).unwrap();
+        assert_eq!(hint.position, index.position(source, start + target.len()).unwrap());
+        assert!(matches!(&hint.label, InlayHintLabel::String(label) if label == ": long"));
+        assert!(hint.text_edits.is_none());
+        let hover = document.hover(index.position(source, start + 2).unwrap()).unwrap().1;
+        assert!(hover.contains("Current type: long") || hover.contains("**Current type:** `long`"), "{hover}");
     }
 }
 
@@ -121,8 +136,7 @@ fn option_source_projection_rejects_stale_witnesses_and_preserves_utf16_target_g
     let source="options:\n    value: 123456\non load:\n    set {_x\u{1f98a}} to 7\n    set {_expanded} to {@value}\n    set {_copy} to 8\n";
     let (mut result,document)=parse(source);
     let hints=document.write_type_hints();
-    assert_eq!(hints.len(),2,"{hints:?}");
-    assert!(hints.iter().all(|h|matches!(&h.label,InlayHintLabel::String(s) if s==": long")));
+    assert_exact_long_write_targets(source, &document, &["{_x\u{1f98a}}", "{_expanded}", "{_copy}"]);
     let offset=source.find("{_x\u{1f98a}}").unwrap()+"{_x\u{1f98a}}".len();
     assert_eq!(hints[0].position,LineIndex::new(source).position(source,offset).unwrap());
     let changed=source.replace("123456","\"fresh\"");

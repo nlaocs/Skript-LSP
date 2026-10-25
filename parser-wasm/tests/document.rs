@@ -280,13 +280,15 @@ fn parses_tree_macro_generated_effect_text() {
     let origin = mapped
         .primary_origin()
         .expect("generated Effect span must retain its call site");
-    assert_eq!(
-        origin.original_range.slice(result.source.original()),
-        Some("    {@message}\n")
-    );
+    assert_eq!(mapped, effect.matched.matched.span.mapped);
+    assert_eq!(mapped.origins.len(), 1);
+    assert_eq!(origin.kind, skript_parser::OriginKind::Replaced);
+    let marker = result.source.original().find("{@message}").unwrap();
+    assert_eq!(origin.original_range, skript_parser::TextRange::new(marker, marker + "{@message}".len()));
     let expansion = origin
         .expansion
         .expect("generated Effect span must identify its Tree expansion");
+    assert!(result.tree_macro_calls.iter().any(|call| call.accepted && call.expansion == Some(expansion)));
     let backtrace = result
         .source
         .expansion_backtrace(expansion)
@@ -328,19 +330,17 @@ fn maps_tree_macro_generated_failures_to_the_call_site() {
     let origin = diagnostic
         .primary_origin()
         .expect("generated diagnostic must retain its call site");
-    assert_eq!(
-        origin.original_range.slice(result.source.original()),
-        Some("    {@broken}\n")
-    );
+    assert_eq!(diagnostic.origins.len(), 1);
+    assert_eq!(origin.kind, skript_parser::OriginKind::Replaced);
+    let marker = result.source.original().find("{@broken}").unwrap();
+    assert_eq!(origin.original_range, skript_parser::TextRange::new(marker, marker + "{@broken}".len()));
+    assert_eq!(result.source.map_range(diagnostic.virtual_range).unwrap(), *diagnostic);
     let expansion = origin
         .expansion
         .expect("generated diagnostic must identify its Tree expansion");
-    assert!(
-        result
-            .source
-            .expansion_backtrace(expansion)
-            .is_some_and(|trace| !trace.is_empty())
-    );
+    assert!(result.tree_macro_calls.iter().any(|call| call.accepted && call.expansion == Some(expansion)));
+    let backtrace = result.source.expansion_backtrace(expansion).unwrap();
+    assert_eq!(backtrace[0].component.as_str(), "nlaocs.core-library");
 }
 
 #[test]

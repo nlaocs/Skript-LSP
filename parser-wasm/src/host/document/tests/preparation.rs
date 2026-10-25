@@ -260,31 +260,67 @@ fn observer_receives_tree_macro_headers_and_original_call_site_mappings() {
             .slice(prepared.source.virtual_source()),
         Some("command /prepared")
     );
-    let header_origin = mapped_header.primary_origin().unwrap();
-    assert!(
-        header_origin
-            .original_range
-            .slice(source)
-            .unwrap()
-            .contains("{@name}")
-    );
+    let prefix_end = mapped_header.virtual_range.start + "command /".len();
+    let prefix = prepared.source.map_range(skript_parser::TextRange::new(
+        mapped_header.virtual_range.start, prefix_end,
+    )).unwrap();
+    let replacement = prepared.source.map_range(skript_parser::TextRange::new(
+        prefix_end, mapped_header.virtual_range.end,
+    )).unwrap();
+    assert_eq!(prefix.origins.len(), 1);
+    assert_eq!(prefix.origins[0].kind, skript_parser::OriginKind::Exact);
+    let prefix_start = source.find("command /").unwrap();
+    assert_eq!(prefix.origins[0].original_range, skript_parser::TextRange::new(prefix_start, prefix_start + "command /".len()));
+    assert_eq!(prefix.origins[0].original_range.slice(source), Some("command /"));
+    assert!(prefix.origins[0].expansion.is_none());
+    assert_eq!(replacement.origins.len(), 1);
+    assert_eq!(replacement.virtual_range.slice(prepared.source.virtual_source()), Some("prepared"));
+    let header_origin = replacement.origins[0];
+    let marker_start = source.find("{@name}").unwrap();
+    assert_eq!(header_origin.original_range, skript_parser::TextRange::new(marker_start, marker_start + "{@name}".len()));
+    assert_eq!(header_origin.kind, skript_parser::OriginKind::Replaced);
     assert!(header_origin.expansion.is_some());
+    assert_eq!(mapped_header.origins, vec![prefix.origins[0], header_origin]);
+    assert_eq!(prepared.source.map_range(mapped_header.virtual_range).unwrap(), *mapped_header);
     let generated_effect = prepared
         .tree
         .nodes
         .iter()
         .find(|node| node.text == "send 1 to console")
         .expect("body preprocessing precedes Headers too");
-    let origin = generated_effect.span.primary_origin().unwrap();
-    assert_eq!(
-        origin.original_range.slice(source),
-        Some("        {@message}\n")
-    );
-    let backtrace = prepared
-        .source
-        .expansion_backtrace(origin.expansion.unwrap())
-        .unwrap();
-    assert_eq!(backtrace[0].component.as_str(), "nlaocs.core-library");
+    let code = generated_effect.code_span.as_ref().unwrap();
+    assert_eq!(prepared.source.map_range(code.virtual_range).unwrap(), *code);
+    assert_eq!(code.virtual_range.slice(prepared.source.virtual_source()), Some("send 1 to console"));
+    assert_eq!(code.origins.len(), 1);
+    let origin = code.origins[0];
+    let marker_start = source.find("{@message}").unwrap();
+    assert_eq!(origin.original_range, skript_parser::TextRange::new(marker_start, marker_start + "{@message}".len()));
+    assert_eq!(origin.kind, skript_parser::OriginKind::Replaced);
+    let indentation = prepared.source.map_range(skript_parser::TextRange::new(
+        generated_effect.span.virtual_range.start, code.virtual_range.start,
+    )).unwrap();
+    let ending = prepared.source.map_range(skript_parser::TextRange::new(
+        code.virtual_range.end, generated_effect.span.virtual_range.end,
+    )).unwrap();
+    let marker_end = marker_start + "{@message}".len();
+    for (part, expected, range) in [
+        (&indentation, "        ", skript_parser::TextRange::new(marker_start - 8, marker_start)),
+        (&ending, "\n", skript_parser::TextRange::new(marker_end, marker_end + 1)),
+    ] {
+        assert_eq!(part.origins.len(), 1);
+        assert_eq!(part.origins[0].kind, skript_parser::OriginKind::Exact);
+        assert_eq!(part.origins[0].original_range.slice(source), Some(expected));
+        assert_eq!(part.origins[0].original_range, range);
+        assert!(part.origins[0].expansion.is_none());
+    }
+    assert_eq!(generated_effect.span.origins, vec![indentation.origins[0], origin, ending.origins[0]]);
+    assert_eq!(prepared.source.map_range(generated_effect.span.virtual_range).unwrap(), generated_effect.span);
+    for replacement in [header_origin, origin] {
+        let expansion = replacement.expansion.unwrap();
+        assert!(observed.tree_macro_calls.iter().any(|call| call.accepted && call.expansion == Some(expansion)));
+        let backtrace = prepared.source.expansion_backtrace(expansion).unwrap();
+        assert_eq!(backtrace[0].component.as_str(), "nlaocs.core-library");
+    }
 }
 
 #[test]

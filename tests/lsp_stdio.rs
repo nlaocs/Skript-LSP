@@ -884,12 +884,16 @@ fn options_generated_failure_is_reported_at_the_original_call_site() {
     let source = "options:\n    broken: this effect does not exist\non load:\n    {@broken}\n";
     client.open(1, source);
     let report = client.diagnostics(1);
+    let use_line = source.lines().nth(3).unwrap();
+    let marker_start = use_line.find("{@broken}").unwrap();
+    let marker_range = range(3, use_line[..marker_start].encode_utf16().count() as u32,
+        3, use_line[..marker_start + "{@broken}".len()].encode_utf16().count() as u32);
     let error = report
         .diagnostics
         .iter()
         .find(|diagnostic| {
             diagnostic.severity == Some(DiagnosticSeverity::ERROR)
-                && diagnostic.range == range(3, 0, 4, 0)
+                && diagnostic.range == marker_range
         })
         .unwrap_or_else(|| panic!("generated failure lost its original call site: {report:#?}"));
     assert_error(error);
@@ -1165,9 +1169,15 @@ fn hover_does_not_guess_a_node_inside_an_options_expansion() {
     );
     assert!(client.diagnostics(1).diagnostics.is_empty());
     assert!(client.hover(10, 3, 12).is_none());
-    // The options macro replaces the entire generated line. An untouched
-    // sibling still has an exact origin and remains useful.
-    assert!(client.hover(11, 3, 5).is_none());
+    // The inserted value has no exact source certificate. The unchanged
+    // prefix retains its complete Exact origin, including its trailing space.
+    let retained = client.hover(11, 3, 5).expect("retained send prefix");
+    assert_eq!(retained.range, Some(range(3, 4, 3, 9)));
+    let HoverContents::Markup(content) = retained.contents else {
+        panic!("plain text hover")
+    };
+    assert!(content.value.contains("Effect: Message"));
+    assert!(client.hover(13, 3, 8).is_none(), "whitespace is not a hover target");
     let hover = client.hover(12, 4, 5).expect("exact send token");
     let HoverContents::Markup(content) = hover.contents else {
         panic!("plain text hover")
@@ -1625,10 +1635,16 @@ fn replaced_unicode_interpolation_keeps_exact_siblings_usable_after_errors() {
             .expect("exact sibling send survives");
         assert_eq!(hover.range.unwrap().start, Position::new(line, 4));
     }
-    assert!(
-        client.hover(12, 4, 5).is_none(),
-        "whole replaced line has no exact send position"
-    );
+    let mixed_line = source.lines().nth(4).unwrap();
+    let marker_byte = mixed_line.find("{@prefix}").unwrap();
+    let marker_start = mixed_line[..marker_byte].encode_utf16().count() as u32;
+    let marker_end = mixed_line[..marker_byte + "{@prefix}".len()].encode_utf16().count() as u32;
+    assert_plain_text_hover(client.hover(12, 4, 5), range(4, 4, 4, marker_start), &["Effect: Message"]);
+    assert!(client.hover(14, 4, marker_start + 2).is_none(), "inserted option value has no exact hover");
+    let call_byte = mixed_line.find("sin(1)").unwrap();
+    let call_column = mixed_line[..call_byte].encode_utf16().count() as u32;
+    assert_plain_text_hover(client.hover(15, 4, call_column + 1),
+        range(4, call_column, 4, call_column + "sin(1)".len() as u32), &["Function: sin"]);
     client.send(Request::new(
         13.into(),
         "textDocument/semanticTokens/full".into(),
@@ -1639,6 +1655,7 @@ fn replaced_unicode_interpolation_keeps_exact_siblings_usable_after_errors() {
     let mut line = 0;
     let mut start = 0;
     let mut effects = Vec::new();
+    let mut literals = Vec::new();
     for token in data.chunks_exact(5) {
         let delta = token[0].as_u64().unwrap() as u32;
         line += delta;
@@ -1647,16 +1664,19 @@ fn replaced_unicode_interpolation_keeps_exact_siblings_usable_after_errors() {
         } else {
             token[1].as_u64().unwrap() as u32
         };
-        assert_ne!(
-            line, 4,
-            "ambiguous generated line must not acquire exact tokens"
-        );
+        let length = token[2].as_u64().unwrap();
+        if line == 4 {
+            assert!(u64::from(start) + length <= u64::from(marker_start) || start >= marker_end,
+                "semantic tokens must not overlap the Replaced marker: {token:?}");
+        }
         if token[3] == 0 {
             effects.push((line, start, token[2].as_u64().unwrap()));
         }
+        if token[3] == 1 { literals.push((line, start, length)); }
     }
     for line in [3, 6] {
         assert!(effects.contains(&(line, 4, 4)), "{effects:?}");
     }
+    assert!(literals.contains(&(4, call_column + 4, 1)), "retained interpolation literal: {literals:?}");
     client.finish();
 }
