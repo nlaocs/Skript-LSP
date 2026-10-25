@@ -21,6 +21,7 @@ mod checkpoint_tests;
 mod default_expression;
 mod dispatch_original;
 use dispatch_original::DispatchOriginal;
+mod type_expected;
 mod hook_calls;
 use hook_calls::HookCallLog;
 mod incremental;
@@ -4728,9 +4729,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         let HookPayload::Expression(output) = result.payload else {
             return Err("Expression hook returned a different payload kind".to_owned());
         };
-        if !same_expression_request(&output, &expected_payload) {
-            return Err("Expression hook changed immutable request fields".to_owned());
-        }
+        let native_input = type_expected::TrustedInput::checked(&expected_payload,&output)
+            .ok_or_else(||"Expression hook changed immutable request fields".to_owned())?;
         payload = output;
 
         // Each Type has its own candidate set. A provider cannot accidentally
@@ -4774,10 +4774,19 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             };
             #[cfg(test)]
             drop(prepared);
-            let expected_payload = {
+            let expected_type = {
                 #[cfg(test)]
-                let _copy = self.hooks.host.measurement_copy("copy.type_expected", payload.input.len());
-                payload.clone()
+                {
+                    if self.hooks.host.legacy_type_expected {
+                        let _copy = self.hooks.host.measurement_copy("copy.type_expected",payload.input.len());
+                        type_expected::TypeExpected::legacy(&payload,native_input)
+                    } else {
+                        let _capture = self.hooks.host.measurement_scope("capture.type_expected");
+                        type_expected::TypeExpected::capture(&payload,native_input)
+                    }
+                }
+                #[cfg(not(test))]
+                type_expected::TypeExpected::capture(&payload,native_input)
             };
             let type_savepoint = self
                 .hooks
@@ -4834,22 +4843,22 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                         .with_semantic_diagnostics(rejection_diagnostics),
                     ),
                 );
-                payload = expected_payload;
+                let (restored,_copied_input) = expected_type.restore_rejected(result.payload);
+                #[cfg(test)]
+                if _copied_input && let Some(probe) = self.hooks.host.measurement_probe() {
+                    probe.type_input_repair(request.input.len());
+                }
+                payload = restored;
                 payload.active_type = None;
                 continue;
             }
             let HookPayload::Expression(output) = result.payload else {
                 return Err("Type hook returned a different payload kind".to_owned());
             };
-            if !same_expression_request(&output, &expected_payload) {
-                return Err("Type hook changed immutable Expression request fields".to_owned());
-            }
-            payload = output;
-            if payload.candidates.is_empty() {
-                if payload.type_parser_unresolved.is_empty()
-                    && payload.type_parser_outcome.is_none()
-                {
-                    payload.type_parser_unresolved.push(TypeParserUnresolved {
+            match expected_type.resolve(output)? {
+            type_expected::Response::Empty { restored,mut unresolved,has_outcome } => {
+                if unresolved.is_empty() && !has_outcome {
+                    unresolved.push(TypeParserUnresolved {
                         reason: "no WASM Type parser is registered for this SSG Type".to_owned(),
                         required_provider: Some(format!(
                             "type-parser/{}",
@@ -4857,7 +4866,6 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                         )),
                     });
                 }
-                let unresolved = std::mem::take(&mut payload.type_parser_unresolved);
                 self.hooks
                     .transaction
                     .rollback_to(&type_savepoint)
@@ -4878,8 +4886,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                         }
                     }));
                 }
-                payload = expected_payload;
-            } else {
+                payload = restored;
+            }
+            type_expected::Response::Candidates(output) => {
+                payload = output;
                 let effects = self.defer_effects(&type_savepoint, &type_effects_checkpoint)?;
                 for candidate in std::mem::take(&mut payload.candidates) {
                     let mut candidate =
@@ -4887,6 +4897,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     candidate.effects = Some(effects.clone());
                     candidates.push(candidate);
                 }
+            }
             }
             payload.active_type = None;
         }
@@ -8533,8 +8544,12 @@ fn common_child_return_type(
 }
 
 fn same_expression_request(left: &WitExpressionPayload, right: &WitExpressionPayload) -> bool {
-    left.input == right.input
-        && same_parse_context(&left.context, &right.context)
+    left.input == right.input && same_expression_request_fields(left,right)
+}
+
+// All existing immutable checks except the separately witnessed input bytes.
+fn same_expression_request_fields(left: &WitExpressionPayload, right: &WitExpressionPayload) -> bool {
+    same_parse_context(&left.context, &right.context)
         && match (&left.active_type, &right.active_type) {
             (Some(left), Some(right)) => same_expression_type_option(left, right),
             (None, None) => true,
@@ -9268,6 +9283,8 @@ impl StaticNameRenameCertificate {
 pub struct ParserHost {
     #[cfg(test)]
     legacy_dispatch_original: bool,
+    #[cfg(test)]
+    legacy_type_expected: bool,
     completion_types: CompletionTypeCertificate,
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
@@ -9680,6 +9697,8 @@ impl ParserHost {
         let mut host = Self {
             #[cfg(test)]
             legacy_dispatch_original: false,
+            #[cfg(test)]
+            legacy_type_expected: false,
             completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
             runtime,
             config,
@@ -17873,7 +17892,7 @@ mod tests {
         }
     }
 
-    fn native_section_scope_capture() -> skript_parser::SectionScopeCapture {
+    pub(super) fn native_section_scope_capture() -> skript_parser::SectionScopeCapture {
         skript_parser::SectionScopeCapture {
             default_expression: None,
             capture_index: 2,

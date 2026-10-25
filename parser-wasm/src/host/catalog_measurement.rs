@@ -21,6 +21,8 @@ struct Measurement {
     input_bytes_at_clone_sites: BTreeMap<&'static str, u64>,
     sampling: Option<Sampling>,
     trace: Option<trace::Trace>,
+    type_input_repairs: u64,
+    type_input_repair_bytes: u64,
 }
 
 struct Sampling {
@@ -194,6 +196,11 @@ struct ImportSample {
 }
 
 impl Probe {
+    pub(super) fn type_input_repair(&self, bytes: usize) {
+        let mut measurement = self.0.lock().unwrap();
+        measurement.type_input_repairs += 1;
+        measurement.type_input_repair_bytes += bytes as u64;
+    }
     pub(super) fn context(&self, dynamic_revisions: Option<(u64, u64)>,
         function_savepoint: Option<skript_parser::FunctionRegistrySavepoint>,
         namespace_complete: bool) -> Option<ContextGuard> {
@@ -374,9 +381,12 @@ fn measure_public_document_phases() {
     let cases = plan["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 3);
     let compare_original = plan["compareDispatchOriginal"].as_bool().unwrap_or(false);
+    let compare_type = plan["compareTypeExpected"].as_bool().unwrap_or(false);
+    assert!(!(compare_original && compare_type), "compare one optimization at a time");
+    let comparison = compare_original || compare_type;
     let trace_directory = plan["traceDirectory"].as_str().map(std::path::PathBuf::from);
-    assert!(!(compare_original && trace_directory.is_some()), "trace and legacy comparison are separate investigations");
-    let blocks = if compare_original { 2 } else { 1 };
+    assert!(!(comparison && trace_directory.is_some()), "trace and legacy comparison are separate investigations");
+    let blocks = if comparison { 2 } else { 1 };
     let mut rows = Vec::new();
     for (index, case) in cases.iter().enumerate() {
         let source = std::fs::read_to_string(case["path"].as_str().unwrap()).unwrap();
@@ -385,12 +395,13 @@ fn measure_public_document_phases() {
         let mut expected = None;
         for block in 0..blocks {
         for variant in if (index + block) % 2 == 0 { [false, true] } else { [true, false] } {
-            let enabled = trace_directory.is_some() || compare_original || variant;
+            let enabled = trace_directory.is_some() || comparison || variant;
             let setup = Instant::now();
             let mut host = ParserHost::new(&core, HostConfig {
                 syntax_catalog: Some(Arc::clone(&catalog)), ..Default::default()
             }).unwrap();
             host.legacy_dispatch_original = compare_original && !variant;
+            host.legacy_type_expected = compare_type && !variant;
             let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
             let probe = Probe::default();
             if enabled {
@@ -465,6 +476,8 @@ fn measure_public_document_phases() {
             let row = serde_json::json!({"case":case["name"],"probeEnabled":enabled,"block":block,
                 "traceEnabled":measurement.trace.is_some(),"traceExport":trace_export,"traceExportMs":export_ms,
                 "dispatchOriginal":if host.legacy_dispatch_original { "legacy" } else { "retained" },
+                "typeExpected":if host.legacy_type_expected { "legacy" } else { "borrowed-input" },
+                "typeInputRepairCopies":measurement.type_input_repairs,"typeInputRepairBytes":measurement.type_input_repair_bytes,
                 "sourceSha256":case["sha256"],"sourceBytes":source.len(),"setupMs":setup_ms,"parseMs":parse_ms,
                 "headerObservations":headers,"regularHookCalls":regular_calls,
                 "maxHookDepth":measurement.max_hook_depth,"scopes":measurement.scopes,
@@ -485,6 +498,7 @@ fn measure_public_document_phases() {
         .open(plan["output"].as_str().unwrap()).unwrap();
     file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"rows":rows,
         "schedule":if trace_directory.is_some() { "one trace-off/on pair per fixture, same aggregate counters on both; one actual trace per fixture; reverse order for medium" }
+            else if compare_type { "two blocks ABBA/BAAB per fixture, legacy Type expectation clone versus borrowed native input, priority1 retained and probes on for both" }
             else if compare_original { "two blocks ABBA/BAAB per fixture, legacy versus retained original, probes on for both" } else { "one off/on pair per fixture" },
         "limits":"Same optimized test executable and saved Core. Fresh hosts retain default incremental declarations; same-process compilation caches can warm. Scope exclusive times exclude nested instrumented scopes only. Regular hook wall includes WIT and all imports; measured Catalog callbacks exclude argument lifting and return lowering. Other imports and guest/ABI costs remain unseparated. Initialization and canonicalization are outside parse timers."})).unwrap()).unwrap();
 }
