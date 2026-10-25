@@ -508,6 +508,7 @@ fn build_generated_node(
         syntax_context,
         parent: None,
         children: Vec::new(),
+        original_extent: None,
     };
     OwnedSubtree {
         local_id: Some(id),
@@ -820,12 +821,7 @@ fn find_generated_mut(
 }
 
 fn flatten_tree(forest: Vec<OwnedSubtree>, original: &RawTree) -> RawTree {
-    let mut tree = RawTree {
-        roots: Vec::new(),
-        nodes: Vec::new(),
-        diagnostics: original.diagnostics.clone(),
-        indentation: original.indentation.clone(),
-    };
+    let mut tree = original.empty_with_metadata();
     for subtree in forest {
         let id = flatten_node(subtree, None, &mut tree);
         tree.roots.push(id);

@@ -14957,20 +14957,22 @@ fn tree_macro_cycle_diagnostic(
     }
 }
 
-fn parser_raw_tree_to_wit(tree: &ParserRawTree) -> RawTree {
-    RawTree {
-        roots: tree.roots.iter().map(|id| id.get()).collect(),
-        nodes: tree.nodes.iter().map(|node| {
-            let value = tree_access::details(node);
-            RawTreeNode {
+fn parser_raw_node_to_wit(node: &skript_parser::RawNode) -> RawTreeNode {
+    let value = tree_access::details(node);
+    RawTreeNode {
                 id: value.summary.header.id, kind: value.summary.header.kind,
                 parent: value.summary.header.parent, syntax_context: value.summary.header.syntax_context,
                 text: value.summary.text, span: value.span, line: value.line,
                 code_span: value.code_span, header_span: value.header_span, body_span: value.body_span,
                 indent_level: value.indent_level, invalid_reason: value.invalid_reason,
                 children: node.children.iter().map(|id| id.get()).collect(),
-            }
-        }).collect(),
+    }
+}
+
+fn parser_raw_tree_to_wit(tree: &ParserRawTree) -> RawTree {
+    RawTree {
+        roots: tree.roots.iter().map(|id| id.get()).collect(),
+        nodes: tree.nodes.iter().map(parser_raw_node_to_wit).collect(),
         diagnostics: tree.diagnostics.iter().map(tree_access::raw_diagnostic).collect(),
         indentation: tree_access::indentation(tree),
     }
@@ -15009,13 +15011,13 @@ fn parser_raw_subtree_to_wit(tree: &ParserRawTree, root: ParserRawNodeId) -> Raw
             span.virtual_range.end
         });
     let subtree_range = ParserTextRange::new(root_node.span.virtual_range.start, subtree_end);
-    let subtree = ParserRawTree {
-        roots: vec![root],
+    RawTree {
+        roots: vec![root.get()],
         nodes: tree
             .nodes
             .iter()
             .filter(|node| included.contains(&node.id))
-            .cloned()
+            .map(parser_raw_node_to_wit)
             .collect(),
         diagnostics: tree
             .diagnostics
@@ -15024,11 +15026,10 @@ fn parser_raw_subtree_to_wit(tree: &ParserRawTree, root: ParserRawNodeId) -> Raw
                 let range = diagnostic.span.virtual_range;
                 range.start >= subtree_range.start && range.end <= subtree_range.end
             })
-            .cloned()
+            .map(tree_access::raw_diagnostic)
             .collect(),
-        indentation: tree.indentation.clone(),
-    };
-    parser_raw_tree_to_wit(&subtree)
+        indentation: tree_access::indentation(tree),
+    }
 }
 
 fn parser_tree_edit(edit: WitTreeEdit) -> ParserTreeEdit {

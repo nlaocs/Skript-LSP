@@ -73,6 +73,7 @@ pub(super) fn from_ast(
         .collect::<HashMap<_, _>>();
     let mut raw_symbols = Vec::new();
     let mut used_geometry = HashSet::new();
+    let mut used_source_extents = HashSet::new();
     let mut stack: Vec<(u64, Option<usize>)> = ast
         .roots
         .iter()
@@ -81,6 +82,11 @@ pub(super) fn from_ast(
         .collect::<Vec<_>>();
     let mut visited = HashSet::new();
     let mut symbols: Vec<(DocumentSymbol, Option<usize>)> = Vec::new();
+    let original_geometry = match raw.original_source() {
+        Some(original) if original == mapped.original() => true,
+        Some(_) => return Vec::new(),
+        None => false,
+    };
     while let Some((id, parent)) = stack.pop() {
         if !visited.insert(id) {
             return Vec::new();
@@ -121,15 +127,16 @@ pub(super) fn from_ast(
                 return None;
             }
             header.get(description.selection.start..description.selection.end)?;
+            let original_header = exact(mapped, TextRange::new(start, end))?;
             // Match a single current physical node, including one-line structures.
-            let [raw] = geometry.get(&node.span.virtual_range.start)?.as_slice() else {
+            let [raw_node] = geometry.get(&node.span.virtual_range.start)?.as_slice() else {
                 return None;
             };
-            let code = raw.code_span.as_ref()?;
+            let code = raw_node.code_span.as_ref()?;
             if code.virtual_range.end < end {
                 return None;
             }
-            let full = raw.span.virtual_range;
+            let full = raw_node.span.virtual_range;
             if full.start > start || full.end < end {
                 return None;
             }
@@ -138,16 +145,25 @@ pub(super) fn from_ast(
                 start.checked_add(description.selection.end)?,
             );
             let selected = exact(mapped, selection)?;
-            let full = exact(mapped, full)?;
+            let full = if original_geometry {
+                raw.original_extent(raw_node)?
+            } else {
+                exact(mapped, full)?
+            };
             let text = mapped.original().get(full.start..full.end)?;
             let full_start = full.start + text.len() - text.trim_start().len();
             let full = TextRange::new(full_start, full_start + text.trim().len());
-            if full.start >= full.end || selected.start < full.start || selected.end > full.end {
+            if full.start >= full.end
+                || original_header.start != full.start
+                || original_header.end > full.end
+                || selected.start < full.start
+                || selected.end > full.end
+            {
                 return None;
             }
             let range = lines.range(mapped.original(), full).ok()?;
             if let Some(parent) = parent {
-                let mut ancestor = raw.parent;
+                let mut ancestor = raw_node.parent;
                 let mut seen = HashSet::new();
                 while ancestor.is_some_and(|id| id != raw_symbols[parent]) {
                     let id = ancestor?;
@@ -176,11 +192,12 @@ pub(super) fn from_ast(
                     selection_range: lines.range(mapped.original(), selected).ok()?,
                     children: None,
                 },
-                raw.id,
+                raw_node.id,
             ))
         })();
         let parent = if let Some((symbol, raw)) = symbol {
-            if !used_geometry.insert(raw) {
+            let extent = (symbol.range.start, symbol.range.end);
+            if !used_geometry.insert(raw) || !used_source_extents.insert(extent) {
                 return Vec::new();
             }
             raw_symbols.push(raw);

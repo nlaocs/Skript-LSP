@@ -142,6 +142,8 @@ pub struct RawNode {
     pub syntax_context: SyntaxContextId,
     pub parent: Option<RawNodeId>,
     pub children: Vec<RawNodeId>,
+    // Native display geometry is retained by Tree edits, never supplied by guests.
+    pub(crate) original_extent: Option<TextRange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -263,9 +265,42 @@ pub struct RawTree {
     pub nodes: Vec<RawNode>,
     pub diagnostics: Vec<RawDiagnostic>,
     pub indentation: Option<Indentation>,
+    original_source: Option<OriginalSource>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct OriginalSource(std::sync::Arc<str>);
+
+impl std::fmt::Debug for OriginalSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("OriginalSource").field(&self.0.len()).finish()
+    }
 }
 
 impl RawTree {
+    pub(crate) fn empty_with_metadata(&self) -> Self {
+        Self {
+            roots: Vec::new(),
+            nodes: Vec::new(),
+            diagnostics: self.diagnostics.clone(),
+            indentation: self.indentation.clone(),
+            original_source: self.original_source.clone(),
+        }
+    }
+
+    /// Document identity bound to native original geometry, if recorded.
+    pub fn original_source(&self) -> Option<&str> {
+        self.original_source.as_ref().map(|source| source.0.as_ref())
+    }
+
+    /// Original physical extent of a retained native node, not a generated
+    /// replacement. First verify the original document identity.
+    pub fn original_extent(&self, node: &RawNode) -> Option<TextRange> {
+        self.get(node.id)
+            .filter(|current| std::ptr::eq(*current, node))?;
+        node.original_extent
+    }
+
     /// Looks up one node by arena ID.
     pub fn get(&self, id: RawNodeId) -> Option<&RawNode> {
         usize::try_from(id.get())
@@ -362,6 +397,19 @@ impl<'a> RawTreeParser<'a> {
         }
 
         self.finalize_sections();
+        let whole = TextRange::new(0, self.source.virtual_source().len());
+        if self.source.virtual_source() == self.source.original()
+            && self.source.map_range(whole).is_ok_and(|span| {
+                matches!(span.origins.as_slice(), [origin]
+                    if origin.kind == crate::OriginKind::Exact
+                        && origin.original_range == whole)
+            })
+        {
+            self.tree.original_source = Some(OriginalSource(self.source.original_identity()));
+            for node in &mut self.tree.nodes {
+                node.original_extent = Some(node.span.virtual_range);
+            }
+        }
         self.tree.diagnostics.sort_by(|left, right| {
             left.span
                 .virtual_range
@@ -657,6 +705,7 @@ impl<'a> RawTreeParser<'a> {
             syntax_context: SyntaxContextId::ROOT,
             parent,
             children: Vec::new(),
+            original_extent: None,
         };
 
         if let Some(parent) = parent {

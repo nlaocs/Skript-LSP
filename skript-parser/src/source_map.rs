@@ -571,6 +571,10 @@ impl MappedSource {
         &self.original
     }
 
+    pub(crate) fn original_identity(&self) -> Arc<str> {
+        Arc::clone(&self.original)
+    }
+
     /// Returns text after every accepted Text macro transformation.
     pub fn virtual_source(&self) -> &str {
         &self.virtual_source

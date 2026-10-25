@@ -90,8 +90,9 @@ fn measure_tree_macro_transport_and_noop_controls() {
                 while let Some(id) = parent { depth += 1; parent = raw.get(id).unwrap().parent; }
                 let cancellation = DocumentCancellationToken::new();
                 let snapshot = if minimal {
-                    ParserRawTree { roots: vec![target], nodes: vec![raw.get(target).unwrap().clone()],
-                        diagnostics: Vec::new(), indentation: raw.indentation.clone() }
+                    let mut snapshot=ParserRawTree::default();
+                    snapshot.roots=vec![target];snapshot.nodes=vec![raw.get(target).unwrap().clone()];
+                    snapshot.indentation=raw.indentation.clone();snapshot
                 } else { raw.clone() };
                 let lease = tree_view::Lease::new(Arc::new(snapshot), 0, Some(cancellation.clone())).unwrap();
                 let input = TreeMacroInput {

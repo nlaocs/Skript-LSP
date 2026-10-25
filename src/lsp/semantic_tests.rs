@@ -1552,6 +1552,33 @@ fn call_hierarchy_distinguishes_provider_overloads_at_the_same_source_location()
 }
 
 #[test]
+fn document_symbols_option_expansion_keeps_original_outline_geometry() {
+    let catalog = crate::lsp::test_support::runtime_catalog();
+    let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+        syntax_catalog: Some(Arc::clone(&catalog)),
+        runtime_profile: parser_wasm::RuntimeProfile {
+            skript_version: Some("2.15.4".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    }).unwrap();
+    let source: Arc<str> = Arc::from("# \u{65e5}\u{1f98a}\noptions:\n    value: 1 day\nfunction label() :: text:\n    return \"ready\"\non join:\n    set {_remaining} to {@value} - {_elapsed}\n");
+    let uri: Uri = "file:///mapped-outline/public.sk".parse().unwrap();
+    let result = host.parse_document(
+        parser_wasm::DocumentParseRequest::new("file:///mapped-outline", uri.as_str(), 1, source.as_ref()),
+        Default::default(),
+    ).unwrap();
+    assert_eq!(result.execution_status, parser_wasm::DocumentExecutionStatus::Complete);
+    assert!(result.component_failures.is_empty(), "{:?}", result.component_failures);
+    let semantic = Document::from_result(&result, Arc::clone(&source), uri, Arc::clone(&catalog)).unwrap();
+    assert_eq!(semantic.symbols.len(), 3);
+    assert_eq!(semantic.symbols[1].name, "label");
+    assert_eq!(semantic.symbols[1].selection_range, Range::new(Position::new(3,9), Position::new(3,14)));
+    assert_eq!(semantic.symbols[1].range, Range::new(Position::new(3,0), Position::new(4,18)));
+    assert_eq!(semantic.symbols[2].range.end, Position::new(6,source.lines().nth(6).unwrap().len() as u32));
+}
+
+#[test]
 fn document_symbols_use_native_hierarchy_exact_utf16_ranges_and_owned_records() {
     let mut fixture = Fixture::new("# 🌳\n親:\n    子:\n        value\nnext:");
     let child = fixture.push(SyntaxKind::Section, "section", fixture.line(2));
@@ -1691,6 +1718,11 @@ fn document_symbols_reject_generated_source_and_ast_parentage_without_raw_ancest
         symbols[0].children.is_none(),
         "AST parentage alone cannot make a sibling a child"
     );
+    let other_source: Arc<str> = Arc::from(fixture.source.replace("value", "other"));
+    let other = skript_parser::MappedSource::identity(Arc::clone(&other_source));
+    assert!(document_symbols::from_ast(
+        &ast, &raw, &other, &LineIndex::new(&other_source), &[], |_, _| true,
+    ).is_empty(), "an unchanged header cannot lend an old body's original geometry");
     let mapped = skript_parser::MappedSource::new(
         Arc::clone(&fixture.source),
         Arc::clone(&fixture.source),
@@ -1712,6 +1744,27 @@ fn document_symbols_reject_generated_source_and_ast_parentage_without_raw_ancest
         )
         .is_empty()
     );
+}
+
+#[test]
+fn document_symbols_cannot_borrow_an_enclosing_original_owner_extent() {
+    let mut fixture = Fixture::new("outer:\n    inner:\n        value");
+    let inner = fixture.push(SyntaxKind::Section, "section", fixture.line(1));
+    fixture.nodes[inner as usize].metadata.push(metadata(
+        parser_wasm::DOCUMENT_SYMBOL_METADATA,
+        json!({"version":1,"name":"inner","kind":3,"selection":{"start":0,"end":5}}),
+    ));
+    let mapped = skript_parser::MappedSource::identity(Arc::clone(&fixture.source));
+    let mut raw = skript_parser::parse_raw_tree(
+        &mapped, skript_parser::RawTreeOptions::for_skript_version(2,15),
+    );
+    let owner = raw.roots[0].index();
+    let child = raw.nodes[owner].children[0].index();
+    raw.nodes[owner].code_span = raw.nodes[child].code_span.take();
+    let ast = AstTree { roots: vec![inner], nodes: fixture.nodes };
+    assert!(document_symbols::from_ast(
+        &ast, &raw, &mapped, &LineIndex::new(&fixture.source), &[], |_, _| true,
+    ).is_empty(), "an inner exact header is not the outer retained owner's header");
 }
 
 #[test]
