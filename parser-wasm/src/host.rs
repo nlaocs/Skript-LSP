@@ -10971,10 +10971,15 @@ impl ParserHost {
                         entry.store.data_mut().dynamic_syntax_update.take();
                         return Err(error);
                     }
+                    #[cfg(test)]
+                    let boundary = entry.store.data().catalog_measurement.as_ref()
+                        .map(|probe| probe.scope("boundary.text_macro"));
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_text_macro()
                         .call_expand(&mut entry.store, &input);
+                    #[cfg(test)]
+                    drop(boundary);
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",
@@ -11549,10 +11554,15 @@ impl ParserHost {
                         pipeline.active.pop();
                         return Err(error);
                     }
+                    #[cfg(test)]
+                    let boundary = entry.store.data().catalog_measurement.as_ref()
+                        .map(|probe| probe.scope("boundary.tree_macro"));
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_tree_macro()
                         .call_expand(&mut entry.store, &input);
+                    #[cfg(test)]
+                    drop(boundary);
                     entry.store.data_mut().tree_view.take();
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
@@ -12262,6 +12272,8 @@ impl ParserHost {
         transaction: &ParseTransaction,
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
+        #[cfg(test)]
+        let _measurement = self.measurement_scope("dispatch.total");
         let capability_id = match request.phase {
             HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
             HookPhase::DefaultExpression => CAPABILITY_DEFAULT_EXPRESSION,
@@ -12439,10 +12451,15 @@ impl ParserHost {
                     #[cfg(test)]
                     let measurement = entry.store.data().catalog_measurement.as_ref()
                         .map(|probe| probe.hook(&subscription_id, &invocation, entry.store.get_fuel().ok()));
+                    #[cfg(test)]
+                    let boundary = entry.store.data().catalog_measurement.as_ref()
+                        .map(|probe| probe.scope("boundary.regular_hook"));
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
                         .call_invoke(&mut entry.store, &invocation);
+                    #[cfg(test)]
+                    drop(boundary);
                     #[cfg(test)]
                     if let Some(measurement) = measurement {
                         measurement.finish(entry.store.get_fuel().ok());

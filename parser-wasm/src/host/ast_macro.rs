@@ -353,10 +353,15 @@ impl ParserHost {
                         pipeline.active.pop();
                         return Err(error);
                     }
+                    #[cfg(test)]
+                    let boundary = entry.store.data().catalog_measurement.as_ref()
+                        .map(|probe| probe.scope("boundary.ast_macro"));
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_ast_macro()
                         .call_expand(&mut entry.store, &input);
+                    #[cfg(test)]
+                    drop(boundary);
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",

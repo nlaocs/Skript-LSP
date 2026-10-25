@@ -14,6 +14,45 @@ struct Measurement {
     imports: [ImportSample; 8],
     hooks: BTreeMap<String, HookSample>,
     active: Vec<String>,
+    max_hook_depth: usize,
+    scopes: BTreeMap<&'static str, ScopeSample>,
+    scope_stack: Vec<(&'static str, u64)>,
+}
+
+#[derive(Default, serde::Serialize)]
+struct ScopeSample {
+    calls: u64,
+    inclusive_ns: u64,
+    exclusive_ns: u64,
+}
+
+pub(super) struct ScopeTimer {
+    probe: Probe,
+    name: &'static str,
+    started: Instant,
+}
+
+impl Drop for ScopeTimer {
+    fn drop(&mut self) {
+        let ns = u64::try_from(self.started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let mut measurement = self.probe.0.lock().unwrap();
+        let (name, children) = measurement.scope_stack.pop().unwrap();
+        assert_eq!(name, self.name);
+        let sample = measurement.scopes.entry(name).or_default();
+        sample.calls += 1;
+        sample.inclusive_ns = sample.inclusive_ns.saturating_add(ns);
+        sample.exclusive_ns = sample.exclusive_ns.saturating_add(ns.saturating_sub(children));
+        if let Some((_, children)) = measurement.scope_stack.last_mut() {
+            *children = children.saturating_add(ns);
+        }
+    }
+}
+
+impl ParserHost {
+    pub(super) fn measurement_scope(&self, name: &'static str) -> Option<ScopeTimer> {
+        self.components.iter().find_map(|entry| entry.store.data().catalog_measurement.as_ref())
+            .map(|probe| probe.scope(name))
+    }
 }
 
 #[derive(Default, serde::Serialize)]
@@ -56,6 +95,11 @@ struct ImportSample {
 }
 
 impl Probe {
+    pub(super) fn scope(&self, name: &'static str) -> ScopeTimer {
+        self.0.lock().unwrap().scope_stack.push((name, 0));
+        ScopeTimer { probe: self.clone(), name, started: Instant::now() }
+    }
+
     pub(super) fn start(&self, operation: Operation) -> Call {
         Call {
             probe: self.clone(),
@@ -73,6 +117,7 @@ impl Probe {
     fn take_all(&self) -> Measurement {
         let mut measurement = self.0.lock().unwrap();
         assert!(measurement.active.is_empty(), "snapshot during active hook");
+        assert!(measurement.scope_stack.is_empty(), "snapshot during active scope");
         std::mem::take(&mut *measurement)
     }
 
@@ -89,6 +134,7 @@ impl Probe {
             let mut measurement = self.0.lock().unwrap();
             measurement.hooks.entry(key.clone()).or_default();
             measurement.active.push(key.clone());
+            measurement.max_hook_depth = measurement.max_hook_depth.max(measurement.active.len());
         }
         HookTimer { probe: self.clone(), key, fuel, started: Instant::now() }
     }
@@ -114,7 +160,130 @@ fn nested_probe_attributes_callbacks_without_losing_outer_observations() {
     assert_eq!(result.hooks["inner"].imports[Operation::DeclaredMethodExists as usize].calls, 1);
     assert_eq!(result.hooks["outer"].imports[Operation::ReadRecordFields as usize].calls, 1);
     assert_eq!(result.hooks["reset"].fuel_unavailable, 1);
+    assert_eq!(result.max_hook_depth, 2);
     assert!(probe.take_all().hooks.is_empty());
+}
+
+#[test]
+fn nested_measurement_scopes_do_not_double_count_children() {
+    let probe = Probe::default();
+    let outer = probe.scope("outer");
+    drop(probe.scope("inner"));
+    drop(outer);
+    let result = probe.take_all();
+    assert_eq!(result.scopes["outer"].calls, 1);
+    assert_eq!(result.scopes["inner"].calls, 1);
+    assert_eq!(result.scopes["inner"].inclusive_ns, result.scopes["inner"].exclusive_ns);
+    assert_eq!(result.scopes["outer"].inclusive_ns,
+        result.scopes["outer"].exclusive_ns + result.scopes["inner"].inclusive_ns);
+}
+
+#[test]
+#[ignore = "bounded public-document attribution; requires SKRIPT_DOCUMENT_MEASUREMENT_PLAN"]
+fn measure_public_document_phases() {
+    use sha2::{Digest, Sha256};
+    use std::time::Duration;
+    let plan: serde_json::Value = serde_json::from_slice(&std::fs::read(
+        std::env::var_os("SKRIPT_DOCUMENT_MEASUREMENT_PLAN").unwrap(),
+    ).unwrap()).unwrap();
+    assert_eq!(plan["publicFixtures"], true);
+    let core = std::fs::read(plan["component"].as_str().unwrap()).unwrap();
+    assert_eq!(format!("{:x}", Sha256::digest(&core)), plan["coreSha256"]);
+    let files = plan["snapshotFiles"].as_array().unwrap();
+    assert_eq!(files.len(), 21);
+    let verify_snapshot = || {
+        for file in files {
+            let relative = std::path::Path::new(file["name"].as_str().unwrap());
+            assert!(relative.is_relative() && relative.components().all(|part|
+                matches!(part, std::path::Component::Normal(_))));
+            let bytes = std::fs::read(std::path::Path::new(plan["snapshot"].as_str().unwrap()).join(relative)).unwrap();
+            assert_eq!(format!("{:x}", Sha256::digest(bytes)), file["sha256"]);
+        }
+    };
+    verify_snapshot();
+    let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
+    let cases = plan["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 3);
+    let mut rows = Vec::new();
+    for (index, case) in cases.iter().enumerate() {
+        let source = std::fs::read_to_string(case["path"].as_str().unwrap()).unwrap();
+        assert!(source.len() <= 150_000);
+        assert_eq!(format!("{:x}", Sha256::digest(source.as_bytes())), case["sha256"]);
+        let mut expected = None;
+        for enabled in if index % 2 == 0 { [false, true] } else { [true, false] } {
+            let setup = Instant::now();
+            let mut host = ParserHost::new(&core, HostConfig {
+                syntax_catalog: Some(Arc::clone(&catalog)), ..Default::default()
+            }).unwrap();
+            let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
+            let probe = Probe::default();
+            if enabled {
+                for entry in &mut host.components {
+                    entry.store.data_mut().catalog_measurement = Some(probe.clone());
+                }
+            }
+            let before_calls = guest_calls(&host);
+            let mut config = DocumentParserConfig::default();
+            let cancellation = config.cancellation.clone();
+            let (stop, deadline) = std::sync::mpsc::channel();
+            let timer = std::thread::spawn(move || {
+                if deadline.recv_timeout(Duration::from_secs(180)).is_err() { cancellation.cancel(); }
+            });
+            let parse = Instant::now();
+            let mut headers = Vec::new();
+            let parsed = host.parse_document_with_preparation(
+                DocumentParseRequest::new("file:///document-measurement", "file:///document-measurement/public.sk", 1, source.as_str()),
+                config,
+                &mut |event| {
+                    if let skript_parser::StructurePreparationEvent::Headers { headers: items, .. } = event {
+                        assert!(headers.len() < 16);
+                        let measurement = probe.0.lock().unwrap();
+                        headers.push(serde_json::json!({"ms":parse.elapsed().as_secs_f64()*1000.0,"headers":items.len(),
+                            "regularHookCalls":measurement.hooks.values().map(|sample|sample.calls).sum::<u64>(),
+                            "regularHookWallNsInclusive":measurement.hooks.values().map(|sample|sample.wall_ns).sum::<u64>()}));
+                    }
+                },
+            );
+            let parse_ms = parse.elapsed().as_secs_f64() * 1000.0;
+            let _ = stop.send(()); timer.join().unwrap();
+            let result = parsed.unwrap();
+            assert_eq!(result.execution_status, DocumentExecutionStatus::Complete);
+            assert!(result.component_failures.is_empty() && result.fault_regions.is_empty()
+                && result.dependency_unavailable.is_empty());
+            let measurement = probe.take_all();
+            let regular_calls = guest_calls(&host) - before_calls;
+            assert_eq!(measurement.hooks.values().map(|sample|sample.calls).sum::<u64>(),
+                if enabled { regular_calls } else { 0 });
+            if enabled {
+                assert_eq!(measurement.scopes.values().map(|sample|sample.exclusive_ns).sum::<u64>(),
+                    measurement.scopes["document.total"].inclusive_ns);
+            }
+            // Semantic controls are outside all parse/probe timers. Retain faults,
+            // availability, original mapping and the existing normalized proof/AST view.
+            let observed = format!("{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}", canonical(&result),
+                result.execution_status, result.fault_regions, result.dependency_unavailable,
+                result.component_failures, result.raw_tree, result.source);
+            let digest = format!("{:x}", Sha256::digest(observed.as_bytes()));
+            assert_eq!(expected.get_or_insert_with(|| digest.clone()).as_str(), digest.as_str(),
+                "probe must preserve the complete semantic observation");
+            let row = serde_json::json!({"case":case["name"],"probeEnabled":enabled,
+                "sourceSha256":case["sha256"],"sourceBytes":source.len(),"setupMs":setup_ms,"parseMs":parse_ms,
+                "headerObservations":headers,"regularHookCalls":regular_calls,
+                "maxHookDepth":measurement.max_hook_depth,"scopes":measurement.scopes,
+                "imports":OPERATIONS.iter().zip(measurement.imports).map(|(name,sample)|
+                    serde_json::json!({"operation":name,"sample":sample})).collect::<Vec<_>>(),
+                "hooks":measurement.hooks,"observationSha256":digest,"rawNodes":result.raw_tree.nodes.len(),
+                "astNodes":result.ast.nodes.len(),"syntaxDiagnostics":result.syntax.diagnostics.len()});
+            eprintln!("document_phase_observation {row}");
+            rows.push(row);
+        }
+    }
+    verify_snapshot();
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
+        .open(plan["output"].as_str().unwrap()).unwrap();
+    file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"rows":rows,
+        "limits":"Single off/on pair per fixture, same optimized test executable and saved Core. Fresh hosts retain default incremental declarations; same-process compilation caches can warm. Scope exclusive times exclude nested instrumented scopes only. Regular hook wall includes WIT and all imports; measured Catalog callbacks exclude argument lifting and return lowering. Other imports and guest/ABI costs remain unseparated. Initialization and canonicalization are outside parse timers."})).unwrap()).unwrap();
 }
 
 #[test]

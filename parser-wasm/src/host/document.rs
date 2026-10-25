@@ -377,6 +377,8 @@ impl ParserHost {
             &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
         >,
     ) -> Result<DocumentParseResult, DocumentParseError> {
+        #[cfg(test)]
+        let _measurement = self.measurement_scope("document.total");
         check_cancelled(
             &request.context,
             &config.cancellation,
@@ -554,6 +556,8 @@ impl ParserHost {
             &config.cancellation,
             DocumentParseStage::TextMacro,
         )?;
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.text_macro");
         let TextMacroResult {
             decision: text_macro_decision,
             source,
@@ -571,6 +575,8 @@ impl ParserHost {
             .map_err(|error| {
                 document_host_error(error, &request.context, DocumentParseStage::TextMacro)
             })?;
+        #[cfg(test)]
+        drop(measurement);
 
         let global_macro_fault = !text_failures.is_empty();
         if global_macro_fault {
@@ -589,13 +595,19 @@ impl ParserHost {
             DocumentParseStage::RawTree,
         )?;
         let raw_options = config.raw_tree.unwrap_or_else(|| self.raw_tree_options());
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.raw_tree");
         let raw_tree = parse_raw_tree(&source, raw_options);
+        #[cfg(test)]
+        drop(measurement);
 
         check_cancelled(
             &request.context,
             &config.cancellation,
             DocumentParseStage::TreeMacro,
         )?;
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.tree_macro");
         let TreeMacroResult {
             decision: tree_macro_decision,
             source,
@@ -625,6 +637,8 @@ impl ParserHost {
                 document_host_error(error, &request.context, DocumentParseStage::TreeMacro)
             })?
         };
+        #[cfg(test)]
+        drop(measurement);
 
         check_cancelled(
             &request.context,
@@ -648,6 +662,8 @@ impl ParserHost {
                 node.kind = skript_parser::RawNodeKind::Invalid;
             }
         }
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.structure_syntax_total");
         let parsed = self.parse_structures_in_parse_observed(
             transaction,
             request.context.clone(),
@@ -660,6 +676,8 @@ impl ParserHost {
             &config.imported_functions,
             structure_preparation,
         );
+        #[cfg(test)]
+        drop(measurement);
         let WasmStructureParseResult {
             document: mut syntax,
             functions,
@@ -709,12 +727,22 @@ impl ParserHost {
                 });
             }
         }
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.ast_conversion");
         let ast = ast_tree::from_structure_document(&source, &syntax);
+        #[cfg(test)]
+        drop(measurement);
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.semantic_proof");
         let semantic_proofs = super::semantic_proof::SemanticProofRegistry::capture(
             &ast,
             self.semantic_receipts.as_ref(),
             &syntax_calls,
         ).bind_source(&source);
+        #[cfg(test)]
+        drop(measurement);
+        #[cfg(test)]
+        let measurement = self.measurement_scope("document.ast_macro");
         let AstMacroResult {
             decision: ast_macro_decision,
             source,
@@ -744,6 +772,8 @@ impl ParserHost {
                 document_host_error(error, &request.context, DocumentParseStage::AstMacro)
             })?
         };
+        #[cfg(test)]
+        drop(measurement);
 
         check_cancelled(
             &request.context,
