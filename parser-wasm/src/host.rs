@@ -3553,6 +3553,8 @@ impl WasmPatternHooks<'_> {
     }
 
     fn begin_match_frame(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.match_frame_begin");
         self.frames.push(PatternMatchFrame {
             base: self
                 .transaction
@@ -3573,6 +3575,8 @@ impl WasmPatternHooks<'_> {
     }
 
     fn finish_match_frame(&mut self, accepted: bool) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.match_frame_finish");
         let frame = self
             .frames
             .pop()
@@ -3598,6 +3602,8 @@ impl WasmPatternHooks<'_> {
     }
 
     fn checkpoint_branch_state(&mut self) -> Result<Option<u64>, String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.branch_checkpoint");
         let checkpoint = u64::try_from(self.branch_states.len())
             .map_err(|_| "matcher branch checkpoint index does not fit u64".to_owned())?;
         self.branch_states.push(PatternBranchState {
@@ -3611,6 +3617,8 @@ impl WasmPatternHooks<'_> {
     }
 
     fn restore_branch_state(&mut self, checkpoint: u64) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.branch_restore");
         let checkpoint = usize::try_from(checkpoint)
             .map_err(|_| "matcher branch checkpoint index does not fit usize".to_owned())?;
         let state = self
@@ -3627,6 +3635,8 @@ impl WasmPatternHooks<'_> {
     }
 
     fn prepare_nested_scope(&mut self, scope: PatternHookScope) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.nested_context_prepare");
         // Explicit and default children can change state without any Matching
         // subscription, so scope rollback must remain active in the fast path.
         if !matches!(
@@ -3749,6 +3759,8 @@ impl WasmPatternHooks<'_> {
     }
 
     fn prepare_definition_candidate(&mut self, range: ParserTextRange) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.definition_context_prepare");
         self.last_candidate = None;
         let frame = self
             .frames
@@ -4041,6 +4053,8 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
     }
 
     fn dispatch(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        #[cfg(test)]
+        let _measurement = self.host.measurement_scope("environment.pattern_dispatch");
         if event.scope == PatternHookScope::Definition && event.timing == PatternHookTiming::Before
         {
             self.prepare_definition_candidate(event.input_range)?;
@@ -4413,6 +4427,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         effects: &skript_parser::ExpressionEffects,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.expression_effects_apply");
         let effects = effects
             .downcast_ref::<DeferredExpressionEffects>()
             .ok_or_else(|| "Expression effects belong to a different environment".to_owned())?;
@@ -4430,6 +4446,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn begin_expression_candidate(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.expression_candidate_begin");
         self.expression_candidates.push((
             self.hooks
                 .transaction
@@ -4448,6 +4466,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         accepted: bool,
     ) -> Result<Option<skript_parser::ExpressionEffects>, String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.expression_candidate_defer");
         let (state, checkpoint) = self
             .expression_candidates
             .pop()
@@ -4469,6 +4489,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.semantic_candidate_begin");
         self.semantic_candidates.push((
             self.hooks
                 .transaction
@@ -4505,6 +4527,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.semantic_candidate_finish");
         let Some((savepoint, effects, function_savepoint, pending)) =
             self.semantic_candidates.pop()
         else {
@@ -4552,6 +4576,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         request: FunctionLookupRequest<'_>,
     ) -> Result<Vec<skript_parser::FunctionDefinition>, String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.function_lookup");
         Ok(self
             .function_registry
             .as_deref()
@@ -4564,6 +4590,14 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         request: ExpressionLeafRequest<'_>,
     ) -> Result<ExpressionLeafParse, String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.expression_leaf");
+        #[cfg(test)]
+        let _sample_context = self.hooks.host.measurement_probe().and_then(|probe| probe.context(
+            self.hooks.dynamic_snapshot.map(|value| (value.document_revision, value.registry_revision)),
+            self.function_registry.as_deref().map(FunctionRegistryTransaction::savepoint),
+            self.hooks.host.native_function_namespace_complete,
+        ));
         if self.pending_leaf.is_some() {
             return Err("previous Expression leaf set was not finalized".to_owned());
         }
@@ -4602,6 +4636,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         let depth = u32::try_from(request.depth)
             .map_err(|_| "Expression recursion depth does not fit u32".to_owned())?;
+        #[cfg(test)]
+        let prepared = self.hooks.host.measurement_scope("context.leaf_options");
         let type_options = expression_type_options(
             self.hooks.host.config.syntax_catalog.as_deref(),
             request.input,
@@ -4621,8 +4657,14 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         } else {
             Vec::new()
         };
+        #[cfg(test)]
+        drop(prepared);
         let mut payload = WitExpressionPayload {
-            input: request.input.to_owned(),
+            input: {
+                #[cfg(test)]
+                let _copy = self.hooks.host.measurement_copy("copy.leaf_input", request.input.len());
+                request.input.to_owned()
+            },
             context: parse_context_to_wit(request.context),
             active_type: None,
             remaining,
@@ -4639,7 +4681,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             type_parser_outcome: None,
             candidates: Vec::new(),
         };
-        let expected_payload = payload.clone();
+        let expected_payload = {
+            #[cfg(test)]
+            let _copy = self.hooks.host.measurement_copy("copy.leaf_expected", payload.input.len());
+            payload.clone()
+        };
         let mut result = self
             .hooks
             .host
@@ -4704,6 +4750,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             payload.active_type = Some(active_type.clone());
             payload.type_parser_unresolved.clear();
             payload.type_parser_outcome = None;
+            #[cfg(test)]
+            let prepared = self.hooks.host.measurement_scope("context.type_parser_options");
             payload.type_options = if registered_handler_requires_context(
                 &self.hooks.host.components,
                 RegisteredSyntaxIdentity {
@@ -4722,7 +4770,13 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             } else {
                 type_options.clone()
             };
-            let expected_payload = payload.clone();
+            #[cfg(test)]
+            drop(prepared);
+            let expected_payload = {
+                #[cfg(test)]
+                let _copy = self.hooks.host.measurement_copy("copy.type_expected", payload.input.len());
+                payload.clone()
+            };
             let type_savepoint = self
                 .hooks
                 .transaction
@@ -4882,6 +4936,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         request: RegisteredExpressionRequest<'_>,
     ) -> Result<RegisteredExpressionDecision, String> {
+        #[cfg(test)]
+        let _measurement = self.hooks.host.measurement_scope("environment.registered_expression");
         if self.pending_registered.is_some() {
             return Err("previous registered Expression was not finalized".to_owned());
         }
@@ -4936,7 +4992,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             request.children,
         );
         let payload = WitRegisteredExpressionPayload {
-            input: request.input.to_owned(),
+            input: {
+                #[cfg(test)]
+                let _copy = self.hooks.host.measurement_copy("copy.registered_input", request.input.len());
+                request.input.to_owned()
+            },
             context: parse_context_to_wit(request.context),
             time: request.time,
             definition_id: request.definition_id.to_owned(),
@@ -12284,18 +12344,34 @@ impl ParserHost {
             HookPhase::Parser => CAPABILITY_ADDITIONAL_PARSE,
             _ => CAPABILITY_HOOKS,
         };
+        #[cfg(test)]
+        let measured = self.measurement_scope("dispatch.candidate_selection");
         let candidates = self.registry.matching_capability(
             &request.target,
             request.phase,
             capability_id,
             Some(&request.payload),
         );
+        #[cfg(test)]
+        drop(measured);
+        #[cfg(test)]
+        let measured = self.measurement_scope("dispatch.transaction_savepoint");
         let dispatch_base = transaction.savepoint()?;
-        let original_payload = request.payload.clone();
+        #[cfg(test)]
+        drop(measured);
+        let original_payload = {
+            #[cfg(test)]
+            let _copy = self.measurement_copy("copy.dispatch_original", catalog_measurement::input_bytes(&request.payload));
+            request.payload.clone()
+        };
+        #[cfg(test)]
+        let measured = self.measurement_scope("dispatch.receipt_prepare");
         let mut semantic_writers = self
             .semantic_receipts
             .as_ref()
             .map(|registry| registry.begin(&original_payload));
+        #[cfg(test)]
+        drop(measured);
         let fault_phase = format!("{:?}", request.phase);
         let fault_target = format!("{:?}", request.target);
         let document_id = transaction.document_id()?;
@@ -12375,7 +12451,11 @@ impl ParserHost {
                     semantic_receipt: None,
                 });
                 self.ensure_component_ready(candidate.component_index)?;
+                #[cfg(test)]
+                let measured = self.measurement_scope("dispatch.invocation_begin");
                 let mut state_invocation = transaction.begin_invocation(component_id.clone())?;
+                #[cfg(test)]
+                drop(measured);
                 let incremental_key =
                     self.incremental_key(candidate.component_index, &mut invocation)?;
                 let incremental_checkpoint = incremental_key
@@ -12426,6 +12506,13 @@ impl ParserHost {
                     entry.store.data_mut().invocation = Some(state_invocation);
                     entry.store.data_mut().dynamic_syntax_update = dynamic_update;
                     entry.store.data_mut().cancellation = self.native_cancellation.clone();
+                    // Test-only observer work precedes the live guest deadline;
+                    // snapshot hashes are released before invocation execution.
+                    #[cfg(test)]
+                    let sample = entry.store.data().catalog_measurement.clone().and_then(|probe| {
+                        probe.sample_before(transaction, &invocation, incremental_key.as_deref(),
+                            entry.store.data().epoch_clock.as_ref().map(|clock| clock.ticks.load(Ordering::Acquire)))
+                    });
                     let prepared = prepare_store(
                         &mut entry.store,
                         self.config.fuel_per_call,
@@ -12463,6 +12550,10 @@ impl ParserHost {
                     #[cfg(test)]
                     if let Some(measurement) = measurement {
                         measurement.finish(entry.store.get_fuel().ok());
+                    }
+                    #[cfg(test)]
+                    if let Some(sample) = sample {
+                        sample.finish(entry.store.data().invocation.as_ref().unwrap());
                     }
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
@@ -12563,6 +12654,8 @@ impl ParserHost {
                     continue 'candidate;
                 }
 
+                #[cfg(test)]
+                let measured = self.measurement_scope("dispatch.output_validation");
                 candidate_semantic_effects |= !output.effects.context_updates.is_empty()
                     || !output.effects.parse_requests.is_empty()
                     || !output.effects.parse_results.is_empty();
@@ -12598,6 +12691,8 @@ impl ParserHost {
                     break 'candidate;
                 }
 
+                #[cfg(test)]
+                drop(measured);
                 if output.effects.parse_requests.is_empty() {
                     break (output, state_invocation, dynamic_update);
                 }
@@ -12661,7 +12756,11 @@ impl ParserHost {
                 parse_results.extend(next_parse_results);
             };
 
-            match apply_hook_output(candidate.subscription.mode, output, &payload) {
+            match {
+                #[cfg(test)]
+                let _measurement = self.measurement_scope("dispatch.output_apply");
+                apply_hook_output(candidate.subscription.mode, output, &payload)
+            } {
                 Ok(applied) => {
                     let AppliedOutput {
                         payload: mut next_payload,
@@ -12686,6 +12785,8 @@ impl ParserHost {
                             || dynamic_update
                                 .as_ref()
                                 .is_some_and(DynamicSyntaxUpdate::has_staged_changes);
+                    #[cfg(test)]
+                    let measured = self.measurement_scope("dispatch.commit_and_receipt");
                     state_invocation.commit()?;
                     if let Some(update) = dynamic_update {
                         update.commit()?;
@@ -12714,6 +12815,8 @@ impl ParserHost {
                         }
                     }
                     available_parse_results.append(&mut candidate_parse_results);
+                    #[cfg(test)]
+                    drop(measured);
                     payload = next_payload;
                     merge_effects(&mut effects, next_effects);
                     if let Some(final_decision) = next_decision {

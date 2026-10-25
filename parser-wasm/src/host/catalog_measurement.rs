@@ -17,6 +17,81 @@ struct Measurement {
     max_hook_depth: usize,
     scopes: BTreeMap<&'static str, ScopeSample>,
     scope_stack: Vec<(&'static str, u64)>,
+    input_bytes_at_clone_sites: BTreeMap<&'static str, u64>,
+    sampling: Option<Sampling>,
+}
+
+struct Sampling {
+    subscription: String,
+    seen: u64,
+    samples: Vec<serde_json::Value>,
+    contexts: Vec<SampleContext>,
+}
+
+#[derive(Clone, Copy)]
+struct SampleContext {
+    dynamic_revisions: Option<(u64, u64)>,
+    function_savepoint: Option<skript_parser::FunctionRegistrySavepoint>,
+    namespace_complete: bool,
+}
+
+pub(super) struct ContextGuard(Probe);
+impl Drop for ContextGuard {
+    fn drop(&mut self) {
+        self.0.0.lock().unwrap().sampling.as_mut().unwrap().contexts.pop().unwrap();
+    }
+}
+
+pub(super) struct IdentitySample { probe: Probe, index: usize }
+impl IdentitySample {
+    pub(super) fn finish(self, invocation: &InvocationTransaction) {
+        let _scope = self.probe.scope("probe.identity_sampling");
+        let dependencies = invocation.read_write_set();
+        let mut measurement = self.probe.0.lock().unwrap();
+        let sample = &mut measurement.sampling.as_mut().unwrap().samples[self.index];
+        sample["postDependencies"] = fingerprint(&dependencies);
+        sample["reads"] = dependencies.reads.len().into();
+        sample["writes"] = dependencies.writes.len().into();
+        sample["namespaceRevisions"] = dependencies.namespace_revisions.len().into();
+    }
+}
+
+// Hash at most1MiB per field, with no full Debug string allocation. A capped
+// fingerprint deliberately has no digest and cannot be used for equality.
+fn fingerprint<T: std::fmt::Debug + ?Sized>(value: &T) -> serde_json::Value {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write;
+    struct Writer { hash: Sha256, bytes: usize, truncated: bool }
+    impl std::fmt::Write for Writer {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            if value.len() > (1 << 20) - self.bytes {
+                self.truncated = true;
+                return Err(std::fmt::Error);
+            }
+            self.hash.update(value.as_bytes()); self.bytes += value.len(); Ok(())
+        }
+    }
+    let mut writer = Writer { hash: Sha256::new(), bytes: 0, truncated: false };
+    let complete = write!(&mut writer, "{value:?}").is_ok() && !writer.truncated;
+    serde_json::json!({"complete":complete,"bytes":writer.bytes,
+        "sha256":complete.then(||format!("{:x}",writer.hash.finalize()))})
+}
+
+pub(super) fn input_bytes(payload: &HookPayload) -> usize {
+    input(payload).map_or(0, str::len)
+}
+fn input(payload: &HookPayload) -> Option<&str> {
+    match payload {
+        HookPayload::Expression(value) => Some(&value.input),
+        HookPayload::RegisteredExpression(value) => Some(&value.input),
+        HookPayload::Effect(value) => Some(&value.input),
+        HookPayload::Condition(value) => Some(&value.input),
+        HookPayload::Structure(value) => Some(&value.input),
+        HookPayload::Matching(value) => Some(&value.input),
+        HookPayload::Section(value) => Some(&value.input),
+        HookPayload::Parser(value) => Some(&value.input),
+        _ => None,
+    }
 }
 
 #[derive(Default, serde::Serialize)]
@@ -49,6 +124,16 @@ impl Drop for ScopeTimer {
 }
 
 impl ParserHost {
+    pub(super) fn measurement_probe(&self) -> Option<Probe> {
+        self.components.iter().find_map(|entry| entry.store.data().catalog_measurement.clone())
+    }
+    pub(super) fn measurement_copy(&self, name: &'static str, bytes: usize) -> Option<ScopeTimer> {
+        self.measurement_probe().map(|probe| {
+            let mut measurement = probe.0.lock().unwrap();
+            *measurement.input_bytes_at_clone_sites.entry(name).or_default() += bytes as u64;
+            drop(measurement); probe.scope(name)
+        })
+    }
     pub(super) fn measurement_scope(&self, name: &'static str) -> Option<ScopeTimer> {
         self.components.iter().find_map(|entry| entry.store.data().catalog_measurement.as_ref())
             .map(|probe| probe.scope(name))
@@ -61,6 +146,8 @@ struct HookSample {
     wall_ns: u64,
     fuel_consumed: u64,
     fuel_unavailable: u64,
+    input_string_bytes: u64,
+    max_input_string_bytes: usize,
     imports: [ImportSample; 8],
 }
 
@@ -95,6 +182,45 @@ struct ImportSample {
 }
 
 impl Probe {
+    pub(super) fn context(&self, dynamic_revisions: Option<(u64, u64)>,
+        function_savepoint: Option<skript_parser::FunctionRegistrySavepoint>,
+        namespace_complete: bool) -> Option<ContextGuard> {
+        let mut measurement = self.0.lock().unwrap();
+        measurement.sampling.as_mut()?.contexts.push(SampleContext {
+            dynamic_revisions, function_savepoint, namespace_complete,
+        });
+        Some(ContextGuard(self.clone()))
+    }
+
+    pub(super) fn sample_before(&self, transaction: &ParseTransaction, invocation: &HookInvocation,
+        incremental_key: Option<&str>, interruption_epoch: Option<u64>) -> Option<IdentitySample> {
+        let (index, sequence, context) = {
+            let mut measurement = self.0.lock().unwrap();
+            let sampling = measurement.sampling.as_mut()?;
+            if sampling.subscription != invocation.context.subscription_id { return None; }
+            sampling.seen += 1;
+            if sampling.samples.len() >= 64 || (sampling.seen > 8 && sampling.seen % 1536 != 0) { return None; }
+            let index = sampling.samples.len(); sampling.samples.push(serde_json::Value::Null);
+            (index, sampling.seen, sampling.contexts.last().copied())
+        };
+        let _scope = self.scope("probe.identity_sampling");
+        // Do not retain an extra Arc-backed state snapshot into guest execution.
+        let before_state = { let snapshot = transaction.savepoint().unwrap(); fingerprint(&snapshot) };
+        let sample = serde_json::json!({"sequence":sequence,"invocationId":invocation.context.invocation_id,
+            "documentRevision":invocation.context.document_revision,"syntaxContext":invocation.context.syntax_context,
+            "target":fingerprint(&invocation.target),"phase":format!("{:?}",invocation.phase),"cacheHit":false,
+            "expansion":format!("{:?}",invocation.context.expansion),"payload":fingerprint(&invocation.payload),
+            "input":input(&invocation.payload).map(fingerprint),"inputStringBytes":input_bytes(&invocation.payload),
+            "parseResults":fingerprint(&invocation.parse_results),"stateRevision":transaction.state_revision().unwrap(),
+            "beforeState":before_state,"incrementalKey":incremental_key.map(fingerprint),
+            "interruptionEpoch":interruption_epoch,
+            "dynamicDocumentRevision":context.and_then(|c|c.dynamic_revisions.map(|r|r.0)),
+            "dynamicRegistryRevision":context.and_then(|c|c.dynamic_revisions.map(|r|r.1)),
+            "functionSavepoint":context.map(|c|fingerprint(&c.function_savepoint)),
+            "functionNamespaceComplete":context.map(|c|c.namespace_complete)});
+        self.0.lock().unwrap().sampling.as_mut().unwrap().samples[index] = sample;
+        Some(IdentitySample { probe: self.clone(), index })
+    }
     pub(super) fn scope(&self, name: &'static str) -> ScopeTimer {
         self.0.lock().unwrap().scope_stack.push((name, 0));
         ScopeTimer { probe: self.clone(), name, started: Instant::now() }
@@ -118,6 +244,7 @@ impl Probe {
         let mut measurement = self.0.lock().unwrap();
         assert!(measurement.active.is_empty(), "snapshot during active hook");
         assert!(measurement.scope_stack.is_empty(), "snapshot during active scope");
+        assert!(measurement.sampling.as_ref().is_none_or(|sampling|sampling.contexts.is_empty()));
         std::mem::take(&mut *measurement)
     }
 
@@ -126,7 +253,9 @@ impl Probe {
             HookPayload::RegisteredExpression(payload) => format!("{subscription}/{}#{}", payload.registration_id, payload.pattern_index),
             _ => subscription.to_owned(),
         };
-        self.begin_hook(key, fuel)
+        let mut timer = self.begin_hook(key, fuel);
+        timer.input_bytes = input_bytes(&invocation.payload);
+        timer
     }
 
     fn begin_hook(&self, key: String, fuel: Option<u64>) -> HookTimer {
@@ -136,7 +265,7 @@ impl Probe {
             measurement.active.push(key.clone());
             measurement.max_hook_depth = measurement.max_hook_depth.max(measurement.active.len());
         }
-        HookTimer { probe: self.clone(), key, fuel, started: Instant::now() }
+        HookTimer { probe: self.clone(), key, fuel, started: Instant::now(), input_bytes: 0 }
     }
 }
 
@@ -179,6 +308,18 @@ fn nested_measurement_scopes_do_not_double_count_children() {
 }
 
 #[test]
+fn incomplete_fingerprints_never_provide_an_identity_digest() {
+    let a = fingerprint("bounded");
+    assert_eq!(a["complete"], true);
+    assert_eq!(a, fingerprint("bounded"));
+    assert_ne!(a["sha256"], fingerprint("different")["sha256"]);
+    let capped = fingerprint(&"x".repeat(1 << 20));
+    assert_eq!(capped["complete"], false);
+    assert!(capped["sha256"].is_null());
+    assert!(capped["bytes"].as_u64().unwrap() <= 1 << 20);
+}
+
+#[test]
 #[ignore = "bounded public-document attribution; requires SKRIPT_DOCUMENT_MEASUREMENT_PLAN"]
 fn measure_public_document_phases() {
     use sha2::{Digest, Sha256};
@@ -218,12 +359,16 @@ fn measure_public_document_phases() {
             let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
             let probe = Probe::default();
             if enabled {
+                probe.0.lock().unwrap().sampling = Some(Sampling {
+                    subscription: plan["sampleSubscription"].as_str().unwrap().to_owned(),
+                    seen: 0, samples: Vec::new(), contexts: Vec::new(),
+                });
                 for entry in &mut host.components {
                     entry.store.data_mut().catalog_measurement = Some(probe.clone());
                 }
             }
             let before_calls = guest_calls(&host);
-            let mut config = DocumentParserConfig::default();
+            let config = DocumentParserConfig::default();
             let cancellation = config.cancellation.clone();
             let (stop, deadline) = std::sync::mpsc::channel();
             let timer = std::thread::spawn(move || {
@@ -270,6 +415,8 @@ fn measure_public_document_phases() {
                 "sourceSha256":case["sha256"],"sourceBytes":source.len(),"setupMs":setup_ms,"parseMs":parse_ms,
                 "headerObservations":headers,"regularHookCalls":regular_calls,
                 "maxHookDepth":measurement.max_hook_depth,"scopes":measurement.scopes,
+                "inputBytesAtCloneSites":measurement.input_bytes_at_clone_sites,
+                "identitySamples":measurement.sampling.map(|sampling|sampling.samples),
                 "imports":OPERATIONS.iter().zip(measurement.imports).map(|(name,sample)|
                     serde_json::json!({"operation":name,"sample":sample})).collect::<Vec<_>>(),
                 "hooks":measurement.hooks,"observationSha256":digest,"rawNodes":result.raw_tree.nodes.len(),
@@ -384,6 +531,7 @@ pub(super) struct HookTimer {
     key: String,
     fuel: Option<u64>,
     started: Instant,
+    input_bytes: usize,
 }
 
 impl HookTimer {
@@ -393,6 +541,8 @@ impl HookTimer {
         assert_eq!(measurement.active.pop().as_deref(), Some(self.key.as_str()));
         let sample = measurement.hooks.get_mut(&self.key).unwrap();
         sample.calls += 1;
+        sample.input_string_bytes += self.input_bytes as u64;
+        sample.max_input_string_bytes = sample.max_input_string_bytes.max(self.input_bytes);
         sample.wall_ns = sample.wall_ns.saturating_add(wall_ns);
         if let Some(consumed) = self.fuel.zip(remaining).and_then(|(start, end)| start.checked_sub(end)) {
             sample.fuel_consumed = sample.fuel_consumed.saturating_add(consumed);

@@ -178,6 +178,8 @@ impl ParserHost {
         component: usize,
         invocation: &mut HookInvocation,
     ) -> Result<Option<String>, HostError> {
+        #[cfg(test)]
+        let _measurement = self.measurement_scope("dispatch.incremental_key");
         // An incomplete Function namespace cannot borrow a semantic response
         // produced with complete project candidates. No key means no lookup
         // or store, including providers whose continuation parses a Function.
@@ -358,6 +360,8 @@ impl ParserHost {
         state: &mut InvocationTransaction,
         payload: &HookPayload,
     ) -> Result<Option<HookOutput>, HostError> {
+        #[cfg(test)]
+        let _measurement = self.measurement_scope("dispatch.incremental_lookup");
         let active = self
             .incremental
             .active
@@ -413,6 +417,8 @@ impl ParserHost {
         output: &HookOutput,
         impure: bool,
     ) -> Result<(), HostError> {
+        #[cfg(test)]
+        let _measurement = self.measurement_scope("dispatch.incremental_record");
         if impure
             || matches!(&output.decision, HookDecision::Reject(rejection) if !rejection.diagnostics.is_empty())
             || !output.effects.diagnostics.is_empty()
