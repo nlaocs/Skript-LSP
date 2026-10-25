@@ -21,6 +21,8 @@ use syntaxes::Catalog;
 mod call_hierarchy;
 mod change_dispatch;
 mod document_symbols;
+#[cfg(test)]
+mod geometry_measurement;
 mod history;
 mod navigation;
 mod type_knowledge;
