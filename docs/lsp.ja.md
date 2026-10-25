@@ -536,3 +536,11 @@ prepared補完の到達時刻、全文解析完了、semantic tokens応答、cli
 
 
 [Source-backed storage type guarantees and limitations](storage-domains.md)
+
+## 混在したソース範囲の精度
+
+option置換の前後で変更されていない断片は、hoverや書き込み先の型ヒントを保持できます。
+一方、providerが複数のoriginを持つ親spanから追加解析の子spanを作る場合、各断片のvirtual位置を
+証明できず、親全体の範囲をReplacedとして保持することがあります。その子のhoverやsemantic tokensは
+利用できません。たとえばoptionを含む文字列内の補間では、物理的に残っている関数もこの制限を受けます。
+これは型がUnknownであることとは別の位置情報の制限です。生成部分や曖昧な子の位置を推測して補いません。

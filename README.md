@@ -167,6 +167,11 @@ depend on `parser-wasm` with `default-features = false`.
   interpolations still lose later local facts conservatively; this is not proof
   that a standard Number formatter mutates unrelated locals. There is no
   complete interprocedural value/effect analysis.
+- **Source provenance:** unchanged fragments can retain hover and write-target
+  hints around option substitutions. Provider-created nested parses derived
+  from mixed source spans can still retain conservative whole-parent origins;
+  hover and semantic tokens for those nested portions remain unavailable.
+  Generated or ambiguous subranges are never reconstructed by guessing offsets.
 - **Latency and display:** prepared completion can precede final analysis in
   supporting clients. Initial diagnostics, hover, and semantic highlighting can
   still take time on large documents. Body parsing is not parallelized, and

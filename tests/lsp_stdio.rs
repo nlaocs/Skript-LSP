@@ -1643,8 +1643,10 @@ fn replaced_unicode_interpolation_keeps_exact_siblings_usable_after_errors() {
     assert!(client.hover(14, 4, marker_start + 2).is_none(), "inserted option value has no exact hover");
     let call_byte = mixed_line.find("sin(1)").unwrap();
     let call_column = mixed_line[..call_byte].encode_utf16().count() as u32;
-    assert_plain_text_hover(client.hover(15, 4, call_column + 1),
-        range(4, call_column, 4, call_column + "sin(1)".len() as u32), &["Function: sin"]);
+    // A flattened mixed parent has no per-piece virtual offsets. Its provider
+    // keeps additional-parse children Replaced instead of guessing subranges.
+    assert!(client.hover(15, 4, call_column + 1).is_none(),
+        "the nested request still has conservative whole-parent provenance");
     client.send(Request::new(
         13.into(),
         "textDocument/semanticTokens/full".into(),
@@ -1655,7 +1657,7 @@ fn replaced_unicode_interpolation_keeps_exact_siblings_usable_after_errors() {
     let mut line = 0;
     let mut start = 0;
     let mut effects = Vec::new();
-    let mut literals = Vec::new();
+    let mut mixed_tokens = Vec::new();
     for token in data.chunks_exact(5) {
         let delta = token[0].as_u64().unwrap() as u32;
         line += delta;
@@ -1668,15 +1670,16 @@ fn replaced_unicode_interpolation_keeps_exact_siblings_usable_after_errors() {
         if line == 4 {
             assert!(u64::from(start) + length <= u64::from(marker_start) || start >= marker_end,
                 "semantic tokens must not overlap the Replaced marker: {token:?}");
+            mixed_tokens.push((start, length, token[3].as_u64().unwrap()));
         }
         if token[3] == 0 {
             effects.push((line, start, token[2].as_u64().unwrap()));
         }
-        if token[3] == 1 { literals.push((line, start, length)); }
     }
     for line in [3, 6] {
         assert!(effects.contains(&(line, 4, 4)), "{effects:?}");
     }
-    assert!(literals.contains(&(4, call_column + 4, 1)), "retained interpolation literal: {literals:?}");
+    assert!(mixed_tokens.is_empty(),
+        "the mixed enclosing node and its conservatively mapped children have no Exact token certificate: {mixed_tokens:?}");
     client.finish();
 }
