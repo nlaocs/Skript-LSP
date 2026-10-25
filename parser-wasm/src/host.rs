@@ -19,6 +19,8 @@ mod tree_access;
 #[cfg(test)]
 mod checkpoint_tests;
 mod default_expression;
+mod dispatch_original;
+use dispatch_original::DispatchOriginal;
 mod hook_calls;
 use hook_calls::HookCallLog;
 mod incremental;
@@ -9264,6 +9266,8 @@ impl StaticNameRenameCertificate {
 /// # let _ = create_host;
 /// ~~~
 pub struct ParserHost {
+    #[cfg(test)]
+    legacy_dispatch_original: bool,
     completion_types: CompletionTypeCertificate,
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
@@ -9674,6 +9678,8 @@ impl ParserHost {
             catalog_source_available,
         );
         let mut host = Self {
+            #[cfg(test)]
+            legacy_dispatch_original: false,
             completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
             runtime,
             config,
@@ -12359,17 +12365,24 @@ impl ParserHost {
         let dispatch_base = transaction.savepoint()?;
         #[cfg(test)]
         drop(measured);
-        let original_payload = {
+        let mut original_payload = {
             #[cfg(test)]
-            let _copy = self.measurement_copy("copy.dispatch_original", catalog_measurement::input_bytes(&request.payload));
-            request.payload.clone()
+            if self.legacy_dispatch_original {
+                let _copy = self.measurement_copy("copy.dispatch_original", catalog_measurement::input_bytes(&request.payload));
+                DispatchOriginal::legacy(&request.payload)
+            } else {
+                let _capture = self.measurement_scope("dispatch.original_capture");
+                DispatchOriginal::capture(&request.payload)
+            }
+            #[cfg(not(test))]
+            DispatchOriginal::capture(&request.payload)
         };
         #[cfg(test)]
         let measured = self.measurement_scope("dispatch.receipt_prepare");
         let mut semantic_writers = self
             .semantic_receipts
             .as_ref()
-            .map(|registry| registry.begin(&original_payload));
+            .map(|registry| registry.begin(&request.payload));
         #[cfg(test)]
         drop(measured);
         let fault_phase = format!("{:?}", request.phase);
@@ -12817,7 +12830,8 @@ impl ParserHost {
                     available_parse_results.append(&mut candidate_parse_results);
                     #[cfg(test)]
                     drop(measured);
-                    payload = next_payload;
+                    let previous_payload = mem::replace(&mut payload, next_payload);
+                    original_payload.retain(previous_payload)?;
                     merge_effects(&mut effects, next_effects);
                     if let Some(final_decision) = next_decision {
                         decision = final_decision;
@@ -12851,7 +12865,7 @@ impl ParserHost {
             .map(|failure| extension_failure(failure, fault_phase, fault_target));
         if fault.is_some() {
             transaction.rollback_to(&dispatch_base)?;
-            payload = original_payload;
+            payload = original_payload.restore(payload)?;
             effects = empty_effects();
             available_parse_results.clear();
             decision = HookDecision::ContinueProcessing;
@@ -17772,7 +17786,7 @@ mod tests {
         assert!(!same_raw_tree(&original, &mutated));
     }
 
-    fn registered_expression() -> HookPayload {
+    pub(super) fn registered_expression() -> HookPayload {
         HookPayload::RegisteredExpression(RegisteredExpressionPayload {
             input: "example".to_owned(),
             context: WitParseContext {
