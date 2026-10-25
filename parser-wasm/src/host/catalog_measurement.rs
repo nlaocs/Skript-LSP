@@ -345,17 +345,22 @@ fn measure_public_document_phases() {
     let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
     let cases = plan["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 3);
+    let compare_original = plan["compareDispatchOriginal"].as_bool().unwrap_or(false);
+    let blocks = if compare_original { 2 } else { 1 };
     let mut rows = Vec::new();
     for (index, case) in cases.iter().enumerate() {
         let source = std::fs::read_to_string(case["path"].as_str().unwrap()).unwrap();
         assert!(source.len() <= 150_000);
         assert_eq!(format!("{:x}", Sha256::digest(source.as_bytes())), case["sha256"]);
         let mut expected = None;
-        for enabled in if index % 2 == 0 { [false, true] } else { [true, false] } {
+        for block in 0..blocks {
+        for variant in if (index + block) % 2 == 0 { [false, true] } else { [true, false] } {
+            let enabled = compare_original || variant;
             let setup = Instant::now();
             let mut host = ParserHost::new(&core, HostConfig {
                 syntax_catalog: Some(Arc::clone(&catalog)), ..Default::default()
             }).unwrap();
+            host.legacy_dispatch_original = compare_original && !variant;
             let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
             let probe = Probe::default();
             if enabled {
@@ -411,7 +416,8 @@ fn measure_public_document_phases() {
             let digest = format!("{:x}", Sha256::digest(observed.as_bytes()));
             assert_eq!(expected.get_or_insert_with(|| digest.clone()).as_str(), digest.as_str(),
                 "probe must preserve the complete semantic observation");
-            let row = serde_json::json!({"case":case["name"],"probeEnabled":enabled,
+            let row = serde_json::json!({"case":case["name"],"probeEnabled":enabled,"block":block,
+                "dispatchOriginal":if host.legacy_dispatch_original { "legacy" } else { "retained" },
                 "sourceSha256":case["sha256"],"sourceBytes":source.len(),"setupMs":setup_ms,"parseMs":parse_ms,
                 "headerObservations":headers,"regularHookCalls":regular_calls,
                 "maxHookDepth":measurement.max_hook_depth,"scopes":measurement.scopes,
@@ -424,13 +430,15 @@ fn measure_public_document_phases() {
             eprintln!("document_phase_observation {row}");
             rows.push(row);
         }
+        }
     }
     verify_snapshot();
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
         .open(plan["output"].as_str().unwrap()).unwrap();
     file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"rows":rows,
-        "limits":"Single off/on pair per fixture, same optimized test executable and saved Core. Fresh hosts retain default incremental declarations; same-process compilation caches can warm. Scope exclusive times exclude nested instrumented scopes only. Regular hook wall includes WIT and all imports; measured Catalog callbacks exclude argument lifting and return lowering. Other imports and guest/ABI costs remain unseparated. Initialization and canonicalization are outside parse timers."})).unwrap()).unwrap();
+        "schedule":if compare_original { "two blocks ABBA/BAAB per fixture, legacy versus retained original, probes on for both" } else { "one off/on pair per fixture" },
+        "limits":"Same optimized test executable and saved Core. Fresh hosts retain default incremental declarations; same-process compilation caches can warm. Scope exclusive times exclude nested instrumented scopes only. Regular hook wall includes WIT and all imports; measured Catalog callbacks exclude argument lifting and return lowering. Other imports and guest/ABI costs remain unseparated. Initialization and canonicalization are outside parse timers."})).unwrap()).unwrap();
 }
 
 #[test]
