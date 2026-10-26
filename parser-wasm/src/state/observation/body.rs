@@ -33,6 +33,24 @@ fn dependencies_size(set:&StateReadWriteSet) -> usize {
 }
 
 impl ParseTransaction {
+    /// Counts only; never exposes namespace names, record keys or stored values.
+    #[cfg(test)]
+    pub(crate) fn body_shadow_status(&self, before:&BodyObservationCheckpoint) -> Result<serde_json::Value,StateError> {
+        let parse=self.lock()?;parse.ensure_open()?;
+        if !Arc::ptr_eq(&parse.transaction_id,&before.state.transaction_id) {return Err(StateError::ForeignSavepoint);}
+        let mut scopes=BTreeMap::<String,usize>::new();
+        for observation in &parse.observations.entries[before.observation.first..] {
+            *scopes.entry(format!("{:?}",observation.key.scope)).or_default()+=1;
+        }
+        Ok(serde_json::json!({"enabled":parse.observations.enabled,"exhausted":parse.observations.exhausted,
+            "mutationAttempts":parse.observations.mutation_attempts.saturating_sub(before.observation.mutations),
+            "readFailures":parse.observations.failures.saturating_sub(before.observation.failures),
+            "writesEqual":parse.writes==before.state.writes,
+            "writeSetEqual":parse.read_write_set.writes==before.state.read_write_set.writes,
+            "overlayEqual":parse.overlay_revision==before.state.overlay_revision,
+            "observedScopes":scopes}))
+    }
+
     pub(crate) fn body_observation_checkpoint(&self) -> Result<BodyObservationCheckpoint, StateError> {
         Ok(BodyObservationCheckpoint {
             observation: self.observation_checkpoint()?,

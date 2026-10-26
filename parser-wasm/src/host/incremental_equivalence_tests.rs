@@ -369,25 +369,40 @@ fn measure_public_structure_body_edit_reuse() {
         for node in &result.ast.nodes { hash.update(format!("{}|{}|{:?}", node.id, proof.native_valid(node), proof.unique_issuer(node))); }
         format!("{:x}", hash.finalize())
     }
-    fn bounded_run(host: &mut ParserHost, source: &str, revision: u64) -> DocumentParseResult {
+    fn bounded_run(host: &mut ParserHost, source: &str, revision: u64) -> (DocumentParseResult,String) {
         let token = DocumentCancellationToken::new();
         let cancel = token.clone();
         let (done, wait) = std::sync::mpsc::channel();
         let timer = std::thread::spawn(move || {
             if wait.recv_timeout(std::time::Duration::from_secs(180)).is_err() { cancel.cancel(); }
         });
-        let result = host.parse_document(
+        let mut events=Sha256::new();let mut receipts=BTreeMap::new();
+        let result = host.parse_document_with_preparation(
             DocumentParseRequest::new("file:///workspace", "file:///workspace/actual-incremental.sk", revision, source),
-            DocumentParserConfig { cancellation: token, ..DocumentParserConfig::default() });
+            DocumentParserConfig { cancellation: token, ..DocumentParserConfig::default() },&mut |event| {
+                if let skript_parser::StructurePreparationEvent::SectionHeader {candidate,attempt_id,parent_attempt_id,..}=event {
+                    let (candidate,metadata)=skript_parser::PortableStructureBody::freeze_preparation(candidate,&mut |_,_|true).unwrap();
+                    let mut text=format!("{candidate:?}");
+                    for (key,value) in metadata {
+                        if key=="parser.semantic-writer-receipt.v1" {
+                            let next=receipts.len();let ordinal=*receipts.entry(value.clone()).or_insert(next);
+                            text=text.replace(&format!("{key:?}: {value:?}"),&format!("{key:?}: \"receipt:{ordinal}\""));
+                        }
+                    }
+                    events.update(format!("{attempt_id}|{parent_attempt_id:?}|{text}"));
+                }
+            });
         let _ = done.send(());
         timer.join().unwrap();
-        result.unwrap()
+        (result.unwrap(),format!("{:x}",events.finalize()))
     }
     let plan: serde_json::Value = serde_json::from_slice(&std::fs::read(
         std::env::var("SKRIPT_BODY_MEASUREMENT_PLAN").unwrap()).unwrap()).unwrap();
     assert_eq!(plan["publicFixtures"], true);
     let admission_reasons=plan["admissionReasons"]==true;
     let compare_bodies=plan["compareBodyReuse"]==true;
+    let shadow=plan["bodyShadow"]==true;
+    assert!(!shadow || (admission_reasons && !compare_bodies),"shadow only toggles observer, never reuse policy");
     let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
     for file in plan["snapshotFiles"].as_array().unwrap() {
         let bytes = std::fs::read(std::path::Path::new(plan["snapshot"].as_str().unwrap()).join(file["name"].as_str().unwrap())).unwrap();
@@ -405,6 +420,10 @@ fn measure_public_structure_body_edit_reuse() {
             let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")),
                 HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
             host.body_debug=plan["bodyDebug"]==true;
+            if shadow {
+                let starts=case["bodyStarts"].as_array().unwrap().iter().map(|v|v.as_u64().unwrap() as usize);
+                host.body_shadow_probe=Some(body_shadow::Probe::new(enabled,starts));
+            }
             if admission_reasons {
                 host.body_admission_probe=(enabled || compare_bodies).then(body_admission_measurement::Probe::default);
                 assert!(host.measurement_probe().is_none(),"counter-only measurement must not enable catalog timers");
@@ -415,39 +434,47 @@ fn measure_public_structure_body_edit_reuse() {
             }
             let initial_calls_before = guest_calls(&host);
             let start = Instant::now();
-            let initial = bounded_run(&mut host, &source, 1);
+            let (initial,initial_preparations) = bounded_run(&mut host, &source, 1);
             let initial_ms = start.elapsed().as_secs_f64() * 1000.0;
             let initial_calls = guest_calls(&host) - initial_calls_before;
             let initial_metrics = host.incremental_metrics();
             let initial_signature = signature(&initial);
             let initial_reasons=host.body_admission_probe.as_ref().map(|probe|probe.snapshot());
+            let initial_shadow=host.body_shadow_probe.as_ref().map(|probe|probe.snapshot());
             if let Some(reasons)=&initial_reasons {
                 assert_eq!(reasons["strictPartition"],true);
                 for phase in ["finish","adopt","accept"] {assert_eq!(reasons[phase]["strictPartition"],true);}
                 assert_eq!(reasons["unfinalizedObservations"],0);
             }
             if let Some(probe)=&host.body_admission_probe {probe.reset();}
+            if let Some(probe)=&host.body_shadow_probe {probe.reset();}
             eprintln!("body measurement initial {initial_ms:.3}ms; {initial_metrics:?}; editing");
             let before = guest_calls(&host);
             let start = Instant::now();
-            let current = bounded_run(&mut host, &edited, 2);
+            let (current,edit_preparations) = bounded_run(&mut host, &edited, 2);
             let edit_ms = start.elapsed().as_secs_f64() * 1000.0;
             let edit_calls = guest_calls(&host) - before;
             let metrics = host.incremental_metrics();
             let edit_signature = signature(&current);
             let edit_reasons=host.body_admission_probe.as_ref().map(|probe|probe.snapshot());
+            let edit_shadow=host.body_shadow_probe.as_ref().map(|probe|probe.snapshot());
             if let Some(reasons)=&edit_reasons {
                 assert_eq!(reasons["strictPartition"],true);
                 for phase in ["finish","adopt","accept"] {assert_eq!(reasons[phase]["strictPartition"],true);}
                 assert_eq!(reasons["unfinalizedObservations"],0);
             }
-            if let Some((initial, edited, calls_before, calls_after)) = &reference {
+            let observer_signature=format!("{initial_preparations}|{edit_preparations}|{:?}|{:?}",
+                initial_shadow.as_ref().map(|v|&v["physicalAndNegativeOrderSha256"]),edit_shadow.as_ref().map(|v|&v["physicalAndNegativeOrderSha256"]));
+            if let Some((initial, edited, calls_before, calls_after,observer_before)) = &reference {
                 assert_eq!(&initial_signature, initial, "initial semantic digest differs");
                 assert_eq!(&edit_signature, edited, "edited semantic digest differs");
                 if admission_reasons && !compare_bodies {assert_eq!(&initial_calls,calls_before);assert_eq!(&edit_calls,calls_after);}
+                if shadow {assert_eq!(&observer_signature,observer_before,"preparation and physical/negative call order differs");}
             }
             rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":(admission_reasons && !compare_bodies) || enabled,
                 "reasonProbeEnabled":admission_reasons && (enabled || compare_bodies),"initialAdmission":initial_reasons,"editAdmission":edit_reasons,
+                "shadowEnabled":shadow && enabled,"initialShadow":initial_shadow,"editShadow":edit_shadow,
+                "initialPreparationsSha256":initial_preparations,"editPreparationsSha256":edit_preparations,
                 "retainedRootSamplesNotAttemptPartition":root_samples(&current),
                 "initialMs":initial_ms,"editMs":edit_ms,"initialMetrics":format!("{initial_metrics:?}"),
                 "editMetrics":format!("{metrics:?}"),"initialGuestCalls":initial_calls,"editGuestCalls":edit_calls,
@@ -463,7 +490,7 @@ fn measure_public_structure_body_edit_reuse() {
             eprintln!("body measurement edit {edit_ms:.3}ms; {metrics:?}");
             std::fs::write(format!("{}.partial", plan["output"].as_str().unwrap()),
                 serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
-            if reference.is_none() { reference = Some((initial_signature, edit_signature, initial_calls, edit_calls)); }
+            if reference.is_none() { reference = Some((initial_signature, edit_signature, initial_calls, edit_calls,observer_signature)); }
         }
     }
     std::fs::write(plan["output"].as_str().unwrap(), serde_json::to_vec_pretty(&serde_json::json!({
@@ -636,6 +663,76 @@ fn real_core_nested_medium_bodies_remain_cold_with_unlisted_resolvers() {
             assert_eq!(calls,guest_calls(&cold)-before);
         }
     }
+}
+
+#[test]
+fn body_shadow_cancel_and_rejected_body_release_live_observation() {
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    return 2\n";
+    for cancel in [true,false] {
+      let mut reference=None;
+      for enabled in [false,true] {
+        let mut host=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        host.body_shadow_probe=Some(body_shadow::Probe::new(enabled,[0]));
+        let token=DocumentCancellationToken::new();let signal=token.clone();let mut reached=false;
+        let text=if cancel {source.to_owned()} else {source.replace("return 8","return \"wrong\"")};
+        let result=host.parse_document_with_preparation(
+            DocumentParseRequest::new("file:///workspace","file:///workspace/shadow.sk",1,text.as_str()),
+            DocumentParserConfig {cancellation:token,..DocumentParserConfig::default()},&mut |event| {
+                if matches!(event,skript_parser::StructurePreparationEvent::SectionHeader {..}) {
+                    reached=true;if cancel {signal.cancel();}
+                }
+            });
+        assert!(reached);
+        let snapshot=host.body_shadow_probe.as_ref().unwrap().snapshot();
+        assert_eq!(snapshot["live"],false,"{snapshot}");
+        if enabled {assert!(!snapshot["rows"].as_array().unwrap().is_empty(),"must observe the targeted body: {snapshot}");}
+        assert_eq!(host.incremental_metrics().body_stored,0);
+        assert_eq!(host.incremental_metrics().body_hits,0);
+        assert!(host.active_parse_requests.is_empty());
+        for component in &host.components {
+            assert!(component.store.data().invocation.is_none());
+            assert!(component.store.data().dynamic_syntax_update.is_none());
+        }
+        if cancel {assert!(result.is_err() || result.as_ref().is_ok_and(|r|r.execution_status!=DocumentExecutionStatus::Complete));}
+        else {assert!(!result.as_ref().unwrap().syntax.diagnostics.is_empty());}
+        if let Some((expected,trace,count))=&reference {
+            match (&result,expected) {
+                (Ok(actual),Ok(expected))=>assert_equivalent(actual,expected),
+                (Err(actual),Err(expected))=>assert_eq!(format!("{actual:?}"),format!("{expected:?}")),
+                _=>panic!("shadow changed cancellation/error outcome"),
+            }
+            assert_eq!(&snapshot["physicalAndNegativeOrderSha256"],trace);
+            assert_eq!(&snapshot["physicalCalls"],count);
+        } else {reference=Some((result,snapshot["physicalAndNegativeOrderSha256"].clone(),snapshot["physicalCalls"].clone()));}
+      }
+    }
+}
+
+#[test]
+fn body_shadow_enter_freeze_bounds_and_drops_real_opaque_candidate_clones() {
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    return 2\n";
+    let mut host=actual_host_with_fixture("skript-2.15.4-type-runtime");let mut visited=0;
+    host.parse_document_with_preparation(
+        DocumentParseRequest::new("file:///workspace","file:///workspace/shadow-drop.sk",1,source),
+        DocumentParserConfig::default(),&mut |event| {
+            if let skript_parser::StructurePreparationEvent::SectionHeader {candidate,..}=event {
+                visited+=1;
+                struct Opaque(Arc<std::sync::atomic::AtomicUsize>);
+                impl Drop for Opaque {fn drop(&mut self){self.0.fetch_add(1,Ordering::Relaxed);}}
+                for oversized in [false,true] {
+                    let drops=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                    let mut clone=candidate.clone();
+                    clone.matched.extension_state=Some(skript_parser::ExpressionEffects::new(Opaque(drops.clone())));
+                    if oversized {clone.metadata.insert("public-budget-test".into(),"a".repeat(256*1024+1));}
+                    let mut checks=0;
+                    let (frozen,overflow,_,_)=body_shadow::freeze_enter(&clone,|_,_|{checks+=1;false});
+                    assert!(!frozen);assert_eq!(overflow,oversized);assert_eq!(checks,usize::from(!oversized));
+                    assert_eq!(drops.load(Ordering::Relaxed),0,"original candidate still owns resource");
+                    drop(clone);assert_eq!(drops.load(Ordering::Relaxed),1,"temporary freeze must retain no opaque clone");
+                }
+            }
+        }).unwrap();
+    assert_eq!(visited,1);
 }
 
 #[test]

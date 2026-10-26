@@ -15,6 +15,8 @@ mod catalog_measurement;
 #[cfg(test)]
 mod body_admission_measurement;
 #[cfg(test)]
+mod body_shadow;
+#[cfg(test)]
 mod tree_macro_measurement;
 mod tree_view;
 mod tree_access;
@@ -5418,6 +5420,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn structure_preparation(&mut self, event: skript_parser::StructurePreparationEvent<'_>) {
+        #[cfg(test)]
+        self.shadow_preparation(&event);
         self.body_preparation();
         if let Some(observer) = self.structure_preparation.as_mut() {
             observer(event);
@@ -9388,6 +9392,8 @@ pub struct ParserHost {
     body_debug: bool,
     #[cfg(test)]
     body_admission_probe: Option<body_admission_measurement::Probe>,
+    #[cfg(test)]
+    body_shadow_probe: Option<body_shadow::Probe>,
     expression_preparation: skript_parser::ExpressionPreparationCache,
     incremental: incremental::IncrementalCache,
     state_store: StateStore,
@@ -9809,6 +9815,8 @@ impl ParserHost {
             body_debug: false,
             #[cfg(test)]
             body_admission_probe: None,
+            #[cfg(test)]
+            body_shadow_probe: None,
             expression_preparation: skript_parser::ExpressionPreparationCache::default(),
             incremental: incremental::IncrementalCache::default(),
             state_store,
@@ -12755,6 +12763,22 @@ impl ParserHost {
                 // The immutable request is borrowed by WASM lowering; recover its ownership.
                 #[cfg(test)]
                 let call_result = self.measurement_scope("dispatch.call_result");
+                #[cfg(test)]
+                if let Some(probe) = &self.body_shadow_probe {
+                    let outcome = match &call.0 {
+                        Ok(Ok(output)) => match output.decision {
+                            HookDecision::ContinueProcessing => "continue",
+                            HookDecision::NotApplicable => "not-applicable",
+                            HookDecision::Handled => "handled",
+                            HookDecision::Reject(_) => "reject",
+                        },
+                        Ok(Err(_)) => "addon-error",
+                        Err(_) => "host-error",
+                    };
+                    probe.invocation(&component_id, &invocation, !cache_hit,
+                        incremental::body::subscription_is_body_local(&self.components[candidate.component_index], &invocation, self.config.syntax_catalog.as_deref()),
+                        outcome, !cache_hit && self.components[candidate.component_index].store.data().incremental_impure_call);
+                }
                 payload = invocation.payload;
                 let (call, state_invocation, dynamic_update) = call;
                 if call.is_ok()

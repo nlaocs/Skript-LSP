@@ -8,6 +8,11 @@ use skript_parser::{PortableStructureBody, StructureBodyPlan, StructureBodyRepla
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_BODY_CALLS: usize = 4096;
 
+#[cfg(test)]
+pub(in crate::host) fn shadow_original_range(source:&skript_parser::MappedSource, range:ParserTextRange) -> Option<ParserTextRange> {
+    super::body_source::original_extent(source,range,|_,_|Ok(())).ok()
+}
+
 impl ParserHost {
     /// Optional diagnostic counters only; never part of State or reuse authority.
     pub(in crate::host) fn body_admission_count(&self, name: &'static str) {
@@ -74,6 +79,8 @@ pub(in crate::host) struct BodyObservation {
     proposal: Option<Arc<CachedBody>>,
     pending: Option<Arc<CachedBody>>,
     invalid: bool,
+    #[cfg(test)]
+    shadow: Option<body_shadow::Lease>,
 }
 
 #[derive(Clone)]
@@ -94,6 +101,24 @@ impl std::fmt::Write for BoundedSize {
     }
 }
 impl WasmExpressionEnvironment<'_> {
+    #[cfg(test)]
+    pub(in crate::host) fn shadow_preparation(&self, event:&skript_parser::StructurePreparationEvent<'_>) {
+        if let Some(observation)=&self.body
+            && observation.shadow.is_some()
+            && let Some(probe)=&self.hooks.host.body_shadow_probe {
+            body_shadow::preparation(probe,&self.hooks,&observation.effects,event);
+        }
+    }
+
+    #[cfg(test)]
+    fn shadow_finish(&self, body:&skript_parser::StructureBody, context:&ExpressionParseContext, work:StructureBodyWork) {
+        if let Some(observation)=&self.body && let Some(lease)=&observation.shadow {
+            body_shadow::finish(lease,&self.hooks,body,context,work,observation.before,
+                &observation.state,&observation.effects,self.pending_leaf.is_some()
+                    || self.pending_registered.is_some() || !self.expression_candidates.is_empty());
+        }
+    }
+
     pub(in crate::host) fn body_reuse_enabled(&self) -> bool {
         !self.hooks.host.body_observing
             && self.hooks.host.incremental.active.is_some()
@@ -132,11 +157,16 @@ impl WasmExpressionEnvironment<'_> {
         self.hooks.host.body_admission_count(if proposal.is_some() {
             "body_admission.prepare.reuse_proposed"
         } else {"body_admission.prepare.observe"});
+        #[cfg(test)]
+        let shadow = self.hooks.host.body_shadow_probe.as_ref()
+            .and_then(|probe| probe.begin(&request, &key, revision));
         self.body = Some(BodyObservation {
             key, before:request.work,
             state:self.hooks.transaction.body_observation_checkpoint().map_err(|e|self.hooks.host_error(e))?,
             effects:HookEffectsCheckpoint::capture(&self.hooks.effects,&self.hooks.calls,&self.hooks.failures),
             proposal:proposal.clone(),pending:None,invalid:false,
+            #[cfg(test)]
+            shadow,
         });
         self.hooks.host.body_observing=true;
         self.hooks.host.body_impure=false;
@@ -225,6 +255,8 @@ impl WasmExpressionEnvironment<'_> {
     }
 
     pub(in crate::host) fn body_finish(&mut self, body:&mut skript_parser::StructureBody, context:&ExpressionParseContext, work:StructureBodyWork) -> Result<bool,String> {
+        #[cfg(test)]
+        self.shadow_finish(body,context,work);
         use std::fmt::Write;
         self.hooks.host.body_observing=false;
         let Some(observation)=self.body.as_ref() else {return Ok(false);};
