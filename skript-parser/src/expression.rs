@@ -200,6 +200,24 @@ pub struct ExpressionPublicData {
 #[derive(Clone)]
 pub struct ExpressionEffects(Arc<dyn Any + Send + Sync>);
 
+/// Non-owning identity of candidate-owned work, including opaque work.
+///
+/// This token neither keeps the work alive nor grants permission to consume or
+/// replay it. An environment must separately validate a current borrowed value.
+/// A weak allocation reference prevents address reuse from matching a new value.
+#[derive(Clone)]
+pub struct ExpressionEffectsIdentity(std::sync::Weak<dyn Any + Send + Sync>);
+
+impl ExpressionEffectsIdentity {
+    /// Whether a current value is the same allocation, rather than equal data.
+    pub fn matches(&self, value: &ExpressionEffects) -> bool {
+        std::sync::Weak::ptr_eq(&self.0, &Arc::downgrade(&value.0))
+    }
+
+    /// Instantaneous liveness observation, not a future lifetime guarantee.
+    pub fn is_live(&self) -> bool { self.0.strong_count() != 0 }
+}
+
 impl ExpressionEffects {
     pub fn new(value: impl Any + Send + Sync) -> Self {
         Self(Arc::new(value))
@@ -207,6 +225,11 @@ impl ExpressionEffects {
 
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         self.0.downcast_ref()
+    }
+
+    /// Observe identity without retaining the underlying candidate resource.
+    pub fn identity(&self) -> ExpressionEffectsIdentity {
+        ExpressionEffectsIdentity(Arc::downgrade(&self.0))
     }
 }
 
@@ -4968,6 +4991,23 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn effects_identity_is_nonowning_and_distinguishes_equal_resources() {
+        use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+        struct Resource(Arc<AtomicUsize>);
+        impl Drop for Resource {fn drop(&mut self){self.0.fetch_add(1,Ordering::SeqCst);}}
+        let drops=Arc::new(AtomicUsize::new(0));
+        let original=super::ExpressionEffects::new(Resource(drops.clone()));
+        let witness=original.identity();let clone=original.clone();
+        let different=super::ExpressionEffects::new(Resource(drops.clone()));
+        assert!(witness.matches(&original)&&witness.matches(&clone)&&witness.is_live());
+        assert!(!witness.matches(&different));drop(original);assert!(witness.is_live());
+        drop(clone);assert!(!witness.is_live());assert_eq!(drops.load(Ordering::SeqCst),1);
+        let later=super::ExpressionEffects::new(Resource(drops.clone()));
+        assert!(!witness.matches(&later),"a later allocation cannot reuse an expired identity");
+        drop(later);drop(different);assert_eq!(drops.load(Ordering::SeqCst),3);
+    }
+
     use super::*;
 
     #[test]
