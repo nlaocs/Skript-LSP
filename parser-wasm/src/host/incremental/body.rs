@@ -85,6 +85,8 @@ pub(in crate::host) struct BodyObservation {
     preparations: BodyPreparations,
     replay_applied: bool,
     #[cfg(test)]
+    read_refused: bool,
+    #[cfg(test)]
     shadow: Option<body_shadow::Lease>,
 }
 
@@ -174,6 +176,8 @@ impl WasmExpressionEnvironment<'_> {
             preparations:BodyPreparations::new(request.candidate.raw_node_id,request.parent_attempt),
             replay_applied:false,
             #[cfg(test)]
+            read_refused:false,
+            #[cfg(test)]
             shadow,
         });
         self.hooks.host.body_observing=true;
@@ -241,8 +245,19 @@ impl WasmExpressionEnvironment<'_> {
         if !registry.can_import_body(&proposal.receipts) {
             self.hooks.host.body_admission_count("body_admission.accept.reject.receipts");return Ok(false);
         }
-        if !self.hooks.transaction.replay_body_read_certificate(&proposal.reads)
-            .map_err(|e|self.hooks.host_error(e))? {
+        #[cfg(test)]
+        let read_profile=self.hooks.host.body_admission_probe.as_ref().filter(|p|p.read_refusals_enabled()).map(|probe| {
+            let detail=probe.take_read_detail();
+            let profile=self.hooks.transaction.body_read_refusal_profile(&proposal.reads,detail)
+                .unwrap_or_else(|_|serde_json::json!({"observationError":true,"detailRequested":detail}));
+            (probe.clone(),profile)
+        });
+        let replayed=self.hooks.transaction.replay_body_read_certificate(&proposal.reads);
+        #[cfg(test)]
+        if let Some((probe,profile))=read_profile {probe.record_read(&self.body.as_ref().unwrap().key,replayed.as_ref().ok().copied(),profile);}
+        if !replayed.map_err(|e|self.hooks.host_error(e))? {
+            #[cfg(test)]
+            {self.body.as_mut().unwrap().read_refused=true;}
             self.hooks.host.body_admission_count("body_admission.accept.reject.reads");return Ok(false);
         }
         if !self.hooks.host.semantic_receipts.as_mut().unwrap().import_body(&proposal.receipts) {
@@ -315,6 +330,10 @@ impl WasmExpressionEnvironment<'_> {
             self.hooks.host.body_admission_count("body_admission.finish.reject.readonly");
             debug_reason(self.hooks.host,"State is not certifiably readonly");return Ok(false);
         };
+        #[cfg(test)]
+        if observation.read_refused && let Some(probe)=self.hooks.host.body_admission_probe.as_ref().filter(|p|p.read_refusals_enabled()) {
+            probe.record_read_finish(&observation.key,observation.proposal.as_ref().unwrap().reads.compare_fresh_read_identity(&reads));
+        }
         let calls=self.hooks.calls.suffix(before.calls.len());
         let updates=&self.hooks.effects.context_updates[before.effects.context_updates.len()..];
         let mut consumed=|kind,value:&skript_parser::ExpressionEffects|

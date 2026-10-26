@@ -37,14 +37,66 @@ const CODES: &[&str] = &[
 ];
 
 #[derive(Clone, Default)]
-pub(super) struct Probe(Arc<Mutex<Counters>>);
+pub(super) struct Probe(Arc<Mutex<Counters>>, bool);
 #[derive(Default)]
 struct Counters {
     codes: BTreeMap<&'static str, u64>,
     unknown: u64,
     overflow: bool,
+    read_outcomes: BTreeMap<String,u64>,
+    read_samples: Vec<serde_json::Value>,
+    read_mismatches: u64,
+    read_observation_errors: u64,
+    read_detail_attempts: u64,
+    read_namespace_changes: BTreeMap<String,(u64,u64,u64)>,
+    read_finish_outcomes: BTreeMap<String,u64>,
+    read_identity_profiled: u64,
+    read_identity_blocked: u64,
+    read_identity_groups_omitted: u64,
 }
 impl Probe {
+    pub(super) fn with_read_refusals()->Self {Self(Arc::default(),true)}
+    pub(super) fn read_refusals_enabled(&self)->bool {self.1}
+    pub(super) fn take_read_detail(&self)->bool {
+        if !self.1 {return false;}
+        let mut data=self.0.lock().unwrap();
+        if data.read_detail_attempts>=8 {return false;}
+        data.read_detail_attempts+=1;true
+    }
+    pub(super) fn record_read(&self,key:&str,actual:Option<bool>,report:serde_json::Value) {
+        let prefix=report["firstPrefixFailure"].as_str();
+        let observation=report["observationFailure"].as_str();
+        let predicted=if prefix.is_some()||observation.is_some() {Some(false)} else if report["allObservationsChecked"]==true {Some(true)} else {None};
+        let reason=match actual {Some(true)=>"accepted",None=>"actual_error",Some(false)=>
+            prefix.or(observation).unwrap_or("observations_uninspected")};
+        let mut data=self.0.lock().unwrap();
+        if report["observationError"]==true {data.read_observation_errors+=1;}
+        else if report["prefixIdentityBudgetBlocked"]==true {data.read_identity_blocked+=1;}
+        else {data.read_identity_profiled+=1;}
+        if let Some(groups)=report["prefixChangedNamespaces"].as_object() {
+            for (key,value) in groups {
+                let key=if data.read_namespace_changes.contains_key(key)||data.read_namespace_changes.len()<32 {key.as_str()} else {
+                    data.read_identity_groups_omitted+=1;"additional_identity_groups_omitted"
+                };
+                let counts=data.read_namespace_changes.entry(key.into()).or_default();counts.0+=1;
+                counts.1+=value["historicalOnly"].as_u64().unwrap_or(0);counts.2+=value["currentOnly"].as_u64().unwrap_or(0);
+            }
+        }
+        *data.read_outcomes.entry(reason.into()).or_default()+=1;
+        if actual.is_some()&&predicted.is_some()&&actual!=predicted {data.read_mismatches+=1;}
+        if actual!=Some(true)&&report["detailRequested"]==true&&data.read_samples.len()<8 {
+            data.read_samples.push(serde_json::json!({"bodyKeySha256":key,"actual":actual,"profile":report}));
+        }
+    }
+    pub(super) fn record_read_finish(&self,key:&str,report:serde_json::Value) {
+        let outcome=if report["blocked"].is_string() {"unobserved_budget".into()} else {
+            format!("prefix_equal={}|added_equal={}|namespace_delta_equal={}|old_overlap={}|fresh_overlap={}|observed_namespaces_equal={}",
+                report["prefixReadsEqual"],report["addedReadsEqual"],report["addedAdoptedNamespacesEqual"],
+                report["oldBodyObservationOverlap"],report["freshBodyObservationOverlap"],report["observedNamespaceIdentitiesEqual"])
+        };
+        let mut data=self.0.lock().unwrap();*data.read_finish_outcomes.entry(outcome).or_default()+=1;
+        if let Some(sample)=data.read_samples.iter_mut().find(|s|s["bodyKeySha256"]==key) {sample["freshColdIdentity"]=report;}
+    }
     pub(super) fn record(&self, code: &'static str) {
         let mut data = self.0.lock().unwrap();
         if !CODES.contains(&code) {
@@ -71,6 +123,8 @@ impl Probe {
         let partition = data.codes.iter().filter(|(code,_)|
             code.starts_with("body_admission.native.reject.") || code.starts_with("body_admission.prepare.reject."))
             .map(|(code,count)| (*code,*count)).collect::<BTreeMap<_,_>>();
+        let read_refused=data.read_outcomes.iter().filter(|(key,_)|!matches!(key.as_str(),"accepted"|"actual_error")).map(|(_,n)|n).sum::<u64>();
+        let fresh_observed=data.read_finish_outcomes.values().sum::<u64>();
         let phase = |prefix: &str,success: &str| {
             let total=n(&format!("body_admission.{prefix}.total"));
             let accepted=n(success);
@@ -82,6 +136,19 @@ impl Probe {
                     .map(|(code,count)|(*code,*count)).collect::<BTreeMap<_,_>>()})
         };
         serde_json::json!({"codes":data.codes,"rejectionPartition":partition,
+            "readRefusals":self.1.then(||serde_json::json!({"outcomes":data.read_outcomes,"samples":data.read_samples,
+                "sampleLimit":8,"predictionMismatches":data.read_mismatches,
+                "observationErrors":data.read_observation_errors,
+                "detailedChecks":data.read_detail_attempts,
+                "prefixChangedNamespaceCounts":data.read_namespace_changes,"freshColdIdentityOutcomes":data.read_finish_outcomes,
+                "identityProfiled":data.read_identity_profiled,"identityBudgetBlocked":data.read_identity_blocked,
+                "identityGroupLimit":32,"identityGroupOverflowEvents":data.read_identity_groups_omitted,
+                "overflowCountsGroupMembershipsNotUniqueRequests":true,
+                "readRefused":read_refused,"freshReadonlyObserved":fresh_observed,
+                "freshReadonlyUnobserved":read_refused.saturating_sub(fresh_observed),
+                "freshReadonlyOvercount":fresh_observed.saturating_sub(read_refused),
+                "freshIdentityComparisonBlocked":data.read_finish_outcomes.get("unobserved_budget").copied().unwrap_or(0),
+                "detailOmitted":data.read_outcomes.iter().filter(|(k,_)|k.as_str()!="accepted").map(|(_,n)|n).sum::<u64>().saturating_sub(data.read_samples.len() as u64)})),
             "denominator":"physical Structure attempts reaching the gate after accepted EnterBody, across root/nested sessions; not retained AST structures",
             "nativeAttempts":total,"nativeRejected":rejected,"nativePassed":passed,
             "prepareAttempts":prepare,"prepareRejected":key_rejected,
@@ -97,6 +164,32 @@ impl Probe {
                 && total==rejected.saturating_add(passed) && prepare==key_rejected.saturating_add(prepared)
                 && passed==prepare})
     }
+}
+
+#[test]
+fn read_refusal_samples_are_bounded_and_prediction_disagreements_explicit() {
+    let probe=Probe::with_read_refusals();
+    for _ in 0..12 {let detail=probe.take_read_detail();probe.record_read("hashed-body",Some(false),serde_json::json!({"firstPrefixFailure":"prefix_reads","detailRequested":detail}));}
+    let snapshot=probe.snapshot();let reads=&snapshot["readRefusals"];
+    assert_eq!(reads["outcomes"]["prefix_reads"],12);assert_eq!(reads["samples"].as_array().unwrap().len(),8);
+    assert_eq!(reads["detailOmitted"],4);assert!(!probe.take_read_detail());assert_eq!(reads["detailedChecks"],8);
+    probe.record_read("hashed-body",Some(true),serde_json::json!({"firstPrefixFailure":"prefix_reads"}));
+    probe.record_read("hashed-body",None,serde_json::json!({"observationError":true}));
+    assert_eq!(probe.snapshot()["readRefusals"]["predictionMismatches"],1);
+    assert_eq!(probe.snapshot()["readRefusals"]["observationErrors"],1);
+    probe.record_read("hashed-body",Some(true),serde_json::json!({"observationFailure":"stored_bytes_changed","detailBlocked":"non_parse_scope","allObservationsChecked":false}));
+    assert_eq!(probe.snapshot()["readRefusals"]["predictionMismatches"],2,"earlier value refusal remains decisive before a later unobserved scope");
+    probe.reset();assert!(probe.read_refusals_enabled());assert_eq!(probe.snapshot()["readRefusals"]["samples"],serde_json::json!([]));
+    for _ in 0..20 {let detail=probe.take_read_detail();probe.record_read("hashed-body",Some(true),serde_json::json!({"detailRequested":detail,"allObservationsChecked":detail}));}
+    assert_eq!(probe.snapshot()["readRefusals"]["detailedChecks"],8,"successful observations consume the same bounded budget");
+    assert_eq!(probe.snapshot()["readRefusals"]["outcomes"]["accepted"],20);
+    probe.reset();probe.record_read("hashed-body",Some(false),serde_json::json!({"firstPrefixFailure":"prefix_reads","prefixIdentityBudgetBlocked":true}));
+    assert_eq!(probe.snapshot()["readRefusals"]["identityBudgetBlocked"],1);
+    assert_eq!(probe.snapshot()["readRefusals"]["freshReadonlyUnobserved"],1);
+    probe.record_read_finish("hashed-body",serde_json::json!({"blocked":"identity_work_limit"}));
+    assert_eq!(probe.snapshot()["readRefusals"]["freshReadonlyUnobserved"],0);
+    assert_eq!(probe.snapshot()["readRefusals"]["freshIdentityComparisonBlocked"],1);
+    assert!(Probe::default().snapshot()["readRefusals"].is_null());
 }
 
 #[test]

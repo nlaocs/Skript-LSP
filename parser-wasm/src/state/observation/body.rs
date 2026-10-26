@@ -22,6 +22,30 @@ pub(crate) struct BodyReadCertificate {
 impl BodyReadCertificate {
     /// Payload bytes plus conservative per-record collection/struct allowance.
     pub(crate) fn retained_bytes(&self) -> usize { self.retained_bytes }
+
+    /// A set delta is bookkeeping, not a complete read footprint: a body may
+    /// reread an existing prefix record. Keep observation-namespace overlap too.
+    #[cfg(test)]
+    pub(crate) fn compare_fresh_read_identity(&self,current:&Self)->serde_json::Value {
+        let work=self.prefix_reads.len().saturating_add(self.adopted_reads.len())
+            .saturating_add(current.prefix_reads.len()).saturating_add(current.adopted_reads.len());
+        if work>16384 || self.observations.len().saturating_add(current.observations.len())>128 {
+            return serde_json::json!({"blocked":"identity_work_limit"});
+        }
+        let changed=self.prefix_reads.symmetric_difference(&current.prefix_reads)
+            .map(|key|(key.scope,key.owner.as_deref(),key.namespace.as_str())).collect::<BTreeSet<_>>();
+        let old_observed=self.observations.iter().map(|v|(v.key.scope,v.key.namespace.owner(),v.key.namespace.name())).collect::<BTreeSet<_>>();
+        let new_observed=current.observations.iter().map(|v|(v.key.scope,v.key.namespace.owner(),v.key.namespace.name())).collect::<BTreeSet<_>>();
+        serde_json::json!({"prefixReadsEqual":self.prefix_reads==current.prefix_reads,
+            "oldAddedReads":self.adopted_reads.difference(&self.prefix_reads).count(),
+            "freshAddedReads":current.adopted_reads.difference(&current.prefix_reads).count(),
+            "addedReadsEqual":self.adopted_reads.difference(&self.prefix_reads).eq(current.adopted_reads.difference(&current.prefix_reads)),
+            "addedAdoptedNamespacesEqual":self.adopted_namespaces.difference(&self.prefix_adopted_namespaces)
+                .eq(current.adopted_namespaces.difference(&current.prefix_adopted_namespaces)),
+            "changedPrefixNamespaces":changed.len(),"oldBodyObservationOverlap":!changed.is_disjoint(&old_observed),
+            "freshBodyObservationOverlap":!changed.is_disjoint(&new_observed),"observedNamespaceIdentitiesEqual":old_observed==new_observed,
+            "scope":"identity comparison only; set difference is not the full body read footprint"})
+    }
 }
 
 fn dependencies_size(set:&StateReadWriteSet) -> usize {
@@ -33,6 +57,116 @@ fn dependencies_size(set:&StateReadWriteSet) -> usize {
 }
 
 impl ParseTransaction {
+    /// Test-only explanation, never admission authority. Cheap prefix checks
+    /// cover every proposal; a few requested details borrow values (no payload
+    /// cloning) and stop before durable scopes, excessive work or byte reads.
+    #[cfg(test)]
+    pub(crate) fn body_read_refusal_profile(&self, certificate:&BodyReadCertificate, detail:bool) -> Result<serde_json::Value,StateError> {
+        use sha2::{Digest,Sha256};
+        let parse=self.lock()?;parse.ensure_open()?;
+        let reads=parse.read_write_set.reads==certificate.prefix_reads;
+        let current=parse.current_revisions.keys().eq(certificate.prefix_namespaces.iter());
+        let adopted=parse.read_write_set.namespace_revisions.keys().eq(certificate.prefix_adopted_namespaces.iter());
+        let mut changed_namespaces=BTreeMap::new();let mut identity_blocked=false;
+        if !reads && parse.read_write_set.reads.len().saturating_add(certificate.prefix_reads.len())<=8192 {
+            for (side,keys) in [("historicalOnly",certificate.prefix_reads.difference(&parse.read_write_set.reads)),
+                ("currentOnly",parse.read_write_set.reads.difference(&certificate.prefix_reads))] {
+                for key in keys {
+                    if key.namespace.len().saturating_add(key.owner.as_ref().map_or(0,String::len))>1024 {identity_blocked=true;break;}
+                    let identity=format!("{:?}|{}|{:x}",key.scope,key.owner.as_ref().map(|v|format!("{:x}",Sha256::digest(v))).unwrap_or_default(),Sha256::digest(&key.namespace));
+                    if !changed_namespaces.contains_key(&identity)&&changed_namespaces.len()>=16 {identity_blocked=true;break;}
+                    *changed_namespaces.entry(identity).or_insert_with(||BTreeMap::<&str,u64>::new()).entry(side).or_default()+=1;
+                }
+                if identity_blocked {break;}
+            }
+        } else if !reads {identity_blocked=true;}
+        let prefix_reason=if !parse.observations.enabled {Some("disabled")}
+            else if parse.observations.exhausted {Some("exhausted")}
+            else if !reads {Some("prefix_reads")}
+            else if !current {Some("prefix_current_namespaces")}
+            else if !adopted {Some("prefix_adopted_namespaces")} else {None};
+        let mut rows=Vec::new();let mut work=0usize;let mut bytes=0usize;
+        let mut observation_reason=None;let mut blocked=None;
+        let mut prefix_identity_shapes_equal=None;
+        let mut prefix_owners_equal=None;let mut prefix_scopes_equal=None;let mut prefix_names_equal=None;
+        if detail && parse.read_write_set.reads.len().saturating_add(certificate.prefix_reads.len())<=4096 {
+            fn shape(keys:&BTreeSet<StateRecordKey>)->BTreeSet<(StateScope,Option<&str>,&str)> {
+                keys.iter().map(|key|(key.scope,key.owner.as_deref(),key.namespace.as_str())).collect()
+            }
+            // Namespace/owner/scope shapes only. Never log record keys.
+            let current=shape(&parse.read_write_set.reads);let expected=shape(&certificate.prefix_reads);
+            prefix_identity_shapes_equal=Some(current==expected);
+            prefix_owners_equal=Some(current.iter().map(|(_,owner,_)|owner).collect::<BTreeSet<_>>()
+                ==expected.iter().map(|(_,owner,_)|owner).collect::<BTreeSet<_>>());
+            prefix_scopes_equal=Some(current.iter().map(|(scope,_,_)|scope).collect::<BTreeSet<_>>()
+                ==expected.iter().map(|(scope,_,_)|scope).collect::<BTreeSet<_>>());
+            prefix_names_equal=Some(current.iter().map(|(_,_,name)|name).collect::<BTreeSet<_>>()
+                ==expected.iter().map(|(_,_,name)|name).collect::<BTreeSet<_>>());
+        }
+        if detail {
+            let store=parse.store.lock()?;
+            for observation in &certificate.observations {
+                if rows.len()>=64 {blocked=Some("observation_limit");break;}
+                if observation.key.scope!=StateScope::Parse {blocked=Some("non_parse_scope");break;}
+                let resolved=store.namespaces.resolve(&observation.component,
+                    observation.key.namespace.visibility(),observation.key.namespace.name(),false);
+                let permission=match resolved {
+                    Ok((namespace,_)) if namespace==observation.key.namespace=>None,
+                    Ok(_)=>Some("owner_namespace_identity"),
+                    Err(StateError::AccessDenied{..})=>Some("permission_denied"),
+                    Err(StateError::UnknownNamespace{..})=>Some("reference_missing"),
+                    Err(_)=>Some("namespace_lookup_error"),
+                };
+                let mut values=BTreeMap::<&str,&StateValue>::new();
+                if permission.is_none() {
+                    for (address,value) in parse.writes.iter() {
+                        work+=1;if work>16384 {blocked=Some("overlay_work_limit");break;}
+                        if address.scope==StateScope::Parse && address.namespace==observation.key.namespace {
+                            if let Some(value)=value.as_ref() {values.insert(address.key.as_str(),value);}
+                            else {values.remove(address.key.as_str());}
+                            if values.len()>1024 {blocked=Some("record_limit");break;}
+                        }
+                    }
+                }
+                if blocked.is_some() {break;}
+                let keys_equal=values.keys().copied().eq(observation.values.keys().map(String::as_str));
+                let mut schemas_equal=true;let mut encodings_equal=true;let mut stored_bytes_equal=true;
+                if keys_equal && permission.is_none() {
+                    for ((key,value),expected) in values.iter().zip(observation.values.values()) {
+                        bytes=bytes.saturating_add(key.len()).saturating_add(value.stored_size()).saturating_add(expected.stored_size());
+                        if bytes>1024*1024 {blocked=Some("comparison_byte_limit");break;}
+                        schemas_equal &= value.schema_id==expected.schema_id;
+                        encodings_equal &= value.encoding==expected.encoding;
+                        stored_bytes_equal &= value.bytes==expected.bytes;
+                    }
+                }
+                if blocked.is_some() {break;}
+                let reason=permission.or(if !keys_equal {Some("record_presence")}
+                    else if !schemas_equal {Some("schema_changed")}
+                    else if !encodings_equal {Some("encoding_changed")}
+                    else if !stored_bytes_equal {Some("stored_bytes_changed")} else {None});
+                if observation_reason.is_none() {observation_reason=reason;}
+                rows.push(serde_json::json!({"scope":"Parse",
+                    "namespaceSha256":format!("{:x}",Sha256::digest(observation.key.namespace.name())),
+                    "ownerSha256":observation.key.namespace.owner().map(|owner|format!("{:x}",Sha256::digest(owner))),
+                    "reason":reason,"keysEqual":keys_equal,"valueComparisonPerformed":keys_equal&&permission.is_none(),
+                    "schemasEqual":(keys_equal&&permission.is_none()).then_some(schemas_equal),
+                    "encodingsEqual":(keys_equal&&permission.is_none()).then_some(encodings_equal),
+                    "storedBytesEqual":(keys_equal&&permission.is_none()).then_some(stored_bytes_equal),
+                    "expectedRecords":observation.values.len(),"currentRecords":values.len()}));
+            }
+        }
+        Ok(serde_json::json!({"firstPrefixFailure":prefix_reason,
+            "prefixReadsEqual":reads,"prefixCurrentNamespacesEqual":current,"prefixAdoptedNamespacesEqual":adopted,
+            "prefixChangedNamespaces":changed_namespaces,"prefixIdentityBudgetBlocked":identity_blocked,
+            "expectedPrefixReads":certificate.prefix_reads.len(),"currentPrefixReads":parse.read_write_set.reads.len(),
+            "prefixIdentityShapesEqual":prefix_identity_shapes_equal,"detailRequested":detail,
+            "prefixOwnersEqual":prefix_owners_equal,"prefixScopesEqual":prefix_scopes_equal,"prefixNamespaceNamesEqual":prefix_names_equal,
+            "observationFailure":observation_reason,"detailBlocked":blocked,"observations":rows,
+            "allObservationsChecked":detail&&blocked.is_none(),"work":work,"comparedBytes":bytes,
+            "limits":{"samplesAtCaller":8,"prefixKeys":4096,"observations":64,"overlayWork":16384,"records":1024,"comparedBytes":1048576}}))
+    }
+
     /// Diagnostic admission predicate only. Parse-local comparisons cannot load
     /// durable data, update revisions, apply reads, or adopt observation history.
     #[cfg(test)]
@@ -267,6 +401,60 @@ mod tests {
         call.observe_reads();
         call.get(StateScope::Parse, NamespaceVisibility::Private, NAMESPACE, key).unwrap();
         if adopted { call.commit().unwrap(); } else { call.rollback(); }
+    }
+    #[test]
+    fn refusal_profile_distinguishes_prefix_identity_values_and_unobserved_limits_without_effects() {
+        let store=store();
+        store.register_component("test.other",&[NamespaceDeclaration::private(NAMESPACE,"test.values",1),
+            NamespaceDeclaration::shared("protected","test.values",1,Vec::<String>::new(),Vec::<String>::new())]).unwrap();
+        fn seed(parse:&ParseTransaction) {
+            let mut call=parse.begin_invocation(OWNER).unwrap();
+            call.put(StateScope::Parse,NamespaceVisibility::Private,NAMESPACE,"value",StateValue::new("test.values",StateEncoding::Raw,b"same")).unwrap();
+            call.commit().unwrap();get(parse,"prefix",true);
+        }
+        let first=parse(&store,1);seed(&first);let point=first.body_observation_checkpoint().unwrap();
+        get(&first,"value",true);let cert=first.body_read_certificate(&point).unwrap().unwrap();first.cancel().unwrap();
+        let mut unrelated=cert.clone();let mut key=cert.prefix_reads.iter().next().unwrap().clone();
+        key.namespace="unrelated".into();key.key="new".into();unrelated.prefix_reads.insert(key.clone());unrelated.adopted_reads.insert(key.clone());
+        let identity=cert.compare_fresh_read_identity(&unrelated);assert_eq!(identity["addedReadsEqual"],true);assert_eq!(identity["oldBodyObservationOverlap"],false);
+        key.namespace=NAMESPACE.into();let mut overlapping=cert.clone();overlapping.prefix_reads.insert(key.clone());overlapping.adopted_reads.insert(key);
+        let identity=cert.compare_fresh_read_identity(&overlapping);assert_eq!(identity["addedReadsEqual"],true);
+        assert_eq!(identity["oldBodyObservationOverlap"],true,"equal deltas cannot prove an unobserved reread irrelevant");
+        for (index,case) in ["pass","prefix_reads","prefix_current_namespaces","prefix_adopted_namespaces","overlap",
+            "reference_missing","owner_namespace_identity","permission_denied","record_presence","schema_changed",
+            "encoding_changed","stored_bytes_changed","value_then_blocked","non_parse_scope","comparison_byte_limit","observation_limit","disabled","exhausted"].into_iter().enumerate() {
+            let current=parse(&store,index as u64+2);seed(&current);let mut value=cert.clone();
+            match case {
+                "prefix_reads"|"overlap"=>{value.prefix_reads.clear();if case=="overlap" {value.prefix_namespaces.clear();value.prefix_adopted_namespaces.clear();}},
+                "prefix_current_namespaces"=>value.prefix_namespaces.clear(),
+                "prefix_adopted_namespaces"=>value.prefix_adopted_namespaces.clear(),
+                "reference_missing"=>value.observations[0].component="test.missing".into(),
+                "owner_namespace_identity"=>value.observations[0].component="test.other".into(),
+                "permission_denied"=>value.observations[0].key.namespace=NamespaceKey::Shared{name:"protected".into()},
+                "record_presence"=>{value.observations[0].values.clear();},
+                "schema_changed"=>value.observations[0].values.get_mut("value").unwrap().schema_id="other".into(),
+                "encoding_changed"=>value.observations[0].values.get_mut("value").unwrap().encoding=StateEncoding::Json,
+                "stored_bytes_changed"=>value.observations[0].values.get_mut("value").unwrap().bytes=b"other".to_vec(),
+                "value_then_blocked"=>{value.observations[0].values.get_mut("value").unwrap().bytes=b"other".to_vec();let mut later=value.observations[0].clone();later.key.scope=StateScope::Project;value.observations.push(later);},
+                "non_parse_scope"=>value.observations[0].key.scope=StateScope::Project,
+                "comparison_byte_limit"=>value.observations[0].values.get_mut("value").unwrap().bytes=vec![0;1048577],
+                "observation_limit"=>value.observations=vec![value.observations[0].clone();65],
+                "disabled"=>current.lock().unwrap().observations.enabled=false,
+                "exhausted"=>current.lock().unwrap().observations.exhausted=true,
+                "pass"=>{},_=>unreachable!(),
+            }
+            let before=current.body_observation_checkpoint().unwrap();let state=current.read_write_set().unwrap();
+            let observations=current.body_shadow_status(&before).unwrap();
+            let report=current.body_read_refusal_profile(&value,true).unwrap();
+            let serialized=report.to_string();assert!(!serialized.contains("\"same\"")&&!serialized.contains("\"prefix\"")&&!serialized.contains("\"value\""));
+            assert_eq!(current.read_write_set().unwrap(),state,"{case}");
+            assert_eq!(current.body_shadow_status(&before).unwrap(),observations,"{case}");
+            let expected=if case=="overlap" {"prefix_reads"} else if case=="value_then_blocked" {"stored_bytes_changed"} else {case};
+            let actual=report["firstPrefixFailure"].as_str().or(report["observationFailure"].as_str()).or(report["detailBlocked"].as_str());
+            assert_eq!(actual,if case=="pass" {None} else {Some(expected)},"{case}: {report}");
+            assert_eq!(current.replay_body_read_certificate(&value).unwrap(),matches!(case,"pass"|"observation_limit"),"{case}");
+            current.cancel().unwrap();
+        }
     }
     #[test]
     fn shadow_read_admission_is_nonmutating_and_matches_actual_parse_scope_replay() {

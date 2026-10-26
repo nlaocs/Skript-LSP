@@ -525,7 +525,9 @@ fn measure_public_structure_body_edit_reuse() {
                 host.body_shadow_probe=Some(body_shadow::Probe::new(enabled,starts));
             }
             if admission_reasons {
-                host.body_admission_probe=(enabled || compare_bodies).then(body_admission_measurement::Probe::default);
+                host.body_admission_probe=(enabled || compare_bodies).then(||if plan["readRefusalDetails"]==true {
+                    body_admission_measurement::Probe::with_read_refusals()
+                } else {body_admission_measurement::Probe::default()});
                 assert!(host.measurement_probe().is_none(),"counter-only measurement must not enable catalog timers");
             }
             if (!admission_reasons || compare_bodies) && !enabled {
@@ -569,7 +571,7 @@ fn measure_public_structure_body_edit_reuse() {
                 assert_eq!(&initial_signature, initial, "initial semantic digest differs");
                 assert_eq!(&edit_signature, edited, "edited semantic digest differs");
                 if admission_reasons && !compare_bodies {assert_eq!(&initial_calls,calls_before);assert_eq!(&edit_calls,calls_after);}
-                if shadow || compare_bodies {assert_eq!(&observer_signature,observer_before,"preparation and physical/negative call order differs");}
+                if shadow || compare_bodies || plan["readRefusalDetails"]==true {assert_eq!(&observer_signature,observer_before,"preparation and physical/negative call order differs");}
             }
             rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":(admission_reasons && !compare_bodies) || enabled,
                 "reasonProbeEnabled":admission_reasons && (enabled || compare_bodies),"initialAdmission":initial_reasons,"editAdmission":edit_reasons,
