@@ -8,8 +8,12 @@ use super::{
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 
 const RECEIPT: &str = "parser.semantic-writer-receipt.v1";
+
+mod body;
+pub(super) use body::BodyReceiptBundle;
 
 #[derive(Debug, Clone)]
 struct Receipt {
@@ -25,7 +29,7 @@ struct Receipt {
 #[derive(Debug, Default)]
 pub(super) struct ReceiptRegistry {
     receipts: BTreeMap<u64, Receipt>,
-    next: u64,
+    sequence: Arc<AtomicU64>,
     exhausted: bool,
 }
 
@@ -79,6 +83,9 @@ fn visit_metadata_mut(
 }
 
 impl ReceiptRegistry {
+    pub(super) fn with_sequence(sequence: Arc<AtomicU64>) -> Self {
+        Self { sequence, ..Self::default() }
+    }
     pub(super) fn begin(&self, payload: &HookPayload) -> DispatchWriters {
         let mut result = DispatchWriters::default();
         visit_metadata(payload, |metadata| {
@@ -132,12 +139,11 @@ impl ReceiptRegistry {
             return None;
         }
         writers.writers.insert(component.to_owned());
-        let Some(next) = self.next.checked_add(1) else {
+        let Ok(previous) = self.sequence.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(1)) else {
             self.exhausted = true;
             return None;
         };
-        self.next = next;
-        let token = self.next;
+        let token = previous + 1;
         self.receipts.insert(
             token,
             Receipt {
@@ -517,6 +523,11 @@ fn digest(tree: &AstTree) -> [u8; 32] {
 }
 
 impl SemanticProofRegistry {
+    /// Whole-result gate for publishing a body artifact after mutable phases.
+    pub(super) fn authenticates_result(&self, tree: &AstTree, source: &skript_parser::MappedSource) -> bool {
+        self.valid && self.source == Some(debug_digest("semantic-source-v1", source))
+            && canonical(tree, true).is_some_and(|value| self.forest == Some(digest(&value.tree)))
+    }
     pub(super) fn capture(
         tree: &AstTree,
         receipts: Option<&ReceiptRegistry>,
@@ -789,6 +800,28 @@ mod tests {
             subscription_id: "test".into(),
             semantic_receipt: receipt,
         }
+    }
+
+    #[test]
+    fn body_receipts_keep_closed_adoption_and_host_lifetime_identity() {
+        let sequence = Arc::default();
+        let mut first = ReceiptRegistry::with_sequence(Arc::clone(&sequence));
+        let mut value = node(0);
+        let a = write(&mut first, &mut value, "a");
+        let b = write(&mut first, &mut value, "b");
+        let metadata = value.metadata.iter().map(|m| (m.key.clone(),m.value.clone())).collect::<Vec<_>>();
+        assert!(first.export_body(&[b.clone()], &metadata).is_none(), "no implicit import of an earlier parent");
+        let bundle = first.export_body(&[a.clone(),b.clone()], &metadata).unwrap();
+        let mut current = ReceiptRegistry::with_sequence(sequence);
+        let fresh = write(&mut current, &mut node(1), "fresh");
+        assert!(fresh.semantic_receipt > b.semantic_receipt);
+        assert!(current.can_import_body(&bundle));
+        assert!(current.import_body(&bundle));
+        assert!(!current.can_import_body(&bundle), "cannot overwrite current authority");
+        assert!(!ReceiptRegistry::default().can_import_body(&bundle), "numeric IDs are not authority in another host");
+        let mut forged = metadata;
+        forged.push((RECEIPT.into(), "999999".into()));
+        assert!(first.export_body(&[a,b], &forged).is_none());
     }
 
     #[test]

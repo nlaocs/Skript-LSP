@@ -6,7 +6,7 @@
 
 mod observation;
 mod persistent;
-pub(crate) use observation::{StateObservationCheckpoint, StateReadCertificate};
+pub(crate) use observation::{BodyObservationCheckpoint, BodyReadCertificate, StateObservationCheckpoint, StateReadCertificate};
 
 use std::{
     collections::{BTreeMap, BTreeSet},

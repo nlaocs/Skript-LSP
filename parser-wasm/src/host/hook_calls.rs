@@ -37,6 +37,21 @@ impl HookCallLog {
         self.len
     }
 
+    /// Exact retained prefix, including order and duplicate calls. Equal values
+    /// from a discarded branch do not authenticate another branch's resource.
+    pub(super) fn is_prefix_of(&self, later: &Self) -> bool {
+        let mut cursor = later;
+        while cursor.len > self.len {
+            let Some(chunk) = &cursor.tail else { return false; };
+            cursor = &chunk.previous;
+        }
+        cursor.len == self.len && match (&self.tail, &cursor.tail) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a,b),
+            _ => false,
+        }
+    }
+
     pub(super) fn last(&self) -> Option<&HookCall> {
         self.tail.as_ref()?.calls.last()
     }
@@ -113,6 +128,20 @@ mod tests {
             subscription_id: index.to_string(),
             semantic_receipt: Some(index),
         }
+    }
+
+    #[test]
+    fn exact_prefix_preserves_branch_identity_not_only_equal_call_values() {
+        let mut prefix = HookCallLog::default();
+        prefix.extend(vec![call(1)]);
+        let mut accepted = prefix.clone();
+        accepted.extend(vec![call(2),call(2)]);
+        let mut rejected = prefix.clone();
+        rejected.extend(vec![call(2),call(2)]);
+        assert!(prefix.is_prefix_of(&accepted));
+        assert!(!rejected.is_prefix_of(&accepted));
+        assert!(!accepted.is_prefix_of(&prefix));
+        assert!(HookCallLog::default().is_prefix_of(&accepted));
     }
 
     #[test]

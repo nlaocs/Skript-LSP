@@ -424,7 +424,9 @@ impl ParserHost {
             function_namespace_complete,
         );
         let previous_dependencies = self.native_dependency_unavailable.replace(Vec::new());
-        let previous_receipts = self.semantic_receipts.replace(Default::default());
+        let previous_receipts = self.semantic_receipts.replace(
+            super::semantic_proof::ReceiptRegistry::with_sequence(self.semantic_receipt_sequence.clone()),
+        );
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(
                 &transaction,

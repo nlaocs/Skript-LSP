@@ -3523,6 +3523,8 @@ struct PatternBranchState {
 struct SavedPatternCandidate {
     state: StateSavepoint,
     effects: HookEffectsCheckpoint,
+    // Observation history only. Current adoption is checked independently.
+    restored: Option<Arc<AtomicBool>>,
 }
 
 fn hook_outcome_accepted(outcome: &PatternHookOutcome, control: &PatternHookControl) -> bool {
@@ -3741,6 +3743,7 @@ impl WasmPatternHooks<'_> {
         };
         if accepted {
             self.last_candidate = Some(SavedPatternCandidate {
+                restored: self.host.body_observing.then(|| Arc::new(AtomicBool::new(false))),
                 state: self
                     .transaction
                     .savepoint()
@@ -4367,6 +4370,9 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
             &mut self.hooks.calls,
             &mut self.hooks.failures,
         );
+        if let Some(restored) = &state.restored {
+            restored.store(true, Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -9338,6 +9344,8 @@ pub struct ParserHost {
     native_function_namespace_complete: bool,
     native_dependency_unavailable: Option<Vec<DependencyUnavailableRegion>>,
     semantic_receipts: Option<semantic_proof::ReceiptRegistry>,
+    semantic_receipt_sequence: Arc<std::sync::atomic::AtomicU64>,
+    body_observing: bool,
     expression_preparation: skript_parser::ExpressionPreparationCache,
     incremental: incremental::IncrementalCache,
     state_store: StateStore,
@@ -9752,6 +9760,8 @@ impl ParserHost {
             native_function_namespace_complete: true,
             native_dependency_unavailable: None,
             semantic_receipts: None,
+            semantic_receipt_sequence: Arc::default(),
+            body_observing: false,
             expression_preparation: skript_parser::ExpressionPreparationCache::default(),
             incremental: incremental::IncrementalCache::default(),
             state_store,

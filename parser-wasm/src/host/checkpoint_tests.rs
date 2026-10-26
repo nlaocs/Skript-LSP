@@ -378,6 +378,7 @@ fn exported_candidate_state_keeps_its_log_alive_after_the_environment_is_dropped
     with_environment(|mut environment| {
         extend_hook_calls(&mut environment.hooks.calls, vec![call("selected")]);
         environment.hooks.last_candidate = Some(SavedPatternCandidate {
+            restored: None,
             state: environment.hooks.transaction.savepoint().unwrap(),
             effects: HookEffectsCheckpoint::capture(
                 &environment.hooks.effects,

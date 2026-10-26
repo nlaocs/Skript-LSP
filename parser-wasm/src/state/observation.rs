@@ -2,6 +2,9 @@
 //! Observations survive candidate rollback; adopted reads remain invocation-local.
 use super::*;
 
+mod body;
+pub(crate) use body::{BodyObservationCheckpoint, BodyReadCertificate};
+
 const MAX_OBSERVATIONS: usize = 16_384;
 const MAX_OBSERVED_BYTES: usize = 8 * 1024 * 1024;
 
