@@ -2147,6 +2147,46 @@ mod tests {
     }
 
     #[test]
+    fn entities_plurality_uses_only_the_matched_expression_span() {
+        let mut entities = registered_expression("ch.njol.skript.expressions.ExprEntities");
+        entities.children.push(expression_child(
+            "unknown entities",
+            "ch.njol.skript.entity.EntityData",
+            DynamicMultiplicity::Single,
+        ));
+        for (prefix, expression, accepted) in [
+            ("on load:\n    send ", "all unknown entities", true),
+            ("# 日本語 😀\non load:\n    send ", "ALL unknown entities", true),
+            ("all outside this expression\non load:\n    send ", "unknown entities", false),
+            ("", "unknown entities", false),
+        ] {
+            entities.input = format!("{prefix}{expression}\n# outside the expression");
+            entities.span.virtual_range = TextRange {
+                start: prefix.len() as u64,
+                end: (prefix.len() + expression.len()) as u64,
+            };
+            let resolution = expressions::resolve(&entities).unwrap();
+            assert_eq!(
+                matches!(resolution, expressions::SemanticResolution::Resolved { .. }),
+                accepted,
+                "prefix={prefix:?}, expression={expression:?}",
+            );
+            if let expressions::SemanticResolution::Resolved { return_type, multiplicity, .. } = resolution {
+                assert_eq!(return_type, "org.bukkit.entity.Entity");
+                assert_eq!(multiplicity, DynamicMultiplicity::Multiple);
+            }
+        }
+        entities.input = "😀 all unknown entities".to_owned();
+        for (start, end) in [(1, 4), (9, 2), (0, 999), (u64::MAX, u64::MAX)] {
+            entities.span.virtual_range = TextRange { start, end };
+            assert!(matches!(expressions::resolve(&entities), Some(expressions::SemanticResolution::Reject(_))));
+        }
+        // Odd-index dynamic patterns do not inspect literal plurality or source.
+        entities.pattern_index = 1;
+        assert!(matches!(expressions::resolve(&entities), Some(expressions::SemanticResolution::Resolved { .. })));
+    }
+
+    #[test]
     fn element_expression_preserves_the_source_type_and_selected_amount() {
         let mut element = registered_expression("ch.njol.skript.expressions.ExprElement");
         element.input = "a random element out of all players".to_owned();

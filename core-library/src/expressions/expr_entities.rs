@@ -32,7 +32,9 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             // ExprEntities.init() checks every value of the literal-only %*entitydatas% patterns.
             // Unknown plurality is accepted only when the complete expression explicitly starts
             // with "all"; dynamic odd-index patterns deliberately skip this validation.
-            if plural == Some("false") || (plural.is_none() && !starts_with_all(&payload.input)) {
+            if plural == Some("false")
+                || (plural.is_none() && !expression_source(payload).is_some_and(starts_with_all))
+            {
                 return SemanticResolution::Reject(
                     "entities Expression requires plural entity data".to_owned(),
                 );
@@ -61,6 +63,12 @@ pub(super) fn resolve(payload: &RegisteredExpressionPayload) -> Option<SemanticR
             )],
         )
     })
+}
+
+fn expression_source(payload: &RegisteredExpressionPayload) -> Option<&str> {
+    let start = usize::try_from(payload.span.virtual_range.start).ok()?;
+    let end = usize::try_from(payload.span.virtual_range.end).ok()?;
+    payload.input.get(start..end)
 }
 
 fn starts_with_all(input: &str) -> bool {
