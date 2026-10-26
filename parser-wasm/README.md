@@ -7,10 +7,13 @@ together; older WIT layouts and ABI versions are incompatible. An empty list
 opts out. Every active provider must certify body-local routing, and every
 reached request, including losing or negative attempts, must be listed.
 
-The first host implementation reuses only portable flat Trigger bodies with
+The host reuses portable Trigger bodies with
 unchanged source geometry, current context, readonly State dependencies and a
-closed private receipt graph. Function lookup, nested editing owners,
-AdditionalParse attempts, unknown resources and mutations remain cold. Headers,
+closed private receipt graph. Nested Section owners additionally require their
+real enter-time proposals, complete preorder/parent/attempt matching, and current
+consumed-resource coverage before data-only preparations can be replayed. No old
+opaque resource or State delta is adopted. Function lookup, AdditionalParse
+attempts, unknown resources and mutations remain cold. Headers,
 declaration registration, ExitBody and final source/forest proof still run.
 Aggregate registered-expression subscriptions can opt in for an individually
 audited handler set. All handlers targeting the current registration must be
@@ -18,7 +21,9 @@ listed, even when their pattern/tag/mark selectors do not match. The declaration
 certifies the entire invocation, including common pre/post and fallback code;
 empty, unknown and unlisted routes stay cold. Core initially declares only
 ExprEntities, ExprSets and SimpleLiteral through this common contract. Conditional
-reuse currently requires unique static Catalog identity; a component declaring
+ExprEntity is also audited for the whole invocation, including capture routing,
+the common pipeline and Reject paths. This does not certify a Reject in isolation.
+Reuse currently requires unique static Catalog identity; a component declaring
 an Expression DynamicHandler route stays cold. This contract
 does not promise a speedup for arbitrary scripts. `HookCall.origin` distinguishes
 current execution and verified reuse; the retained semantic trace is not a

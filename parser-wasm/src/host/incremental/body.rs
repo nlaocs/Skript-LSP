@@ -1,9 +1,12 @@
 //! First native body reuse case: exact geometry, read-only State, no Function
-//! lookups, nested editing owners or AdditionalParse resources. Unknown paths
+//! lookups or AdditionalParse resources. Nested editing owners require real
+//! enter-time preparation and current consumed-resource proofs. Unknown paths
 //! stay cold; headers, ExitBody and the final proof are always current.
 use super::*;
 use crate::state::{BodyObservationCheckpoint, BodyReadCertificate};
 use skript_parser::{PortableStructureBody, StructureBodyPlan, StructureBodyReplay, StructureBodyReuseRequest, StructureBodyWork};
+mod preparation;
+use preparation::BodyPreparations;
 
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_BODY_CALLS: usize = 4096;
@@ -79,6 +82,8 @@ pub(in crate::host) struct BodyObservation {
     proposal: Option<Arc<CachedBody>>,
     pending: Option<Arc<CachedBody>>,
     invalid: bool,
+    preparations: BodyPreparations,
+    replay_applied: bool,
     #[cfg(test)]
     shadow: Option<body_shadow::Lease>,
 }
@@ -166,6 +171,8 @@ impl WasmExpressionEnvironment<'_> {
             state:self.hooks.transaction.body_observation_checkpoint().map_err(|e|self.hooks.host_error(e))?,
             effects:HookEffectsCheckpoint::capture(&self.hooks.effects,&self.hooks.calls,&self.hooks.failures),
             proposal:proposal.clone(),pending:None,invalid:false,
+            preparations:BodyPreparations::new(request.candidate.raw_node_id,request.parent_attempt),
+            replay_applied:false,
             #[cfg(test)]
             shadow,
         });
@@ -245,14 +252,25 @@ impl WasmExpressionEnvironment<'_> {
         let mut calls=proposal.calls.clone();
         for call in &mut calls {call.origin=HookCallOrigin::ReusedStructureBody;}
         self.hooks.calls.extend(calls);
+        self.body.as_mut().unwrap().replay_applied=true;
         self.hooks.host.incremental.active.as_mut().unwrap().metrics.body_hits+=1;
         self.hooks.host.body_admission_count("body_admission.accept.replayed");
         Ok(true)
     }
 
-    pub(in crate::host) fn body_preparation(&mut self) {
-        // No nested editing owner is portable in the first enabled host case.
-        if let Some(body)=self.body.as_mut() {body.invalid=true;}
+    pub(in crate::host) fn body_preparation(&mut self, event:&skript_parser::StructurePreparationEvent<'_>) {
+        if let Some(body)=self.body.as_mut() {
+            if body.invalid {return;}
+            if body.replay_applied {
+                let expected=body.proposal.as_ref().and_then(|p|p.replay.preparations.get(body.preparations.entries().len()));
+                if !matches!((expected,event),(Some(expected),skript_parser::StructurePreparationEvent::SectionHeader {
+                    candidate,attempt_id,parent_attempt_id,..}) if expected.candidate==**candidate
+                        && expected.attempt_id==*attempt_id && expected.parent_attempt_id==*parent_attempt_id) {
+                    body.invalid=true;return;
+                }
+            }
+            if !body.preparations.observe(event,&self.hooks,&body.effects) {body.invalid=true;}
+        }
     }
 
     pub(in crate::host) fn body_finish(&mut self, body:&mut skript_parser::StructureBody, context:&ExpressionParseContext, work:StructureBodyWork) -> Result<bool,String> {
@@ -261,6 +279,9 @@ impl WasmExpressionEnvironment<'_> {
         use std::fmt::Write;
         self.hooks.host.body_observing=false;
         let Some(observation)=self.body.as_ref() else {return Ok(false);};
+        if observation.replay_applied && observation.invalid {
+            return Err("reused body preparation changed after admission".into());
+        }
         self.hooks.host.body_admission_count("body_admission.finish.total");
         let before=&observation.effects;
         let mut reason="body_admission.finish.reject.invalid";
@@ -296,29 +317,25 @@ impl WasmExpressionEnvironment<'_> {
         };
         let calls=self.hooks.calls.suffix(before.calls.len());
         let updates=&self.hooks.effects.context_updates[before.effects.context_updates.len()..];
-        let tx=self.hooks.transaction;
-        let mut consumed=|kind,value:&skript_parser::ExpressionEffects| {
-            match kind {
-                skript_parser::ConsumedBodyResource::Expression => value.downcast_ref::<DeferredExpressionEffects>()
-                    .is_some_and(|e| tx.delta_is_currently_applied(&e.state).unwrap_or(false)
-                        && e.failures.is_empty() && e.effects.diagnostics.is_empty()
-                        && e.effects.parse_requests.is_empty() && e.effects.parse_results.is_empty()
-                        && (e.calls.is_empty() || calls.windows(e.calls.len()).any(|part|part==e.calls.as_slice()))
-                        && (e.effects.context_updates.is_empty() || updates.windows(e.effects.context_updates.len()).any(|part|
-                            part.iter().zip(&e.effects.context_updates).all(|(a,b)|
-                                a.syntax_context==b.syntax_context && a.key==b.key && a.value==b.value)))),
-                skript_parser::ConsumedBodyResource::Pattern => value.downcast_ref::<SavedPatternCandidate>()
-                    .is_some_and(|e| tx.owns_savepoint(&e.state).unwrap_or(false)
-                        && e.restored.as_ref().is_some_and(|flag|flag.load(Ordering::Relaxed))
-                        && e.effects.calls.is_prefix_of(&self.hooks.calls)),
-            }
-        };
+        let mut consumed=|kind,value:&skript_parser::ExpressionEffects|
+            consumed_resource(&self.hooks,&calls,updates,kind,value);
+        if !observation.preparations.validate_current(body,&mut consumed) {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.preparations");
+            if observation.replay_applied {return Err("reused body lost current preparation coverage".into());}
+            return Ok(false);
+        }
         let Some(portable)=PortableStructureBody::freeze(body,&mut consumed) else {
             self.hooks.host.body_admission_count("body_admission.finish.reject.portable");
             debug_reason(self.hooks.host,"native resources are not portable");return Ok(false);
         };
+        if !portable.matches_preparations(observation.preparations.entries()) {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.preparation_identity");
+            if observation.replay_applied {return Err("reused body preparation identity changed".into());}
+            return Ok(false);
+        }
         let mut metadata=portable.metadata().to_vec();
         metadata.extend(context.values.iter().map(|(k,v)|(k.clone(),v.clone())));
+        metadata.extend(observation.preparations.metadata().iter().cloned());
         for frame in &context.section_stack {
             metadata.extend(frame.metadata.iter().map(|(k,v)|(k.clone(),v.clone())));
             for capture in &frame.captures {metadata.extend(capture.metadata.iter().map(|(k,v)|(k.clone(),v.clone())));}
@@ -329,6 +346,7 @@ impl WasmExpressionEnvironment<'_> {
         };
         let effects=HookEffects {diagnostics:Vec::new(),context_updates:updates.to_vec(),parse_requests:Vec::new(),parse_results:Vec::new()};
         size.0=size.0.saturating_add(reads.retained_bytes());
+        size.0=size.0.saturating_add(observation.preparations.retained_bytes());
         size.0=size.0.saturating_add(portable.metadata().len().saturating_mul(std::mem::size_of::<(String,String)>()));
         if write!(&mut size,"{:?}",portable.metadata()).is_err() {
             self.hooks.host.body_admission_count("body_admission.finish.reject.retained_budget");return Ok(false);
@@ -337,7 +355,8 @@ impl WasmExpressionEnvironment<'_> {
             self.hooks.host.body_admission_count("body_admission.finish.reject.retained_budget");return Ok(false);
         }
         let entry=Arc::new(CachedBody {
-            replay:StructureBodyReplay {before:observation.before,body:portable.clone(),post_context:context.clone(),work,preparations:Vec::new()},
+            replay:StructureBodyReplay {before:observation.before,body:portable.clone(),post_context:context.clone(),work,
+                preparations:observation.preparations.entries().to_vec()},
             effects,calls,reads,receipts,bytes:size.0,
         });
         *body=portable.into_body();
@@ -370,5 +389,25 @@ impl WasmExpressionEnvironment<'_> {
             if let Some(probe)=&probe {probe.record(if !accepted {"body_admission.adopt.reject.not_accepted"}
                 else {"body_admission.adopt.reject.capacity"});}
         }
+    }
+}
+
+/// A known resource must have been consumed in this transaction. Used both at
+/// the real enter event and at body end; identity alone never grants authority.
+fn consumed_resource(hooks:&WasmPatternHooks<'_>, calls:&[HookCall], updates:&[ContextUpdate],
+    kind:skript_parser::ConsumedBodyResource, value:&skript_parser::ExpressionEffects) -> bool {
+    match kind {
+        skript_parser::ConsumedBodyResource::Expression=>value.downcast_ref::<DeferredExpressionEffects>().is_some_and(|e|
+            hooks.transaction.delta_is_currently_applied(&e.state).unwrap_or(false)
+                && e.failures.is_empty() && e.effects.diagnostics.is_empty()
+                && e.effects.parse_requests.is_empty() && e.effects.parse_results.is_empty()
+                && (e.calls.is_empty() || calls.windows(e.calls.len()).any(|part|part==e.calls.as_slice()))
+                && (e.effects.context_updates.is_empty() || updates.windows(e.effects.context_updates.len()).any(|part|
+                    part.iter().zip(&e.effects.context_updates).all(|(a,b)|
+                        a.syntax_context==b.syntax_context && a.key==b.key && a.value==b.value)))),
+        skript_parser::ConsumedBodyResource::Pattern=>value.downcast_ref::<SavedPatternCandidate>().is_some_and(|e|
+            hooks.transaction.owns_savepoint(&e.state).unwrap_or(false)
+                && e.restored.as_ref().is_some_and(|flag|flag.load(Ordering::Relaxed))
+                && e.effects.calls.is_prefix_of(&hooks.calls)),
     }
 }

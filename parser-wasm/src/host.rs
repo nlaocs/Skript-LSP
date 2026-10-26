@@ -5422,7 +5422,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     fn structure_preparation(&mut self, event: skript_parser::StructurePreparationEvent<'_>) {
         #[cfg(test)]
         self.shadow_preparation(&event);
-        self.body_preparation();
+        self.body_preparation(&event);
         if let Some(observer) = self.structure_preparation.as_mut() {
             observer(event);
         }

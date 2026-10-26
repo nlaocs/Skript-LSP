@@ -558,6 +558,9 @@ fn real_core_body_unlisted_registered_resolver_keeps_typed_assignments_cold() {
     warm_host.body_debug=true;
     warm_host.components[0].manifest.incremental_local_subscriptions.clear();
     warm_host.components[0].manifest.incremental_header_handlers.clear();
+    for scope in &mut warm_host.components[0].manifest.incremental_body_handler_subscriptions {
+        scope.handler_ids.retain(|id|id!="core.expression.expr-entity");
+    }
     let first=run(&mut warm_host,source,1);
     assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
     let initial=warm_host.incremental_metrics();
@@ -686,6 +689,11 @@ fn real_core_nested_medium_bodies_remain_cold_with_unlisted_resolvers() {
         host.body_debug=true;
         host.components[0].manifest.incremental_local_subscriptions.clear();
         host.components[0].manifest.incremental_header_handlers.clear();
+        // Explicitly withdraw the provider promise. The negative regression
+        // stays valid when a newly audited Core resolver becomes body-local.
+        for scope in &mut host.components[0].manifest.incremental_body_handler_subscriptions {
+            scope.handler_ids.retain(|id|id!="core.expression.expr-entity");
+        }
         let (first,events)=run_with_body_preparations(&mut host,source,1);
         assert_eq!(events.len(),4);
         assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
@@ -714,6 +722,111 @@ fn real_core_nested_medium_bodies_remain_cold_with_unlisted_resolvers() {
             assert_eq!(calls,guest_calls(&cold)-before);
         }
     }
+}
+
+#[test]
+fn real_core_nested_body_replays_real_preparations_and_complete_invocations() {
+    let source="# edit:a\nfunction publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    if {_streak} >= 3:\n        return 4\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    if {_streak} >= 3:\n        return \"regular\"\n    return \"starter\"\n";
+    for fixture in ["skript-2.15.4-type-runtime","skript-2.16.2-java25"] {
+        let mut host=actual_host_with_fixture(fixture);
+        host.body_debug=true;
+        host.components[0].manifest.incremental_local_subscriptions.clear();
+        host.components[0].manifest.incremental_header_handlers.clear();
+        let (initial,preparations)=run_with_body_preparations(&mut host,source,1);
+        assert!(initial.syntax.diagnostics.is_empty(),"{fixture}: {:?}",initial.syntax.diagnostics);
+        assert_eq!(preparations.len(),4);
+        assert_eq!(host.incremental_metrics().body_stored,2,"{fixture}: {:?}",host.incremental_metrics());
+        for (i,current) in [source.to_owned(),source.replace("# edit:a","# edit:b")].iter().enumerate() {
+            let before=guest_calls(&host);
+            let (warm,events)=run_with_body_preparations(&mut host,current,i as u64+2);
+            let actual=guest_calls(&host)-before;
+            let metrics=host.incremental_metrics();
+            let mut cold=actual_host_with_fixture(fixture);
+            cold.components[0].manifest.incremental_local_subscriptions.clear();
+            cold.components[0].manifest.incremental_header_handlers.clear();
+            cold.components[0].manifest.incremental_body_subscriptions.clear();
+            cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+            let before=guest_calls(&cold);
+            let (clean,clean_events)=run_with_body_preparations(&mut cold,current,i as u64+2);
+            let cold_calls=guest_calls(&cold)-before;
+            assert_equivalent(&warm,&clean);
+            assert_eq!(events,clean_events,"actual enter contexts/captures/order/ownership must remain current");
+            assert_eq!(metrics.body_hits,2,"{fixture}/{i}: {metrics:?}");
+            assert!(actual<cold_calls,"{actual}/{cold_calls}");
+            assert!(warm.syntax_calls.iter().any(|c|c.origin==HookCallOrigin::ReusedStructureBody));
+            eprintln!("nested body {fixture}/{i}: {metrics:?}; physical calls {actual}/{cold_calls}");
+        }
+    }
+}
+
+#[test]
+fn real_core_nested_body_changes_revalidate_against_cold() {
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    return \"starter\"\n";
+    for (label,current) in [
+        ("length",source.replace("return 8","return 88")),
+        ("declaration",source.replace("streak: number","streak: text")),
+        ("return-context",source.replacen(":: number",":: text",1)),
+        ("unicode-offset",format!("# \u{65e5}\u{1f98a}\r\n{source}")),
+        ("nested",source.replacen("return 8","if 1 is 1:\n            return 8",1)),
+        ("incomplete",source.replace("if {_streak} >= 7:","if:")),
+        ("function-lookup",source.replacen("return 8","return max(8, 2)",1)),
+    ] {
+        let mut host=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        run(&mut host,source,1);
+        assert_eq!(host.incremental_metrics().body_stored,2);
+        let (actual,events)=run_with_body_preparations(&mut host,&current,2);
+        let mut cold=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        let (expected,expected_events)=run_with_body_preparations(&mut cold,&current,2);
+        assert_equivalent(&actual,&expected);
+        assert_eq!(events,expected_events,"{label}");
+        assert_eq!(host.incremental_metrics().body_hits,0,"changed input/dependencies must be revalidated: {label}");
+        assert!(host.active_parse_requests.is_empty());
+        assert!(host.components.iter().all(|c|c.store.data().invocation.is_none()));
+    }
+}
+
+#[test]
+fn real_core_nested_body_hit_cancel_rolls_back_before_later_revision_and_close() {
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    return \"starter\"\n";
+    let mut warm=actual_host_with_fixture("skript-2.15.4-type-runtime");
+    let mut cold=actual_host_with_fixture("skript-2.15.4-type-runtime");
+    cold.components[0].manifest.incremental_body_subscriptions.clear();
+    cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+    run(&mut warm,source,1);run(&mut cold,source,1);
+    assert_eq!(warm.incremental_metrics().body_stored,2);
+    let cancel_parse=|host:&mut ParserHost| {
+        let token=DocumentCancellationToken::new();let signal=token.clone();let mut reached=false;
+        let result=host.parse_document_with_preparation(
+            DocumentParseRequest::new("file:///workspace","file:///workspace/actual-incremental.sk",2,source),
+            DocumentParserConfig {cancellation:token,..DocumentParserConfig::default()},&mut |event| {
+                if matches!(event,skript_parser::StructurePreparationEvent::SectionHeader {..}) {
+                    reached=true;signal.cancel();
+                }
+            });
+        assert!(reached);
+        assert!(result.is_err() || result.as_ref().is_ok_and(|r|r.execution_status!=DocumentExecutionStatus::Complete));
+        assert_eq!(host.incremental_metrics().body_stored,0,"a cancelled imported body must not be published");
+        assert!(host.active_parse_requests.is_empty());
+        assert!(host.components.iter().all(|c|c.store.data().invocation.is_none()));
+        result
+    };
+    let actual=cancel_parse(&mut warm);let expected=cancel_parse(&mut cold);
+    assert_eq!(warm.incremental_metrics().body_hits,1,"cancel must follow an actual read replay/import, not ordinary parsing");
+    match (&actual,&expected) {
+        (Ok(actual),Ok(expected))=>assert_equivalent(actual,expected),
+        (Err(actual),Err(expected))=>assert_eq!(format!("{actual:?}"),format!("{expected:?}")),
+        _=>panic!("different cancellation outcomes: {actual:?}/{expected:?}"),
+    }
+    let (actual,events)=run_with_body_preparations(&mut warm,source,3);
+    let (expected,expected_events)=run_with_body_preparations(&mut cold,source,3);
+    assert_equivalent(&actual,&expected);assert_eq!(events,expected_events);
+    assert_eq!(warm.incremental_metrics().body_hits,2,"cancelled imports must not collide or retain foreign authority");
+    assert!(warm.parse_document(DocumentParseRequest::new("file:///workspace","file:///workspace/actual-incremental.sk",1,source),DocumentParserConfig::default()).is_err());
+    assert!(warm.release_document("file:///workspace","file:///workspace/actual-incremental.sk",3).unwrap());
+    let reopened=run(&mut warm,source,1);
+    assert_eq!(warm.incremental_metrics().body_hits,0);
+    let mut fresh=actual_host_with_fixture("skript-2.15.4-type-runtime");
+    assert_equivalent(&reopened,&run(&mut fresh,source,1));
 }
 
 #[test]
@@ -802,6 +915,9 @@ fn body_shadow_changed_length_declaration_context_and_failure_stay_cold() {
     ] {
         let starts=|text:&str|[text.find("function publicRewardCount").unwrap(),text.find("function publicRewardLabel").unwrap()];
         let mut host=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        for scope in &mut host.components[0].manifest.incremental_body_handler_subscriptions {
+            scope.handler_ids.retain(|id|id!="core.expression.expr-entity");
+        }
         host.body_shadow_probe=Some(body_shadow::Probe::new(true,starts(source)));
         let first=run(&mut host,source,1);drop(first);
         let probe=host.body_shadow_probe.clone().unwrap();probe.reset();probe.retarget(starts(&text));

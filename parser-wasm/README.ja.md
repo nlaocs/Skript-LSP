@@ -5,11 +5,13 @@ ABI 28 / WIT 0.46 では、manifest の `incremental-body-handler-subscriptions`
 ないため、componentを揃えて再buildしてください。空listは再利用しません。
 全providerのbody-localな経路選択の保証と、未採用・不一致も含めた全要求の明示が必要です。
 
-初版のhostは、位置・現在context・読み取り専用State依存・閉じたreceipt graphを
-検証できる平坦なTrigger bodyだけを再利用します。関数lookup、入れ子の編集owner、
-AdditionalParseの試行、未知のresourceや書き込みは通常解析へ戻します。
+hostは、位置・現在context・読み取り専用State依存・閉じたreceipt graphを
+検証できるTrigger bodyを再利用します。入れ子のSection ownerには、実enter時の
+proposal、完全なpreorder・parent・attemptの一致、現在の消費済みresourceの被覆を
+追加で要求します。再生する準備情報はdata-onlyで、古いopaque resourceやState deltaは
+移植しません。関数lookup、AdditionalParseの試行、未知のresourceや書き込みは通常解析へ戻します。
 header、宣言登録、ExitBody、最後のsource／forest証明は毎回実行します。
-Coreのregistered-expression経路は、ExprEntities・ExprSets・SimpleLiteralを個別に監査した範囲だけが対象です。条件付き宣言は共通の前後処理も含めて保証し、一致するtargetのhandlerがすべて認証されている必要があります。静的identityが不明な経路やDynamicHandlerを宣言したcomponentは通常解析へ戻します。一般的な高速化は保証しません。
+Coreのregistered-expression経路は、ExprEntities・ExprSets・SimpleLiteral・ExprEntityを個別に監査した範囲だけが対象です。ExprEntityはcaptureのrouting・共通処理・Rejectを含むinvocation全体を対象にし、Rejectだけで省略可能とは判断しません。条件付き宣言は共通の前後処理も含めて保証し、一致するtargetのhandlerがすべて認証されている必要があります。静的identityが不明な経路やDynamicHandlerを宣言したcomponentは通常解析へ戻します。一般的な高速化は保証しません。
 `HookCall.origin`で実行と再利用を区別し、採用された意味traceを実Wasm呼出し数と混同しません。
 
 [English](README.md)
