@@ -19,6 +19,9 @@ use syntaxes::{
     SyntaxKind,
 };
 
+#[path = "structure/body_reuse.rs"]
+mod body_reuse;
+
 #[test]
 fn entry_declaration_identity_and_key_ranges_survive_duplicates_nesting_and_defaults() {
     let mut first = key_value("na\u{ef}ve", false, false);

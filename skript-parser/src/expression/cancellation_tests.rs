@@ -77,6 +77,7 @@ fn cancellation_precedes_memo_hits_and_clears_the_session_memo() {
         .unwrap();
     assert!(first.selected.is_some());
     assert!(!session.memo.is_empty());
+    session.reserved_memo_slots=2;
     let leaves = session.environment.leaves;
     session.environment.cancelled = true;
     let error = session
@@ -85,6 +86,7 @@ fn cancellation_precedes_memo_hits_and_clears_the_session_memo() {
     assert!(crate::parse_cancellation(&error).is_some());
     assert_eq!(session.environment.leaves, leaves);
     assert!(session.memo.is_empty());
+    assert_eq!(session.reserved_memo_slots,0);
     assert!(session.active.is_empty());
 }
 

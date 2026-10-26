@@ -47,6 +47,10 @@ mod capture_view_tests;
 mod cancellation_tests;
 
 #[cfg(test)]
+#[path = "expression/body_reuse_tests.rs"]
+mod body_reuse_tests;
+
+#[cfg(test)]
 #[path = "expression/memo_tests.rs"]
 mod memo_tests;
 
@@ -1263,6 +1267,35 @@ pub enum RegisteredExpressionDecision {
 
 /// Unified native/WASM environment used during recursive Expression parsing.
 pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
+    fn structure_body_reuse_enabled(&self) -> bool { false }
+    /// Explicit opt-in body boundary. Default environments retain the ordinary
+    /// cold parser, its memo, and every lifecycle callback unchanged.
+    fn prepare_structure_body(
+        &mut self,
+        _request: crate::StructureBodyReuseRequest<'_>,
+    ) -> Result<crate::StructureBodyPlan, String> { Ok(crate::StructureBodyPlan::Parse) }
+
+    /// Admit a proposed portable body only after native quota/owner checks.
+    /// A rejected proposal must leave current transactional state unchanged.
+    fn accept_structure_body_replay(
+        &mut self,
+        _request: crate::StructureBodyReuseRequest<'_>,
+    ) -> Result<bool,String> { Ok(false) }
+
+    /// Complete body work BEFORE ExitBody. True certifies a closed local body
+    /// whose consumed memo/resources may be released with logical quotas kept.
+    fn finish_structure_body(
+        &mut self,
+        _body: &mut crate::StructureBody,
+        _post_context: &ExpressionParseContext,
+        _work: crate::StructureBodyWork,
+    ) -> Result<bool,String> { Ok(false) }
+
+    /// Final candidate adoption after the ordinary ExitBody and rollback path.
+    /// True is candidate adoption only, never permission to publish a document
+    /// cache: this callback or a later phase can still cancel or reject the run.
+    fn adopt_structure_body(&mut self, _accepted: bool) -> Result<(),String> { Ok(()) }
+
     /// Optional reuse of pure pattern tables; no parsed source or semantics are cached.
     fn expression_preparation_cache(&mut self) -> Option<&mut ExpressionPreparationCache> {
         None
@@ -1600,6 +1633,7 @@ pub(crate) struct ExpressionSession<'a, E> {
     candidate_scopes: Vec<CandidateScope>,
     config: ExpressionParserConfig,
     memo: HashMap<MemoKey, PrefixParse>,
+    reserved_memo_slots: usize,
     active: HashSet<MemoKey>,
     resolved_nodes: HashMap<String, ExpressionNode>,
     frame_starts: Vec<usize>,
@@ -1836,6 +1870,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             candidate_scopes: Vec::new(),
             config,
             memo: HashMap::new(),
+            reserved_memo_slots: 0,
             active: HashSet::new(),
             resolved_nodes: HashMap::new(),
             frame_starts: Vec::new(),
@@ -2046,6 +2081,56 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         Ok(id)
     }
 
+    pub(crate) fn body_work(&self) -> crate::StructureBodyWork {
+        crate::StructureBodyWork {
+            candidates:self.candidates_seen,
+            memo_entries:self.memo.len().saturating_add(self.reserved_memo_slots),
+            next_resolution_id:self.next_resolution_id,
+            next_preparation_attempt:self.next_editing_attempt,
+        }
+    }
+
+    pub(crate) fn body_config(&self) -> ExpressionParserConfig { self.config.clone() }
+
+    /// Work is reserved, not forgiven. A changed prefix or a smaller current
+    /// budget falls back to normal parsing instead of accepting stale counters.
+    pub(crate) fn body_work_is_valid(
+        &self,
+        before:crate::StructureBodyWork,
+        after:crate::StructureBodyWork,
+    ) -> bool {
+        self.body_work()==before && self.active.is_empty()
+            && after.candidates>=before.candidates && after.candidates<=self.config.max_candidates
+            && after.memo_entries>=before.memo_entries && after.memo_entries<=self.config.max_memo_entries
+            && after.next_resolution_id>=before.next_resolution_id
+            && after.next_preparation_attempt>=before.next_preparation_attempt
+    }
+
+    pub(crate) fn apply_body_work(
+        &mut self,
+        before:crate::StructureBodyWork,
+        after:crate::StructureBodyWork,
+    ) {
+        debug_assert!(self.body_work_is_valid(before,after));
+        self.reserved_memo_slots+=after.memo_entries-before.memo_entries;
+        self.candidates_seen=after.candidates;
+        self.next_resolution_id=after.next_resolution_id;
+        self.next_editing_attempt=after.next_preparation_attempt;
+    }
+
+    /// Only called after an explicitly certified closed local body. The source
+    /// ranges of later bodies are disjoint; no old memo or deferred resource is
+    /// imported. The logical occupancy keeps the original document quota.
+    pub(crate) fn release_body_resources(&mut self, range:TextRange) {
+        let before=self.memo.len();
+        self.memo.retain(|key,_| key.range.start<range.start || key.range.end>range.end);
+        self.reserved_memo_slots+=before-self.memo.len();
+        self.resolved_nodes.retain(|_,node| {
+            let span=node.span.mapped.virtual_range;
+            span.start<range.start || span.end>range.end
+        });
+    }
+
     pub(crate) fn with_prepared_owner<T>(
         &mut self,
         attempt: crate::PreparationAttemptId,
@@ -2213,6 +2298,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             }
             self.next_resolution_id = checkpoint.first_resolution;
             self.memo.clear();
+            self.reserved_memo_slots=0;
         }
         if accepted && unclosed {
             return Err("successful parse left candidate scopes open".to_owned());
@@ -2414,7 +2500,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         if !self.active.insert(key.clone()) {
             return Ok(PrefixParse::default());
         }
-        if self.memo.len() >= self.config.max_memo_entries {
+        if self.memo.len().saturating_add(self.reserved_memo_slots) >= self.config.max_memo_entries {
             self.active.remove(&key);
             return Err(ExpressionParseError::MemoLimit {
                 limit: self.config.max_memo_entries,
@@ -2440,7 +2526,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             let mut failure = base.failure;
             // Recursive work may have filled the memo since the entry check.
             // Growth below only replaces this key after its first insertion.
-            if self.memo.len() >= self.config.max_memo_entries {
+            if self.memo.len().saturating_add(self.reserved_memo_slots) >= self.config.max_memo_entries {
                 self.check_cancelled()?;
                 return Err(ExpressionParseError::MemoLimit {
                     limit: self.config.max_memo_entries,
@@ -4394,6 +4480,7 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
         let cancelled = self.environment.cancellation_requested();
         if cancelled {
             self.memo.clear();
+            self.reserved_memo_slots=0;
         }
         cancelled
     }
@@ -4405,6 +4492,7 @@ impl<E: ExpressionParseEnvironment> PatternMatchEnvironment for ExpressionSessio
             .or_else(|| self.environment.take_parse_cancellation());
         if cancelled.is_some() {
             self.memo.clear();
+            self.reserved_memo_slots=0;
         }
         cancelled
     }

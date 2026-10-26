@@ -14,6 +14,10 @@ use syntaxes::{
 };
 use thiserror::Error;
 
+#[cfg(test)]
+#[path="structure_body_reuse_tests.rs"]
+mod body_reuse_tests;
+
 /// Input for one complete top-level Structure pass.
 pub struct StructureParseRequest<'a> {
     /// Mapped virtual source represented by `tree`.
@@ -543,6 +547,7 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
             continue;
         };
         let document_context = session.context().clone();
+        let initially_unambiguous=matches.alternatives.is_empty();
         let mut candidates = Vec::with_capacity(matches.alternatives.len() + 1);
         candidates.push((selected, Some((item.context, item.body_mode))));
         candidates.extend(
@@ -567,6 +572,7 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                 .begin_semantic_candidate()
                 .map_err(|message| session.environment_error(message))?;
             let provisional_candidate = candidate.clone();
+            let mut body_boundary_entered=false;
             let attempt: StructureBodyAttempt = (|| {
                 let (context, body_mode) = if let Some(initialized) = initialized {
                     initialized
@@ -619,19 +625,61 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                 }
                 let validator = candidate.entry_validator.clone();
                 let saved_context = session.replace_context(context);
-                let parsed = session.with_prepared_owner(preparation_attempt, |session| {
-                    parse_structure_body(
-                        session,
-                        tree,
-                        node,
-                        body_mode,
-                        validator.as_ref(),
-                        &candidate.entry_body_modes,
-                        1,
-                    )
+                let observed=body_mode==StructureBodyMode::Trigger
+                    && initially_unambiguous && !retry && candidates.is_empty() && candidate.parsed_captures.is_empty()
+                    && !session.body_config().matcher.recover_type_expression_failures
+                    && session.environment_mut().structure_body_reuse_enabled();
+                let parsed=session.with_prepared_owner(preparation_attempt,|session| {
+                    // A cache hit must obey the same owner layout contract as
+                    // the ordinary body parser, before any replay can mutate state.
+                    validate_structure_body_layout(body_mode,validator.as_ref(),&candidate.entry_body_modes)
+                        .map_err(|message|StructureParseError::from(session.environment_error(message)))?;
+                    let mut reused=None;
+                    if observed {
+                        body_boundary_entered=true;
+                        let body_context=session.context().clone();
+                        let work=session.body_work();
+                        let config=session.body_config();
+                        let request=|| crate::StructureBodyReuseRequest {source,tree,candidate:&candidate,context:&body_context,body_mode,work,parent_attempt:preparation_attempt,ambiguous:false,config:config.clone()};
+                        let plan=session.environment_mut().prepare_structure_body(request())
+                            .map_err(|message|session.environment_error(message))?;
+                        session.check_cancelled()?;
+                        if let crate::StructureBodyPlan::Reuse(replay)=plan {
+                            if session.body_work_is_valid(replay.before,replay.work)
+                                && valid_body_preparations(source,tree,node,preparation_attempt,&replay)
+                                && session.environment_mut().accept_structure_body_replay(request())
+                                    .map_err(|message|session.environment_error(message))? {
+                                session.check_cancelled()?;
+                                session.apply_body_work(replay.before,replay.work);
+                                for preparation in &replay.preparations {
+                                    session.check_cancelled()?;
+                                    session.publish_preparation(StructurePreparationEvent::SectionHeader {
+                                        source,tree,candidate:&preparation.candidate,
+                                        attempt_id:preparation.attempt_id,parent_attempt_id:preparation.parent_attempt_id,
+                                    });
+                                }
+                                session.check_cancelled()?;
+                                session.replace_context(replay.post_context);
+                                reused=Some(ParsedStructureBody {body:replay.body.into_body(),diagnostics:Vec::new(),entries_valid:true});
+                            }
+                        }
+                    }
+                    match reused {
+                        Some(parsed)=>Ok(parsed),
+                        None=>parse_structure_body(session,tree,node,body_mode,validator.as_ref(),&candidate.entry_body_modes,1),
+                    }
                 });
                 let child_context = session.replace_context(saved_context);
-                let parsed = parsed?;
+                let mut parsed = parsed?;
+                if observed {
+                    let work=session.body_work();
+                    let release=session.environment_mut().finish_structure_body(&mut parsed.body,&child_context,work)
+                        .map_err(|message|session.environment_error(message))?;
+                    session.check_cancelled()?;
+                    if release && let Some(span)=&node.body_span {
+                        session.release_body_resources(span.virtual_range);
+                    }
+                }
                 candidate.body = parsed.body;
                 if !parsed.entries_valid {
                     candidate.entry_validation_failed = true;
@@ -660,12 +708,21 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                         diagnostics,
                     } => Some((reason, diagnostics)),
                 };
+                session.check_cancelled()?;
                 Ok((candidate, parsed.diagnostics, rejection))
             })();
             let accepted = attempt
                 .as_ref()
                 .is_ok_and(|(_, _, rejection)| rejection.is_none());
             let finished = session.finish_semantic_candidate(accepted);
+            // Finishing a provider scope may itself observe cancellation. Do
+            // not publish a pending body as accepted in that case.
+            let cancelled = session.check_cancelled();
+            if body_boundary_entered {
+                session.environment_mut().adopt_structure_body(accepted && finished.is_ok() && cancelled.is_ok())
+                    .map_err(|message|session.environment_error(message))?;
+            }
+            let adopted = session.check_cancelled();
             if !accepted || finished.is_err() {
                 session.publish_preparation(StructurePreparationEvent::Invalidated {
                     attempt_id: preparation_attempt,
@@ -675,6 +732,8 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                 });
             }
             finished.map_err(|message| session.environment_error(message))?;
+            cancelled?;
+            adopted?;
             session.replace_context(document_context.clone());
             let (candidate, body_diagnostics, rejection) = match attempt {
                 Ok(value) => value,
@@ -779,6 +838,33 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
     }
 
     Ok(StructureDocument { roots, diagnostics })
+}
+
+fn valid_body_preparations(
+    source:&MappedSource,
+    tree:&RawTree,
+    root:&RawNode,
+    parent:PreparationAttemptId,
+    replay:&crate::StructureBodyReplay,
+) -> bool {
+    let Some(body)=&root.body_span else { return replay.preparations.is_empty(); };
+    let mut seen=BTreeMap::new();
+    for preparation in &replay.preparations {
+        let Some(node)=tree.get(preparation.candidate.raw_node_id) else { return false; };
+        let Some(parent_node)=preparation.parent_attempt_id.and_then(|id|
+            if id==parent {Some(root.id)}else{seen.get(&id).copied()}) else { return false; };
+        let Ok(header)=structure_header_range(source,node) else { return false; };
+        let Ok(mapped)=source.map_range(header) else { return false; };
+        if node.kind!=RawNodeKind::Section || node.span.virtual_range.start<body.virtual_range.start
+            || node.span.virtual_range.end>body.virtual_range.end
+            || node.parent!=Some(parent_node)
+            || preparation.candidate.matched.matched.span.mapped!=mapped
+            || preparation.attempt_id<replay.before.next_preparation_attempt
+            || preparation.attempt_id>=replay.work.next_preparation_attempt
+            || !preparation.candidate.body.is_empty()
+            || seen.insert(preparation.attempt_id,node.id).is_some() { return false; }
+    }
+    true
 }
 
 fn structure_semantic_rejection(

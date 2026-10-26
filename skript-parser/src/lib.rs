@@ -2,6 +2,7 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 
 mod arithmetic;
+mod body_reuse;
 mod catalog_match;
 mod condition;
 mod default_expression;
@@ -24,6 +25,8 @@ mod version;
 
 /// Adapters from static and dynamic syntax catalogs to matcher candidates.
 pub use catalog_match::*;
+/// Explicit portable-body contracts for opted-in native environments.
+pub use body_reuse::*;
 /// Condition parsing over SSG registrations and recursive Expressions.
 pub use condition::*;
 /// Shared default Expression requests, outcomes and implicit-node provenance.
