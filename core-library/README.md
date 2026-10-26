@@ -59,6 +59,11 @@ Condition, and DefaultExpression subscriptions only, and separately declares
 `parser.epoch-cancellation-restart-safe`: a running CoreLibrary call returns normally
 before observing cancellation, within its existing fuel/deadline bounds. Rebuild
 CoreLibrary and external components for the current WIT and ABI.
+The conditional structure-body declaration includes the audited ExprEntity
+invocation, its EntityData capture routing, common property/storage processing,
+and negative outcomes. It relies on immutable prepared models and exact current
+context/observed State; it does not make arbitrary event providers or private
+scope portable. The host independently refuses writes and unproved resources.
 The existing host policy gives the Core ID a `u64::MAX / 2`-tick wall-clock
 exemption; the default 20M fuel limit remains, so no short wall-clock cancellation
 bound is claimed for Core.

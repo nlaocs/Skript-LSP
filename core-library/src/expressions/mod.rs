@@ -104,8 +104,15 @@ pub(crate) fn incremental_body_handlers() -> Vec<String> {
     // payload data only. ExprEntities reads only its checked virtual span;
     // SimpleLiteral uses declared type/cardinality. ExprSets uses its checked
     // span plus parsed ClassInfo plurality/supplier/target facts, never invokes
-    // a runtime supplier. Other families stay cold, including losing attempts.
-    vec![expr_entities::HANDLER_ID.to_owned(), simple_literal::HANDLER_ID.to_owned(), expr_sets::HANDLER_ID.to_owned()]
+    // a runtime supplier. ExprEntity routes its EntityData capture through the
+    // host, reads immutable event/type/producer models and current observed
+    // storage scope, and publishes only payload/provenance facts. This promise
+    // includes cardinality, dispatch, property/storage post-processing and all
+    // Reject/fallback paths; it is not a certification of a negative outcome.
+    // The host still rejects writes, opaque resources and changed scope reads.
+    // Other families stay cold, including losing attempts.
+    vec![expr_entities::HANDLER_ID.to_owned(), simple_literal::HANDLER_ID.to_owned(),
+        expr_sets::HANDLER_ID.to_owned(), expr_entity::HANDLER_ID.to_owned()]
 }
 
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
