@@ -1141,6 +1141,9 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
         input: String,
     ) -> Result<Option<wit_catalog_data::CatalogAliasTarget>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::ResolveAlias));
         let catalog = self.catalog()?;
         Ok(catalog
             .alias(&input)
@@ -1162,6 +1165,9 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
     ) -> Result<Option<wit_catalog_data::CatalogBlockDataStatus>, wit_catalog_data::CatalogError>
     {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::BlockDataStatus));
         Ok(self
             .block_data_registry()?
             .map(|registry| wit_catalog_data::CatalogBlockDataStatus {
@@ -1190,6 +1196,9 @@ impl wit_catalog_data::Host for StoreData {
         id: String,
     ) -> Result<Option<wit_catalog_data::CatalogBlockDataEntry>, wit_catalog_data::CatalogError>
     {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::BlockData));
         if id.trim().is_empty() {
             return Err(invalid_catalog_input("BlockData ID must not be blank"));
         }
@@ -1468,6 +1477,9 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
         key: String,
     ) -> Result<Option<String>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::LanguageValue));
         Ok(self.catalog()?.language_value(&key).map(str::to_owned))
     }
 
@@ -1525,6 +1537,9 @@ impl wit_catalog_data::Host for StoreData {
         fallback_pattern: String,
         input: String,
     ) -> Result<bool, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::LanguagePatternMatches));
         let pattern = self
             .catalog()?
             .language_value(&key)
@@ -1546,6 +1561,9 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
         input: String,
     ) -> Result<Option<WitExpressionTypeOption>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::TypeForUserInput));
         self.catalog()?;
         for matcher in self.type_user_input_matchers.iter() {
             for pattern in &matcher.patterns {
@@ -1632,6 +1650,9 @@ impl wit_catalog_data::Host for StoreData {
         &mut self,
         input: String,
     ) -> Result<Vec<WitExpressionLiteralOption>, wit_catalog_data::CatalogError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::TypeLiteralMatches));
         let catalog = self.catalog()?;
         let end = u64::try_from(input.len()).map_err(|_| {
             invalid_catalog_input("literal input length does not fit the WIT range")
@@ -1698,6 +1719,9 @@ impl wit_catalog_data::Host for StoreData {
         input: String,
     ) -> Result<Option<wit_catalog_data::RegisteredTypePatternResult>, wit_catalog_data::CatalogError>
     {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::RegisteredTypePatternMatch));
         Ok(self
             .catalog()?
             .registered_type_pattern_match(&registration_id, &input)
@@ -1847,6 +1871,9 @@ impl wit_state_store::Host for StoreData {
         namespace: String,
         key: String,
     ) -> Result<Option<WitStateValue>, WitStateError> {
+        #[cfg(test)]
+        let _measurement = self.catalog_measurement.as_ref()
+            .map(|probe| probe.start(catalog_measurement::Operation::StateGet));
         self.invocation()?
             .get(
                 state_scope(scope),
@@ -12615,10 +12642,17 @@ impl ParserHost {
                     #[cfg(test)]
                     let boundary = entry.store.data().catalog_measurement.as_ref()
                         .map(|probe| probe.scope("boundary.regular_hook"));
+                    #[cfg(test)]
+                    let binding_measurement = entry.store.data().catalog_measurement.as_ref()
+                        .and_then(|probe| probe.binding(&invocation));
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
                         .call_invoke(&mut entry.store, &invocation);
+                    #[cfg(test)]
+                    if let Some(measurement) = binding_measurement {
+                        measurement.finish(call.as_ref().ok().and_then(|output|output.as_ref().ok()));
+                    }
                     #[cfg(test)]
                     drop(boundary);
                     #[cfg(test)]

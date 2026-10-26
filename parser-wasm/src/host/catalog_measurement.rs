@@ -6,14 +6,19 @@ use super::*;
 use crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation;
 use std::time::Instant;
 mod trace;
+mod lifecycle;
+mod type_requirements;
+mod boundary;
 
 #[derive(Clone, Default)]
-pub(super) struct Probe(Arc<Mutex<Measurement>>);
+pub(super) struct Probe(Arc<Mutex<Measurement>>, Option<boundary::Recorder>);
 
 #[derive(Default)]
 struct Measurement {
-    imports: [ImportSample; 8],
+    imports: [ImportSample; 17],
+    boundaries: Vec<boundary::Recorder>,
     hooks: BTreeMap<String, HookSample>,
+    typed_requests: BTreeMap<String, BTreeMap<usize, u64>>,
     active: Vec<String>,
     max_hook_depth: usize,
     scopes: BTreeMap<&'static str, ScopeSample>,
@@ -156,7 +161,7 @@ struct HookSample {
     fuel_unavailable: u64,
     input_string_bytes: u64,
     max_input_string_bytes: usize,
-    imports: [ImportSample; 8],
+    imports: [ImportSample; 17],
 }
 
 #[derive(Clone, Copy)]
@@ -169,9 +174,11 @@ pub(super) enum Operation {
     ReadRecordFields,
     DeclaredMethodExists,
     RegisteredHandlerMatches,
+    LanguageValue, LanguagePatternMatches, TypeForUserInput, TypeLiteralMatches,
+    RegisteredTypePatternMatch, BlockDataStatus, BlockData, ResolveAlias, StateGet,
 }
 
-const OPERATIONS: [&str; 8] = [
+const OPERATIONS: [&str; 17] = [
     "source",
     "records_by_registration_id",
     "read_record",
@@ -180,12 +187,16 @@ const OPERATIONS: [&str; 8] = [
     "read_record_fields",
     "declared_method_exists",
     "registered_handler_matches",
+    "language_value", "language_pattern_matches", "type_for_user_input", "type_literal_matches",
+    "registered_type_pattern_match", "block_data_status", "block_data", "resolve_alias", "state_get",
 ];
 
-const TRACE_OPERATIONS: [&str; 8] = [
+const TRACE_OPERATIONS: [&str; 17] = [
     "catalog.source", "catalog.records_by_registration_id", "catalog.read_record",
     "catalog.type_for_class", "catalog.change_contract_for_type", "catalog.read_record_fields",
     "catalog.declared_method_exists", "catalog.registered_handler_matches",
+    "catalog.language_value", "catalog.language_pattern_matches", "catalog.type_for_user_input", "catalog.type_literal_matches",
+    "catalog.registered_type_pattern_match", "catalog.block_data_status", "catalog.block_data", "catalog.resolve_alias", "state.get",
 ];
 
 #[derive(Clone, Copy, Default, serde::Serialize)]
@@ -196,6 +207,9 @@ struct ImportSample {
 }
 
 impl Probe {
+    pub(super) fn binding(&self, invocation: &HookInvocation) -> Option<boundary::Guard> {
+        self.1.as_ref()?.begin(invocation)
+    }
     pub(super) fn type_input_repair(&self, bytes: usize) {
         let mut measurement = self.0.lock().unwrap();
         measurement.type_input_repairs += 1;
@@ -255,6 +269,7 @@ impl Probe {
     }
 
     pub(super) fn start(&self, operation: Operation) -> Call {
+        if let Some(boundary)=&self.1 {boundary.body_enter();}
         let (hook,trace) = {
             let measurement = self.0.lock().unwrap();
             (measurement.active.last().cloned(),measurement.trace.clone())
@@ -271,7 +286,7 @@ impl Probe {
         }
     }
 
-    fn take(&self) -> [ImportSample; 8] {
+    fn take(&self) -> [ImportSample; 17] {
         self.take_all().imports
     }
 
@@ -284,6 +299,14 @@ impl Probe {
     }
 
     pub(super) fn hook(&self, subscription: &str, invocation: &HookInvocation, fuel: Option<u64>) -> HookTimer {
+        if let HookPayload::Expression(payload) = &invocation.payload {
+            if let Some(active) = &payload.active_type {
+                let mut measurement = self.0.lock().unwrap();
+                let key = format!("{subscription}/{}", active.registration_id);
+                *measurement.typed_requests.entry(key).or_default()
+                    .entry(payload.type_options.len()).or_default() += 1;
+            }
+        }
         let key = match &invocation.payload {
             HookPayload::RegisteredExpression(payload) => format!("{subscription}/{}#{}", payload.registration_id, payload.pattern_index),
             _ => subscription.to_owned(),
@@ -388,6 +411,14 @@ fn measure_public_document_phases() {
     assert_eq!(plan["publicFixtures"], true);
     let core = std::fs::read(plan["component"].as_str().unwrap()).unwrap();
     assert_eq!(format!("{:x}", Sha256::digest(&core)), plan["coreSha256"]);
+    let core_variants = plan["coreVariants"].as_array().map(|variants| {
+        assert_eq!(variants.len(), 2);
+        variants.iter().map(|variant| {
+            let bytes = std::fs::read(variant["component"].as_str().unwrap()).unwrap();
+            assert_eq!(format!("{:x}", Sha256::digest(&bytes)), variant["sha256"]);
+            bytes
+        }).collect::<Vec<_>>()
+    });
     let files = plan["snapshotFiles"].as_array().unwrap();
     assert_eq!(files.len(), 21);
     let verify_snapshot = || {
@@ -401,23 +432,35 @@ fn measure_public_document_phases() {
     };
     verify_snapshot();
     let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
+    if let Some(variants) = &core_variants {
+        type_requirements::verify(&variants[0], &variants[1], Arc::clone(&catalog));
+    }
     let cases = plan["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 3);
     let compare_original = plan["compareDispatchOriginal"].as_bool().unwrap_or(false);
     let compare_type = plan["compareTypeExpected"].as_bool().unwrap_or(false);
+    let measure_boundary = plan["measureBindingBoundaries"].as_bool().unwrap_or(false);
     assert!(!(compare_original && compare_type), "compare one optimization at a time");
     let comparison = compare_original || compare_type;
     let trace_directory = plan["traceDirectory"].as_str().map(std::path::PathBuf::from);
     assert!(!(comparison && trace_directory.is_some()), "trace and legacy comparison are separate investigations");
-    let blocks = if comparison { 2 } else { 1 };
+    assert!(!(core_variants.is_some() && (comparison || trace_directory.is_some())));
+    assert!(!measure_boundary || (!comparison && core_variants.is_none() && trace_directory.is_none()));
+    let blocks = if comparison || core_variants.is_some() { 2 } else { 1 };
     let mut rows = Vec::new();
     for (index, case) in cases.iter().enumerate() {
+        if plan["onlyCase"].as_str().is_some_and(|only|Some(only)!=case["name"].as_str()) {continue;}
         let source = std::fs::read_to_string(case["path"].as_str().unwrap()).unwrap();
         assert!(source.len() <= 150_000);
         assert_eq!(format!("{:x}", Sha256::digest(source.as_bytes())), case["sha256"]);
         let mut expected = None;
         for block in 0..blocks {
-        let mut variants = if trace_directory.is_some() && plan["includeProbeOff"] == true {
+        let mut variants = if measure_boundary {
+            vec![(true, false), (true, true)]
+        } else if core_variants.is_some() {
+            let enabled = plan["probeForCoreComparison"].as_bool().unwrap_or(true);
+            vec![(enabled, false), (enabled, true)]
+        } else if trace_directory.is_some() && plan["includeProbeOff"] == true {
             vec![(false, false), (true, false), (true, true)]
         } else {
             vec![(trace_directory.is_some() || comparison, false), (true, true)]
@@ -425,7 +468,9 @@ fn measure_public_document_phases() {
         if (index + block) % 2 != 0 { variants.reverse(); }
         for (enabled, variant) in variants {
             let setup = Instant::now();
-            let mut host = ParserHost::new(&core, HostConfig {
+            let selected_core = core_variants.as_ref().map_or(core.as_slice(), |cores|
+                cores[usize::from(variant)].as_slice());
+            let mut host = ParserHost::new(selected_core, HostConfig {
                 syntax_catalog: Some(Arc::clone(&catalog)), ..Default::default()
             }).unwrap();
             host.legacy_dispatch_original = compare_original && !variant;
@@ -440,7 +485,13 @@ fn measure_public_document_phases() {
                     });
                 }
                 for entry in &mut host.components {
-                    entry.store.data_mut().catalog_measurement = Some(probe.clone());
+                    if measure_boundary && variant {
+                        let recorder=boundary::Recorder::new([1,16,512][index]);
+                        let bound_probe=Probe(Arc::clone(&probe.0),Some(recorder.clone()));
+                        probe.0.lock().unwrap().boundaries.push(recorder.clone());
+                        entry.store.call_hook(move |_,event| {recorder.vm_event(event);Ok(())});
+                        entry.store.data_mut().catalog_measurement=Some(bound_probe);
+                    } else {entry.store.data_mut().catalog_measurement = Some(probe.clone());}
                 }
             }
             let before_calls = guest_calls(&host);
@@ -502,6 +553,10 @@ fn measure_public_document_phases() {
             });
             let export_ms = export_started.elapsed().as_secs_f64()*1000.0;
             let row = serde_json::json!({"case":case["name"],"probeEnabled":enabled,"block":block,
+                "coreVariant":core_variants.as_ref().map(|_|usize::from(variant)),
+                "coreSha256":format!("{:x}",Sha256::digest(selected_core)),
+                "typedRequests":measurement.typed_requests,
+                "bindingBoundaries":measurement.boundaries.iter().map(boundary::Recorder::snapshot).collect::<Vec<_>>(),
                 "traceEnabled":measurement.trace.is_some(),"traceExport":trace_export,"traceExportMs":export_ms,
                 "dispatchOriginal":if host.legacy_dispatch_original { "legacy" } else { "retained" },
                 "typeExpected":if host.legacy_type_expected { "legacy" } else { "borrowed-input" },
@@ -525,7 +580,9 @@ fn measure_public_document_phases() {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
         .open(plan["output"].as_str().unwrap()).unwrap();
     file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"rows":rows,
-        "schedule":if trace_directory.is_some() && plan["includeProbeOff"] == true { "probe off / aggregate only / aggregate plus trace per fixture; reverse order for medium; one actual trace per fixture" }
+        "schedule":if measure_boundary { "one aggregate-only / sampled-VM-boundary pair per fixture; reverse medium; same executable and Core; fresh hosts; all 17 callback body timers enabled in both" }
+            else if core_variants.is_some() { "two blocks ABBA/BAAB per fixture; same host executable, differing Core manifests, fresh hosts; exact per-Type invocation option-count histograms only when probe enabled" }
+            else if trace_directory.is_some() && plan["includeProbeOff"] == true { "probe off / aggregate only / aggregate plus trace per fixture; reverse order for medium; one actual trace per fixture" }
             else if trace_directory.is_some() { "one trace-off/on pair per fixture, same aggregate counters on both; one actual trace per fixture; reverse order for medium" }
             else if compare_type { "two blocks ABBA/BAAB per fixture, legacy Type expectation clone versus borrowed native input, priority1 retained and probes on for both" }
             else if compare_original { "two blocks ABBA/BAAB per fixture, legacy versus retained original, probes on for both" } else { "one off/on pair per fixture" },
@@ -686,6 +743,7 @@ impl Drop for Call {
         }
         drop(samples);
         if let Some(trace) = self.trace.take() { trace.finish(ended,Some(self.returned_raw_bytes)); }
+        if let Some(boundary)=&self.probe.1 {boundary.body_exit();}
     }
 }
 

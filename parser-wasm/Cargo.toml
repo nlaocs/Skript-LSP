@@ -22,6 +22,7 @@ url = { version = "2.5.7", optional = true }
 wasmtime = { version = "=43.0.0", default-features = false, features = ["component-model", "cranelift", "runtime", "std"], optional = true }
 
 [dev-dependencies]
+wasmtime = { version = "=43.0.0", default-features = false, features = ["call-hook"] }
 ssg = { path = "../ssg" }
 serde_json = "1.0.145"
 tempfile = "3.25.0"
