@@ -21,7 +21,8 @@ pub(super) const PARSER: super::TypeParser = super::TypeParser {
     classes: &["ch.njol.skript.classes.ClassInfo"],
     parse,
     unresolved: None,
-    all_type_options: true,
+    // Wasm queries the immutable host catalog; native lookup consumes the list.
+    all_type_options: !cfg!(target_arch = "wasm32"),
 };
 
 pub(super) fn parse(
@@ -207,6 +208,17 @@ mod tests {
         option.code_name = code_name.to_owned();
         option.class_name = class_name.to_owned();
         option
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn native_class_info_keeps_its_full_type_lookup_requirement() {
+        let handlers = super::super::handlers();
+        for id in ["core.type.class-info", "core.type.entity-type"] {
+            let handler = handlers.iter().find(|handler| handler.handler_id == id).unwrap();
+            assert!(handler.context_requirements.iter().any(|requirement|
+                requirement == parser_wasm::REGISTERED_CONTEXT_ALL_TYPE_OPTIONS));
+        }
     }
 
     #[test]
