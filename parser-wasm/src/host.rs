@@ -801,12 +801,24 @@ pub struct DispatchRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Trace record for one attempted component subscription.
+/// Retained semantic dispatch trace, not a count of physical guest executions.
+/// Rejected/rolled-back work need not survive in this trace.
 pub struct HookCall {
     pub component_id: String,
     pub subscription_id: String,
     /// Opaque reference; only the result's private native proof registry grants authority.
     pub semantic_receipt: Option<u64>,
+    pub origin: HookCallOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookCallOrigin {
+    /// Dispatch began, but a guest entry was not confirmed.
+    Attempted,
+    /// This dispatch entered the guest; unsuccessful calls may later roll back.
+    Executed,
+    ReusedInvocation,
+    ReusedStructureBody,
 }
 
 #[derive(Debug, Clone)]
@@ -4248,6 +4260,7 @@ impl PatternMatchHooks for WasmPatternHooks<'_> {
 }
 
 struct WasmExpressionEnvironment<'a> {
+    body: Option<incremental::body::BodyObservation>,
     hooks: WasmPatternHooks<'a>,
     pending_leaf: Option<(StateSavepoint, HookEffectsCheckpoint)>,
     pending_registered: Option<(StateSavepoint, HookEffectsCheckpoint)>,
@@ -4425,6 +4438,19 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 }
 
 impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn structure_body_reuse_enabled(&self) -> bool { self.body_reuse_enabled() }
+    fn prepare_structure_body(&mut self, request:skript_parser::StructureBodyReuseRequest<'_>) -> Result<skript_parser::StructureBodyPlan,String> {
+        self.body_prepare(request)
+    }
+    fn accept_structure_body_replay(&mut self, _:skript_parser::StructureBodyReuseRequest<'_>) -> Result<bool,String> {
+        self.body_accept()
+    }
+    fn finish_structure_body(&mut self, body:&mut skript_parser::StructureBody, context:&ExpressionParseContext, work:skript_parser::StructureBodyWork) -> Result<bool,String> {
+        self.body_finish(body,context,work)
+    }
+    fn adopt_structure_body(&mut self, accepted:bool) -> Result<(),String> {
+        self.body_adopt(accepted);Ok(())
+    }
     fn expression_preparation_cache(
         &mut self,
     ) -> Option<&mut skript_parser::ExpressionPreparationCache> {
@@ -4617,6 +4643,10 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         request: FunctionLookupRequest<'_>,
     ) -> Result<Vec<skript_parser::FunctionDefinition>, String> {
+        if self.hooks.host.body_observing {
+            incremental::body::debug_reason(self.hooks.host,"Function lookup attempt");
+            self.hooks.host.body_impure = true;
+        }
         #[cfg(test)]
         let _measurement = self.hooks.host.measurement_scope("environment.function_lookup");
         Ok(self
@@ -5382,6 +5412,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn structure_preparation(&mut self, event: skript_parser::StructurePreparationEvent<'_>) {
+        self.body_preparation();
         if let Some(observer) = self.structure_preparation.as_mut() {
             observer(event);
         }
@@ -9346,6 +9377,9 @@ pub struct ParserHost {
     semantic_receipts: Option<semantic_proof::ReceiptRegistry>,
     semantic_receipt_sequence: Arc<std::sync::atomic::AtomicU64>,
     body_observing: bool,
+    body_impure: bool,
+    #[cfg(test)]
+    body_debug: bool,
     expression_preparation: skript_parser::ExpressionPreparationCache,
     incremental: incremental::IncrementalCache,
     state_store: StateStore,
@@ -9762,6 +9796,9 @@ impl ParserHost {
             semantic_receipts: None,
             semantic_receipt_sequence: Arc::default(),
             body_observing: false,
+            body_impure: false,
+            #[cfg(test)]
+            body_debug: false,
             expression_preparation: skript_parser::ExpressionPreparationCache::default(),
             incremental: incremental::IncrementalCache::default(),
             state_store,
@@ -9996,6 +10033,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            body: None,
             structure_preparation: None,
         };
         let result = run_expression_parser(
@@ -10108,6 +10146,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            body: None,
             structure_preparation: None,
         };
         let result = run_condition_parser(
@@ -10218,6 +10257,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            body: None,
             structure_preparation: None,
         };
         let parsed = run_section_parser(
@@ -10358,6 +10398,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: Some(&mut function_registry),
+            body: None,
             structure_preparation: Some(&mut observe),
         };
         #[cfg(test)]
@@ -10601,6 +10642,7 @@ impl ParserHost {
             expression_candidates: Vec::new(),
             semantic_candidates: Vec::new(),
             function_registry: None,
+            body: None,
             structure_preparation: None,
         };
         let parsed = run_effect_parser(
@@ -12062,6 +12104,12 @@ impl ParserHost {
         parent_context: Option<&WitParseContext>,
         requests: Vec<ParseRequest>,
     ) -> Result<Vec<ExecutedParseResult>, HostError> {
+        // Observation history is not rolled back with a losing continuation.
+        // The first body contract does not transplant AdditionalParse resources.
+        if self.body_observing && !requests.is_empty() {
+            incremental::body::debug_reason(self,"AdditionalParse attempt");
+            self.body_impure = true;
+        }
         let mut results = Vec::with_capacity(requests.len());
         let mut node_count = 0usize;
         for request in requests {
@@ -12550,6 +12598,7 @@ impl ParserHost {
                         parse_results: parse_results.clone(),
                     };
                 calls.push(HookCall {
+                    origin: HookCallOrigin::Attempted,
                     component_id: component_id.clone(),
                     subscription_id: subscription_id.clone(),
                     semantic_receipt: None,
@@ -12558,6 +12607,13 @@ impl ParserHost {
                 #[cfg(test)]
                 let measured = self.measurement_scope("dispatch.invocation_begin");
                 let mut state_invocation = transaction.begin_invocation(component_id.clone())?;
+                if self.body_observing {
+                    state_invocation.observe_reads();
+                    if !self.components[candidate.component_index].manifest.incremental_body_subscriptions.contains(&subscription_id) {
+                        incremental::body::debug_reason(self,&format!("unlisted subscription {subscription_id}"));
+                        self.body_impure = true;
+                    }
+                }
                 #[cfg(test)]
                 drop(measured);
                 let incremental_key =
@@ -12595,6 +12651,7 @@ impl ParserHost {
                 #[cfg(test)]
                 drop(prepared);
                 let call = if let Some(output) = cached_output {
+                    if let Some(call)=calls.last_mut() {call.origin=HookCallOrigin::ReusedInvocation;}
                     (Ok(Ok(output)), state_invocation, dynamic_update)
                 } else {
                     let entry = &mut self.components[candidate.component_index];
@@ -12655,6 +12712,7 @@ impl ParserHost {
                     #[cfg(test)]
                     let binding_measurement = entry.store.data().catalog_measurement.as_ref()
                         .and_then(|probe| probe.binding(&invocation));
+                    if let Some(call)=calls.last_mut() {call.origin=HookCallOrigin::Executed;}
                     let call = entry
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
@@ -12739,6 +12797,9 @@ impl ParserHost {
                     }
                 };
 
+                if self.body_observing && !cache_hit && self.components[candidate.component_index].store.data().incremental_impure_call {
+                    self.body_impure = true;
+                }
                 if !cache_hit
                     && let (Some(key), Some(checkpoint)) = (incremental_key, incremental_checkpoint)
                 {
@@ -13463,6 +13524,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_DEFAULT_EXPRESSION,
         crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
         crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
+        crate::CAPABILITY_INCREMENTAL_STRUCTURE_BODY,
         crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
         crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
         crate::CAPABILITY_STATIC_NAME_RENAME_STABILITY,
@@ -14028,6 +14090,17 @@ fn validate_manifest(
         }
     }
     let mut header_handlers = BTreeSet::new();
+    let mut body_subscriptions = BTreeSet::new();
+    for id in &manifest.incremental_body_subscriptions {
+        if !component_promises(&manifest.capabilities, crate::CAPABILITY_INCREMENTAL_STRUCTURE_BODY)
+            || !body_subscriptions.insert(id)
+            || !manifest.subscriptions.iter().any(|subscription| subscription.id == *id)
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!("invalid incremental Structure body subscription {id}"),
+            });
+        }
+    }
     for id in &manifest.incremental_header_handlers {
         if !component_promises(
             &manifest.capabilities,
@@ -18696,6 +18769,7 @@ mod tests {
                 CAPABILITY_DEFAULT_EXPRESSION,
                 crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
                 crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
+                crate::CAPABILITY_INCREMENTAL_STRUCTURE_BODY,
                 crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE,
                 crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
                 crate::CAPABILITY_STATIC_NAME_RENAME_STABILITY,
@@ -18785,6 +18859,7 @@ mod tests {
     fn reports_abi_mismatches_as_typed_compatibility_errors() {
         use crate::bindings::nlaocs::skript_parser_addon::types::AbiVersion as WitAbiVersion;
         let manifest = ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.incompatible".to_owned(),
@@ -18822,6 +18897,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.text-macro-contract".to_owned(),
@@ -18881,6 +18957,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.tree-macro-contract".to_owned(),
@@ -18940,6 +19017,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.expression-contract".to_owned(),
@@ -19045,6 +19123,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.effect-contract".to_owned(),
@@ -19103,6 +19182,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "test.section-contract".to_owned(),
@@ -19702,6 +19782,7 @@ mod tests {
             }],
         };
         let manifest = |annotations| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "fixture.annotation-addon".to_owned(),
@@ -19768,6 +19849,7 @@ mod tests {
             context_requirements: Vec::new(),
         };
         let manifest = |handlers| ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: "fixture.handler-addon".to_owned(),

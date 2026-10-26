@@ -4,6 +4,7 @@ use super::*;
 use crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation;
 use crate::state::{StateObservationCheckpoint, StateReadCertificate};
 mod header;
+pub(super) mod body;
 
 const MAX_ENTRIES: usize = 4_096;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -21,6 +22,10 @@ enum AuthenticatedInputView {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IncrementalMetrics {
+    pub body_eligible: u64,
+    pub body_hits: u64,
+    pub body_stored: u64,
+    pub body_discarded: u64,
     pub eligible: u64,
     pub hits: u64,
     /// Explicit Structure Enter invocations eligible for header-local reuse.
@@ -44,6 +49,7 @@ struct DocumentCache {
     revision: u64,
     world: String,
     entries: HashMap<String, CachedInvocation>,
+    bodies: HashMap<String, Arc<body::CachedBody>>,
 }
 
 struct ActiveDocument {
@@ -53,6 +59,8 @@ struct ActiveDocument {
     physical_lines: Vec<skript_parser::PhysicalLine>,
     world: Option<String>,
     pending: HashMap<String, CachedInvocation>,
+    pending_bodies: HashMap<String, Arc<body::CachedBody>>,
+    body_publish_allowed: bool,
     bytes: usize,
     metrics: IncrementalMetrics,
 }
@@ -84,6 +92,9 @@ impl IncrementalCache {
 }
 
 impl ParserHost {
+    pub(super) fn allow_body_cache_publication(&mut self, allowed:bool) {
+        if let Some(active)=self.incremental.active.as_mut() { active.body_publish_allowed=allowed; }
+    }
     /// Begin a revision-bound, opt-in cache session. Call before all macros, and
     /// finish it on every exit. Transformed inputs conservatively miss this v1.
     pub fn begin_incremental_document(
@@ -101,6 +112,8 @@ impl ParserHost {
             physical_lines,
             world: None,
             pending: HashMap::new(),
+            pending_bodies: HashMap::new(),
+            body_publish_allowed: false,
             bytes: 0,
             metrics: IncrementalMetrics::default(),
         });
@@ -135,6 +148,10 @@ impl ParserHost {
                 .get(document)
                 .is_none_or(|cache| cache.revision <= revision)
             {
+                let bodies = if active.body_publish_allowed { active.pending_bodies } else {
+                    active.metrics.body_discarded += active.pending_bodies.len() as u64;
+                    HashMap::new()
+                };
                 // Replacement, rather than union, drops invocations no longer
                 // reachable in this document and keeps the memory bound honest.
                 self.incremental.documents.insert(
@@ -143,6 +160,7 @@ impl ParserHost {
                         revision,
                         world,
                         entries: active.pending,
+                        bodies,
                     },
                 );
                 while self.incremental.documents.len() > MAX_DOCUMENTS {
@@ -157,6 +175,7 @@ impl ParserHost {
                 }
             }
         } else {
+            active.metrics.body_discarded += active.pending_bodies.len() as u64;
             active.metrics.discarded = active
                 .metrics
                 .discarded
@@ -479,7 +498,7 @@ fn insert_pending(active: &mut ActiveDocument, key: String, value: CachedInvocat
     if active.pending.contains_key(&key) {
         return;
     }
-    if active.pending.len() >= MAX_ENTRIES || active.bytes.saturating_add(value.bytes) > MAX_BYTES {
+    if active.pending.len()+active.pending_bodies.len() >= MAX_ENTRIES || active.bytes.saturating_add(value.bytes) > MAX_BYTES {
         active.metrics.discarded += 1;
         return;
     }

@@ -1,5 +1,17 @@
 # Parser WASM ABI
 
+ABI 27 / WIT 0.45 では、manifest の `incremental-body-subscriptions` と
+`parser.incremental-structure-body` v1 を追加しました。旧WIT／ABIとは互換性が
+ないため、componentを揃えて再buildしてください。空listは再利用しません。
+全providerのbody-localな経路選択の保証と、未採用・不一致も含めた全要求の明示が必要です。
+
+初版のhostは、位置・現在context・読み取り専用State依存・閉じたreceipt graphを
+検証できる平坦なTrigger bodyだけを再利用します。関数lookup、入れ子の編集owner、
+AdditionalParseの試行、未知のresourceや書き込みは通常解析へ戻します。
+header、宣言登録、ExitBody、最後のsource／forest証明は毎回実行します。
+Coreのregistered-expression経路は未対応で、一般的な高速化はまだ保証しません。
+`HookCall.origin`で実行と再利用を区別し、採用された意味traceを実Wasm呼出し数と混同しません。
+
 [English](README.md)
 
 `parser.default-expression` capabilityは既存のsubscription、selector、metadata、
@@ -33,7 +45,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.44.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.45.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -88,7 +100,7 @@ implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefa
 最終ASTと追加解析nodeへのFunction binding投影で0.40.0へ変わりました。
 nativeの省略根拠とopt-inのincremental subscription manifest追加で0.41.0へ、
 header-local Structure handler契約の追加で0.42.0へ、invocation単位のimmutable Tree access追加で
-0.43.0へ変わりました。manifestの現在の`abi`値は26.0で、
+0.43.0へ変わりました。manifestの現在の`abi`値は27.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと

@@ -57,6 +57,7 @@ fn empty_selector() -> HookSelector {
 impl addon::Guest for TextMacroAddon {
     fn manifest() -> ComponentManifest {
         ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
             component_id: COMPONENT_ID.to_owned(),

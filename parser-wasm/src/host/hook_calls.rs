@@ -1,6 +1,8 @@
 //! Persistent call trace: checkpoints share the accepted prefix instead of
 //! cloning every earlier component call when a speculative branch appends.
 use super::HookCall;
+#[cfg(test)]
+use super::HookCallOrigin;
 use std::{fmt, sync::Arc};
 
 #[derive(Clone, Default)]
@@ -124,6 +126,7 @@ mod tests {
 
     fn call(index: u64) -> HookCall {
         HookCall {
+            origin: HookCallOrigin::Executed,
             component_id: "test".into(),
             subscription_id: index.to_string(),
             semantic_receipt: Some(index),

@@ -9,6 +9,33 @@ pub(in crate::host) struct BodyReceiptBundle {
 }
 
 impl ReceiptRegistry {
+    /// Canonicalize only protected host IDs; opaque provider context stays exact.
+    /// Writer/parent/nested topology remains part of the current header identity.
+    pub(in crate::host) fn body_header_identity(&self, metadata: &mut BTreeMap<String,String>) -> Option<String> {
+        if self.exhausted { return None; }
+        let mut roots=BTreeSet::new();
+        if let Some(value)=metadata.get(RECEIPT) { roots.insert(value.parse::<u64>().ok()?); }
+        let mut admitted=BTreeSet::new();
+        let mut pending=roots.iter().copied().collect::<Vec<_>>();
+        while let Some(token)=pending.pop() {
+            if admitted.contains(&token) {continue;}
+            if admitted.len()>=4096 {return None;}
+            let receipt=self.receipts.get(&token)?;
+            if !receipt.valid {return None;}
+            admitted.insert(token);
+            pending.extend(receipt.parents.iter().chain(&receipt.admitted_nested).copied());
+        }
+        let rank=admitted.iter().enumerate().map(|(i,t)|(*t,i)).collect::<BTreeMap<_,_>>();
+        let graph=admitted.iter().map(|token| {
+            let r=&self.receipts[token];
+            (&r.issuer,&r.writers,r.unbound,r.parents.iter().map(|t|rank[t]).collect::<Vec<_>>(),r.admitted_nested.iter().map(|t|rank[t]).collect::<Vec<_>>())
+        }).collect::<Vec<_>>();
+        let roots=roots.iter().map(|t|rank[t]).collect::<Vec<_>>();
+        let identity=debug_digest("body-header-authority-v1", &(roots,graph));
+        if let Some(value)=metadata.get_mut(RECEIPT) { *value="opaque host receipt".into(); }
+        Some(format!("{identity:x?}"))
+    }
+
     pub(in crate::host) fn export_body(
         &self,
         calls: &[HookCall],

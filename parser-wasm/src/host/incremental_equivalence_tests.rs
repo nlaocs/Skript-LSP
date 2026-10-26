@@ -154,6 +154,9 @@ fn compare_case(
     expect_hits: Option<bool>,
 ) -> (IncrementalMetrics, String) {
     let mut warm_host = actual_host();
+    // These cases isolate invocation/header reuse. Body reuse has a separate
+    // cold differential below and must not distort its guest-call accounting.
+    warm_host.components[0].manifest.incremental_body_subscriptions.clear();
     assert!(
         !warm_host.components[0]
             .manifest
@@ -168,6 +171,7 @@ fn compare_case(
     let actual_calls = guest_calls(&warm_host) - before_calls;
     let metrics = warm_host.incremental_metrics();
     let mut clean_host = actual_host();
+    clean_host.components[0].manifest.incremental_body_subscriptions.clear();
     // Host policy may decline reuse. The guest, native matcher, registry, ABI,
     // source and revision are otherwise the same as the tested warm request.
     clean_host.components[0]
@@ -208,6 +212,64 @@ fn compare_case(
         metrics.eligible, metrics.hits
     );
     (metrics, canonical_ast(&warm.ast))
+}
+
+#[test]
+fn real_core_body_unlisted_registered_resolver_keeps_typed_assignments_cold() {
+    let source = "function first() :: number:\n    set {_v} to 1\n    return {_v}\nfunction second() :: text:\n    set {_t} to \"a\"\n    return {_t}\n";
+    let mut warm_host=actual_host();
+    warm_host.body_debug=true;
+    warm_host.components[0].manifest.incremental_local_subscriptions.clear();
+    warm_host.components[0].manifest.incremental_header_handlers.clear();
+    let first=run(&mut warm_host,source,1);
+    assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
+    let initial=warm_host.incremental_metrics();
+    assert!(initial.body_eligible>0,"actual native body boundary must execute: {initial:?}");
+    assert_eq!(initial.body_stored,0,"unlisted registered semantics must remain cold: {initial:?}");
+    for (revision,current) in [(2,source.to_owned()),(3,source.replace("to 1","to 2"))] {
+        let before=guest_calls(&warm_host);
+        let warm=run(&mut warm_host,&current,revision);
+        let actual_calls=guest_calls(&warm_host)-before;
+        let metrics=warm_host.incremental_metrics();
+        let mut cold_host=actual_host();
+        cold_host.components[0].manifest.incremental_local_subscriptions.clear();
+        cold_host.components[0].manifest.incremental_header_handlers.clear();
+        cold_host.components[0].manifest.incremental_body_subscriptions.clear();
+        let before=guest_calls(&cold_host);
+        let cold=run(&mut cold_host,&current,revision);
+        let cold_calls=guest_calls(&cold_host)-before;
+        assert_equivalent(&warm,&cold);
+        assert_eq!(metrics.body_hits,0,"{revision}: {metrics:?}");
+        assert_eq!(actual_calls,cold_calls,"unlisted paths must not skip guest work");
+    }
+}
+
+#[test]
+fn real_core_body_reuse_matches_cold_for_stop_bodies_and_a_sibling_case_edit() {
+    let source="function first():\n    stop\nfunction second():\n    stop\n";
+    let mut warm_host=actual_host();
+    warm_host.body_debug=true;
+    warm_host.components[0].manifest.incremental_local_subscriptions.clear();
+    warm_host.components[0].manifest.incremental_header_handlers.clear();
+    let first=run(&mut warm_host,source,1);
+    assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
+    assert!(warm_host.incremental_metrics().body_stored>0,"{:?}",warm_host.incremental_metrics());
+    for (revision,current) in [(2,source.to_owned()),(3,source.replacen("stop","Stop",1))] {
+        let before=guest_calls(&warm_host);
+        let warm=run(&mut warm_host,&current,revision);
+        let actual=guest_calls(&warm_host)-before;
+        let metrics=warm_host.incremental_metrics();
+        let mut cold_host=actual_host();
+        cold_host.components[0].manifest.incremental_local_subscriptions.clear();
+        cold_host.components[0].manifest.incremental_header_handlers.clear();
+        cold_host.components[0].manifest.incremental_body_subscriptions.clear();
+        let before=guest_calls(&cold_host);
+        let cold=run(&mut cold_host,&current,revision);
+        assert_equivalent(&warm,&cold);
+        assert!(metrics.body_hits>0,"{revision}: {metrics:?}");
+        assert!(actual<guest_calls(&cold_host)-before);
+        assert!(warm.syntax_calls.iter().any(|call|call.origin==HookCallOrigin::ReusedStructureBody));
+    }
 }
 
 #[test]

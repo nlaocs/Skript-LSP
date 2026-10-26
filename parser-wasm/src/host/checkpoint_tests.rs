@@ -2,6 +2,7 @@ use super::*;
 
 fn call(subscription: &str) -> HookCall {
     HookCall {
+        origin: HookCallOrigin::Executed,
         component_id: "component".into(),
         subscription_id: subscription.into(),
         semantic_receipt: None,
@@ -192,6 +193,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
         expression_candidates: Vec::new(),
         semantic_candidates: Vec::new(),
         function_registry: None,
+        body: None,
         structure_preparation: None,
     });
 }

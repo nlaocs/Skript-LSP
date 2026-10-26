@@ -5,6 +5,8 @@
 use super::{
     AstNode, AstTree, CaptureValue, HookCall, HookMode, HookOutput, HookPayload, WitMetadataEntry,
 };
+#[cfg(test)]
+use super::HookCallOrigin;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
@@ -796,6 +798,7 @@ mod tests {
             node.metadata = value.metadata;
         }
         HookCall {
+            origin: HookCallOrigin::Executed,
             component_id: issuer.into(),
             subscription_id: "test".into(),
             semantic_receipt: receipt,
@@ -851,6 +854,7 @@ mod tests {
             Some(&registry),
             &[
                 HookCall {
+                    origin: HookCallOrigin::Executed,
                     component_id: "state-observer".into(),
                     subscription_id: "state".into(),
                     semantic_receipt: observer,
@@ -890,6 +894,7 @@ mod tests {
             Some(&registry),
             &[
                 HookCall {
+                    origin: HookCallOrigin::Executed,
                     component_id: "context-observer".into(),
                     subscription_id: "context".into(),
                     semantic_receipt: observer,
@@ -971,6 +976,7 @@ mod tests {
             &[
                 accepted,
                 HookCall {
+                    origin: HookCallOrigin::Executed,
                     component_id: "observer".into(),
                     subscription_id: "observe".into(),
                     semantic_receipt: None,
@@ -1116,6 +1122,7 @@ mod tests {
             node.metadata = value.metadata;
         }
         HookCall {
+            origin: HookCallOrigin::Executed,
             component_id: issuer.into(),
             subscription_id: "test".into(),
             semantic_receipt: receipt,

@@ -484,6 +484,7 @@ impl ParserHost {
             }
         };
 
+        self.allow_body_cache_publication(parsed.semantic_proofs.authenticates_result(&parsed.ast, &parsed.source));
         self.finish_incremental_document(
             &request.context.document_id,
             request.context.document_revision,

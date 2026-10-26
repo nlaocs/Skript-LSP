@@ -81,6 +81,16 @@ impl addon::Guest for CoreLibrary {
             // immutable runtime/Catalog facts. Context effects, diagnostics, and
             // AdditionalParse outputs are excluded individually by the host.
             // RegisteredExpression stays off: some resolvers inspect full input.
+            // Body-local, not line-local. RegisteredExpression remains excluded:
+            // some resolvers inspect document input beyond their own span.
+            incremental_body_subscriptions: vec![
+                EXPRESSION_SUBSCRIPTION_ID.to_owned(),
+                TYPE_SUBSCRIPTION_ID.to_owned(),
+                default_expression::PROVIDER_ID.to_owned(),
+                EFFECT_SUBSCRIPTION_ID.to_owned(),
+                CONDITION_SUBSCRIPTION_ID.to_owned(),
+                SECTION_SUBSCRIPTION_ID.to_owned(),
+            ],
             incremental_header_handlers: structures::incremental_header_handlers(),
             incremental_local_subscriptions: vec![
                 EFFECT_SUBSCRIPTION_ID.to_owned(),
@@ -151,6 +161,11 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement {
                     id: parser_wasm::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER.to_owned(),
+                    minimum_version: 1,
+                    required: false,
+                },
+                CapabilityRequirement {
+                    id: parser_wasm::CAPABILITY_INCREMENTAL_STRUCTURE_BODY.to_owned(),
                     minimum_version: 1,
                     required: false,
                 },
@@ -954,7 +969,7 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 18);
+        assert_eq!(manifest.capabilities.len(), 19);
         assert!(manifest.capabilities.iter().any(|c| c.id
             == parser_wasm::CAPABILITY_STATIC_NAME_RENAME_STABILITY
             && c.minimum_version == 1));

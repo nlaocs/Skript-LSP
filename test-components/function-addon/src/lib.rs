@@ -13,6 +13,7 @@ struct FunctionAddon;
 impl addon::Guest for FunctionAddon {
     fn manifest() -> ComponentManifest {
         ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
 
             incremental_local_subscriptions: Vec::new(),

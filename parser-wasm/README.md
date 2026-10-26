@@ -1,5 +1,21 @@
 # Parser WASM ABI
 
+ABI 27 / WIT 0.45 adds the explicit `incremental-body-subscriptions` manifest
+field and `parser.incremental-structure-body` v1 promise. Rebuild all components
+together; older WIT layouts and ABI versions are incompatible. An empty list
+opts out. Every active provider must certify body-local routing, and every
+reached request, including losing or negative attempts, must be listed.
+
+The first host implementation reuses only portable flat Trigger bodies with
+unchanged source geometry, current context, readonly State dependencies and a
+closed private receipt graph. Function lookup, nested editing owners,
+AdditionalParse attempts, unknown resources and mutations remain cold. Headers,
+declaration registration, ExitBody and final source/forest proof still run.
+Core's registered-expression subscription is not yet opted in. This contract
+does not promise a speedup for arbitrary scripts. `HookCall.origin` distinguishes
+current execution and verified reuse; the retained semantic trace is not a
+physical guest-call counter.
+
 [日本語](README.ja.md)
 
 The `parser.default-expression` capability adds typed omitted-capture providers
@@ -34,7 +50,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.44.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.45.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -105,7 +121,7 @@ multiple targets for each registered semantic handler, including dynamic
   it to 0.40.0. Native omission provenance and the opt-in incremental
   subscription manifest changed it to 0.41.0; explicit header-local Structure
   handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
-changed it to 0.43.0. The manifest's current `abi` value is 26.0 and
+changed it to 0.43.0. The manifest's current `abi` value is 27.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 

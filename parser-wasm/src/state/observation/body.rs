@@ -16,6 +16,20 @@ pub(crate) struct BodyReadCertificate {
     adopted_reads: BTreeSet<StateRecordKey>,
     namespaces: BTreeSet<RevisionKey>,
     adopted_namespaces: BTreeSet<StateNamespaceKey>,
+    retained_bytes: usize,
+}
+
+impl BodyReadCertificate {
+    /// Payload bytes plus conservative per-record collection/struct allowance.
+    pub(crate) fn retained_bytes(&self) -> usize { self.retained_bytes }
+}
+
+fn dependencies_size(set:&StateReadWriteSet) -> usize {
+    let records=set.reads.iter().chain(&set.writes).fold(0usize,|n,key|
+        n.saturating_add(192).saturating_add(key.key.len()).saturating_add(key.namespace.len())
+            .saturating_add(key.owner.as_ref().map_or(0,String::len)));
+    set.namespace_revisions.keys().fold(records,|n,key| n.saturating_add(192)
+        .saturating_add(key.namespace.len()).saturating_add(key.owner.as_ref().map_or(0,String::len)))
 }
 
 impl ParseTransaction {
@@ -46,13 +60,33 @@ impl ParseTransaction {
             || observation.failures != parse.observations.failures
             || parse.writes != before.state.writes
             || parse.read_write_set.writes != before.state.read_write_set.writes
+            || parse.overlay_revision != before.state.overlay_revision
+            || !before.state.applied_deltas.is_subset(&parse.applied_deltas)
+            || !before.state.current_revisions.iter().all(|(key,value)| parse.current_revisions.get(key) == Some(value))
+            || !before.state.base_revisions.iter().all(|(key,value)| parse.base_revisions.get(key) == Some(value))
             || !before.state.read_write_set.reads.is_subset(&parse.read_write_set.reads)
             || !before.state.current_revisions.keys().all(|key| parse.current_revisions.contains_key(key))
             || !before.state.read_write_set.namespace_revisions.keys().all(|key| parse.read_write_set.namespace_revisions.contains_key(key))
         {
             return Ok(None);
         }
+        // Bound the owned certificate before cloning any prefix or namespace.
+        let mut retained_bytes=dependencies_size(&before.state.read_write_set)
+            .saturating_add(dependencies_size(&parse.read_write_set));
+        for key in before.state.current_revisions.keys().chain(parse.current_revisions.keys()) {
+            retained_bytes=retained_bytes.saturating_add(192).saturating_add(key.namespace.name().len())
+                .saturating_add(key.namespace.owner().map_or(0,str::len));
+        }
+        for observation in &parse.observations.entries[observation.first..] {
+            retained_bytes=retained_bytes.saturating_add(namespace_size(&observation.values))
+                .saturating_add(observation.values.len().saturating_mul(192))
+                .saturating_add(192).saturating_add(observation.component.len())
+                .saturating_add(observation.key.namespace.name().len())
+                .saturating_add(observation.key.namespace.owner().map_or(0,str::len));
+        }
+        if retained_bytes>MAX_OBSERVED_BYTES { return Ok(None); }
         Ok(Some(BodyReadCertificate {
+            retained_bytes,
             observations: parse.observations.entries[observation.first..].to_vec(),
             prefix_reads: before.state.read_write_set.reads.clone(),
             prefix_namespaces: before.state.current_revisions.keys().cloned().collect(),
@@ -72,7 +106,8 @@ impl ParseTransaction {
     ) -> Result<bool, StateError> {
         let mut parse = self.lock()?;
         parse.ensure_open()?;
-        if parse.read_write_set.reads != certificate.prefix_reads
+        if !parse.observations.enabled || parse.observations.exhausted
+            || parse.read_write_set.reads != certificate.prefix_reads
             || !parse.current_revisions.keys().eq(certificate.prefix_namespaces.iter())
             || !parse.read_write_set.namespace_revisions.keys().eq(certificate.prefix_adopted_namespaces.iter())
         {
@@ -284,6 +319,24 @@ mod tests {
         let second = parse(&store, 2);
         assert!(!second.replay_body_read_certificate(&certificate).unwrap());
         assert_eq!(second.read_write_set().unwrap(), StateReadWriteSet::default());
+    }
+
+    #[test]
+    fn body_certificate_rejects_rollback_of_equal_prefix_writes_and_revision_receipts() {
+        let store = store();
+        let parse = parse(&store, 1);
+        let put = || {
+            let mut call = parse.begin_invocation(OWNER).unwrap();
+            call.put(StateScope::Parse, NamespaceVisibility::Private, NAMESPACE, "x",
+                StateValue::new("test.values", StateEncoding::Raw, b"same")).unwrap();
+            call.commit().unwrap();
+        };
+        put();
+        let earlier = parse.savepoint().unwrap();
+        put();
+        let before = parse.body_observation_checkpoint().unwrap();
+        parse.rollback_to(&earlier).unwrap();
+        assert!(parse.body_read_certificate(&before).unwrap().is_none());
     }
 
     #[test]

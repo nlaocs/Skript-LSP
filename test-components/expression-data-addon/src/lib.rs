@@ -222,6 +222,7 @@ fn parser_requirements() -> Vec<ParserCapabilityRequirement> {
 impl addon::Guest for ExpressionDataAddon {
     fn manifest() -> ComponentManifest {
         let mut manifest = ComponentManifest {
+            incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
 
             incremental_local_subscriptions: Vec::new(),

@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.44.0;
+package nlaocs:skript-parser-addon@0.45.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -402,6 +402,31 @@ interface types {
         /// diagnostics, AdditionalParse, attachments and nonexact mappings miss.
         /// Empty opts out. Existing incremental-local-syntax v1 is unchanged.
         incremental-header-handlers: list<string>,
+        /// parser.incremental-structure-body v1: only these subscription IDs
+        /// may be skipped within a certified native Structure body. Any reached
+        /// unlisted invocation (including negative/losing attempts) makes that
+        /// body ineligible. Every enabled component must explicitly promise v1.
+        ///
+        /// Subscription/handler selection is determined by current body input,
+        /// context, initialized immutable Catalog/runtime and ordered bindings.
+        /// Listed handlers depend only on that body region/current context and
+        /// observed State get/scan values, not other source or hidden guest history.
+        /// The document URI and physical input/context are semantic and bound by
+        /// the host. Invocation IDs, document revision counters and analysis epochs
+        /// are bookkeeping, not semantic inputs. Opaque provider provenance may
+        /// enforce current scope, but stays exact/current-validated; it may not be
+        /// normalized into authority or used to change semantic values on replay.
+        /// IDs of host semantic receipts are opaque bookkeeping. Skipping has
+        /// no observable guest-side effect; immutable value-preserving caches
+        /// are allowed. Current headers, declaration registration, ExitBody and
+        /// AST phases still execute; this does not certify their outputs local.
+        ///
+        /// Native artifacts require current source/provenance, ownership,
+        /// immutable validation, logical resource accounting and final semantic
+        /// proof. Writes/mutation attempts, unknown dependencies or resources,
+        /// incomplete/cancelled/recovered work and non-opted providers fall back
+        /// to ordinary parsing. Empty opts out. No old State delta is portable.
+        incremental-body-subscriptions: list<string>,
         registered-syntax-handlers: list<registered-syntax-handler>,
         catalog-annotations: list<catalog-annotation>,
         state-namespaces: list<state-namespace-declaration>,

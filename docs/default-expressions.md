@@ -53,7 +53,7 @@ No invented `to player` text is inserted into `MappedSource`.
 
 ## WASM addon contract
 
-WIT `nlaocs:skript-parser-addon@0.44.0` uses ABI `26.0`; rebuild older components against this contract. Request capability
+WIT `nlaocs:skript-parser-addon@0.45.0` uses ABI `27.0`; rebuild older components against this contract. Request capability
 `parser.default-expression` version 1 and subscribe to phase `default-expression`
 with the existing `HookSubscription`, target and selector machinery. Dispatch
 targets the requested **Type** registration; `default-expression-payload`
