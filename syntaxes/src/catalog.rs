@@ -18,6 +18,8 @@ use std::{
 use syntax_pattern_parser::syntax::{
     ParseResult, PatternElement, PluralRules, SpannedPatternElement, parse as parse_pattern,
 };
+#[cfg(test)]
+mod matcher_cost;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// One top-level JSON object retained from the source snapshot.
@@ -1296,11 +1298,60 @@ struct StaticPatternMatch {
 
 const MAX_STATIC_PATTERN_STATES: usize = 256;
 
+// Most pattern prefixes have only one live state. Keep that state inline;
+// branching still preserves every state in its original order before truncation.
+#[derive(Default)]
+struct StaticPatternStates {
+    first: Option<StaticPatternMatch>,
+    rest: Vec<StaticPatternMatch>,
+}
+
+impl StaticPatternStates {
+    fn one(state: StaticPatternMatch) -> Self {
+        Self { first: Some(state), rest: Vec::new() }
+    }
+
+    fn push(&mut self, state: StaticPatternMatch) {
+        if self.first.is_none() {
+            self.first = Some(state);
+        } else {
+            self.rest.push(state);
+        }
+    }
+
+    fn extend(&mut self, states: impl Iterator<Item = StaticPatternMatch>) {
+        for state in states {
+            self.push(state);
+        }
+    }
+
+    fn len(&self) -> usize {
+        usize::from(self.first.is_some()) + self.rest.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.first.is_none()
+    }
+
+    fn truncate(&mut self, len: usize) {
+        if len == 0 {
+            self.first = None;
+            self.rest.clear();
+        } else {
+            self.rest.truncate(len - 1);
+        }
+    }
+
+    fn into_iter(self) -> impl Iterator<Item = StaticPatternMatch> {
+        self.first.into_iter().chain(self.rest)
+    }
+}
+
 fn match_static_pattern(
     elements: &[SpannedPatternElement],
     input: &str,
 ) -> Option<StaticPatternMatch> {
-    match_static_sequence(elements, input, vec![StaticPatternMatch::default()])
+    match_static_sequence(elements, input, StaticPatternStates::one(StaticPatternMatch::default()))
         .into_iter()
         .find(|state| state.cursor == input.len())
 }
@@ -1308,11 +1359,11 @@ fn match_static_pattern(
 fn match_static_sequence(
     elements: &[SpannedPatternElement],
     input: &str,
-    mut states: Vec<StaticPatternMatch>,
-) -> Vec<StaticPatternMatch> {
+    mut states: StaticPatternStates,
+) -> StaticPatternStates {
     for element in elements {
-        let mut next = Vec::new();
-        for state in states {
+        let mut next = StaticPatternStates::default();
+        for state in states.into_iter() {
             match &element.value {
                 PatternElement::Literal(literal) => {
                     if let Some(cursor) = match_static_literal(input, state.cursor, literal) {
@@ -1321,15 +1372,15 @@ fn match_static_sequence(
                 }
                 PatternElement::Choice(branches) => {
                     for branch in branches {
-                        next.extend(match_static_sequence(branch, input, vec![state.clone()]));
+                        next.extend(match_static_sequence(branch, input, StaticPatternStates::one(state.clone())).into_iter());
                     }
                 }
                 PatternElement::Group(children) => {
-                    next.extend(match_static_sequence(children, input, vec![state]));
+                    next.extend(match_static_sequence(children, input, StaticPatternStates::one(state)).into_iter());
                 }
                 PatternElement::Option(children) => {
                     next.push(state.clone());
-                    next.extend(match_static_sequence(children, input, vec![state]));
+                    next.extend(match_static_sequence(children, input, StaticPatternStates::one(state)).into_iter());
                 }
                 PatternElement::ParseTag(tag) => {
                     let mut state = state;
