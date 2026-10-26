@@ -458,19 +458,29 @@ fn measure_public_structure_body_edit_reuse() {
         for node in &result.ast.nodes { hash.update(format!("{}|{}|{:?}", node.id, proof.native_valid(node), proof.unique_issuer(node))); }
         format!("{:x}", hash.finalize())
     }
-    fn bounded_run(host: &mut ParserHost, source: &str, revision: u64) -> (DocumentParseResult,String) {
+    fn bounded_run(host: &mut ParserHost, source: &str, revision: u64) -> (DocumentParseResult,String,usize) {
         let token = DocumentCancellationToken::new();
         let cancel = token.clone();
         let (done, wait) = std::sync::mpsc::channel();
         let timer = std::thread::spawn(move || {
             if wait.recv_timeout(std::time::Duration::from_secs(180)).is_err() { cancel.cancel(); }
         });
-        let mut events=Sha256::new();let mut receipts=BTreeMap::new();
+        let mut events=Sha256::new();let mut receipts=BTreeMap::new();let mut unportable=0;
         let result = host.parse_document_with_preparation(
             DocumentParseRequest::new("file:///workspace", "file:///workspace/actual-incremental.sk", revision, source),
             DocumentParserConfig { cancellation: token, ..DocumentParserConfig::default() },&mut |event| {
                 if let skript_parser::StructurePreparationEvent::SectionHeader {candidate,attempt_id,parent_attempt_id,..}=event {
-                    let (candidate,metadata)=skript_parser::PortableStructureBody::freeze_preparation(candidate,&mut |_,_|true).unwrap();
+                    let Some((candidate,metadata))=skript_parser::PortableStructureBody::freeze_preparation(candidate,&mut |_,_|true) else {
+                        // Function handles/recovery and other unsupported resources
+                        // are expected on real documents. Keep the notification's
+                        // public identity/order; do not pretend to compare opaque
+                        // state, or make this observer authorize body reuse.
+                        unportable+=1;
+                        events.update(format!("unportable:{attempt_id}|{parent_attempt_id:?}|{:?}|{}|{}|{}|{:?}|{:?}",
+                            candidate.raw_node_id,candidate.matched.definition_id,candidate.matched.registration_id,
+                            candidate.matched.pattern_index,candidate.matched.matched.span,candidate.body_mode));
+                        return;
+                    };
                     let mut text=format!("{candidate:?}");
                     for (key,value) in metadata {
                         if key=="parser.semantic-writer-receipt.v1" {
@@ -483,7 +493,7 @@ fn measure_public_structure_body_edit_reuse() {
             });
         let _ = done.send(());
         timer.join().unwrap();
-        (result.unwrap(),format!("{:x}",events.finalize()))
+        (result.unwrap(),format!("{:x}",events.finalize()),unportable)
     }
     let plan: serde_json::Value = serde_json::from_slice(&std::fs::read(
         std::env::var("SKRIPT_BODY_MEASUREMENT_PLAN").unwrap()).unwrap()).unwrap();
@@ -524,7 +534,7 @@ fn measure_public_structure_body_edit_reuse() {
             }
             let initial_calls_before = guest_calls(&host);
             let start = Instant::now();
-            let (initial,initial_preparations) = bounded_run(&mut host, &source, 1);
+            let (initial,initial_preparations,initial_unportable_preparations) = bounded_run(&mut host, &source, 1);
             let initial_ms = start.elapsed().as_secs_f64() * 1000.0;
             let initial_calls = guest_calls(&host) - initial_calls_before;
             let initial_metrics = host.incremental_metrics();
@@ -541,7 +551,7 @@ fn measure_public_structure_body_edit_reuse() {
             eprintln!("body measurement initial {initial_ms:.3}ms; {initial_metrics:?}; editing");
             let before = guest_calls(&host);
             let start = Instant::now();
-            let (current,edit_preparations) = bounded_run(&mut host, &edited, 2);
+            let (current,edit_preparations,edit_unportable_preparations) = bounded_run(&mut host, &edited, 2);
             let edit_ms = start.elapsed().as_secs_f64() * 1000.0;
             let edit_calls = guest_calls(&host) - before;
             let metrics = host.incremental_metrics();
@@ -565,6 +575,8 @@ fn measure_public_structure_body_edit_reuse() {
                 "reasonProbeEnabled":admission_reasons && (enabled || compare_bodies),"initialAdmission":initial_reasons,"editAdmission":edit_reasons,
                 "shadowEnabled":shadow && enabled,"initialShadow":initial_shadow,"editShadow":edit_shadow,
                 "initialPreparationsSha256":initial_preparations,"editPreparationsSha256":edit_preparations,
+                "initialUnportablePreparations":initial_unportable_preparations,"editUnportablePreparations":edit_unportable_preparations,
+                "unportablePreparationComparison":"public identity/order/span/body mode only; opaque state not compared or reusable",
                 "retainedRootSamplesNotAttemptPartition":root_samples(&current),
                 "initialMs":initial_ms,"editMs":edit_ms,"initialMetrics":format!("{initial_metrics:?}"),
                 "editMetrics":format!("{metrics:?}"),"initialGuestCalls":initial_calls,"editGuestCalls":edit_calls,
