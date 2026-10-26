@@ -8,6 +8,15 @@ use skript_parser::{PortableStructureBody, StructureBodyPlan, StructureBodyRepla
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_BODY_CALLS: usize = 4096;
 
+impl ParserHost {
+    /// Optional diagnostic counters only; never part of State or reuse authority.
+    pub(in crate::host) fn body_admission_count(&self, name: &'static str) {
+        #[cfg(test)]
+        if let Some(probe) = &self.body_admission_probe { probe.record(name); }
+        let _ = name;
+    }
+}
+
 /// Conditional declarations certify the entire invocation, not a single selected
 /// resolver. Target matching is deliberately broader than parser selectors: a
 /// guest can consult registration bindings before testing pattern/tag/mark.
@@ -95,6 +104,7 @@ impl WasmExpressionEnvironment<'_> {
     }
 
     pub(in crate::host) fn body_prepare(&mut self, request: StructureBodyReuseRequest<'_>) -> Result<StructureBodyPlan,String> {
+        self.hooks.host.body_admission_count("body_admission.prepare.total");
         let document=self.hooks.transaction.document_id().map_err(|e|self.hooks.host_error(e))?;
         let revision=self.hooks.transaction.document_revision().map_err(|e|self.hooks.host_error(e))?;
         if self.hooks.host.incremental.active.as_ref().is_none_or(|active|
@@ -102,9 +112,17 @@ impl WasmExpressionEnvironment<'_> {
                 || active.document!=self.hooks.context.document_id
                 || active.revision!=self.hooks.context.document_revision
                 || active.source.as_ref()!=request.source.original()) {
+            self.hooks.host.body_admission_count("body_admission.prepare.reject.document_context");
             return Ok(StructureBodyPlan::Parse);
         }
-        let Some(key) = self.body_key(&request) else { return Ok(StructureBodyPlan::Parse); };
+        let key = match self.body_key(&request) {
+            Ok(key) => key,
+            Err(reason) => {
+                self.hooks.host.body_admission_count(reason);
+                return Ok(StructureBodyPlan::Parse);
+            }
+        };
+        self.hooks.host.body_admission_count("body_admission.prepare.admitted");
         let active = self.hooks.host.incremental.active.as_mut().unwrap();
         active.metrics.body_eligible += 1;
         let world = active.world.as_ref().unwrap();
@@ -122,31 +140,32 @@ impl WasmExpressionEnvironment<'_> {
         Ok(proposal.map_or(StructureBodyPlan::Observe,|entry|StructureBodyPlan::Reuse(entry.replay.clone())))
     }
 
-    fn body_key(&mut self, request: &StructureBodyReuseRequest<'_>) -> Option<String> {
+    fn body_key(&mut self, request: &StructureBodyReuseRequest<'_>) -> Result<String, &'static str> {
         use std::fmt::Write;
-        let root=request.tree.get(request.candidate.raw_node_id)?;
-        let end=root.body_span.as_ref()?.virtual_range.end.max(root.span.virtual_range.end);
+        let root=request.tree.get(request.candidate.raw_node_id).ok_or("body_admission.prepare.reject.owner_missing")?;
+        let end=root.body_span.as_ref().ok_or("body_admission.prepare.reject.body_span_missing")?.virtual_range.end.max(root.span.virtual_range.end);
         let range=ParserTextRange::new(root.span.virtual_range.start,end);
-        if range.len()>1024*1024 { return None; }
-        let span=request.source.map_range(range).ok()?;
-        let [origin]=span.origins.as_slice() else {return None;};
+        if range.len()>1024*1024 { return Err("body_admission.prepare.reject.source_budget"); }
+        let span=request.source.map_range(range).map_err(|_|"body_admission.prepare.reject.mapping_error")?;
+        let [origin]=span.origins.as_slice() else {return Err("body_admission.prepare.reject.multiple_origins");};
         if origin.kind!=skript_parser::OriginKind::Exact || origin.expansion.is_some()
-            || origin.original_range.len()!=range.len() {return None;}
-        let original=origin.original_range.slice(request.source.original())?;
-        let current=range.slice(request.source.virtual_source())?;
+            || origin.original_range.len()!=range.len() {return Err("body_admission.prepare.reject.nonexact_origin");}
+        let original=origin.original_range.slice(request.source.original()).ok_or("body_admission.prepare.reject.original_range")?;
+        let current=range.slice(request.source.virtual_source()).ok_or("body_admission.prepare.reject.virtual_range")?;
         let mut candidate=request.candidate.clone();
         candidate.matched.extension_state=None;
-        let authority=self.hooks.host.semantic_receipts.as_ref()?.body_header_identity(&mut candidate.metadata)?;
+        let authority=self.hooks.host.semantic_receipts.as_ref().ok_or("body_admission.prepare.reject.receipt_registry_missing")?
+            .body_header_identity(&mut candidate.metadata).ok_or("body_admission.prepare.reject.header_authority")?;
         let mut nodes=Vec::new();
         let mut seen=BTreeSet::new();
         let mut pending=vec![root.id];
         while let Some(id)=pending.pop() {
-            if !seen.insert(id) || nodes.len()>=4096 {return None;}
-            let node=request.tree.get(id)?;
+            if !seen.insert(id) || nodes.len()>=4096 {return Err("body_admission.prepare.reject.tree_shape_or_budget");}
+            let node=request.tree.get(id).ok_or("body_admission.prepare.reject.raw_node_missing")?;
             pending.extend(node.children.iter().rev().copied());
             nodes.push(node);
         }
-        let active=self.hooks.host.incremental.active.as_mut()?;
+        let active=self.hooks.host.incremental.active.as_mut().ok_or("body_admission.prepare.reject.active_document_missing")?;
         if active.world.is_none() {
             let dynamic=self.hooks.dynamic_snapshot.cloned().map(|mut value| {
                 value.document_revision=0;value.registry_revision=0;format!("{value:?}")
@@ -166,8 +185,8 @@ impl WasmExpressionEnvironment<'_> {
         use sha2::Digest;
         let mut key=Key(sha2::Sha256::new());
         write!(&mut key,"body-v1|{original:?}|{current:?}|{span:?}|{nodes:?}|{candidate:?}|{authority}|{:?}|{:?}|{:?}|{}|{availability:?}",
-            request.context,request.config,request.work,request.parent_attempt).ok()?;
-        Some(format!("{:x}",key.0.finalize()))
+            request.context,request.config,request.work,request.parent_attempt).map_err(|_|"body_admission.prepare.reject.digest")?;
+        Ok(format!("{:x}",key.0.finalize()))
     }
 
     pub(in crate::host) fn body_accept(&mut self) -> Result<bool,String> {

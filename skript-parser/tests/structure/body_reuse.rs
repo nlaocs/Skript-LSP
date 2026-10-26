@@ -15,9 +15,21 @@ struct ReuseEnvironment {
     cancel_at: Option<&'static str>,
     cancelled: bool,
     bad_layout: bool,
+    measure_admission: bool,
+    admission_counts: std::cell::RefCell<BTreeMap<&'static str,usize>>,
+    enabled_calls: std::cell::Cell<usize>,
+    disabled: bool,
+    forced_mode: Option<skript_parser::StructureBodyMode>,
+    semantic_order: Vec<&'static str>,
 }
 
 impl PatternMatchEnvironment for ReuseEnvironment {
+    fn measurement_scope(&self, name: &'static str) -> skript_parser::ParserMeasurementScope {
+        if self.measure_admission && name.starts_with("body_admission.") {
+            *self.admission_counts.borrow_mut().entry(name).or_default() += 1;
+        }
+        skript_parser::ParserMeasurementScope::default()
+    }
     fn cancellation_requested(&mut self) -> bool { self.cancelled }
     fn resolve_type(&mut self, _: TypeExpressionRequest<'_>) -> Result<TypeExpressionOutcome, String> {
         Ok(TypeExpressionOutcome::default())
@@ -33,22 +45,28 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
         Ok(ExpressionLeafParse::default())
     }
     fn enter_structure(&mut self, request: StructureHookRequest<'_>) -> Result<StructureHookDecision, String> {
+        self.semantic_order.push("enter");
         Ok(StructureHookDecision::Accept {
-            context: request.context.clone(), body_mode: skript_parser::StructureBodyMode::Trigger,
+            context: request.context.clone(), body_mode: self.forced_mode.unwrap_or(skript_parser::StructureBodyMode::Trigger),
             entry_body_modes: if self.bad_layout { BTreeMap::from([(vec!["missing".into()],skript_parser::SectionBodyMode::Trigger)]) } else { BTreeMap::new() },
             metadata: request.candidate.metadata.clone(),
         })
     }
     fn resolve_effect_candidate(&mut self, _: EffectSemanticRequest<'_>) -> Result<EffectSemanticDecision, String> {
         self.effects += 1;
+        self.semantic_order.push("effect");
         Ok(EffectSemanticDecision::UseCandidate)
     }
     fn exit_structure(&mut self, _: StructureHookRequest<'_>) -> Result<StructureExitDecision, String> {
         self.exits += 1;
+        self.semantic_order.push("exit");
         self.cancelled |= self.cancel_at == Some("exit");
         Ok(StructureExitDecision::Accept)
     }
-    fn structure_body_reuse_enabled(&self) -> bool { true }
+    fn structure_body_reuse_enabled(&self) -> bool {
+        self.enabled_calls.set(self.enabled_calls.get()+1);
+        !self.disabled
+    }
     fn prepare_structure_body(&mut self, request: StructureBodyReuseRequest<'_>) -> Result<StructureBodyPlan, String> {
         self.prepares += 1;
         self.before=Some(request.work);
@@ -69,6 +87,7 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
     }
     fn adopt_structure_body(&mut self, accepted:bool) -> Result<(),String> {
         self.adoptions.push(accepted);
+        self.semantic_order.push("adopt");
         self.cancelled |= self.cancel_at == Some("adopt");
         Ok(())
     }
@@ -88,6 +107,37 @@ fn run(catalog:&Catalog, env:&mut ReuseEnvironment) -> Result<StructureDocument,
     let source=MappedSource::identity("root:\n    noop\n");
     let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));
     parse_structures(catalog,StructureParseRequest {source:&source,tree:&tree,context:ExpressionParseContext::default()},env,StructureParserConfig::default())
+}
+
+#[test]
+fn body_admission_measurement_preserves_short_circuit_and_semantic_callback_order() {
+    for case in 0..5 {
+        let catalog = if case == 3 {
+            catalog(vec![structure(0,"root",NodeType::Section,None),structure(2,"root",NodeType::Section,None),
+                Syntax::Effect(syntaxes::Effect { common:common_structure(1,"noop","noop","noop") })])
+        } else { fixture() };
+        let source=MappedSource::identity("root:\n    noop\n");
+        let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));
+        let mut reference = None;
+        for measured in [false,true] {
+            let mut env=ReuseEnvironment { measure_admission:measured, disabled:case==4,
+                forced_mode:(case==1).then_some(skript_parser::StructureBodyMode::Raw), ..ReuseEnvironment::default() };
+            let mut config=StructureParserConfig::default();
+            config.expression.matcher.recover_type_expression_failures=case==2;
+            let result=parse_structures(&catalog,StructureParseRequest {source:&source,tree:&tree,context:ExpressionParseContext::default()},&mut env,config).unwrap();
+            let calls=(env.effects,env.prepares,env.exits,env.adoptions.clone(),env.semantic_order.clone());
+            if let Some((result_before,calls_before))=&reference {assert_eq!(&result,result_before);assert_eq!(&calls,calls_before);}
+            else {reference=Some((result,calls));}
+            assert_eq!(env.enabled_calls.get(),usize::from(case==0 || case==4));
+            if measured {
+                let counts=env.admission_counts.borrow();
+                assert_eq!(counts.get("body_admission.native.total"),Some(&1));
+                let outcome=match case {0=>"passed",1=>"reject.mode",2=>"reject.recovery",3=>"reject.initial_ambiguity",_=>"reject.environment"};
+                assert_eq!(counts.get(format!("body_admission.native.{outcome}").as_str()),Some(&1));
+                assert_eq!(counts.values().sum::<usize>(),2,"one outcome per physical guardpoint");
+            } else { assert!(env.admission_counts.borrow().is_empty()); }
+        }
+    }
 }
 
 #[test]

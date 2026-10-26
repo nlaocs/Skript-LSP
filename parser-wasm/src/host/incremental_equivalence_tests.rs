@@ -284,6 +284,72 @@ fn real_core_body_reuses_individually_certified_typed_sets_with_current_context_
 fn measure_public_structure_body_edit_reuse() {
     use sha2::{Digest, Sha256};
     use std::time::Instant;
+    fn root_samples(result: &DocumentParseResult) -> Vec<serde_json::Value> {
+        result.syntax.roots.iter().filter_map(|root| {
+            let skript_parser::StructureDocumentNode::Structure(matches)=root else {return None;};
+            let candidate=matches.selected.as_ref()?;
+            let body=match &candidate.body {skript_parser::StructureBody::None=>"none",skript_parser::StructureBody::Raw(_)=>"raw",
+                skript_parser::StructureBody::Entries(_)=>"entries",skript_parser::StructureBody::Trigger(_)=>"trigger"};
+            // Post-parse examples only, not admission authority or an attempt
+            // denominator. Bound serialized origins and never emit source text.
+            let mapping=result.raw_tree.get(candidate.raw_node_id).and_then(|root| {
+                let end=root.body_span.as_ref()?.virtual_range.end.max(root.span.virtual_range.end);
+                let range=skript_parser::TextRange::new(root.span.virtual_range.start,end);
+                let span=result.source.map_range(range).ok()?;
+                let all_exact=span.origins.iter().all(|origin|origin.kind==skript_parser::OriginKind::Exact);
+                let no_expansions=span.origins.iter().all(|origin|origin.expansion.is_none());
+                // map_range flattens/deduplicates origins: only intersections
+                // with the actual segments retain virtual coverage and order.
+                let pieces=result.source.source_map().segments().iter().filter_map(|segment| {
+                    let start=segment.virtual_range.start.max(range.start);
+                    let end=segment.virtual_range.end.min(range.end);
+                    if start>=end {return None;}
+                    let overlap=skript_parser::TextRange::new(start,end);
+                    let origins=segment.origins.iter().map(|origin| {
+                        let mut origin=*origin;
+                        if origin.kind==skript_parser::OriginKind::Exact {
+                            let start=origin.original_range.start+overlap.start-segment.virtual_range.start;
+                            origin.original_range=skript_parser::TextRange::new(start,start+overlap.len());
+                        }
+                        origin
+                    }).collect::<Vec<_>>();
+                    Some((overlap,origins))
+                }).collect::<Vec<_>>();
+                let bounded= !pieces.is_empty() && pieces.len()<=16
+                    && pieces.iter().all(|(_,origins)|origins.len()==1);
+                let exact_cover=bounded && pieces.first().unwrap().0.start==range.start
+                    && pieces.last().unwrap().0.end==range.end
+                    && pieces.windows(2).all(|pair|pair[0].0.end==pair[1].0.start)
+                    && pieces.iter().all(|(virtual_range,origins)| {
+                        let origin=origins[0];origin.kind==skript_parser::OriginKind::Exact
+                            && origin.expansion.is_none() && origin.original_range.len()==virtual_range.len()
+                            && origin.original_range.slice(result.source.original())
+                                .zip(virtual_range.slice(result.source.virtual_source())).is_some_and(|(a,b)|a==b)
+                    });
+                let contiguous=exact_cover && pieces.windows(2)
+                    .all(|pair|pair[0].1[0].original_range.end==pair[1].1[0].original_range.start);
+                Some(serde_json::json!({"virtualStart":range.start,"virtualEnd":range.end,
+                    "originCount":span.origins.len(),"allExact":all_exact,"noExpansions":no_expansions,
+                    "boundedExactUnexpandedSegmentCoverage":exact_cover,"contiguousOriginalRanges":contiguous,
+                    "segmentCount":pieces.len(),"segmentSamplesTruncated":pieces.len()>16,
+                    "segmentSamples":pieces.iter().take(16).map(|(virtual_range,origins)|serde_json::json!({
+                        "virtualStart":virtual_range.start,"virtualEnd":virtual_range.end,"originCount":origins.len(),
+                        "originsTruncated":origins.len()>16,"origins":origins.iter().take(16).map(|origin|
+                            serde_json::json!({"kind":format!("{:?}",origin.kind),"start":origin.original_range.start,
+                                "end":origin.original_range.end,"hasExpansion":origin.expansion.is_some()})).collect::<Vec<_>>()
+                    })).collect::<Vec<_>>(),
+                    "truncated":span.origins.len()>16,"origins":span.origins.iter().take(16).map(|origin|
+                        serde_json::json!({"kind":format!("{:?}",origin.kind),"start":origin.original_range.start,
+                            "end":origin.original_range.end,"hasExpansion":origin.expansion.is_some()})).collect::<Vec<_>>()}))
+            });
+            Some(serde_json::json!({"rootId":candidate.raw_node_id.get(),"class":candidate.element_class.as_ref().map(|class|class.as_str()),
+                "definition":candidate.matched.definition_id,"patternIndex":candidate.matched.pattern_index,
+                "headerStart":candidate.matched.matched.span.mapped.virtual_range.start,
+                "headerEnd":candidate.matched.matched.span.mapped.virtual_range.end,
+                "bodyKind":body,"parsedHeaderCaptures":candidate.parsed_captures.len(),
+                "retainedAlternatives":matches.alternatives.len(),"bodyRangeMappingExample":mapping}))
+        }).take(16).collect()
+    }
     fn signature(result: &DocumentParseResult) -> String {
         assert_eq!(result.execution_status, DocumentExecutionStatus::Complete);
         assert!(result.component_failures.is_empty(), "component failure count {}", result.component_failures.len());
@@ -320,6 +386,7 @@ fn measure_public_structure_body_edit_reuse() {
     let plan: serde_json::Value = serde_json::from_slice(&std::fs::read(
         std::env::var("SKRIPT_BODY_MEASUREMENT_PLAN").unwrap()).unwrap()).unwrap();
     assert_eq!(plan["publicFixtures"], true);
+    let admission_reasons=plan["admissionReasons"]==true;
     let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
     for file in plan["snapshotFiles"].as_array().unwrap() {
         let bytes = std::fs::read(std::path::Path::new(plan["snapshot"].as_str().unwrap()).join(file["name"].as_str().unwrap())).unwrap();
@@ -336,44 +403,61 @@ fn measure_public_structure_body_edit_reuse() {
             eprintln!("body measurement pid={} case={} enabled={enabled} initial", std::process::id(), case["name"]);
             let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")),
                 HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
-            if !enabled {
+            if admission_reasons {
+                host.body_admission_probe=enabled.then(body_admission_measurement::Probe::default);
+                assert!(host.measurement_probe().is_none(),"counter-only measurement must not enable catalog timers");
+            } else if !enabled {
                 host.components[0].manifest.incremental_body_subscriptions.clear();
                 host.components[0].manifest.incremental_body_handler_subscriptions.clear();
             }
+            let initial_calls_before = guest_calls(&host);
             let start = Instant::now();
             let initial = bounded_run(&mut host, &source, 1);
             let initial_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let initial_calls = guest_calls(&host) - initial_calls_before;
             let initial_metrics = host.incremental_metrics();
             let initial_signature = signature(&initial);
+            let initial_reasons=host.body_admission_probe.as_ref().map(|probe|probe.snapshot());
+            if let Some(reasons)=&initial_reasons {assert_eq!(reasons["strictPartition"],true);}
+            if let Some(probe)=&host.body_admission_probe {probe.reset();}
             eprintln!("body measurement initial {initial_ms:.3}ms; {initial_metrics:?}; editing");
             let before = guest_calls(&host);
             let start = Instant::now();
             let current = bounded_run(&mut host, &edited, 2);
             let edit_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let edit_calls = guest_calls(&host) - before;
             let metrics = host.incremental_metrics();
             let edit_signature = signature(&current);
-            if let Some((initial, edited)) = &reference {
+            let edit_reasons=host.body_admission_probe.as_ref().map(|probe|probe.snapshot());
+            if let Some(reasons)=&edit_reasons {assert_eq!(reasons["strictPartition"],true);}
+            if let Some((initial, edited, calls_before, calls_after)) = &reference {
                 assert_eq!(&initial_signature, initial, "initial semantic digest differs");
                 assert_eq!(&edit_signature, edited, "edited semantic digest differs");
+                if admission_reasons {assert_eq!(&initial_calls,calls_before);assert_eq!(&edit_calls,calls_after);}
             }
-            rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":enabled,
+            rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":admission_reasons || enabled,
+                "reasonProbeEnabled":admission_reasons && enabled,"initialAdmission":initial_reasons,"editAdmission":edit_reasons,
+                "retainedRootSamplesNotAttemptPartition":root_samples(&current),
                 "initialMs":initial_ms,"editMs":edit_ms,"initialMetrics":format!("{initial_metrics:?}"),
-                "editMetrics":format!("{metrics:?}"),"editGuestCalls":guest_calls(&host)-before,
+                "editMetrics":format!("{metrics:?}"),"initialGuestCalls":initial_calls,"editGuestCalls":edit_calls,
                 "initialDiagnostics":initial.syntax.diagnostics.len(),"editDiagnostics":current.syntax.diagnostics.len(),
                 "initialSignature":initial_signature,"editSignature":edit_signature,
                 "initialStatus":format!("{:?}",initial.execution_status),"editStatus":format!("{:?}",current.execution_status),
                 "initialFailures":initial.component_failures.len(),"failures":current.component_failures.len(),
                 "initialFaults":initial.fault_regions.len(),"editFaults":current.fault_regions.len(),
                 "initialMissingDependencies":initial.dependency_unavailable.len(),"editMissingDependencies":current.dependency_unavailable.len(),
-                "astNodes":current.ast.nodes.len()}));
+                "astNodes":current.ast.nodes.len(),"originalBytes":current.source.original().len(),
+                "virtualBytes":current.source.virtual_source().len(),
+                "acceptedTreeMacroCalls":current.tree_macro_calls.iter().filter(|call|call.accepted).count()}));
             eprintln!("body measurement edit {edit_ms:.3}ms; {metrics:?}");
             std::fs::write(format!("{}.partial", plan["output"].as_str().unwrap()),
                 serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
-            if reference.is_none() { reference = Some((initial_signature, edit_signature)); }
+            if reference.is_none() { reference = Some((initial_signature, edit_signature, initial_calls, edit_calls)); }
         }
     }
     std::fs::write(plan["output"].as_str().unwrap(), serde_json::to_vec_pretty(&serde_json::json!({
-        "rows":rows,"conditions":"One reversed-order pair per public fixture; same test-profile native executable and release-profile Core. Parse wall time only, not editor/UI latency; no production selector change. Body-off retains other unchanged caches."})).unwrap()).unwrap();
+        "rows":rows,"admissionReasonsMode":admission_reasons,
+        "conditions":"One pair per public fixture, same native executable/Core; parse wall only, not UI latency or a speedup claim. In admissionReasons mode body reuse remains enabled on both sides, only counter observation toggles. Retained roots are examples, not the attempt denominator."})).unwrap()).unwrap();
 }
 
 #[test]

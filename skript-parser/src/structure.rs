@@ -625,10 +625,19 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                 }
                 let validator = candidate.entry_validator.clone();
                 let saved_context = session.replace_context(context);
+                // Diagnostic first-failure only. Keep each original predicate's
+                // order and short circuit; never re-run an environment query.
+                drop(crate::PatternMatchEnvironment::measurement_scope(session,"body_admission.native.total"));
+                let mut admission="body_admission.native.reject.mode";
                 let observed=body_mode==StructureBodyMode::Trigger
-                    && initially_unambiguous && !retry && candidates.is_empty() && candidate.parsed_captures.is_empty()
-                    && !session.body_config().matcher.recover_type_expression_failures
-                    && session.environment_mut().structure_body_reuse_enabled();
+                    && {admission="body_admission.native.reject.initial_ambiguity"; initially_unambiguous}
+                    && {admission="body_admission.native.reject.retry"; !retry}
+                    && {admission="body_admission.native.reject.remaining_candidates"; candidates.is_empty()}
+                    && {admission="body_admission.native.reject.header_captures"; candidate.parsed_captures.is_empty()}
+                    && {admission="body_admission.native.reject.recovery"; !session.body_config().matcher.recover_type_expression_failures}
+                    && {admission="body_admission.native.reject.environment"; session.environment_mut().structure_body_reuse_enabled()};
+                drop(crate::PatternMatchEnvironment::measurement_scope(session,
+                    if observed {"body_admission.native.passed"} else {admission}));
                 let parsed=session.with_prepared_owner(preparation_attempt,|session| {
                     // A cache hit must obey the same owner layout contract as
                     // the ordinary body parser, before any replay can mutate state.

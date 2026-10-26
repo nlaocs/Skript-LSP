@@ -13,6 +13,8 @@ mod capture_view_tests;
 #[cfg(test)]
 mod catalog_measurement;
 #[cfg(test)]
+mod body_admission_measurement;
+#[cfg(test)]
 mod tree_macro_measurement;
 mod tree_view;
 mod tree_access;
@@ -4339,6 +4341,10 @@ struct DeferredExpressionEffects {
 impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
     #[cfg(test)]
     fn measurement_scope(&self, name: &'static str) -> skript_parser::ParserMeasurementScope {
+        if name.starts_with("body_admission.") {
+            self.hooks.host.body_admission_count(name);
+            return skript_parser::ParserMeasurementScope::default();
+        }
         self.hooks.host.measurement_scope(name)
             .map(skript_parser::ParserMeasurementScope::new).unwrap_or_default()
     }
@@ -9380,6 +9386,8 @@ pub struct ParserHost {
     body_impure: bool,
     #[cfg(test)]
     body_debug: bool,
+    #[cfg(test)]
+    body_admission_probe: Option<body_admission_measurement::Probe>,
     expression_preparation: skript_parser::ExpressionPreparationCache,
     incremental: incremental::IncrementalCache,
     state_store: StateStore,
@@ -9799,6 +9807,8 @@ impl ParserHost {
             body_impure: false,
             #[cfg(test)]
             body_debug: false,
+            #[cfg(test)]
+            body_admission_probe: None,
             expression_preparation: skript_parser::ExpressionPreparationCache::default(),
             incremental: incremental::IncrementalCache::default(),
             state_store,
