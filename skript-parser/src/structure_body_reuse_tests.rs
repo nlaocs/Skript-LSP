@@ -17,13 +17,30 @@ fn body_reuse_preparation_rejects_sibling_as_parent_and_changed_header_geometry(
     let root=tree.get(tree.roots[0]).unwrap();
     let find=|text:&str|tree.nodes.iter().find(|n|n.text.trim_end_matches(':')==text.trim_end_matches(':')).unwrap();
     let before=crate::StructureBodyWork {candidates:0,memo_entries:0,next_resolution_id:0,next_preparation_attempt:10};
-    let mut replay=crate::StructureBodyReplay {before,body:crate::PortableStructureBody::freeze(&StructureBody::Trigger(Vec::new()),&mut |_,_|false).unwrap(),
+    let preparations=vec![preparation(&source,find("if x:"),10,1),preparation(&source,find("if y:"),11,10),preparation(&source,find("if z:"),12,1)];
+    let section=|candidate|crate::SectionBodyNode::Section(Box::new(crate::SectionMatches {selected:Some(candidate),alternatives:Vec::new(),unknown:None,diagnostics:Vec::new()}));
+    let mut first=preparations[0].candidate.clone();
+    first.body.push(section(preparations[1].candidate.clone()));
+    let body=StructureBody::Trigger(vec![section(first),section(preparations[2].candidate.clone())]);
+    let replay=crate::StructureBodyReplay {before,body:crate::PortableStructureBody::freeze(&body,&mut |_,_|false).unwrap(),
         post_context:ExpressionParseContext::default(),work:crate::StructureBodyWork {next_preparation_attempt:13,..before},
-        preparations:vec![preparation(&source,find("if x:"),10,1),preparation(&source,find("if y:"),11,10),preparation(&source,find("if z:"),12,1)]};
+        preparations};
     assert!(valid_body_preparations(&source,&tree,root,1,&replay));
-    replay.preparations[2].parent_attempt_id=Some(10);
-    assert!(!valid_body_preparations(&source,&tree,root,1,&replay));
-    replay.preparations[2].parent_attempt_id=Some(1);
-    replay.preparations[2].candidate.matched.matched.span.mapped.virtual_range.start+=1;
-    assert!(!valid_body_preparations(&source,&tree,root,1,&replay));
+    for case in 0..11 {
+        let mut changed=replay.clone();
+        match case {
+            0=>changed.preparations[2].parent_attempt_id=Some(10),
+            1=>changed.preparations[2].candidate.matched.matched.span.mapped.virtual_range.start+=1,
+            2=>changed.preparations.clear(),
+            3=>{changed.preparations.remove(1);},
+            4=>changed.preparations.swap(0,1),
+            5=>{changed.preparations[2]=changed.preparations[0].clone();changed.preparations[2].attempt_id=12;},
+            6=>changed.preparations[1].attempt_id=10,
+            7=>changed.preparations[1].attempt_id=13,
+            8=>changed.preparations[1].candidate.matched.registration_id.push_str("-other"),
+            9=>changed.preparations[1].candidate.body_mode=crate::SectionBodyMode::Conditions,
+            _=>changed.preparations[1].candidate.body.push(crate::SectionBodyNode::Trivia(root.id)),
+        }
+        assert!(!valid_body_preparations(&source,&tree,root,1,&changed),"case {case}");
+    }
 }

@@ -856,6 +856,10 @@ fn valid_body_preparations(
     parent:PreparationAttemptId,
     replay:&crate::StructureBodyReplay,
 ) -> bool {
+    // Preparations are the actual enter-time proposals, while the portable AST
+    // contains exit-time results. Their owner identities and traversal must
+    // agree one-to-one; final context/metadata must not replace the proposals.
+    if !replay.body.matches_preparations(&replay.preparations) {return false;}
     let Some(body)=&root.body_span else { return replay.preparations.is_empty(); };
     let mut seen=BTreeMap::new();
     for preparation in &replay.preparations {

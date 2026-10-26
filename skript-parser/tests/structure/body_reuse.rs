@@ -7,6 +7,9 @@ use skript_parser::{
 #[derive(Default)]
 struct ReuseEnvironment {
     cached: Option<StructureBodyReplay>,
+    pending: Option<StructureBodyReplay>,
+    preparations: Vec<skript_parser::ReusedSectionPreparation>,
+    notices: Vec<String>,
     before: Option<StructureBodyWork>,
     prepares: usize,
     effects: usize,
@@ -15,6 +18,7 @@ struct ReuseEnvironment {
     cancel_at: Option<&'static str>,
     cancelled: bool,
     bad_layout: bool,
+    reject_exit: bool,
     measure_admission: bool,
     admission_counts: std::cell::RefCell<BTreeMap<&'static str,usize>>,
     enabled_calls: std::cell::Cell<usize>,
@@ -61,7 +65,30 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
         self.exits += 1;
         self.semantic_order.push("exit");
         self.cancelled |= self.cancel_at == Some("exit");
-        Ok(StructureExitDecision::Accept)
+        if self.reject_exit {Ok(StructureExitDecision::Reject {reason:"test parent rejection".into(),diagnostics:Vec::new()})}
+        else {Ok(StructureExitDecision::Accept)}
+    }
+    fn enter_section_children(&mut self, request:skript_parser::SectionChildrenRequest<'_>)->Result<skript_parser::SectionChildrenDecision,String> {
+        let mut metadata=request.metadata.clone();metadata.insert("phase".into(),"enter".into());
+        Ok(skript_parser::SectionChildrenDecision::Accept {context:request.context.clone(),body_mode:skript_parser::SectionBodyMode::Trigger,metadata})
+    }
+    fn exit_section_children(&mut self, request:skript_parser::SectionChildrenRequest<'_>)->Result<skript_parser::SectionExitDecision,String> {
+        let mut metadata=request.metadata.clone();metadata.insert("phase".into(),"exit".into());
+        Ok(skript_parser::SectionExitDecision::Accept {context:request.context.clone(),metadata})
+    }
+    fn structure_preparation(&mut self, event:skript_parser::StructurePreparationEvent<'_>) {
+        use skript_parser::StructurePreparationEvent;
+        match event {
+            StructurePreparationEvent::SectionHeader {candidate,attempt_id,parent_attempt_id,..}=>{
+                assert_eq!(candidate.metadata.get("phase").map(String::as_str),Some("enter"));
+                self.notices.push(format!("section:{attempt_id}:{parent_attempt_id:?}"));
+                let (candidate,_)=PortableStructureBody::freeze_preparation(candidate,&mut |_,_|false).unwrap();
+                self.preparations.push(skript_parser::ReusedSectionPreparation {candidate,attempt_id,parent_attempt_id});
+                self.cancelled|=self.cancel_at==Some("publication");
+            },
+            StructurePreparationEvent::Invalidated {attempt_id,..}=>self.notices.push(format!("invalid:{attempt_id}")),
+            _=>{},
+        }
     }
     fn structure_body_reuse_enabled(&self) -> bool {
         self.enabled_calls.set(self.enabled_calls.get()+1);
@@ -69,6 +96,8 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
     }
     fn prepare_structure_body(&mut self, request: StructureBodyReuseRequest<'_>) -> Result<StructureBodyPlan, String> {
         self.prepares += 1;
+        self.pending=None;
+        self.preparations.clear();
         self.before=Some(request.work);
         self.cancelled |= self.cancel_at == Some("prepare");
         Ok(self.cached.clone().map_or(StructureBodyPlan::Observe,StructureBodyPlan::Reuse))
@@ -78,9 +107,9 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
         Ok(true)
     }
     fn finish_structure_body(&mut self, body: &mut StructureBody, context: &ExpressionParseContext, work: StructureBodyWork) -> Result<bool,String> {
-        self.cached=Some(StructureBodyReplay {
+        self.pending=Some(StructureBodyReplay {
             before:self.before.unwrap(), body:PortableStructureBody::freeze(body,&mut |_,_|false).unwrap(),
-            post_context:context.clone(),work,preparations:Vec::new(),
+            post_context:context.clone(),work,preparations:self.preparations.clone(),
         });
         self.cancelled |= self.cancel_at == Some("finish");
         Ok(true)
@@ -89,6 +118,8 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
         self.adoptions.push(accepted);
         self.semantic_order.push("adopt");
         self.cancelled |= self.cancel_at == Some("adopt");
+        if accepted && !self.cancelled {self.cached=self.pending.take();}
+        else {self.pending=None;}
         Ok(())
     }
     fn finish_semantic_candidate(&mut self, _:bool) -> Result<(),String> {
@@ -104,9 +135,78 @@ fn fixture() -> Catalog {
 }
 
 fn run(catalog:&Catalog, env:&mut ReuseEnvironment) -> Result<StructureDocument,skript_parser::StructureParseError> {
-    let source=MappedSource::identity("root:\n    noop\n");
+    run_source(catalog,env,"root:\n    noop\n")
+}
+
+fn run_source(catalog:&Catalog, env:&mut ReuseEnvironment, source:&str) -> Result<StructureDocument,skript_parser::StructureParseError> {
+    let source=MappedSource::identity(source);
     let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));
     parse_structures(catalog,StructureParseRequest {source:&source,tree:&tree,context:ExpressionParseContext::default()},env,StructureParserConfig::default())
+}
+
+#[test]
+fn nested_body_replay_republishes_enter_context_and_rejects_incomplete_owners() {
+    let mut syntaxes=fixture().syntaxes().to_vec();
+    syntaxes.push(Syntax::Section(syntaxes::Section {common:common_structure(2,"branch","branch","branch"),loop_section:false,effect_section:false}));
+    let catalog=catalog(syntaxes);
+    let source="root:\n    branch:\n        branch:\n            noop\n";
+    let mut env=ReuseEnvironment::default();
+    let cold=run_source(&catalog,&mut env,source).unwrap();
+    assert!(cold.diagnostics.is_empty());
+    let StructureBody::Trigger(body)=&selected(&cold).body else {panic!("trigger body")};
+    let skript_parser::SectionBodyNode::Section(section)=&body[0] else {panic!("nested section")};
+    assert_eq!(section.selected.as_ref().unwrap().metadata.get("phase").map(String::as_str),Some("exit"));
+    let calls=env.effects;
+    let notices=std::mem::take(&mut env.notices);
+    assert_eq!(notices.len(),2);
+    assert_eq!(env.cached.as_ref().unwrap().preparations.len(),2);
+    assert_eq!(run_source(&catalog,&mut env,source).unwrap(),cold);
+    assert_eq!(env.effects,calls);
+    assert_eq!(env.notices,notices,"actual enter proposals, not exit metadata, are republished");
+    for case in 0..3 {
+        let mut broken=ReuseEnvironment {cached:env.cached.clone(),..Default::default()};
+        let replay=broken.cached.as_mut().unwrap();
+        match case {0=>replay.preparations.clear(),1=>{replay.preparations.pop();},_=>replay.preparations.swap(0,1)}
+        assert_eq!(run_source(&catalog,&mut broken,source).unwrap(),cold);
+        assert!(broken.effects>0,"incomplete/misordered owners must run cold: {case}");
+    }
+}
+
+#[test]
+fn nested_body_replay_cancellation_and_parent_rejection_keep_prior_cache_only() {
+    let mut syntaxes=fixture().syntaxes().to_vec();
+    syntaxes.push(Syntax::Section(syntaxes::Section {common:common_structure(2,"branch","branch","branch"),loop_section:false,effect_section:false}));
+    let catalog=catalog(syntaxes);
+    let source="root:\n    branch:\n        branch:\n            noop\n";
+    for cancel in [false,true] {
+        let mut env=ReuseEnvironment::default();
+        let baseline=run_source(&catalog,&mut env,source).unwrap();
+        let cached=format!("{:?}",env.cached);
+        let effects=env.effects;
+        env.notices.clear();env.adoptions.clear();
+        env.reject_exit=!cancel;
+        env.cancel_at=cancel.then_some("publication");
+        let result=run_source(&catalog,&mut env,source);
+        assert_eq!(env.effects,effects,"must reach failure through a real replay, not cold body work");
+        assert!(env.pending.is_none());
+        assert_eq!(format!("{:?}",env.cached),cached,"failed pending must not replace prior accepted cache");
+        if cancel {
+            assert!(skript_parser::parse_cancellation(&result.unwrap_err()).is_some());
+            assert_eq!(env.notices.iter().filter(|event|event.starts_with("section:")).count(),1,"stop between nested notifications");
+            assert!(env.notices.iter().any(|event|event=="invalid:2"));
+        } else {
+            let rejected=result.unwrap();
+            assert_eq!(env.adoptions,[false]);
+            assert_eq!(env.exits,2,"parent ExitBody must rerun on replay");
+            assert_eq!(env.notices.last().map(String::as_str),Some("invalid:1"));
+            let mut cold=ReuseEnvironment {reject_exit:true,..Default::default()};
+            assert_eq!(run_source(&catalog,&mut cold,source).unwrap(),rejected);
+            assert_eq!(cold.notices,env.notices);
+        }
+        env.cancel_at=None;env.cancelled=false;env.reject_exit=false;env.notices.clear();
+        assert_eq!(run_source(&catalog,&mut env,source).unwrap(),baseline);
+        assert_eq!(env.effects,effects,"only the prior accepted cache may still be reused");
+    }
 }
 
 #[test]

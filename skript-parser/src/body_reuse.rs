@@ -34,6 +34,8 @@ pub struct StructureBodyReplay {
     pub body: PortableStructureBody,
     pub post_context: ExpressionParseContext,
     pub work: StructureBodyWork,
+    /// Exact enter-time proposals, one per adopted Section in native preorder.
+    /// Missing, duplicated or synthetic owners cannot certify a body replay.
     pub preparations: Vec<ReusedSectionPreparation>,
 }
 
@@ -91,6 +93,36 @@ impl PortableStructureBody {
     pub fn body(&self) -> &StructureBody { &self.body }
     /// Includes summaries and Section contexts, not just visible AST metadata.
     pub fn metadata(&self) -> &[(String, String)] { &self.metadata }
+    /// Every adopted Section must have exactly one real enter-time proposal,
+    /// in native preorder. This checks identity/completeness only; the caller
+    /// must separately validate current source, parents, attempts and authority.
+    pub fn matches_preparations(&self, preparations:&[ReusedSectionPreparation]) -> bool {
+        let StructureBody::Trigger(nodes)=&self.body else {return false;};
+        fn next_section<'a>(pending:&mut Vec<&'a SectionBodyNode>)->Option<&'a SectionCandidate> {
+            while let Some(node)=pending.pop() {
+                if let SectionBodyNode::Section(matches)=node {
+                    let candidate=matches.selected.as_ref()?;
+                    pending.extend(candidate.body.iter().rev());
+                    return Some(candidate);
+                }
+            }
+            None
+        }
+        let mut pending=nodes.iter().rev().collect();
+        let mut owners=std::collections::BTreeSet::new();
+        for preparation in preparations {
+            let Some(final_candidate)=next_section(&mut pending) else {return false;};
+            let candidate=&preparation.candidate;
+            if candidate.raw_node_id!=final_candidate.raw_node_id
+                || candidate.matched.kind!=MatchSyntaxKind::Section
+                || candidate.matched.definition_id!=final_candidate.matched.definition_id
+                || candidate.matched.registration_id!=final_candidate.matched.registration_id
+                || candidate.matched.pattern_index!=final_candidate.matched.pattern_index
+                || candidate.body_mode!=final_candidate.body_mode
+                || !owners.insert(candidate.raw_node_id) {return false;}
+        }
+        next_section(&mut pending).is_none()
+    }
     /// Apply the same resource check to a provisional editing header.
     pub fn freeze_preparation(
         candidate: &SectionCandidate,
