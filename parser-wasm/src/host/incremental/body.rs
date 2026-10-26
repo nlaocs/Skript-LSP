@@ -8,6 +8,49 @@ use skript_parser::{PortableStructureBody, StructureBodyPlan, StructureBodyRepla
 const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_BODY_CALLS: usize = 4096;
 
+/// Conditional declarations certify the entire invocation, not a single selected
+/// resolver. Target matching is deliberately broader than parser selectors: a
+/// guest can consult registration bindings before testing pattern/tag/mark.
+pub(in crate::host) fn subscription_is_body_local(
+    component: &ComponentEntry,
+    invocation: &crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation,
+    catalog: Option<&Catalog>,
+) -> bool {
+    let id = &invocation.context.subscription_id;
+    if component.manifest.incremental_body_subscriptions.contains(id) {
+        return true;
+    }
+    let Some(scope) = component.manifest.incremental_body_handler_subscriptions.iter()
+        .find(|scope| scope.subscription_id == *id) else { return false; };
+    let HookPayload::RegisteredExpression(payload) = &invocation.payload else { return false; };
+    if invocation.phase != HookPhase::Expression { return false; }
+    let Some(identity) = catalog.and_then(|catalog|
+        registered_syntax_identity(catalog, MatchSyntaxKind::Expression, &payload.registration_id))
+        else { return false; };
+    if identity.definition_id != payload.definition_id { return false; }
+    // RegisteredExpression does not transport an authenticated dynamic handler
+    // identity. Do not mistake an unknown DynamicHandler target for a nonmatch.
+    if component.manifest.registered_syntax_handlers.iter().any(|handler|
+        handler.kind == SyntaxKind::Expression && handler.phase == HookPhase::Expression
+            && handler.targets.iter().any(|target| matches!(target, RegisteredSyntaxHandlerTarget::DynamicHandler(_)))) {
+        return false;
+    }
+    let mut found = false;
+    for handler in &component.manifest.registered_syntax_handlers {
+        if handler.kind != SyntaxKind::Expression || handler.phase != HookPhase::Expression {
+            continue;
+        }
+        if registered_handler_target_matches(component, handler,
+            &payload.definition_id, &payload.registration_id, None) {
+            found = true;
+            if !scope.handler_ids.contains(&handler.handler_id) {
+                return false;
+            }
+        }
+    }
+    found
+}
+
 pub(in crate::host) fn debug_reason(host:&ParserHost, reason:&str) {
     #[cfg(test)]
     if host.body_debug { eprintln!("body reuse bypass: {reason}"); }
@@ -46,7 +89,8 @@ impl WasmExpressionEnvironment<'_> {
         !self.hooks.host.body_observing
             && self.hooks.host.incremental.active.is_some()
             && self.hooks.host.components.iter().filter(|entry| !entry.disabled && !entry.unloaded)
-                .all(|entry| !entry.manifest.incremental_body_subscriptions.is_empty()
+                .all(|entry| (!entry.manifest.incremental_body_subscriptions.is_empty()
+                    || !entry.manifest.incremental_body_handler_subscriptions.is_empty())
                     && component_promises(&entry.manifest.capabilities, crate::CAPABILITY_INCREMENTAL_STRUCTURE_BODY))
     }
 

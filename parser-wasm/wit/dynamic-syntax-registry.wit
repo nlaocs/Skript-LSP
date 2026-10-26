@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.45.0;
+package nlaocs:skript-parser-addon@0.46.0;
 
 interface dynamic-syntax-registry {
     use types.{

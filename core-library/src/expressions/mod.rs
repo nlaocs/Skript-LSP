@@ -99,6 +99,15 @@ pub(crate) fn completion_annotations()
     simple_literal::completion_annotations()
 }
 
+pub(crate) fn incremental_body_handlers() -> Vec<String> {
+    // Each selected resolver consumes authenticated child/type facts and local
+    // payload data only. ExprEntities reads only its checked virtual span;
+    // SimpleLiteral uses declared type/cardinality. ExprSets uses its checked
+    // span plus parsed ClassInfo plurality/supplier/target facts, never invokes
+    // a runtime supplier. Other families stay cold, including losing attempts.
+    vec![expr_entities::HANDLER_ID.to_owned(), simple_literal::HANDLER_ID.to_owned(), expr_sets::HANDLER_ID.to_owned()]
+}
+
 pub(crate) fn handlers() -> Vec<RegisteredSyntaxHandler> {
     let mut handlers = Vec::new();
     context_validation::register(&mut handlers);

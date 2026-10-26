@@ -12609,7 +12609,7 @@ impl ParserHost {
                 let mut state_invocation = transaction.begin_invocation(component_id.clone())?;
                 if self.body_observing {
                     state_invocation.observe_reads();
-                    if !self.components[candidate.component_index].manifest.incremental_body_subscriptions.contains(&subscription_id) {
+                    if !incremental::body::subscription_is_body_local(&self.components[candidate.component_index], &invocation, self.config.syntax_catalog.as_deref()) {
                         incremental::body::debug_reason(self,&format!("unlisted subscription {subscription_id}"));
                         self.body_impure = true;
                     }
@@ -14098,6 +14098,23 @@ fn validate_manifest(
         {
             return Err(HostError::InvalidManifest {
                 message: format!("invalid incremental Structure body subscription {id}"),
+            });
+        }
+    }
+    for scope in &manifest.incremental_body_handler_subscriptions {
+        let mut handlers = BTreeSet::new();
+        if !component_promises(&manifest.capabilities, crate::CAPABILITY_INCREMENTAL_STRUCTURE_BODY)
+            || !body_subscriptions.insert(&scope.subscription_id)
+            || scope.handler_ids.is_empty()
+            || !manifest.subscriptions.iter().any(|subscription|
+                subscription.id == scope.subscription_id && subscription.phase == HookPhase::Expression)
+            || scope.handler_ids.iter().any(|id| !handlers.insert(id)
+                || !manifest.registered_syntax_handlers.iter().any(|handler|
+                    handler.handler_id == *id && handler.kind == SyntaxKind::Expression
+                        && handler.phase == HookPhase::Expression))
+        {
+            return Err(HostError::InvalidManifest {
+                message: format!("invalid incremental Structure body handler subscription {}", scope.subscription_id),
             });
         }
     }
@@ -17468,6 +17485,77 @@ mod tests {
         }
     }
 
+    #[test]
+    fn body_handler_scope_manifest_rejects_duplicate_unknown_and_phase_mismatches() {
+        let host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")), core_test_config()).unwrap();
+        let original = host.components[0].manifest.clone();
+        validate_manifest(&original, &host_capabilities()).unwrap();
+        for case in 0..5 {
+            let mut manifest = original.clone();
+            let scope = manifest.incremental_body_handler_subscriptions[0].clone();
+            match case {
+                0 => manifest.incremental_body_handler_subscriptions.push(scope),
+                1 => manifest.incremental_body_handler_subscriptions[0].handler_ids.push(scope.handler_ids[0].clone()),
+                2 => manifest.incremental_body_handler_subscriptions[0].handler_ids.push("unknown".into()),
+                3 => manifest.registered_syntax_handlers.iter_mut().find(|handler| handler.handler_id == scope.handler_ids[0]).unwrap().phase = HookPhase::Condition,
+                _ => manifest.incremental_body_subscriptions.push(scope.subscription_id),
+            }
+            let error = validate_manifest(&manifest, &host_capabilities()).unwrap_err();
+            assert!(error.to_string().contains("incremental Structure body"), "{case}: {error}");
+        }
+    }
+
+    #[test]
+    fn body_handler_scope_requires_every_target_even_with_nonmatching_selectors() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{HookInvocation, IncrementalBodyHandlerSubscription};
+        let catalog = Arc::new(ssg::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/type-parser-versions/skript-2.16.2-java25")).unwrap().into_catalog());
+        let syntax = catalog.syntaxes().iter().find(|syntax| syntax.kind() == CatalogSyntaxKind::Expression).unwrap();
+        let definition = syntax.definition_id().as_str().to_owned();
+        let registration = syntax.registration_id().as_str().to_owned();
+        let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")), HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
+        let component = &mut host.components[0];
+        let template = component.manifest.registered_syntax_handlers.iter()
+            .find(|handler| handler.kind == SyntaxKind::Expression).unwrap().clone();
+        component.manifest.incremental_body_subscriptions.clear();
+        component.manifest.incremental_body_handler_subscriptions = vec![IncrementalBodyHandlerSubscription {
+            subscription_id: "fixture.aggregate".into(), handler_ids: vec!["listed".into()],
+        }];
+        component.manifest.registered_syntax_handlers = ["listed", "unlisted"].into_iter().map(|id| {
+            let mut handler = template.clone();
+            handler.handler_id = id.into();
+            handler.phase = HookPhase::Expression;
+            handler.targets = vec![RegisteredSyntaxHandlerTarget::Registration(registration.clone())];
+            handler.pattern_indices = vec![999];
+            handler.required_tags = vec!["does-not-match".into()];
+            handler
+        }).collect();
+        component.registered_handler_bindings = ["listed", "unlisted"].into_iter().map(|id| WitRegisteredHandlerBinding {
+            handler_id: id.into(), definition_ids: vec![definition.clone()],
+            registration_ids: vec![registration.clone()],
+        }).collect();
+        let mut invocation = HookInvocation {
+            context: InvocationContext { invocation_id: 1, subscription_id: "fixture.aggregate".into(),
+                document_id: "file:///public.sk".into(), document_revision: 1, expansion: None, syntax_context: 0 },
+            target: HookTarget::SyntaxKind(SyntaxKind::Expression), phase: HookPhase::Expression,
+            payload: registered_expression(), parse_results: Vec::new(),
+        };
+        if let HookPayload::RegisteredExpression(payload) = &mut invocation.payload { payload.definition_id = definition.clone(); payload.registration_id = registration.clone(); }
+        assert!(!incremental::body::subscription_is_body_local(component, &invocation, Some(&catalog)));
+        component.manifest.incremental_body_handler_subscriptions[0].handler_ids.push("unlisted".into());
+        assert!(incremental::body::subscription_is_body_local(component, &invocation, Some(&catalog)));
+        assert!(!incremental::body::subscription_is_body_local(component, &invocation, None));
+        let mut dynamic = template.clone(); dynamic.handler_id = "unknown-dynamic".into(); dynamic.phase = HookPhase::Expression;
+        dynamic.targets = vec![RegisteredSyntaxHandlerTarget::DynamicHandler("fixture.dynamic".into())];
+        component.manifest.registered_syntax_handlers.push(dynamic);
+        assert!(!incremental::body::subscription_is_body_local(component, &invocation, Some(&catalog)));
+        component.manifest.registered_syntax_handlers.pop();
+        let HookPayload::RegisteredExpression(payload) = &mut invocation.payload else { unreachable!() };
+        payload.registration_id = "unregistered".into();
+        assert!(!incremental::body::subscription_is_body_local(component, &invocation, Some(&catalog)));
+        component.manifest.registered_syntax_handlers.clear();
+        assert!(!incremental::body::subscription_is_body_local(component, &invocation, Some(&catalog)));
+    }
+
     use crate::bindings::nlaocs::skript_parser_addon::types::DocumentPayload;
     use std::path::Path;
     use wasm_encoder::{
@@ -18859,6 +18947,7 @@ mod tests {
     fn reports_abi_mismatches_as_typed_compatibility_errors() {
         use crate::bindings::nlaocs::skript_parser_addon::types::AbiVersion as WitAbiVersion;
         let manifest = ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -18897,6 +18986,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -18957,6 +19047,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -19017,6 +19108,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -19123,6 +19215,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -19182,6 +19275,7 @@ mod tests {
             selector: empty_selector(),
         };
         let manifest = |subscription| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -19782,6 +19876,7 @@ mod tests {
             }],
         };
         let manifest = |annotations| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),
@@ -19849,6 +19944,7 @@ mod tests {
             context_requirements: Vec::new(),
         };
         let manifest = |handlers| ComponentManifest {
+            incremental_body_handler_subscriptions: Vec::new(),
             incremental_body_subscriptions: Vec::new(),
             incremental_header_handlers: Vec::new(),
             incremental_local_subscriptions: Vec::new(),

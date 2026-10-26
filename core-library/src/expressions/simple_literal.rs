@@ -4,7 +4,7 @@ use crate::nlaocs::skript_parser_addon::types::{
     RegisteredSyntaxHandlerTarget, SyntaxKind,
 };
 
-const HANDLER_ID: &str = "core.expression.simple-literal";
+pub(super) const HANDLER_ID: &str = "core.expression.simple-literal";
 const SUPER_CLASS: &str = "ch.njol.skript.lang.util.SimpleLiteral";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {

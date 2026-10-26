@@ -3,8 +3,12 @@
 use super::*;
 
 fn actual_host() -> ParserHost {
+    actual_host_with_fixture("skript-2.16.2-java25")
+}
+
+fn actual_host_with_fixture(name: &str) -> ParserHost {
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/data/type-parser-versions/skript-2.16.2-java25");
+        .join("tests/data/type-parser-versions").join(name);
     ParserHost::new(
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -56,10 +60,22 @@ fn canonical_ast(tree: &AstTree) -> String {
 
 fn canonical_effects(effects: &HookEffects) -> String {
     let mut effects = effects.clone();
+    let mut receipts = BTreeMap::new();
     // These are opaque invocation-resource handles, not semantic IDs. The
     // cache never reuses AdditionalParse results and native lookups rerun.
     for result in &mut effects.parse_results {
         result.host_token = 0;
+        for node in &mut result.nodes {
+            for entry in node.metadata.iter_mut().chain(node.summary.iter_mut().flat_map(|summary| &mut summary.metadata)) {
+                if entry.owner_component_id.is_none() && entry.key == "parser.semantic-writer-receipt.v1" {
+                    // Host-lifetime labels differ even for two cold parses. Keep
+                    // equality/alias topology, without comparing numeric labels.
+                    let next = receipts.len();
+                    let canonical = receipts.entry(entry.value.clone()).or_insert(next);
+                    entry.value = format!("receipt:{canonical}");
+                }
+            }
+        }
     }
     format!("{effects:?}")
 }
@@ -212,6 +228,152 @@ fn compare_case(
         metrics.eligible, metrics.hits
     );
     (metrics, canonical_ast(&warm.ast))
+}
+
+#[test]
+fn real_core_body_reuses_individually_certified_typed_sets_with_current_context_and_offsets() {
+    for fixture in ["skript-2.15.4-type-runtime", "skript-2.16.2-java25"] {
+    let source = "function first():\n    send \"a\" to all players\nfunction second():\n    send \"b\" to all players\n";
+    let mut host = actual_host_with_fixture(fixture);
+    host.body_debug = true;
+    host.components[0].manifest.incremental_local_subscriptions.clear();
+    host.components[0].manifest.incremental_header_handlers.clear();
+    let first = run(&mut host, source, 1);
+    assert!(first.syntax.diagnostics.is_empty(), "{:?}", first.syntax.diagnostics);
+    assert!(first.ast.nodes.iter().any(|node| node.summary.as_ref()
+        .is_some_and(|summary| summary.return_type.as_deref() == Some("org.bukkit.entity.Player"))));
+    assert!(host.incremental_metrics().body_stored > 0, "{:?}", host.incremental_metrics());
+    let cases = [
+        source.to_owned(),
+        source.replacen("\"a\"", "\"c\"", 1),
+        format!("# 日本語 😀\n{source}"),
+        source.replace("all players", "all entities"),
+        source.replace("\"a\"", "\"%all players%\""),
+        source.replace("function first():", "on load:"),
+    ];
+    for (index, current) in cases.iter().enumerate() {
+        let revision = index as u64 + 2;
+        let before = guest_calls(&host);
+        let warm = run(&mut host, current, revision);
+        let calls = guest_calls(&host) - before;
+        let metrics = host.incremental_metrics();
+        let mut cold_host = actual_host_with_fixture(fixture);
+        cold_host.components[0].manifest.incremental_body_subscriptions.clear();
+        cold_host.components[0].manifest.incremental_body_handler_subscriptions.clear();
+        cold_host.components[0].manifest.incremental_local_subscriptions.clear();
+        cold_host.components[0].manifest.incremental_header_handlers.clear();
+        let before = guest_calls(&cold_host);
+        let cold = run(&mut cold_host, current, revision);
+        assert_equivalent(&warm, &cold);
+        eprintln!("typed body {fixture} case {index}: {metrics:?}; physical calls {calls}/{} cold", guest_calls(&cold_host) - before);
+        if index < 2 {
+            assert!(metrics.body_hits > 0, "{index}: {metrics:?}");
+            assert!(calls < guest_calls(&cold_host) - before);
+            let proof = warm.semantic_witnesses();
+            assert!(warm.ast.nodes.iter().any(|node| node.summary.as_ref()
+                .is_some_and(|summary| summary.return_type.as_deref() == Some("org.bukkit.entity.Player"))
+                && proof.provider_valid(node, "nlaocs.core-library")),
+                "reused typed result must retain current Core authority");
+        }
+    }
+    }
+}
+
+#[test]
+#[ignore = "bounded public fixture edit comparison; requires SKRIPT_BODY_MEASUREMENT_PLAN"]
+fn measure_public_structure_body_edit_reuse() {
+    use sha2::{Digest, Sha256};
+    use std::time::Instant;
+    fn signature(result: &DocumentParseResult) -> String {
+        assert_eq!(result.execution_status, DocumentExecutionStatus::Complete);
+        assert!(result.component_failures.is_empty(), "component failure count {}", result.component_failures.len());
+        assert!(result.fault_regions.is_empty(), "fault count {}", result.fault_regions.len());
+        assert!(result.dependency_unavailable.is_empty(), "missing dependency count {}", result.dependency_unavailable.len());
+        let mut hash = Sha256::new();
+        hash.update(result.source.original());
+        hash.update(result.source.virtual_source());
+        hash.update(format!("{:?}", result.source.source_map()));
+        hash.update(canonical_ast(&result.ast));
+        hash.update(canonical_effects(&result.effects));
+        hash.update(format!("{:?}|{:?}|{:?}|{:?}|{:?}|{:?}", result.syntax.diagnostics,
+            result.functions, result.state.writes, result.state.read_write_set.reads,
+            result.state.read_write_set.writes, result.state.read_write_set.namespace_revisions.keys().collect::<Vec<_>>()));
+        for call in &result.syntax_calls { hash.update(format!("{:?}|{:?}", call.component_id, call.subscription_id)); }
+        let proof = result.semantic_witnesses();
+        for node in &result.ast.nodes { hash.update(format!("{}|{}|{:?}", node.id, proof.native_valid(node), proof.unique_issuer(node))); }
+        format!("{:x}", hash.finalize())
+    }
+    fn bounded_run(host: &mut ParserHost, source: &str, revision: u64) -> DocumentParseResult {
+        let token = DocumentCancellationToken::new();
+        let cancel = token.clone();
+        let (done, wait) = std::sync::mpsc::channel();
+        let timer = std::thread::spawn(move || {
+            if wait.recv_timeout(std::time::Duration::from_secs(180)).is_err() { cancel.cancel(); }
+        });
+        let result = host.parse_document(
+            DocumentParseRequest::new("file:///workspace", "file:///workspace/actual-incremental.sk", revision, source),
+            DocumentParserConfig { cancellation: token, ..DocumentParserConfig::default() });
+        let _ = done.send(());
+        timer.join().unwrap();
+        result.unwrap()
+    }
+    let plan: serde_json::Value = serde_json::from_slice(&std::fs::read(
+        std::env::var("SKRIPT_BODY_MEASUREMENT_PLAN").unwrap()).unwrap()).unwrap();
+    assert_eq!(plan["publicFixtures"], true);
+    let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
+    for file in plan["snapshotFiles"].as_array().unwrap() {
+        let bytes = std::fs::read(std::path::Path::new(plan["snapshot"].as_str().unwrap()).join(file["name"].as_str().unwrap())).unwrap();
+        assert_eq!(format!("{:x}", Sha256::digest(bytes)), file["sha256"].as_str().unwrap());
+    }
+    let mut rows = Vec::new();
+    for (index, case) in plan["cases"].as_array().unwrap().iter().enumerate() {
+        let source = std::fs::read_to_string(case["path"].as_str().unwrap()).unwrap();
+        assert_eq!(format!("{:x}", Sha256::digest(source.as_bytes())), case["sha256"].as_str().unwrap());
+        assert_eq!(source.matches("set {_edit_probe} to 1").count(), 1);
+        let edited = source.replacen("set {_edit_probe} to 1", "set {_edit_probe} to 2", 1);
+        let mut reference = None;
+        for enabled in if index % 2 == 0 { [false, true] } else { [true, false] } {
+            eprintln!("body measurement pid={} case={} enabled={enabled} initial", std::process::id(), case["name"]);
+            let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")),
+                HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
+            if !enabled {
+                host.components[0].manifest.incremental_body_subscriptions.clear();
+                host.components[0].manifest.incremental_body_handler_subscriptions.clear();
+            }
+            let start = Instant::now();
+            let initial = bounded_run(&mut host, &source, 1);
+            let initial_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let initial_metrics = host.incremental_metrics();
+            let initial_signature = signature(&initial);
+            eprintln!("body measurement initial {initial_ms:.3}ms; {initial_metrics:?}; editing");
+            let before = guest_calls(&host);
+            let start = Instant::now();
+            let current = bounded_run(&mut host, &edited, 2);
+            let edit_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let metrics = host.incremental_metrics();
+            let edit_signature = signature(&current);
+            if let Some((initial, edited)) = &reference {
+                assert_eq!(&initial_signature, initial, "initial semantic digest differs");
+                assert_eq!(&edit_signature, edited, "edited semantic digest differs");
+            }
+            rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":enabled,
+                "initialMs":initial_ms,"editMs":edit_ms,"initialMetrics":format!("{initial_metrics:?}"),
+                "editMetrics":format!("{metrics:?}"),"editGuestCalls":guest_calls(&host)-before,
+                "initialDiagnostics":initial.syntax.diagnostics.len(),"editDiagnostics":current.syntax.diagnostics.len(),
+                "initialSignature":initial_signature,"editSignature":edit_signature,
+                "initialStatus":format!("{:?}",initial.execution_status),"editStatus":format!("{:?}",current.execution_status),
+                "initialFailures":initial.component_failures.len(),"failures":current.component_failures.len(),
+                "initialFaults":initial.fault_regions.len(),"editFaults":current.fault_regions.len(),
+                "initialMissingDependencies":initial.dependency_unavailable.len(),"editMissingDependencies":current.dependency_unavailable.len(),
+                "astNodes":current.ast.nodes.len()}));
+            eprintln!("body measurement edit {edit_ms:.3}ms; {metrics:?}");
+            std::fs::write(format!("{}.partial", plan["output"].as_str().unwrap()),
+                serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
+            if reference.is_none() { reference = Some((initial_signature, edit_signature)); }
+        }
+    }
+    std::fs::write(plan["output"].as_str().unwrap(), serde_json::to_vec_pretty(&serde_json::json!({
+        "rows":rows,"conditions":"One reversed-order pair per public fixture; same test-profile native executable and release-profile Core. Parse wall time only, not editor/UI latency; no production selector change. Body-off retains other unchanged caches."})).unwrap()).unwrap();
 }
 
 #[test]

@@ -1,7 +1,8 @@
 # Parser WASM ABI
 
-ABI 27 / WIT 0.45 adds the explicit `incremental-body-subscriptions` manifest
-field and `parser.incremental-structure-body` v1 promise. Rebuild all components
+ABI 28 / WIT 0.46 adds conditional `incremental-body-handler-subscriptions`
+alongside the explicit `incremental-body-subscriptions` manifest field and
+`parser.incremental-structure-body` v1 promise. Rebuild all components
 together; older WIT layouts and ABI versions are incompatible. An empty list
 opts out. Every active provider must certify body-local routing, and every
 reached request, including losing or negative attempts, must be listed.
@@ -11,7 +12,14 @@ unchanged source geometry, current context, readonly State dependencies and a
 closed private receipt graph. Function lookup, nested editing owners,
 AdditionalParse attempts, unknown resources and mutations remain cold. Headers,
 declaration registration, ExitBody and final source/forest proof still run.
-Core's registered-expression subscription is not yet opted in. This contract
+Aggregate registered-expression subscriptions can opt in for an individually
+audited handler set. All handlers targeting the current registration must be
+listed, even when their pattern/tag/mark selectors do not match. The declaration
+certifies the entire invocation, including common pre/post and fallback code;
+empty, unknown and unlisted routes stay cold. Core initially declares only
+ExprEntities, ExprSets and SimpleLiteral through this common contract. Conditional
+reuse currently requires unique static Catalog identity; a component declaring
+an Expression DynamicHandler route stays cold. This contract
 does not promise a speedup for arbitrary scripts. `HookCall.origin` distinguishes
 current execution and verified reuse; the retained semantic trace is not a
 physical guest-call counter.
@@ -50,7 +58,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.45.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.46.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary

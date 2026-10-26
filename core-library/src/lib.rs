@@ -80,9 +80,15 @@ impl addon::Guest for CoreLibrary {
             // Audited local families: all semantic inputs are payload/context or
             // immutable runtime/Catalog facts. Context effects, diagnostics, and
             // AdditionalParse outputs are excluded individually by the host.
-            // RegisteredExpression stays off: some resolvers inspect full input.
-            // Body-local, not line-local. RegisteredExpression remains excluded:
-            // some resolvers inspect document input beyond their own span.
+            // Only individually audited registered semantics are eligible. The
+            // common cardinality/property/storage pipeline is part of the same
+            // conditional promise; all State observations still bind replay.
+            incremental_body_handler_subscriptions: vec![
+                crate::nlaocs::skript_parser_addon::types::IncrementalBodyHandlerSubscription {
+                    subscription_id: REGISTERED_EXPRESSION_SUBSCRIPTION_ID.to_owned(),
+                    handler_ids: expressions::incremental_body_handlers(),
+                },
+            ],
             incremental_body_subscriptions: vec![
                 EXPRESSION_SUBSCRIPTION_ID.to_owned(),
                 TYPE_SUBSCRIPTION_ID.to_owned(),
@@ -2353,6 +2359,20 @@ mod tests {
         else {
             panic!("every singular ClassInfo must resolve");
         };
+
+        for (prefix, expression, accepted) in [
+            ("# 日本語 😀\non load:\n    send ", "every color", true),
+            ("every outside this expression\non load:\n    send ", "color", false),
+        ] {
+            sets.input = format!("{prefix}{expression}\n# suffix");
+            sets.span.virtual_range = TextRange { start: prefix.len() as u64, end: (prefix.len() + expression.len()) as u64 };
+            assert_eq!(matches!(expressions::resolve(&sets), Some(expressions::SemanticResolution::Resolved { .. })), accepted);
+        }
+        sets.input = "😀 every color".to_owned();
+        for (start, end) in [(1, 4), (9, 2), (0, 999), (u64::MAX, u64::MAX)] {
+            sets.span.virtual_range = TextRange { start, end };
+            assert!(matches!(expressions::resolve(&sets), Some(expressions::SemanticResolution::Reject(_))));
+        }
 
         for (input, return_type, type_plural, has_supplier, target_class) in [
             (

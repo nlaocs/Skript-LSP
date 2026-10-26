@@ -6,7 +6,7 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprEntities";
-const HANDLER_ID: &str = "core.expression.expr-entities";
+pub(super) const HANDLER_ID: &str = "core.expression.expr-entities";
 const ENTITY: &str = "org.bukkit.entity.Entity";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {

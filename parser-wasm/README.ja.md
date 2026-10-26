@@ -1,6 +1,6 @@
 # Parser WASM ABI
 
-ABI 27 / WIT 0.45 では、manifest の `incremental-body-subscriptions` と
+ABI 28 / WIT 0.46 では、manifest の `incremental-body-handler-subscriptions`、`incremental-body-subscriptions` と
 `parser.incremental-structure-body` v1 を追加しました。旧WIT／ABIとは互換性が
 ないため、componentを揃えて再buildしてください。空listは再利用しません。
 全providerのbody-localな経路選択の保証と、未採用・不一致も含めた全要求の明示が必要です。
@@ -9,7 +9,7 @@ ABI 27 / WIT 0.45 では、manifest の `incremental-body-subscriptions` と
 検証できる平坦なTrigger bodyだけを再利用します。関数lookup、入れ子の編集owner、
 AdditionalParseの試行、未知のresourceや書き込みは通常解析へ戻します。
 header、宣言登録、ExitBody、最後のsource／forest証明は毎回実行します。
-Coreのregistered-expression経路は未対応で、一般的な高速化はまだ保証しません。
+Coreのregistered-expression経路は、ExprEntities・ExprSets・SimpleLiteralを個別に監査した範囲だけが対象です。条件付き宣言は共通の前後処理も含めて保証し、一致するtargetのhandlerがすべて認証されている必要があります。静的identityが不明な経路やDynamicHandlerを宣言したcomponentは通常解析へ戻します。一般的な高速化は保証しません。
 `HookCall.origin`で実行と再利用を区別し、採用された意味traceを実Wasm呼出し数と混同しません。
 
 [English](README.md)
@@ -45,7 +45,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.45.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.46.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。

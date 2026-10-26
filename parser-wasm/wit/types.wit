@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.45.0;
+package nlaocs:skript-parser-addon@0.46.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -326,6 +326,19 @@ interface types {
         metadata: list<metadata-entry>,
     }
 
+    /// Conditional structure-body promise for an aggregate registered-expression
+    /// subscription, including ALL its routing, common pre/post and fallback code.
+    /// The host requires a nonempty set of handlers whose targets match the
+    /// current registration, and every such ID must occur in handler-ids.
+    /// Pattern/tag/mark selectors do not narrow that set: a guest may consult
+    /// registration bindings before performing its own pattern validation.
+    /// The v1 body-local dependency/effect promise below applies to this entire
+    /// request, not just the listed resolver bodies. Unknown routes stay cold.
+    record incremental-body-handler-subscription {
+        subscription-id: string,
+        handler-ids: list<string>,
+    }
+
     /// An optional parser.project-stable-semantics v1 requirement promises that
     /// semantic outputs depend only on immutable initialized inputs and the
     /// current complete document pipeline. Fresh document-private Parse and
@@ -427,6 +440,7 @@ interface types {
         /// incomplete/cancelled/recovered work and non-opted providers fall back
         /// to ordinary parsing. Empty opts out. No old State delta is portable.
         incremental-body-subscriptions: list<string>,
+        incremental-body-handler-subscriptions: list<incremental-body-handler-subscription>,
         registered-syntax-handlers: list<registered-syntax-handler>,
         catalog-annotations: list<catalog-annotation>,
         state-namespaces: list<state-namespace-declaration>,

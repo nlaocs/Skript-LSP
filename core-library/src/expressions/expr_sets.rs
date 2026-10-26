@@ -6,7 +6,7 @@ use crate::nlaocs::skript_parser_addon::types::{
 };
 
 const CLASS_SUFFIX: &str = ".ExprSets";
-const HANDLER_ID: &str = "core.expression.expr-sets";
+pub(super) const HANDLER_ID: &str = "core.expression.expr-sets";
 const CLASS_INFO: &str = "ch.njol.skript.classes.ClassInfo";
 
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
