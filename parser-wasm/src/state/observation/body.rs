@@ -33,6 +33,43 @@ fn dependencies_size(set:&StateReadWriteSet) -> usize {
 }
 
 impl ParseTransaction {
+    /// Diagnostic admission predicate only. Parse-local comparisons cannot load
+    /// durable data, update revisions, apply reads, or adopt observation history.
+    #[cfg(test)]
+    pub(crate) fn body_shadow_check_reads(&self, certificate:&BodyReadCertificate) -> Result<serde_json::Value,StateError> {
+        use sha2::Digest;
+        let parse=self.lock()?;parse.ensure_open()?;
+        let prefix=parse.read_write_set.reads==certificate.prefix_reads
+            && parse.current_revisions.keys().eq(certificate.prefix_namespaces.iter())
+            && parse.read_write_set.namespace_revisions.keys().eq(certificate.prefix_adopted_namespaces.iter());
+        let store=parse.store.lock()?;
+        let mut rows=Vec::new();let mut all_match=true;let mut blocked=false;
+        for observation in &certificate.observations {
+            if rows.len()>=64 {blocked=true;break;}
+            if observation.key.scope!=StateScope::Parse {blocked=true;break;}
+            let namespace=store.namespaces.resolve(&observation.component,
+                observation.key.namespace.visibility(),observation.key.namespace.name(),false).ok().map(|v|v.0);
+            let permission=namespace.as_ref()==Some(&observation.key.namespace);
+            let mut values=BTreeMap::new();
+            if permission {
+                for (index,(address,value)) in parse.writes.iter().enumerate() {
+                    if index>=4096 {blocked=true;break;}
+                    if address.scope==StateScope::Parse && address.namespace==observation.key.namespace {
+                        apply_overlay(&mut values,&address.key,value);
+                    }
+                }
+            }
+            let matches=permission && values==observation.values;all_match &= matches;
+            rows.push(serde_json::json!({"scope":"Parse","namespaceSha256":format!("{:x}",sha2::Sha256::digest(observation.key.namespace.name())),
+                "permissionMatches":permission,"valuesEqual":matches,"keysEqual":values.keys().eq(observation.values.keys()),
+                "expectedRecords":observation.values.len(),"currentRecords":values.len()}));
+        }
+        Ok(serde_json::json!({"status":if blocked || !parse.observations.enabled || parse.observations.exhausted {"Blocked"} else if prefix&&all_match {"Pass"} else {"Fail"},
+            "mode":"predicate-only, no replay/import/adoption","prefixMatches":prefix,
+            "enabled":parse.observations.enabled,"exhausted":parse.observations.exhausted,
+            "observations":rows,"allValuesMatch":all_match,"otherScopeOrBudgetBlocked":blocked}))
+    }
+
     /// Counts only; never exposes namespace names, record keys or stored values.
     #[cfg(test)]
     pub(crate) fn body_shadow_status(&self, before:&BodyObservationCheckpoint) -> Result<serde_json::Value,StateError> {
@@ -230,6 +267,47 @@ mod tests {
         call.observe_reads();
         call.get(StateScope::Parse, NamespaceVisibility::Private, NAMESPACE, key).unwrap();
         if adopted { call.commit().unwrap(); } else { call.rollback(); }
+    }
+    #[test]
+    fn shadow_read_admission_is_nonmutating_and_matches_actual_parse_scope_replay() {
+        let store=store();let first=parse(&store,1);
+        get(&first,"prefix",true);let checkpoint=first.body_observation_checkpoint().unwrap();
+        get(&first,"selected",true);get(&first,"negative",false);
+        let certificate=first.body_read_certificate(&checkpoint).unwrap().unwrap();first.cancel().unwrap();
+        let second=parse(&store,2);get(&second,"prefix",true);
+        let before=second.read_write_set().unwrap();let checkpoint=second.body_observation_checkpoint().unwrap();
+        let report=second.body_shadow_check_reads(&certificate).unwrap();assert_eq!(report["status"],"Pass");
+        assert_eq!(second.read_write_set().unwrap(),before);
+        assert_eq!(second.body_shadow_status(&checkpoint).unwrap()["observedScopes"],serde_json::json!({}));
+        assert!(second.replay_body_read_certificate(&certificate).unwrap(),"isolated unit replay after, never during, the predicate");
+        second.cancel().unwrap();
+        let third=parse(&store,3);get(&third,"prefix",true);
+        let mut write=third.begin_invocation(OWNER).unwrap();
+        write.put(StateScope::Parse,NamespaceVisibility::Private,NAMESPACE,"negative",StateValue::new("test.values",StateEncoding::Raw,b"changed")).unwrap();write.commit().unwrap();
+        let before=third.read_write_set().unwrap();
+        assert_eq!(third.body_shadow_check_reads(&certificate).unwrap()["status"],"Fail");
+        assert_eq!(third.read_write_set().unwrap(),before);
+        assert!(!third.replay_body_read_certificate(&certificate).unwrap());
+        third.cancel().unwrap();
+    }
+
+    #[test]
+    fn shadow_read_admission_rejects_prefix_permissions_and_unobserved_scopes_without_applying() {
+        let store=store();let first=parse(&store,1);
+        get(&first,"prefix",true);let before=first.body_observation_checkpoint().unwrap();get(&first,"body",true);
+        let certificate=first.body_read_certificate(&before).unwrap().unwrap();first.cancel().unwrap();
+        let second=parse(&store,2);get(&second,"different-prefix",true);
+        let before=second.read_write_set().unwrap();let check=second.body_shadow_check_reads(&certificate).unwrap();
+        assert_eq!(check["status"],"Fail");assert_eq!(check["prefixMatches"],false);assert_eq!(second.read_write_set().unwrap(),before);
+        second.cancel().unwrap();
+        let third=parse(&store,3);get(&third,"prefix",true);let before=third.read_write_set().unwrap();
+        let mut inaccessible=certificate.clone();inaccessible.observations[0].component="unregistered.foreign".into();
+        assert_eq!(third.body_shadow_check_reads(&inaccessible).unwrap()["status"],"Fail");
+        let mut other_scope=certificate.clone();other_scope.observations[0].key.scope=StateScope::Project;
+        assert_eq!(third.body_shadow_check_reads(&other_scope).unwrap()["status"],"Blocked");
+        third.lock().unwrap().observations.exhausted=true;
+        assert_eq!(third.body_shadow_check_reads(&certificate).unwrap()["status"],"Blocked");
+        assert_eq!(third.read_write_set().unwrap(),before);third.cancel().unwrap();
     }
     #[test]
     fn body_certificate_tracks_losing_observations_but_only_adopts_selected_reads() {

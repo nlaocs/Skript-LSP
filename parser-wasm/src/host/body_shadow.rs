@@ -1,5 +1,5 @@
 //! Bounded test-only decision gate. Never imports, adopts, replays or stores a body.
-//! Only scalar identities/digests survive an event; opaque resources stay live
+//! Only data/weak identities survive an event; opaque resources stay live
 //! exclusively in the ordinary parser. Every temporary certificate is dropped.
 use super::*;
 use sha2::{Digest, Sha256};
@@ -42,7 +42,10 @@ struct Data {
     calls: u64,
     overflow: bool,
     next: u64,
+    previous: BTreeMap<usize,PreviousReads>,
+    finished_resources: Vec<skript_parser::ExpressionEffectsIdentity>,
 }
+struct PreviousReads {document:String,revision:u64,key:String,world:String,certificate:crate::state::BodyReadCertificate}
 struct Live {
     id: u64,
     start: usize,
@@ -61,7 +64,13 @@ struct Live {
     guest_impure: usize,
     identities: BTreeMap<String,usize>,
     overflow: bool,
+    slot: usize,
+    document: String,
+    world: String,
+    prior_reads: Value,
+    resources: Vec<ResourceWitness>,
 }
+struct ResourceWitness {owner:RawNodeId,kind:ConsumedBodyResource,identity:skript_parser::ExpressionEffectsIdentity}
 struct Owner {
     raw: RawNodeId,
     attempt: u64,
@@ -76,7 +85,11 @@ impl Drop for Lease {
             let live=data.live.take().unwrap();
             data.rows.push(json!({"start":live.start,"revision":live.revision,"partial":true,
                 "status":"Blocked","reason":"body ended before live finish (cancel/rejection/error)",
-                "owners":live.owners.len(),"calls":live.calls,"resourcesRetained":false}));
+                "owners":live.owners.len(),"calls":live.calls,"resourcesRetained":false,"freshHeaderReadCheck":live.prior_reads}));
+            for witness in live.resources {
+                if data.finished_resources.len()>=MAX_ROWS*64 {data.overflow=true;break;}
+                data.finished_resources.push(witness.identity);
+            }
         }
     }
 }
@@ -85,9 +98,10 @@ impl Probe {
         let starts=starts.into_iter().collect::<BTreeSet<_>>();
         assert!(starts.len()<=2,"dedicated two-body probe only");
         Self(Arc::new(Mutex::new(Data { enabled, starts,live:None,rows:Vec::new(),
-            sequence:Sha256::new(),calls:0,overflow:false,next:0 })))
+            sequence:Sha256::new(),calls:0,overflow:false,next:0,previous:BTreeMap::new(),finished_resources:Vec::new() })))
     }
-    pub(super) fn begin(&self, request:&StructureBodyReuseRequest<'_>, key:&str, revision:u64) -> Option<Lease> {
+    pub(super) fn begin(&self, request:&StructureBodyReuseRequest<'_>, key:&str, revision:u64,
+        transaction:&ParseTransaction, world:&str) -> Option<Lease> {
         let mut data=self.0.lock().unwrap();
         if !data.enabled {return None;}
         let root=request.tree.get(request.candidate.raw_node_id)?;
@@ -95,9 +109,20 @@ impl Probe {
         if !data.starts.contains(&extent.start) {return None;}
         if data.live.is_some() || data.rows.len()>=MAX_ROWS {data.overflow=true;return None;}
         data.next+=1;let id=data.next;
+        let slot=data.starts.iter().position(|start|*start==extent.start)?;
+        let document=transaction.document_id().ok()?;
+        let world=format!("{:x}",Sha256::digest(world.as_bytes()));
+        let prior_reads=match data.previous.get(&slot) {
+            None=>check("NotRequired","no prior readonly sample"),
+            Some(previous) if previous.document!=document || previous.revision>=revision
+                || previous.key!=key || previous.world!=world=>check("Blocked","document/revision/key/world changed; ordinary parse required"),
+            Some(previous)=>transaction.body_shadow_check_reads(&previous.certificate)
+                .unwrap_or_else(|_|check("Blocked","current readonly predicate unavailable")),
+        };
         data.live=Some(Live {id,start:extent.start,revision,key:key.into(),root:root.id,parent:request.parent_attempt,
             owners:Vec::new(),receipts:Vec::new(),owner_ok:true,preparation_freeze_ok:true,preparation_resources:0,invalidations:0,
-            calls:0,unlisted:0,guest_impure:0,identities:BTreeMap::new(),overflow:false});
+            calls:0,unlisted:0,guest_impure:0,identities:BTreeMap::new(),overflow:false,
+            slot,document,world,prior_reads,resources:Vec::new()});
         Some(Lease {probe:self.clone(),id})
     }
     pub(super) fn invocation(&self, component:&str, invocation:&crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation,
@@ -126,11 +151,17 @@ impl Probe {
         json!({"rows":data.rows,"physicalCalls":data.calls,"physicalAndNegativeOrderSha256":format!("{:x}",data.sequence.clone().finalize()),
             "live":data.live.is_some(),"overflow":data.overflow,
             "limits":{"rows":MAX_ROWS,"ownersPerBody":MAX_OWNERS,"callsPerBody":MAX_CALLS,
-                "identitiesPerBody":MAX_IDENTITIES,"temporaryBodyBytes":MAX_BYTES},"retainsOpaqueResources":false})
+                "identitiesPerBody":MAX_IDENTITIES,"temporaryBodyBytes":MAX_BYTES},"retainsOpaqueResources":false,
+            "finishedResourceWitnesses":data.finished_resources.len(),
+            "finishedResourcesStillLive":data.finished_resources.iter().filter(|id|id.is_live()).count()})
     }
     pub(super) fn reset(&self) {
         let mut data=self.0.lock().unwrap();assert!(data.live.is_none());
         data.rows.clear();data.sequence=Sha256::new();data.calls=0;data.overflow=false;
+    }
+    pub(super) fn retarget(&self, starts:impl IntoIterator<Item=usize>) {
+        let mut data=self.0.lock().unwrap();assert!(data.live.is_none());
+        let starts=starts.into_iter().collect::<BTreeSet<_>>();assert!(starts.len()<=2);data.starts=starts;
     }
 }
 
@@ -188,7 +219,11 @@ pub(super) fn preparation(probe:&Probe, hooks:&WasmPatternHooks<'_>, before:&Hoo
                 && super::incremental::body::shadow_original_range(source,candidate.matched.matched.span.mapped.virtual_range).is_some();
             // Freeze a temporary clone now, then drop it before returning the
             // real enter event. Retain only host receipt references and hashes.
-            let (frozen,overflow,resources,metadata)=freeze_enter(candidate,|kind,value|consumed(hooks,before,kind,value));
+            let (frozen,overflow,resources,metadata)=freeze_enter(candidate,|kind,value| {
+                if live.resources.len()>=64 {live.overflow=true;return false;}
+                live.resources.push(ResourceWitness {owner:candidate.raw_node_id,kind,identity:value.identity()});
+                consumed(hooks,before,kind,value)
+            });
             live.preparation_freeze_ok &= frozen;live.overflow |= overflow;
             live.preparation_resources+=resources;
             for (key,value) in metadata {
@@ -219,6 +254,14 @@ fn owners_match(body:&skript_parser::StructureBody, owners:&[Owner]) -> bool {
     index==owners.len()
 }
 
+fn cover_current_resource(witnesses:&[ResourceWitness], covered:&mut [bool], owner:RawNodeId,
+    kind:ConsumedBodyResource, value:&skript_parser::ExpressionEffects) -> bool {
+    if let Some((index,_))=witnesses.iter().enumerate().find(|(index,witness)|
+        !covered[*index] && witness.owner==owner && witness.kind==kind && witness.identity.matches(value)) {
+        covered[index]=true;true
+    } else {false}
+}
+
 struct Size(usize);
 impl std::fmt::Write for Size {
     fn write_str(&mut self,value:&str)->std::fmt::Result {
@@ -245,12 +288,31 @@ pub(super) fn finish(lease:&Lease, hooks:&WasmPatternHooks<'_>, body:&skript_par
     let portable=(bounded && prefix).then(||PortableStructureBody::freeze(body,&mut |kind,value| {
         resource_checks+=1;let ok=consumed(hooks,before,kind,value);resource_refusals+=usize::from(!ok);ok
     })).flatten();
+    // Revisit only the adopted owner's current HEADER resources, not a same-
+    // looking resource elsewhere in its body. Weak tokens grant no authority:
+    // every matching current borrowed value must pass the original predicate.
+    let mut covered=vec![false;live.resources.len()];let mut current_headers_ok=true;
+    if bounded && prefix && portable.is_some() {
+        let mut pending=match body {skript_parser::StructureBody::Trigger(nodes)=>nodes.iter().rev().collect::<Vec<_>>(),_=>Vec::new()};
+        while let Some(node)=pending.pop() {
+            if let SectionBodyNode::Section(matches)=node && let Some(candidate)=&matches.selected {
+                pending.extend(candidate.body.iter().rev());
+                let mut header=candidate.clone();header.body.clear();
+                let (ok,overflow,_,_)=freeze_enter(&header,|kind,value| {
+                    let current=consumed(hooks,before,kind,value);
+                    if current {cover_current_resource(&live.resources,&mut covered,candidate.raw_node_id,kind,value);}
+                    current
+                });
+                current_headers_ok &= ok && !overflow;
+            }
+        }
+    }
     let a5=if !bounded {check("Blocked","temporary body/event budget exceeded")}
         else if !prefix {check("Blocked","current call prefix changed; consumed-resource checks not run")}
         else if portable.is_none() {check("Blocked","current native body/resource freeze refused")}
         else if !live.preparation_freeze_ok {check("Blocked","enter preparation resource freeze refused")}
-        else if live.preparation_resources>0 {check("Blocked","enter freeze succeeded then, but resource coverage/adoption at live body end is NotExercised")}
-        else {check("Pass","current body clone frozen; enter proposals had no opaque resources; clones dropped here")};
+        else if !current_headers_ok || covered.iter().any(|covered|!*covered) {check("Blocked","enter resource not certified in the same current adopted owner header")}
+        else {check("Pass","same non-owning enter identities covered and revalidated in current owner headers; no future replay implied")};
     let calls=if bounded {checked_calls(&before.calls,&hooks.calls).unwrap_or_default()} else {Vec::new()};
     let mut receipt_report=json!({"status":"Blocked","reason":"body freeze unavailable"});
     if let (Some(portable),Some(registry))=(&portable,&hooks.host.semantic_receipts) {
@@ -278,16 +340,27 @@ pub(super) fn finish(lease:&Lease, hooks:&WasmPatternHooks<'_>, body:&skript_par
             "identityOutcomeCounts":live.identities,"uncertifiedIsMutationEvidence":false},
         "A3":{"status":if !bounded {"Blocked"} else if live.owner_ok && live.invalidations==0 && owners_match(body,&live.owners) {"Pass"} else {"Fail"},
             "owners":live.owners.len(),"invalidations":live.invalidations,"parentChecks":live.owners.iter().map(|o|(o.attempt,o.parent)).collect::<Vec<_>>(),"replay":"NotExercised"},
-        "A4":a4,"stateObservation":state_observation.ok(),"readonlyCertificateBytes":reads.as_ref().ok().and_then(|c|c.as_ref()).map(|c|c.retained_bytes()),
+        "A4":a4,"freshHeaderReadCheck":live.prior_reads,"stateObservation":state_observation.ok(),"readonlyCertificateBytes":reads.as_ref().ok().and_then(|c|c.as_ref()).map(|c|c.retained_bytes()),
         "A5":a5,"resourceChecks":resource_checks,"resourceRefusals":resource_refusals,"enterResourceChecks":live.preparation_resources,
+        "enterResourcesCovered":covered.iter().filter(|covered|**covered).count(),
+        "enterResourcesExpiredAtBodyEnd":live.resources.iter().filter(|resource|!resource.identity.is_live()).count(),
         "A6":receipt_report,
         "A7":{"current":{"status":if bounded && prefix && effects_unchanged && !pending {"Pass"} else {"Blocked"},
             "callPrefix":prefix,"noFailureDiagnosticOrAdditionalParse":effects_unchanged,"noPendingResources":!pending,
             "beforeWork":format!("{before_work:?}"),"afterWork":format!("{work:?}"),"postContextSha256":digest(context)},
             "import":"NotExercised","readReplay":"NotExercised","adoption":"NotExercised","futureResourceLifetimes":"NotExercised"},
         "temporaryBodyBytes":size.0,"overflow":live.overflow,"resourcesRetained":false});
-    drop(portable);drop(reads);
-    lease.probe.0.lock().unwrap().rows.push(row);
+    drop(portable);
+    let mut data=lease.probe.0.lock().unwrap();
+    if let Ok(Some(certificate))=reads {
+        // Data-only diagnostic sample, not an adopted body or cache authority.
+        data.previous.insert(live.slot,PreviousReads {document:live.document,revision:live.revision,key:live.key,world:live.world,certificate});
+    }
+    for witness in live.resources {
+        if data.finished_resources.len()>=MAX_ROWS*64 {data.overflow=true;break;}
+        data.finished_resources.push(witness.identity);
+    }
+    data.rows.push(row);
 }
 
 #[test]
@@ -296,7 +369,8 @@ fn shadow_bounds_drop_partial_lease_and_never_retain_opaque_resources() {
     let mut data=probe.0.lock().unwrap();
     data.live=Some(Live {id:1,start:0,revision:1,key:String::new(),root:RawNodeId::new(0),parent:1,
         owners:Vec::new(),receipts:Vec::new(),owner_ok:true,preparation_freeze_ok:true,preparation_resources:0,invalidations:0,
-        calls:0,unlisted:0,guest_impure:0,identities:BTreeMap::new(),overflow:false});
+        calls:0,unlisted:0,guest_impure:0,identities:BTreeMap::new(),overflow:false,
+        slot:0,document:String::new(),world:String::new(),prior_reads:Value::Null,resources:Vec::new()});
     drop(data);
     let drops=Arc::new(std::sync::atomic::AtomicUsize::new(0));
     struct Opaque(Arc<std::sync::atomic::AtomicUsize>);
@@ -320,4 +394,19 @@ fn shadow_prefix_refusal_does_not_slice_shorter_or_equal_unrelated_logs() {
     assert!(checked_calls(&prefix,&unrelated).is_none());
     let mut current=prefix.clone();current.extend(vec![call]);
     assert_eq!(checked_calls(&prefix,&current).unwrap().len(),1);
+}
+
+#[test]
+fn shadow_resource_coverage_is_owner_kind_identity_and_multiplicity_exact() {
+    use ConsumedBodyResource::{Expression,Pattern};
+    let value=skript_parser::ExpressionEffects::new(7u32);
+    let witnesses=vec![ResourceWitness {owner:RawNodeId::new(1),kind:Expression,identity:value.identity()}];
+    let mut covered=vec![false];
+    assert!(!cover_current_resource(&witnesses,&mut covered,RawNodeId::new(2),Expression,&value));
+    assert!(!cover_current_resource(&witnesses,&mut covered,RawNodeId::new(1),Pattern,&value));
+    assert!(!cover_current_resource(&witnesses,&mut covered,RawNodeId::new(1),Expression,&skript_parser::ExpressionEffects::new(7u32)));
+    assert!(cover_current_resource(&witnesses,&mut covered,RawNodeId::new(1),Expression,&value.clone()));
+    assert!(!cover_current_resource(&witnesses,&mut covered,RawNodeId::new(1),Expression,&value));
+    drop(value);assert!(!witnesses[0].identity.is_live());covered[0]=false;
+    assert!(!cover_current_resource(&witnesses,&mut covered,RawNodeId::new(1),Expression,&skript_parser::ExpressionEffects::new(7u32)));
 }

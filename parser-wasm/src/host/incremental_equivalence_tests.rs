@@ -491,10 +491,61 @@ fn measure_public_structure_body_edit_reuse() {
             std::fs::write(format!("{}.partial", plan["output"].as_str().unwrap()),
                 serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
             if reference.is_none() { reference = Some((initial_signature, edit_signature, initial_calls, edit_calls,observer_signature)); }
+            if shadow {
+                let probe=host.body_shadow_probe.clone().unwrap();
+                drop(initial);drop(current);
+                let before_host_drop=probe.snapshot();drop(host);let after_host_drop=probe.snapshot();
+                rows.last_mut().unwrap().as_object_mut().unwrap().insert("resourceLifetimes".into(),serde_json::json!({
+                    "observedEnterResources":after_host_drop["finishedResourceWitnesses"],
+                    "liveAfterResultsDropped":before_host_drop["finishedResourcesStillLive"],
+                    "liveAfterHostDropped":after_host_drop["finishedResourcesStillLive"]}));
+                assert_eq!(after_host_drop["finishedResourcesStillLive"],0,"weak observer must not retain resource values");
+            }
+        }
+    }
+    let mut resolved_controls=Vec::new();
+    if plan["resolvedEntityControls"]==true {
+        let source="on join:\n    set {_target} to player\n";
+        let mut expected=None;
+        for mode in ["cold","warm","supported-cancel-return"] {
+            let mut host=ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../artifacts/core-library.wasm")),
+                HostConfig {syntax_catalog:Some(Arc::clone(&catalog)),..HostConfig::default()}).unwrap();
+            let parse=|host:&mut ParserHost,uri:&str| host.parse_document(
+                DocumentParseRequest::new("file:///workspace",uri,1,source),DocumentParserConfig::default()).unwrap();
+            if mode=="warm" {drop(parse(&mut host,"file:///workspace/warm-scope.sk"));}
+            if mode=="supported-cancel-return" {
+                let token=DocumentCancellationToken::new();let signal=token.clone();let mut headers=false;
+                let cancelled=host.parse_document_with_preparation(
+                    DocumentParseRequest::new("file:///workspace","file:///workspace/cancelled-scope.sk",1,source),
+                    DocumentParserConfig {cancellation:token,..DocumentParserConfig::default()},&mut |event| {
+                        if matches!(event,skript_parser::StructurePreparationEvent::Headers {..}) {headers=true;signal.cancel();}
+                    });
+                assert!(headers&&cancelled.is_err(),"cancel after fresh header preparation must rollback");
+                for component in &host.components {
+                    assert!(!component.store.data().interrupt_safe,"do not fake Core restart-safe capability");
+                    assert!(!component.restart_pending && !component.store.data().epoch_cancelled);
+                    assert!(component.store.data().invocation.is_none());
+                }
+            }
+            let current=parse(&mut host,"file:///workspace/resolved-scope-target.sk");
+            let signature=signature(&current);
+            let entity=current.ast.nodes.iter().find(|node|node.summary.as_ref().is_some_and(|summary|
+                summary.element_class.as_deref()==Some("ch.njol.skript.expressions.ExprEntity")
+                    && summary.return_type.as_deref()==Some("org.bukkit.entity.Player"))).expect("resolved Player producer");
+            let provenance=entity.metadata.iter().chain(entity.summary.iter().flat_map(|summary|&summary.metadata))
+                .filter(|entry|entry.key=="skript.semantic.storage-provenance").count();
+            assert!(provenance>0,"positive path must carry the validated storage provenance");
+            assert!(current.effects.context_updates.iter().any(|update|update.key=="core.storage.context-receipt"),"fresh private receipt");
+            if let Some(expected)=&expected {assert_equivalent(&current,expected);}
+            resolved_controls.push(serde_json::json!({"mode":mode,"signature":signature,"diagnostics":current.syntax.diagnostics.len(),
+                "playerProducer":true,"validatedProvenanceEntries":provenance,"currentPrivateReceipt":true,
+                "comparison":"complete accepted AST/type/public metadata/provenance, effects, State and proof; protected host labels canonicalized",
+                "forcedStoreRestart":false}));
+            if expected.is_none() {expected=Some(current);}
         }
     }
     std::fs::write(plan["output"].as_str().unwrap(), serde_json::to_vec_pretty(&serde_json::json!({
-        "rows":rows,"admissionReasonsMode":admission_reasons,"bodyReuseComparison":compare_bodies,
+        "rows":rows,"resolvedEntityControls":resolved_controls,"admissionReasonsMode":admission_reasons,"bodyReuseComparison":compare_bodies,
         "conditions":if compare_bodies {
             "One body reuse OFF/ON pair per public fixture, same native executable/Core; counter observer enabled both sides. Semantic digests must match; physical guest calls may decrease. Parse wall only, not UI latency or a permanent speedup claim. Retained roots are examples, not the attempt denominator."
         } else {"One pair per public fixture, same native executable/Core; parse wall only, not UI latency or a speedup claim. In admissionReasons mode body reuse remains enabled on both sides, only counter observation toggles. Retained roots are examples, not the attempt denominator."}})).unwrap()).unwrap();
@@ -703,7 +754,10 @@ fn body_shadow_cancel_and_rejected_body_release_live_observation() {
             }
             assert_eq!(&snapshot["physicalAndNegativeOrderSha256"],trace);
             assert_eq!(&snapshot["physicalCalls"],count);
+            drop(result);
         } else {reference=Some((result,snapshot["physicalAndNegativeOrderSha256"].clone(),snapshot["physicalCalls"].clone()));}
+        let probe=host.body_shadow_probe.clone().unwrap();drop(host);
+        assert_eq!(probe.snapshot()["finishedResourcesStillLive"],0);
       }
     }
 }
@@ -733,6 +787,49 @@ fn body_shadow_enter_freeze_bounds_and_drops_real_opaque_candidate_clones() {
             }
         }).unwrap();
     assert_eq!(visited,1);
+}
+
+#[test]
+fn body_shadow_changed_length_declaration_context_and_failure_stay_cold() {
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    return \"starter\"\non load:\n    stop\n";
+    for (label,text,context) in [
+        ("length",source.replace("return 8","return 88"),0),
+        ("declaration",source.replace("streak: number","streak: text"),0),
+        ("native-context",source.replacen(":: number",":: text",1),0),
+        ("invocation-context-mismatch",source.to_owned(),42),
+        ("outside-length",format!("# \u{65e5}\u{672c} \u{1f98a}\n{source}"),0),
+        ("failure",source.replace("if {_streak} >= 7:","if:"),0),
+    ] {
+        let starts=|text:&str|[text.find("function publicRewardCount").unwrap(),text.find("function publicRewardLabel").unwrap()];
+        let mut host=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        host.body_shadow_probe=Some(body_shadow::Probe::new(true,starts(source)));
+        let first=run(&mut host,source,1);drop(first);
+        let probe=host.body_shadow_probe.clone().unwrap();probe.reset();probe.retarget(starts(&text));
+        let mut request=DocumentParseRequest::new("file:///workspace","file:///workspace/actual-incremental.sk",2,text.as_str());
+        request.context.syntax_context=context;
+        let actual=host.parse_document(request,DocumentParserConfig::default());
+        let mut cold=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        let mut request=DocumentParseRequest::new("file:///workspace","file:///workspace/actual-incremental.sk",2,text.as_str());
+        request.context.syntax_context=context;
+        let expected=cold.parse_document(request,DocumentParserConfig::default());
+        match (&actual,&expected) {
+            (Ok(actual),Ok(expected))=>assert_equivalent(actual,expected),
+            (Err(actual),Err(expected)) if label=="invocation-context-mismatch"=>{
+                assert_eq!(format!("{actual:?}"),format!("{expected:?}"));
+                assert!(format!("{actual:?}").contains("does not match invocation context"));
+            },
+            _=>panic!("unexpected {label} outcomes: {actual:?}/{expected:?}"),
+        }
+        assert_eq!(host.incremental_metrics().body_hits,0,"{label}");
+        assert_eq!(host.incremental_metrics().body_stored,0,"{label}");
+        let snapshot=probe.snapshot();assert_eq!(snapshot["live"],false,"{label}: {snapshot}");
+        if ["length","outside-length","native-context"].contains(&label) {
+            let first=snapshot["rows"].as_array().unwrap().iter().find(|row|row["start"]==starts(&text)[0]).unwrap();
+            assert_eq!(first["freshHeaderReadCheck"]["status"],"Blocked","{label}: changed key must not be validated as unchanged");
+        }
+        drop(actual);drop(expected);drop(host);
+        assert_eq!(probe.snapshot()["finishedResourcesStillLive"],0,"{label}");
+    }
 }
 
 #[test]

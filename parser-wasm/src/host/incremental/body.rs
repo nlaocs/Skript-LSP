@@ -159,7 +159,8 @@ impl WasmExpressionEnvironment<'_> {
         } else {"body_admission.prepare.observe"});
         #[cfg(test)]
         let shadow = self.hooks.host.body_shadow_probe.as_ref()
-            .and_then(|probe| probe.begin(&request, &key, revision));
+            .and_then(|probe| probe.begin(&request, &key, revision,self.hooks.transaction,
+                self.hooks.host.incremental.active.as_ref().unwrap().world.as_ref().unwrap()));
         self.body = Some(BodyObservation {
             key, before:request.work,
             state:self.hooks.transaction.body_observation_checkpoint().map_err(|e|self.hooks.host_error(e))?,
