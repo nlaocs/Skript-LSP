@@ -387,6 +387,7 @@ fn measure_public_structure_body_edit_reuse() {
         std::env::var("SKRIPT_BODY_MEASUREMENT_PLAN").unwrap()).unwrap()).unwrap();
     assert_eq!(plan["publicFixtures"], true);
     let admission_reasons=plan["admissionReasons"]==true;
+    let compare_bodies=plan["compareBodyReuse"]==true;
     let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
     for file in plan["snapshotFiles"].as_array().unwrap() {
         let bytes = std::fs::read(std::path::Path::new(plan["snapshot"].as_str().unwrap()).join(file["name"].as_str().unwrap())).unwrap();
@@ -404,9 +405,10 @@ fn measure_public_structure_body_edit_reuse() {
             let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")),
                 HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
             if admission_reasons {
-                host.body_admission_probe=enabled.then(body_admission_measurement::Probe::default);
+                host.body_admission_probe=(enabled || compare_bodies).then(body_admission_measurement::Probe::default);
                 assert!(host.measurement_probe().is_none(),"counter-only measurement must not enable catalog timers");
-            } else if !enabled {
+            }
+            if (!admission_reasons || compare_bodies) && !enabled {
                 host.components[0].manifest.incremental_body_subscriptions.clear();
                 host.components[0].manifest.incremental_body_handler_subscriptions.clear();
             }
@@ -418,7 +420,11 @@ fn measure_public_structure_body_edit_reuse() {
             let initial_metrics = host.incremental_metrics();
             let initial_signature = signature(&initial);
             let initial_reasons=host.body_admission_probe.as_ref().map(|probe|probe.snapshot());
-            if let Some(reasons)=&initial_reasons {assert_eq!(reasons["strictPartition"],true);}
+            if let Some(reasons)=&initial_reasons {
+                assert_eq!(reasons["strictPartition"],true);
+                for phase in ["finish","adopt","accept"] {assert_eq!(reasons[phase]["strictPartition"],true);}
+                assert_eq!(reasons["unfinalizedObservations"],0);
+            }
             if let Some(probe)=&host.body_admission_probe {probe.reset();}
             eprintln!("body measurement initial {initial_ms:.3}ms; {initial_metrics:?}; editing");
             let before = guest_calls(&host);
@@ -429,14 +435,18 @@ fn measure_public_structure_body_edit_reuse() {
             let metrics = host.incremental_metrics();
             let edit_signature = signature(&current);
             let edit_reasons=host.body_admission_probe.as_ref().map(|probe|probe.snapshot());
-            if let Some(reasons)=&edit_reasons {assert_eq!(reasons["strictPartition"],true);}
+            if let Some(reasons)=&edit_reasons {
+                assert_eq!(reasons["strictPartition"],true);
+                for phase in ["finish","adopt","accept"] {assert_eq!(reasons[phase]["strictPartition"],true);}
+                assert_eq!(reasons["unfinalizedObservations"],0);
+            }
             if let Some((initial, edited, calls_before, calls_after)) = &reference {
                 assert_eq!(&initial_signature, initial, "initial semantic digest differs");
                 assert_eq!(&edit_signature, edited, "edited semantic digest differs");
-                if admission_reasons {assert_eq!(&initial_calls,calls_before);assert_eq!(&edit_calls,calls_after);}
+                if admission_reasons && !compare_bodies {assert_eq!(&initial_calls,calls_before);assert_eq!(&edit_calls,calls_after);}
             }
-            rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":admission_reasons || enabled,
-                "reasonProbeEnabled":admission_reasons && enabled,"initialAdmission":initial_reasons,"editAdmission":edit_reasons,
+            rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":(admission_reasons && !compare_bodies) || enabled,
+                "reasonProbeEnabled":admission_reasons && (enabled || compare_bodies),"initialAdmission":initial_reasons,"editAdmission":edit_reasons,
                 "retainedRootSamplesNotAttemptPartition":root_samples(&current),
                 "initialMs":initial_ms,"editMs":edit_ms,"initialMetrics":format!("{initial_metrics:?}"),
                 "editMetrics":format!("{metrics:?}"),"initialGuestCalls":initial_calls,"editGuestCalls":edit_calls,
@@ -456,8 +466,10 @@ fn measure_public_structure_body_edit_reuse() {
         }
     }
     std::fs::write(plan["output"].as_str().unwrap(), serde_json::to_vec_pretty(&serde_json::json!({
-        "rows":rows,"admissionReasonsMode":admission_reasons,
-        "conditions":"One pair per public fixture, same native executable/Core; parse wall only, not UI latency or a speedup claim. In admissionReasons mode body reuse remains enabled on both sides, only counter observation toggles. Retained roots are examples, not the attempt denominator."})).unwrap()).unwrap();
+        "rows":rows,"admissionReasonsMode":admission_reasons,"bodyReuseComparison":compare_bodies,
+        "conditions":if compare_bodies {
+            "One body reuse OFF/ON pair per public fixture, same native executable/Core; counter observer enabled both sides. Semantic digests must match; physical guest calls may decrease. Parse wall only, not UI latency or a permanent speedup claim. Retained roots are examples, not the attempt denominator."
+        } else {"One pair per public fixture, same native executable/Core; parse wall only, not UI latency or a speedup claim. In admissionReasons mode body reuse remains enabled on both sides, only counter observation toggles. Retained roots are examples, not the attempt denominator."}})).unwrap()).unwrap();
 }
 
 #[test]
@@ -516,6 +528,72 @@ fn real_core_body_reuse_matches_cold_for_stop_bodies_and_a_sibling_case_edit() {
         assert!(actual<guest_calls(&cold_host)-before);
         assert!(warm.syntax_calls.iter().any(|call|call.origin==HookCallOrigin::ReusedStructureBody));
     }
+}
+
+#[test]
+fn real_core_body_reuses_unexpanded_functions_after_a_sibling_tree_edit() {
+    for fixture in ["skript-2.15.4-type-runtime","skript-2.16.2-java25"] {
+        let source="options:\n    marker: alpha\nfunction first():\n    send \"a\" to all players\nfunction second():\n    send \"b\" to all players\non load:\n    send \"{@marker}\" to console\n";
+        let mut host=actual_host_with_fixture(fixture);
+        host.body_debug=true;
+        host.components[0].manifest.incremental_local_subscriptions.clear();
+        host.components[0].manifest.incremental_header_handlers.clear();
+        let first=run(&mut host,source,1);
+        assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
+        assert!(first.source.virtual_source().len()>source.len(),"must exercise actual TreeEdit projection");
+        assert!(host.incremental_metrics().body_stored>=2,"{:?}",host.incremental_metrics());
+        for (i,current) in [source.to_owned(),source.replacen("\"a\"","\"c\"",1),
+            source.replace("alpha","bravo"),source.replace("alpha","longer label"),
+            format!("# 😀é\r\n{source}"),source.replace("function first():","on join:")].iter().enumerate() {
+            let before=guest_calls(&host);
+            let warm=run(&mut host,current,i as u64+2);
+            let calls=guest_calls(&host)-before;
+            let metrics=host.incremental_metrics();
+            let mut cold=actual_host_with_fixture(fixture);
+            cold.components[0].manifest.incremental_body_subscriptions.clear();
+            cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+            cold.components[0].manifest.incremental_local_subscriptions.clear();
+            cold.components[0].manifest.incremental_header_handlers.clear();
+            let before=guest_calls(&cold);
+            let clean=run(&mut cold,current,i as u64+2);
+            assert_equivalent(&warm,&clean);
+            if i<2 {
+                assert!(metrics.body_hits>0,"{fixture}/{i}: {metrics:?}");
+                assert!(calls<guest_calls(&cold)-before);
+                let proof=warm.semantic_witnesses();
+                assert!(warm.ast.nodes.iter().any(|node|node.summary.as_ref()
+                    .is_some_and(|summary|summary.return_type.as_deref()==Some("org.bukkit.entity.Player"))
+                    && proof.provider_valid(node,CORE_LIBRARY_COMPONENT_ID)),
+                    "fragmented-source reuse must preserve current Core authority on a real typed node");
+            }
+        }
+    }
+}
+
+#[test]
+fn real_core_fragmented_body_keys_keep_document_revision_and_close_fences() {
+    let source="options:\n    marker: a\nfunction first():\n    stop\non load:\n    send \"{@marker}\" to console\n";
+    let mut host=actual_host();
+    run(&mut host,source,1);
+    run(&mut host,source,2);
+    assert!(host.incremental_metrics().body_hits>0,"{:?}",host.incremental_metrics());
+    let other=host.parse_document(DocumentParseRequest::new("file:///workspace","file:///workspace/other.sk",1,source),DocumentParserConfig::default()).unwrap();
+    assert_eq!(host.incremental_metrics().body_hits,0,"a different document must not import the first document's bodies");
+    let mut cold=actual_host();
+    cold.components[0].manifest.incremental_body_subscriptions.clear();
+    cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+    run(&mut cold,source,1);
+    run(&mut cold,source,2);
+    let clean=cold.parse_document(DocumentParseRequest::new("file:///workspace","file:///workspace/other.sk",1,source),DocumentParserConfig::default()).unwrap();
+    assert_equivalent(&other,&clean);
+    assert!(host.parse_document(DocumentParseRequest::new("file:///workspace","file:///workspace/actual-incremental.sk",1,source),DocumentParserConfig::default()).is_err());
+    assert!(host.release_document("file:///workspace","file:///workspace/actual-incremental.sk",2).unwrap());
+    let reopened=run(&mut host,source,1);
+    assert_eq!(host.incremental_metrics().body_hits,0);
+    assert_eq!(reopened.execution_status,DocumentExecutionStatus::Complete);
+    assert!(cold.release_document("file:///workspace","file:///workspace/actual-incremental.sk",2).unwrap());
+    let clean_reopened=run(&mut cold,source,1);
+    assert_equivalent(&reopened,&clean_reopened);
 }
 
 #[test]

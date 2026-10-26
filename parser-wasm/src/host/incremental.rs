@@ -5,6 +5,7 @@ use crate::bindings::nlaocs::skript_parser_addon::types::HookInvocation;
 use crate::state::{StateObservationCheckpoint, StateReadCertificate};
 mod header;
 pub(super) mod body;
+mod body_source;
 
 const MAX_ENTRIES: usize = 4_096;
 const MAX_BYTES: usize = 32 * 1024 * 1024;

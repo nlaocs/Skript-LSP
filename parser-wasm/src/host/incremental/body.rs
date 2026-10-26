@@ -129,6 +129,9 @@ impl WasmExpressionEnvironment<'_> {
         let proposal = self.hooks.host.incremental.documents.get(&active.document)
             .filter(|previous| previous.revision < active.revision && &previous.world == world)
             .and_then(|previous| previous.bodies.get(&key)).cloned();
+        self.hooks.host.body_admission_count(if proposal.is_some() {
+            "body_admission.prepare.reuse_proposed"
+        } else {"body_admission.prepare.observe"});
         self.body = Some(BodyObservation {
             key, before:request.work,
             state:self.hooks.transaction.body_observation_checkpoint().map_err(|e|self.hooks.host_error(e))?,
@@ -142,15 +145,25 @@ impl WasmExpressionEnvironment<'_> {
 
     fn body_key(&mut self, request: &StructureBodyReuseRequest<'_>) -> Result<String, &'static str> {
         use std::fmt::Write;
+        // A new key generation includes the real ordered segment witness; the
+        // flattened MappedSpan is retained as well, never rewritten/coalesced.
+        struct Key(sha2::Sha256);
+        impl std::fmt::Write for Key {
+            fn write_str(&mut self,value:&str)->std::fmt::Result {
+                use sha2::Digest;self.0.update(value.as_bytes());Ok(())
+            }
+        }
+        use sha2::Digest;
+        let mut key=Key(sha2::Sha256::new());
+        write!(&mut key,"body-v2|").map_err(|_|"body_admission.prepare.reject.digest")?;
         let root=request.tree.get(request.candidate.raw_node_id).ok_or("body_admission.prepare.reject.owner_missing")?;
         let end=root.body_span.as_ref().ok_or("body_admission.prepare.reject.body_span_missing")?.virtual_range.end.max(root.span.virtual_range.end);
         let range=ParserTextRange::new(root.span.virtual_range.start,end);
         if range.len()>1024*1024 { return Err("body_admission.prepare.reject.source_budget"); }
         let span=request.source.map_range(range).map_err(|_|"body_admission.prepare.reject.mapping_error")?;
-        let [origin]=span.origins.as_slice() else {return Err("body_admission.prepare.reject.multiple_origins");};
-        if origin.kind!=skript_parser::OriginKind::Exact || origin.expansion.is_some()
-            || origin.original_range.len()!=range.len() {return Err("body_admission.prepare.reject.nonexact_origin");}
-        let original=origin.original_range.slice(request.source.original()).ok_or("body_admission.prepare.reject.original_range")?;
+        let extent=super::body_source::original_extent(request.source,range,|virtual_range,origin|
+            write!(&mut key,"segment:{virtual_range:?}|{origin:?}|"))?;
+        let original=extent.slice(request.source.original()).ok_or("body_admission.prepare.reject.original_range")?;
         let current=range.slice(request.source.virtual_source()).ok_or("body_admission.prepare.reject.virtual_range")?;
         let mut candidate=request.candidate.clone();
         candidate.matched.extension_state=None;
@@ -176,25 +189,24 @@ impl WasmExpressionEnvironment<'_> {
         }
         let availability=self.hooks.host.components.iter().map(|e|(e.disabled,e.unloaded)).collect::<Vec<_>>();
         // Stream into the digest; never retain full source in keys or traces.
-        struct Key(sha2::Sha256);
-        impl std::fmt::Write for Key {
-            fn write_str(&mut self,value:&str)->std::fmt::Result {
-                use sha2::Digest;self.0.update(value.as_bytes());Ok(())
-            }
-        }
-        use sha2::Digest;
-        let mut key=Key(sha2::Sha256::new());
-        write!(&mut key,"body-v1|{original:?}|{current:?}|{span:?}|{nodes:?}|{candidate:?}|{authority}|{:?}|{:?}|{:?}|{}|{availability:?}",
+        write!(&mut key,"{extent:?}|{original:?}|{current:?}|{span:?}|{nodes:?}|{candidate:?}|{authority}|{:?}|{:?}|{:?}|{}|{availability:?}",
             request.context,request.config,request.work,request.parent_attempt).map_err(|_|"body_admission.prepare.reject.digest")?;
         Ok(format!("{:x}",key.0.finalize()))
     }
 
     pub(in crate::host) fn body_accept(&mut self) -> Result<bool,String> {
         let Some(proposal)=self.body.as_ref().and_then(|body|body.proposal.clone()) else {return Ok(false);};
-        let Some(registry)=self.hooks.host.semantic_receipts.as_ref() else {return Ok(false);};
-        if !registry.can_import_body(&proposal.receipts) {return Ok(false);}
+        self.hooks.host.body_admission_count("body_admission.accept.total");
+        let Some(registry)=self.hooks.host.semantic_receipts.as_ref() else {
+            self.hooks.host.body_admission_count("body_admission.accept.reject.registry");return Ok(false);
+        };
+        if !registry.can_import_body(&proposal.receipts) {
+            self.hooks.host.body_admission_count("body_admission.accept.reject.receipts");return Ok(false);
+        }
         if !self.hooks.transaction.replay_body_read_certificate(&proposal.reads)
-            .map_err(|e|self.hooks.host_error(e))? {return Ok(false);}
+            .map_err(|e|self.hooks.host_error(e))? {
+            self.hooks.host.body_admission_count("body_admission.accept.reject.reads");return Ok(false);
+        }
         if !self.hooks.host.semantic_receipts.as_mut().unwrap().import_body(&proposal.receipts) {
             return Err("body receipt admission changed during exclusive replay".into());
         }
@@ -203,6 +215,7 @@ impl WasmExpressionEnvironment<'_> {
         for call in &mut calls {call.origin=HookCallOrigin::ReusedStructureBody;}
         self.hooks.calls.extend(calls);
         self.hooks.host.incremental.active.as_mut().unwrap().metrics.body_hits+=1;
+        self.hooks.host.body_admission_count("body_admission.accept.replayed");
         Ok(true)
     }
 
@@ -215,16 +228,21 @@ impl WasmExpressionEnvironment<'_> {
         use std::fmt::Write;
         self.hooks.host.body_observing=false;
         let Some(observation)=self.body.as_ref() else {return Ok(false);};
+        self.hooks.host.body_admission_count("body_admission.finish.total");
         let before=&observation.effects;
-        if observation.invalid || self.hooks.host.body_impure
-            || self.hooks.failures.len()!=before.failures_len
-            || self.hooks.effects.diagnostics.len()!=before.effects.diagnostics.len()
-            || self.hooks.effects.parse_requests.len()!=before.effects.parse_requests.len()
-            || self.hooks.effects.parse_results.len()!=before.effects.parse_results.len()
-            || !self.pending_leaf.is_none() || !self.pending_registered.is_none()
-            || !self.expression_candidates.is_empty()
-            || !before.calls.is_prefix_of(&self.hooks.calls)
-            || self.hooks.calls.len().saturating_sub(before.calls.len())>MAX_BODY_CALLS {
+        let mut reason="body_admission.finish.reject.invalid";
+        if observation.invalid
+            || {reason="body_admission.finish.reject.impure";self.hooks.host.body_impure}
+            || {reason="body_admission.finish.reject.failures";self.hooks.failures.len()!=before.failures_len}
+            || {reason="body_admission.finish.reject.diagnostics";self.hooks.effects.diagnostics.len()!=before.effects.diagnostics.len()}
+            || {reason="body_admission.finish.reject.parse_requests";self.hooks.effects.parse_requests.len()!=before.effects.parse_requests.len()}
+            || {reason="body_admission.finish.reject.parse_results";self.hooks.effects.parse_results.len()!=before.effects.parse_results.len()}
+            || {reason="body_admission.finish.reject.pending_leaf";!self.pending_leaf.is_none()}
+            || {reason="body_admission.finish.reject.pending_registered";!self.pending_registered.is_none()}
+            || {reason="body_admission.finish.reject.expression_scopes";!self.expression_candidates.is_empty()}
+            || {reason="body_admission.finish.reject.call_prefix";!before.calls.is_prefix_of(&self.hooks.calls)}
+            || {reason="body_admission.finish.reject.call_budget";self.hooks.calls.len().saturating_sub(before.calls.len())>MAX_BODY_CALLS} {
+            self.hooks.host.body_admission_count(reason);
             #[cfg(test)]
             debug_reason(self.hooks.host,&format!("scope/effect/resource guard invalid={} impure={} failures={} diagnostics={} requests={} results={} leaf={} registered={} expression-scopes={} prefix={}",
                 observation.invalid,self.hooks.host.body_impure,self.hooks.failures.len()!=before.failures_len,
@@ -235,9 +253,14 @@ impl WasmExpressionEnvironment<'_> {
             return Ok(false);
         }
         let mut size=BoundedSize(0);
-        if write!(&mut size,"{body:?}|{context:?}").is_err() {return Ok(false);}
+        if write!(&mut size,"{body:?}|{context:?}").is_err() {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.serialized_budget");return Ok(false);
+        }
         let reads=self.hooks.transaction.body_read_certificate(&observation.state);
-        let Some(reads)=reads.map_err(|e|self.hooks.host_error(e))? else {debug_reason(self.hooks.host,"State is not certifiably readonly");return Ok(false);};
+        let Some(reads)=reads.map_err(|e|self.hooks.host_error(e))? else {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.readonly");
+            debug_reason(self.hooks.host,"State is not certifiably readonly");return Ok(false);
+        };
         let calls=self.hooks.calls.suffix(before.calls.len());
         let updates=&self.hooks.effects.context_updates[before.effects.context_updates.len()..];
         let tx=self.hooks.transaction;
@@ -257,25 +280,36 @@ impl WasmExpressionEnvironment<'_> {
                         && e.effects.calls.is_prefix_of(&self.hooks.calls)),
             }
         };
-        let Some(portable)=PortableStructureBody::freeze(body,&mut consumed) else {debug_reason(self.hooks.host,"native resources are not portable");return Ok(false);};
+        let Some(portable)=PortableStructureBody::freeze(body,&mut consumed) else {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.portable");
+            debug_reason(self.hooks.host,"native resources are not portable");return Ok(false);
+        };
         let mut metadata=portable.metadata().to_vec();
         metadata.extend(context.values.iter().map(|(k,v)|(k.clone(),v.clone())));
         for frame in &context.section_stack {
             metadata.extend(frame.metadata.iter().map(|(k,v)|(k.clone(),v.clone())));
             for capture in &frame.captures {metadata.extend(capture.metadata.iter().map(|(k,v)|(k.clone(),v.clone())));}
         }
-        let Some(receipts)=self.hooks.host.semantic_receipts.as_ref().and_then(|r|r.export_body(&calls,&metadata)) else {debug_reason(self.hooks.host,"receipt graph is not closed");return Ok(false);};
+        let Some(receipts)=self.hooks.host.semantic_receipts.as_ref().and_then(|r|r.export_body(&calls,&metadata)) else {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.receipts");
+            debug_reason(self.hooks.host,"receipt graph is not closed");return Ok(false);
+        };
         let effects=HookEffects {diagnostics:Vec::new(),context_updates:updates.to_vec(),parse_requests:Vec::new(),parse_results:Vec::new()};
         size.0=size.0.saturating_add(reads.retained_bytes());
         size.0=size.0.saturating_add(portable.metadata().len().saturating_mul(std::mem::size_of::<(String,String)>()));
-        if write!(&mut size,"{:?}",portable.metadata()).is_err() {return Ok(false);}
-        if size.0>MAX_BODY_BYTES || write!(&mut size,"{receipts:?}|{effects:?}|{calls:?}").is_err() {return Ok(false);}
+        if write!(&mut size,"{:?}",portable.metadata()).is_err() {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.retained_budget");return Ok(false);
+        }
+        if size.0>MAX_BODY_BYTES || write!(&mut size,"{receipts:?}|{effects:?}|{calls:?}").is_err() {
+            self.hooks.host.body_admission_count("body_admission.finish.reject.retained_budget");return Ok(false);
+        }
         let entry=Arc::new(CachedBody {
             replay:StructureBodyReplay {before:observation.before,body:portable.clone(),post_context:context.clone(),work,preparations:Vec::new()},
             effects,calls,reads,receipts,bytes:size.0,
         });
         *body=portable.into_body();
         self.body.as_mut().unwrap().pending=Some(entry);
+        self.hooks.host.body_admission_count("body_admission.finish.ready");
         Ok(true)
     }
 
@@ -284,11 +318,24 @@ impl WasmExpressionEnvironment<'_> {
         let Some(body)=self.body.take() else {return;};
         let Some(entry)=body.pending else {return;};
         let Some(active)=self.hooks.host.incremental.active.as_mut() else {return;};
+        // Only an actual pending entry starts this stage. Earlier refusal must
+        // not be counted again as an adoption refusal.
+        #[cfg(test)]
+        let probe=self.hooks.host.body_admission_probe.clone();
+        #[cfg(test)]
+        if let Some(probe)=&probe {probe.record("body_admission.adopt.total");}
         if accepted && active.pending.len()+active.pending_bodies.len()<MAX_ENTRIES
             && active.bytes.saturating_add(body.key.len()).saturating_add(entry.bytes)<=MAX_BYTES {
             active.bytes+=body.key.len()+entry.bytes;
             active.pending_bodies.insert(body.key,entry);
             active.metrics.body_stored+=1;
-        } else {active.metrics.body_discarded+=1;}
+            #[cfg(test)]
+            if let Some(probe)=&probe {probe.record("body_admission.adopt.stored");}
+        } else {
+            active.metrics.body_discarded+=1;
+            #[cfg(test)]
+            if let Some(probe)=&probe {probe.record(if !accepted {"body_admission.adopt.reject.not_accepted"}
+                else {"body_admission.adopt.reject.capacity"});}
+        }
     }
 }
