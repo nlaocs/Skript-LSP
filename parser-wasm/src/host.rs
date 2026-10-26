@@ -12621,6 +12621,10 @@ impl ParserHost {
                     state_invocation.observe_reads();
                     if !incremental::body::subscription_is_body_local(&self.components[candidate.component_index], &invocation, self.config.syntax_catalog.as_deref()) {
                         incremental::body::debug_reason(self,&format!("unlisted subscription {subscription_id}"));
+                        #[cfg(test)]
+                        if self.body_debug && let HookPayload::RegisteredExpression(payload)=&invocation.payload {
+                            eprintln!("body unlisted identity: definition={} registration={}",payload.definition_id,payload.registration_id);
+                        }
                         self.body_impure = true;
                     }
                 }

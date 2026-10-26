@@ -404,6 +404,7 @@ fn measure_public_structure_body_edit_reuse() {
             eprintln!("body measurement pid={} case={} enabled={enabled} initial", std::process::id(), case["name"]);
             let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")),
                 HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
+            host.body_debug=plan["bodyDebug"]==true;
             if admission_reasons {
                 host.body_admission_probe=(enabled || compare_bodies).then(body_admission_measurement::Probe::default);
                 assert!(host.measurement_probe().is_none(),"counter-only measurement must not enable catalog timers");
@@ -566,6 +567,73 @@ fn real_core_body_reuses_unexpanded_functions_after_a_sibling_tree_edit() {
                     && proof.provider_valid(node,CORE_LIBRARY_COMPONENT_ID)),
                     "fragmented-source reuse must preserve current Core authority on a real typed node");
             }
+        }
+    }
+}
+
+// Capture the public enter-time event, after removing only consumed resources
+// and canonicalizing protected per-parse receipt labels (including aliasing).
+fn run_with_body_preparations(host:&mut ParserHost, source:&str, revision:u64) -> (DocumentParseResult,Vec<String>) {
+    let mut events=Vec::new();
+    let mut receipts=BTreeMap::new();
+    let result=host.parse_document_with_preparation(
+        DocumentParseRequest::new("file:///workspace","file:///workspace/actual-incremental.sk",revision,source),
+        DocumentParserConfig::default(),&mut |event| {
+            if let skript_parser::StructurePreparationEvent::SectionHeader {
+                source:mapped,tree,candidate,attempt_id,parent_attempt_id
+            }=event {
+                assert_eq!(mapped.original(),source);
+                assert!(tree.get(candidate.raw_node_id).is_some());
+                let (candidate,metadata)=skript_parser::PortableStructureBody::freeze_preparation(candidate,&mut |_,_|true).unwrap();
+                let mut data=format!("{candidate:?}");
+                for (key,value) in metadata {
+                    if key=="parser.semantic-writer-receipt.v1" {
+                        let next=receipts.len();
+                        let ordinal=*receipts.entry(value.clone()).or_insert(next);
+                        data=data.replace(&format!("{key:?}: {value:?}"),&format!("{key:?}: \"receipt:{ordinal}\""));
+                    }
+                }
+                events.push(format!("{attempt_id}|{parent_attempt_id:?}|{data}"));
+            }
+        }).unwrap();
+    (result,events)
+}
+
+#[test]
+fn real_core_nested_medium_bodies_remain_cold_with_unlisted_resolvers() {
+    // The two public medium functions that previously stopped at the owner guard.
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    if {_streak} >= 3:\n        return 4\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    if {_streak} >= 3:\n        return \"regular\"\n    return \"starter\"\non load:\n    send \"a\" to console\n";
+    for fixture in ["skript-2.15.4-type-runtime","skript-2.16.2-java25"] {
+        let mut host=actual_host_with_fixture(fixture);
+        host.body_debug=true;
+        host.components[0].manifest.incremental_local_subscriptions.clear();
+        host.components[0].manifest.incremental_header_handlers.clear();
+        let (first,events)=run_with_body_preparations(&mut host,source,1);
+        assert_eq!(events.len(),4);
+        assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
+        assert_eq!(host.incremental_metrics().body_stored,0,"{fixture}: {:?}",host.incremental_metrics());
+        let cases=[source.to_owned(),source.replace("send \"a\"","send \"b\""),
+            source.replace("streak: number","streak: text"),
+            format!("# \u{65e5}\u{1f98a}\r\n{source}"),
+            source.replacen("if {_streak} >= 7:","if {_streak} >= 7:\n        if 1 is 1:\n            stop",1),
+            source.replacen("if {_streak} >= 7:","if:",1)];
+        for (index,current) in cases.iter().enumerate() {
+            let revision=index as u64+2;
+            let before=guest_calls(&host);
+            let (warm,events)=run_with_body_preparations(&mut host,current,revision);
+            let calls=guest_calls(&host)-before;
+            let metrics=host.incremental_metrics();
+            let mut cold=actual_host_with_fixture(fixture);
+            cold.components[0].manifest.incremental_local_subscriptions.clear();
+            cold.components[0].manifest.incremental_header_handlers.clear();
+            cold.components[0].manifest.incremental_body_subscriptions.clear();
+            cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+            let before=guest_calls(&cold);
+            let (clean,clean_events)=run_with_body_preparations(&mut cold,current,revision);
+            assert_equivalent(&warm,&clean);
+            assert_eq!(events,clean_events,"current enter-time context, metadata, captures, mapping, parent and event order");
+            assert_eq!(metrics.body_hits,0,"unlisted paths must stay cold: {fixture}/{index}: {metrics:?}");
+            assert_eq!(calls,guest_calls(&cold)-before);
         }
     }
 }
