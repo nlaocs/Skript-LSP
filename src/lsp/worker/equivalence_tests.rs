@@ -332,6 +332,77 @@ fn annotation_outputs(analysis: &Analysis, source: &str) -> Value {
     })
 }
 
+const NESTED_FUNCTIONS_SOURCE:&str="# edit:a\nfunction publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    if {_streak} >= 3:\n        return 4\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    if {_streak} >= 3:\n        return \"regular\"\n    return \"starter\"\n";
+
+fn assert_nested_lsp_outputs(reused:&Analysis,fresh:&Analysis,current:&str) {
+    assert_eq!(serde_json::to_value(diagnostics(reused).0).unwrap(),serde_json::to_value(diagnostics(fresh).0).unwrap());
+    assert_eq!(diagnostics(reused).1,"complete");
+    assert_eq!(diagnostics(fresh).1,"complete");
+    assert_eq!(annotation_outputs(reused,current),annotation_outputs(fresh,current));
+    let mut populated=0;
+    for offset in [current.find("if {_streak}").unwrap(),current.find("_streak").unwrap()+4,
+        current.find("return 8").unwrap()+3,current.rfind("return \"starter\"").unwrap()+3] {
+        let at=position(current,offset);
+        let left=reused.completion.as_ref().unwrap().at(at,true).unwrap();
+        let right=fresh.completion.as_ref().unwrap().at(at,true).unwrap();
+        populated+=usize::from(!left.items.is_empty());
+        assert_eq!(serde_json::to_value(left).unwrap(),serde_json::to_value(right).unwrap(),"completion at {at:?}");
+    }
+    assert!(populated>0,"completion comparison must exercise actual candidates");
+}
+
+#[test]
+fn nested_body_hits_preserve_current_hover_completion_and_annotations() {
+    let source=NESTED_FUNCTIONS_SOURCE;
+    let mut warm=analyzer();
+    let initial=analyze(&mut warm,source,1);
+    assert!(diagnostics(&initial).0.is_empty());
+    assert_eq!(warm.host.incremental_metrics().body_stored,2);
+    let current=source.replace("# edit:a","# edit:b");
+    let reused=analyze(&mut warm,&current,2);
+    let mut cold=analyzer();
+    let fresh=analyze(&mut cold,&current,2);
+    assert_eq!(warm.host.incremental_metrics().body_hits,2);
+    assert_eq!(cold.host.incremental_metrics().body_hits,0);
+    assert_nested_lsp_outputs(&reused,&fresh,&current);
+}
+
+#[test]
+fn project_nested_body_hits_keep_ui_epoch_and_native_revision_separate() {
+    use super::super::project::{ProjectSnapshot,ProjectSource};
+    let directory=tempfile::tempdir().unwrap();let root=std::fs::canonicalize(directory.path()).unwrap();
+    let uri:lsp_types::Uri=url::Url::from_file_path(root.join("rewards.sk")).unwrap().as_str().parse().unwrap();
+    let project_uri=url::Url::from_directory_path(&root).unwrap().to_string();
+    let job=|source:&str,epoch:u64| Job {
+        uri:uri.clone(),project:Some(Arc::new(ProjectSnapshot {epoch,root:root.clone(),open:vec![ProjectSource {
+            uri:uri.clone(),generation:1,source_epoch:epoch,source:Arc::from(source),
+        }]})),generation:1,revision:epoch,version:epoch as i32,source:Arc::from(source),
+        control:Control::new(),queued_at:Instant::now(),
+    };
+    let mut warm=analyzer();warm.project_uri=project_uri.clone();warm.prepare_completion=true;
+    let initial=warm.analyze(&job(NESTED_FUNCTIONS_SOURCE,41));
+    assert!(diagnostics(&initial).0.is_empty());
+    assert_eq!(warm.host.incremental_metrics().body_stored,2);
+    let current=NESTED_FUNCTIONS_SOURCE.replace("# edit:a","# edit:b");let mut notices=0;
+    let reused=warm.analyze_with_preparation(&job(&current,42),&mut |p| {
+        notices+=1;assert_eq!(p.source.uri,uri);assert_eq!(p.source.generation,1);
+        assert_eq!(p.source.source_epoch,42);assert_eq!(p.source.source.as_ref(),current);
+        assert_eq!(p.native_revision,2,"UI epoch 42 must not replace native revision 2");
+        assert!(!matches!(p.update,PreparationUpdate::Aborted));
+    });
+    assert!(notices>0,"actual preparation publication must be exercised");
+    assert_eq!(reused.analysis_metrics["project"]["parsedDocuments"],1);
+    assert_eq!(reused.analysis_metrics["project"]["epoch"],42);
+    assert_eq!(reused.analysis_metrics["project"]["nativeRevision"],2);
+    assert_eq!(warm.host.incremental_metrics().body_hits,2);
+    let mut cold=analyzer();cold.project_uri=project_uri;cold.prepare_completion=true;
+    let fresh=cold.analyze(&job(&current,42));
+    assert_eq!(fresh.analysis_metrics["project"]["parsedDocuments"],1);
+    assert_eq!(fresh.analysis_metrics["project"]["nativeRevision"],1);
+    assert_eq!(cold.host.incremental_metrics().body_hits,0);
+    assert_nested_lsp_outputs(&reused,&fresh,&current);
+}
+
 #[test]
 fn real_parser_analyzer_reuse_preserves_current_lsp_outputs() {
     // The untouched first statement stays at the same physical range, while
