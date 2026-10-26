@@ -115,6 +115,14 @@ const EXPRESSION_DATA_ADDON_B: ComponentSpec = ComponentSpec {
     feature: Some("addon-b"),
 };
 
+const BODY_LIFECYCLE_ADDON: ComponentSpec = ComponentSpec {
+    package: "expression-data-addon",
+    module_name: "expression_data_addon.wasm",
+    artifact_name: "body-lifecycle-addon.wasm",
+    display_name: "body lifecycle test addon",
+    feature: Some("body-lifecycle"),
+};
+
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("build-core-library") => build_core_library(),
@@ -141,7 +149,8 @@ fn build_test_components() -> Result<()> {
         &TYPE_PARSER_ADDON,
     ])?;
     build_components(&[&EXPRESSION_DATA_ADDON_A])?;
-    build_components(&[&EXPRESSION_DATA_ADDON_B])
+    build_components(&[&EXPRESSION_DATA_ADDON_B])?;
+    build_components(&[&BODY_LIFECYCLE_ADDON])
 }
 
 fn build_components(specs: &[&ComponentSpec]) -> Result<()> {

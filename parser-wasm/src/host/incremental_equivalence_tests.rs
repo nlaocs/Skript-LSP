@@ -91,6 +91,15 @@ fn assert_equivalent(warm: &DocumentParseResult, clean: &DocumentParseResult) {
         "{:?}",
         clean.component_failures
     );
+    assert_current_result_equivalent(warm,clean);
+}
+
+/// Also usable for an explicitly expected provider failure. Failures are
+/// compared, never erased to make the successful-parse helper accept them.
+fn assert_current_result_equivalent(warm:&DocumentParseResult,clean:&DocumentParseResult) {
+    assert_eq!(format!("{:?}",warm.component_failures),format!("{:?}",clean.component_failures));
+    assert_eq!(format!("{:?}",warm.fault_regions),format!("{:?}",clean.fault_regions));
+    assert_eq!(format!("{:?}",warm.dependency_unavailable),format!("{:?}",clean.dependency_unavailable));
     assert_eq!(warm.execution_status, clean.execution_status);
     assert_eq!(warm.source.original(), clean.source.original());
     assert_eq!(warm.source.virtual_source(), clean.source.virtual_source());
@@ -160,6 +169,86 @@ fn assert_equivalent(warm: &DocumentParseResult, clean: &DocumentParseResult) {
             clean_proof.unique_issuer(right),
             "cache output must receive current semantic authority"
         );
+    }
+}
+
+#[test]
+fn real_body_hit_exit_rejection_and_failure_roll_back_and_recover() {
+    const ID:&str="test.body-lifecycle";
+    const NS:&str="body-lifecycle";
+    const SCHEMA:&str="nlaocs.test.body-lifecycle";
+    const DOC:&str="file:///workspace/actual-incremental.sk";
+    let fixture=std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"),"/../artifacts/body-lifecycle-addon.wasm")).unwrap();
+    let source="function publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    if {_streak} >= 3:\n        return 4\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    if {_streak} >= 3:\n        return \"regular\"\n    return \"starter\"\n";
+    fn set_mode(host:&ParserHost,mode:&str,revision:u64) {
+        let parse=host.begin_parse("file:///workspace","body-lifecycle-control",revision).unwrap();
+        let mut invocation=parse.begin_invocation(ID).unwrap();
+        invocation.put(crate::state::StateScope::Project,crate::state::NamespaceVisibility::Private,NS,"mode",
+            crate::state::StateValue::new(SCHEMA,crate::state::StateEncoding::Raw,mode.as_bytes().to_vec())).unwrap();
+        invocation.commit().unwrap();parse.commit().unwrap();
+    }
+    fn observed(host:&mut ParserHost,source:&str,revision:u64)->(DocumentParseResult,Vec<String>) {
+        let mut events=Vec::new();let mut receipts=BTreeMap::new();
+        let result=host.parse_document_with_preparation(
+            DocumentParseRequest::new("file:///workspace",DOC,revision,source),DocumentParserConfig::default(),&mut |event| {
+                match event {
+                    skript_parser::StructurePreparationEvent::SectionHeader {candidate,attempt_id,parent_attempt_id,..}=>{
+                        let (candidate,metadata)=skript_parser::PortableStructureBody::freeze_preparation(candidate,&mut |_,_|true).unwrap();
+                        let mut data=format!("{candidate:?}");
+                        for (key,value) in metadata {if key=="parser.semantic-writer-receipt.v1" {
+                            let next=receipts.len();let canonical=*receipts.entry(value.clone()).or_insert(next);
+                            data=data.replace(&format!("{key:?}: {value:?}"),&format!("{key:?}: \"receipt:{canonical}\""));
+                        }}
+                        events.push(format!("enter:{attempt_id}|{parent_attempt_id:?}|{data}"));
+                    },
+                    skript_parser::StructurePreparationEvent::Invalidated {attempt_id,raw_node_id,registration_id,pattern_index}=>{
+                        events.push(format!("invalid:{attempt_id}|{raw_node_id:?}|{registration_id}|{pattern_index}"));
+                    },
+                    _=>{},
+                }
+            }).unwrap();
+        (result,events)
+    }
+    for mode in ["reject","fail"] {
+        let mut warm=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        let mut cold=actual_host_with_fixture("skript-2.15.4-type-runtime");
+        for host in [&mut warm,&mut cold] {
+            host.load_addon(&fixture).unwrap();
+            set_mode(host,"accept",1);
+        }
+        cold.components[0].manifest.incremental_body_subscriptions.clear();
+        cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+        let (first,first_events)=observed(&mut warm,source,1);
+        let (reference,reference_events)=observed(&mut cold,source,1);
+        assert_equivalent(&first,&reference);assert_eq!(first_events,reference_events);
+        assert!(first.syntax.diagnostics.is_empty(),"{:?}",first.syntax.diagnostics);
+        assert!(first.state.read_write_set.writes.iter().any(|key|key.owner.as_deref()==Some(ID)&&key.namespace==NS),
+            "successful Exit must actually write the control marker");
+        assert_eq!(warm.cached_body_revision(DOC),Some((1,2)),"{mode}: {:?}",warm.incremental_metrics());
+        for host in [&warm,&cold] {set_mode(host,mode,2);}
+        let (failed,events)=observed(&mut warm,source,2);
+        let (expected,expected_events)=observed(&mut cold,source,2);
+        assert_current_result_equivalent(&failed,&expected);assert_eq!(events,expected_events,"{mode}: preparation invalidation");
+        assert!(warm.incremental_metrics().body_hits>0,"{mode}: must actually import a body before fresh Exit");
+        assert!(events.iter().any(|e|e.starts_with("invalid:")));
+        assert!(warm.cached_body_revision(DOC).is_none_or(|(revision,count)|revision<2 || count==0),
+            "failed revision must not publish a pending body: {:?}",warm.cached_body_revision(DOC));
+        assert!(!failed.state.read_write_set.writes.iter().any(|key|key.owner.as_deref()==Some(ID)&&key.namespace==NS),
+            "Exit invocation writes must roll back");
+        if mode=="reject" {assert!(!failed.syntax.diagnostics.is_empty());assert!(failed.component_failures.is_empty());}
+        else {assert!(failed.component_failures.iter().any(|failure|failure.component_id==ID));assert!(!failed.fault_regions.is_empty());}
+        assert!(warm.active_parse_requests.is_empty());
+        assert!(warm.components.iter().all(|c|c.store.data().invocation.is_none()));
+        for host in [&warm,&cold] {set_mode(host,"accept",3);}
+        for revision in [3,4] {
+            let (recovered,events)=observed(&mut warm,source,revision);
+            let (expected,expected_events)=observed(&mut cold,source,revision);
+            assert_equivalent(&recovered,&expected);assert_eq!(events,expected_events);
+            assert!(recovered.syntax.diagnostics.is_empty());
+            assert!(recovered.state.read_write_set.writes.iter().any(|key|key.owner.as_deref()==Some(ID)&&key.namespace==NS));
+            assert_eq!(warm.cached_body_revision(DOC),Some((revision,2)),"recovery must publish the current successful revision");
+            if revision==4 {assert_eq!(warm.incremental_metrics().body_hits,2);}
+        }
     }
 }
 
@@ -401,6 +490,7 @@ fn measure_public_structure_body_edit_reuse() {
     assert_eq!(plan["publicFixtures"], true);
     let admission_reasons=plan["admissionReasons"]==true;
     let compare_bodies=plan["compareBodyReuse"]==true;
+    let reverse_order=plan["reverseOrder"]==true;
     let shadow=plan["bodyShadow"]==true;
     assert!(!shadow || (admission_reasons && !compare_bodies),"shadow only toggles observer, never reuse policy");
     let catalog = Arc::new(ssg::load(plan["snapshot"].as_str().unwrap()).unwrap().into_catalog());
@@ -415,7 +505,7 @@ fn measure_public_structure_body_edit_reuse() {
         assert_eq!(source.matches("set {_edit_probe} to 1").count(), 1);
         let edited = source.replacen("set {_edit_probe} to 1", "set {_edit_probe} to 2", 1);
         let mut reference = None;
-        for enabled in if index % 2 == 0 { [false, true] } else { [true, false] } {
+        for enabled in if (index % 2 == 0) != reverse_order { [false, true] } else { [true, false] } {
             eprintln!("body measurement pid={} case={} enabled={enabled} initial", std::process::id(), case["name"]);
             let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/core-library.wasm")),
                 HostConfig { syntax_catalog: Some(Arc::clone(&catalog)), ..HostConfig::default() }).unwrap();
@@ -469,7 +559,7 @@ fn measure_public_structure_body_edit_reuse() {
                 assert_eq!(&initial_signature, initial, "initial semantic digest differs");
                 assert_eq!(&edit_signature, edited, "edited semantic digest differs");
                 if admission_reasons && !compare_bodies {assert_eq!(&initial_calls,calls_before);assert_eq!(&edit_calls,calls_after);}
-                if shadow {assert_eq!(&observer_signature,observer_before,"preparation and physical/negative call order differs");}
+                if shadow || compare_bodies {assert_eq!(&observer_signature,observer_before,"preparation and physical/negative call order differs");}
             }
             rows.push(serde_json::json!({"case":case["name"], "bodyEnabled":(admission_reasons && !compare_bodies) || enabled,
                 "reasonProbeEnabled":admission_reasons && (enabled || compare_bodies),"initialAdmission":initial_reasons,"editAdmission":edit_reasons,

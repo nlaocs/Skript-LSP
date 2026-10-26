@@ -193,6 +193,13 @@ impl ParserHost {
             .map_or(self.incremental.last_metrics, |active| active.metrics)
     }
 
+    /// Publication evidence for lifecycle tests; pending counters are not proof
+    /// that a failed revision replaced the last successful document cache.
+    #[cfg(test)]
+    pub(in crate::host) fn cached_body_revision(&self, document:&str)->Option<(u64,usize)> {
+        self.incremental.documents.get(document).map(|cache|(cache.revision,cache.bodies.len()))
+    }
+
     pub(super) fn incremental_key(
         &mut self,
         component: usize,

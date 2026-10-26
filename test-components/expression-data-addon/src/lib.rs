@@ -2,6 +2,10 @@
 #![allow(missing_docs)]
 
 mod default_expression;
+#[cfg(feature = "body-lifecycle")]
+mod body_lifecycle;
+#[cfg(feature = "body-lifecycle")]
+use body_lifecycle::BodyLifecycleAddon;
 
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
@@ -572,5 +576,7 @@ impl ast_macro::Guest for ExpressionDataAddon {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(feature = "body-lifecycle")))]
 export!(ExpressionDataAddon);
+#[cfg(all(target_arch = "wasm32", feature = "body-lifecycle"))]
+export!(BodyLifecycleAddon);
