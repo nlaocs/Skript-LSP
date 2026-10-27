@@ -27,6 +27,7 @@ mod nested_frontiers;
 mod nested_condition_tests;
 mod parameters;
 mod providers;
+mod editing_queries;
 mod prepared;
 mod ranking;
 pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
@@ -425,6 +426,7 @@ struct Variable {
 }
 pub(super) struct Document {
     provider_completions: providers::Snapshot,
+    editor_queries: Vec<parser_wasm::host::EditorCompletionBatch>,
     source: Arc<str>,
     lines: LineIndex,
     context: BTreeMap<u32, Line>,
@@ -472,6 +474,7 @@ impl Document {
         let context = raw_context(&tree, &source, &lines, false)?;
         Ok(Self {
             provider_completions: providers::Snapshot::default(),
+            editor_queries: Vec::new(),
             source,
             lines,
             context,
@@ -669,6 +672,7 @@ impl Document {
             context,
             entry_scopes,
             provider_completions,
+            editor_queries: result.editor_completions.clone(),
             variables,
             parameters,
             functions,
@@ -762,6 +766,7 @@ impl Document {
         if matches!(state, Lexical::String | Lexical::Comment) {
             return Ok(empty());
         }
+        if let Some(result)=self.editing_query_at(line,offset,snippets)? { return Ok(result); }
         let finite_captures_current = self
             .index
             .typing
@@ -1550,6 +1555,7 @@ impl Document {
         let label = source.to_string();
         Self {
             provider_completions: providers::Snapshot::default(),
+            editor_queries: Vec::new(),
             source,
             lines,
             context,

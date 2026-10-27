@@ -897,7 +897,7 @@ fn serve(connection: Connection, factory: Factory) -> Result<(), String> {
                 recv(events) -> event => match event.map_err(|_| "parser worker disconnected")? {
                     Event::Ready(Ok(index), startup_ms) => {
                         documents.completion_index = index;
-                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"callHierarchyProvider":true,"documentSymbolProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{"]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
+                        let mut capabilities = json!({"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"definitionProvider":true,"referencesProvider":true,"callHierarchyProvider":true,"documentSymbolProvider":true,"inlayHintProvider":{"resolveProvider":false},"completionProvider":{"resolveProvider":false,"triggerCharacters":["{","."]},"signatureHelpProvider":{"triggerCharacters":["(",","," "],"retriggerCharacters":[")"]}});
                         if completion_refresh { capabilities["experimental"] = json!({"skriptCompletionRefresh":true}); }
                         if rename_document_changes { capabilities["renameProvider"] = json!({"prepareProvider":true}); }
                         if let Some(legend) = &semantic_legend {

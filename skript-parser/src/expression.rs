@@ -1290,6 +1290,10 @@ pub enum RegisteredExpressionDecision {
 
 /// Unified native/WASM environment used during recursive Expression parsing.
 pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
+    /// Skip editing preparation completely when no service is configured.
+    fn editor_queries_enabled(&self) -> bool { false }
+    /// Observational editing query before statement speculation, never syntax acceptance.
+    fn observe_editor_line(&mut self, _input: &str, _span: &crate::MappedSpan, _context: &ExpressionParseContext, _owner: crate::PreparationAttemptId) -> Result<(), String> { Ok(()) }
     fn structure_body_reuse_enabled(&self) -> bool { false }
     /// Explicit opt-in body boundary. Default environments retain the ordinary
     /// cold parser, its memo, and every lifecycle callback unchanged.
@@ -2152,6 +2156,15 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             let span=node.span.mapped.virtual_range;
             span.start<range.start || span.end>range.end
         });
+    }
+
+    pub(crate) fn observe_editor_line(&mut self, range: TextRange) -> Result<(), ExpressionParseError> {
+        if self.preparation_suppression != 0 || !self.environment.editor_queries_enabled() { return Ok(()); }
+        let Some(owner)=self.prepared_owner_stack.last().copied() else { return Ok(()); };
+        let input=range.slice(self.source.virtual_source()).unwrap_or_default();
+        let span=self.map_range(range)?.mapped;
+        let context=self.context().clone();
+        self.environment.observe_editor_line(input,&span,&context,owner).map_err(|e|self.environment_error(e))
     }
 
     pub(crate) fn with_prepared_owner<T>(

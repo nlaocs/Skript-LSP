@@ -455,3 +455,23 @@ impl InvocationTransaction {
         Ok(())
     }
 }
+
+// Editing reads are quarantined, not a dependency of the adopted semantic run.
+// Move the old observations rather than copying or weakening their certificates.
+pub(crate) struct EditorObservationIsolation { parse: ParseTransaction, previous: Option<ReadObservations> }
+impl ParseTransaction {
+    pub(crate) fn isolate_editor_observations(&self)->Result<EditorObservationIsolation,StateError>{
+        let mut inner=self.lock()?;inner.ensure_open()?;
+        let previous=std::mem::take(&mut inner.observations);
+        Ok(EditorObservationIsolation {parse:self.clone(),previous:Some(previous)})
+    }
+}
+impl EditorObservationIsolation {
+    pub(crate) fn restore(mut self)->Result<(),StateError>{
+        let mut inner=self.parse.lock()?;
+        inner.observations=self.previous.take().expect("one observation restoration");Ok(())
+    }
+}
+impl Drop for EditorObservationIsolation {
+    fn drop(&mut self){if let Some(previous)=self.previous.take(){if let Ok(mut inner)=self.parse.lock(){inner.observations=previous;}}}
+}

@@ -249,6 +249,8 @@ pub struct DocumentParseResult {
     pub dependency_unavailable: Vec<DependencyUnavailableRegion>,
     pub execution_status: DocumentExecutionStatus,
     pub fault_regions: Vec<ExtensionFaultRegion>,
+    /// Current-revision, nonsemantic editing suggestions. Never AST/type authority.
+    pub editor_completions: Vec<super::EditorCompletionBatch>,
     pub source: MappedSource,
     pub raw_tree: RawTree,
     /// Native parser trace including unknown and recovered nodes.
@@ -427,6 +429,8 @@ impl ParserHost {
         let previous_receipts = self.semantic_receipts.replace(
             super::semantic_proof::ReceiptRegistry::with_sequence(self.semantic_receipt_sequence.clone()),
         );
+        let editor_session=(!self.editor_routes().is_empty()).then(||super::editor_completion::Session::new(Arc::from(request.source.original())));
+        let previous_editor=std::mem::replace(&mut self.editor_session,editor_session);
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(
                 &transaction,
@@ -436,6 +440,8 @@ impl ParserHost {
             ),
             None => self.parse_document_uncommitted(&transaction, &request, &config),
         };
+        let editor_completions=self.editor_session.take().map(|s|s.batches).unwrap_or_default();
+        self.editor_session=previous_editor;
         self.native_cancellation = previous_cancellation;
         self.semantic_receipts = previous_receipts;
         self.native_function_namespace_complete = previous_namespace;
@@ -494,6 +500,7 @@ impl ParserHost {
         );
 
         Ok(DocumentParseResult {
+            editor_completions,
             static_name_rename: self.static_name_rename_certificate(),
             function_namespace_complete,
             dependency_unavailable: dependency_unavailable.clone(),

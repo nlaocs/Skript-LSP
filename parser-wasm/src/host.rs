@@ -6,6 +6,8 @@
 
 mod ast_macro;
 mod addon_data;
+mod editor_completion;
+pub use editor_completion::{Batch as EditorCompletionBatch, Output as EditorCompletionOutput, Proposal as EditorCompletionProposal};
 pub use addon_data::{AddonDataPin, AddonDataSource};
 mod ast_tree;
 #[cfg(test)]
@@ -1074,6 +1076,8 @@ struct StoreData {
     guest_hook_calls: u64,
     #[cfg(test)]
     catalog_measurement: Option<catalog_measurement::Probe>,
+    editor_readonly: bool,
+    editor_mutation_attempted: bool,
     incremental_impure_call: bool,
     epoch_clock: Option<Arc<EpochClock>>,
     cancellation: Option<DocumentCancellationToken>,
@@ -1944,6 +1948,7 @@ impl wit_state_store::Host for StoreData {
         value: WitStateValue,
     ) -> Result<(), WitStateError> {
         self.note_initialization_host_call();
+        if self.editor_readonly { self.editor_mutation_attempted=true; return Err(WitStateError {kind:WitStateErrorKind::AccessDenied,message:"editing queries cannot mutate StateStore".into()}); }
         let result = self
             .invocation()?
             .put(
@@ -1986,6 +1991,7 @@ impl wit_state_store::Host for StoreData {
         key: String,
     ) -> Result<bool, WitStateError> {
         self.note_initialization_host_call();
+        if self.editor_readonly { self.editor_mutation_attempted=true; return Err(WitStateError {kind:WitStateErrorKind::AccessDenied,message:"editing queries cannot mutate StateStore".into()}); }
         self.invocation()?
             .delete(
                 state_scope(scope),
@@ -2006,6 +2012,7 @@ impl wit_state_store::Host for StoreData {
         replacement: Option<WitStateValue>,
     ) -> Result<bool, WitStateError> {
         self.note_initialization_host_call();
+        if self.editor_readonly { self.editor_mutation_attempted=true; return Err(WitStateError {kind:WitStateErrorKind::AccessDenied,message:"editing queries cannot mutate StateStore".into()}); }
         let expected = expected.map(state_value);
         let replacement = replacement.map(state_value);
         self.invocation()?
@@ -4453,6 +4460,12 @@ impl PatternMatchEnvironment for WasmExpressionEnvironment<'_> {
 }
 
 impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
+    fn editor_queries_enabled(&self)->bool {self.hooks.host.editor_session.is_some()}
+    fn observe_editor_line(&mut self,input:&str,span:&skript_parser::MappedSpan,context:&ExpressionParseContext,owner:u64)->Result<(),String>{
+        let mut invocation=self.hooks.context.clone();invocation.syntax_context=context.syntax_context;
+        self.hooks.host.editor_line(self.hooks.transaction,&invocation,input,&mapped_span_to_wit(span.clone()),context,owner)
+            .map_err(|e|self.hooks.host_error(e))
+    }
     fn structure_body_reuse_enabled(&self) -> bool { self.body_reuse_enabled() }
     fn prepare_structure_body(&mut self, request:skript_parser::StructureBodyReuseRequest<'_>) -> Result<skript_parser::StructureBodyPlan,String> {
         self.body_prepare(request)
@@ -5427,6 +5440,9 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     }
 
     fn structure_preparation(&mut self, event: skript_parser::StructurePreparationEvent<'_>) {
+        if self.hooks.host.editor_context.is_none() {
+            if let Some(session)=self.hooks.host.editor_session.as_mut(){session.preparation(&event);}
+        }
         #[cfg(test)]
         self.shadow_preparation(&event);
         self.body_preparation(&event);
@@ -9395,6 +9411,8 @@ pub struct ParserHost {
     native_dependency_unavailable: Option<Vec<DependencyUnavailableRegion>>,
     semantic_receipts: Option<semantic_proof::ReceiptRegistry>,
     semantic_receipt_sequence: Arc<std::sync::atomic::AtomicU64>,
+    editor_session: Option<editor_completion::Session>,
+    editor_context: Option<ExpressionParseContext>,
     body_observing: bool,
     body_impure: bool,
     #[cfg(test)]
@@ -9818,6 +9836,8 @@ impl ParserHost {
             native_dependency_unavailable: None,
             semantic_receipts: None,
             semantic_receipt_sequence: Arc::default(),
+            editor_session: None,
+            editor_context: None,
             body_observing: false,
             body_impure: false,
             #[cfg(test)]
@@ -12182,6 +12202,9 @@ impl ParserHost {
         context: &InvocationContext,
         request: &ParseRequest,
     ) -> Result<ExecutedParseResult, HostError> {
+        if request.parser_id.starts_with(editor_completion::ROUTE_PREFIX) {
+            return Ok(ExecutedParseResult {wire:failed_parse_result(request,"editor.not-semantic","editing services cannot be used as semantic parsers"),expression_roots:BTreeMap::new(),calls:Vec::new()});
+        }
         match request.parser_id.as_str() {
             skript_parser::HOST_EXPRESSION_PARSER_ID => {
                 self.execute_expression_parse_request(transaction, context, request)
@@ -12217,7 +12240,7 @@ impl ParserHost {
                         plural: expected.plural,
                     })
                     .collect(),
-                context: parse_request_context(request, context).map_err(|message| {
+                context: self.editor_context.clone().map(Ok).unwrap_or_else(||parse_request_context(request, context)).map_err(|message| {
                     HostError::InvalidParseResult {
                         parser_id: request.parser_id.clone(),
                         message,
@@ -12686,6 +12709,7 @@ impl ParserHost {
                     (Ok(Ok(output)), state_invocation, dynamic_update)
                 } else {
                     let entry = &mut self.components[candidate.component_index];
+                    entry.store.data_mut().editor_readonly = self.editor_context.is_some();
                     entry.store.data_mut().incremental_impure_call = false;
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
@@ -13584,6 +13608,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_AST_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
+        editor_completion::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_DEFAULT_EXPRESSION,
         crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
@@ -13885,6 +13910,15 @@ fn validate_manifest(
             });
         }
         if let HookTarget::Parser(parser_id) = &subscription.target {
+            if parser_id.starts_with(editor_completion::ROUTE_PREFIX) {
+                let prefix=format!("{}{}/",editor_completion::ROUTE_PREFIX,manifest.component_id);
+                let trigger=parser_id.strip_prefix(&prefix).unwrap_or_default();
+                if trigger.chars().count()!=1 || trigger.chars().any(|c|c.is_alphanumeric()||c.is_whitespace()||c.is_control())
+                    || !manifest.capabilities.iter().any(|c|c.id==editor_completion::CAPABILITY&&c.required&&c.minimum_version==1)
+                    || !manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_PROJECT_STABLE_SEMANTICS&&c.required) {
+                    return Err(HostError::InvalidManifest {message:"editing route must belong to its component and require the v1 observational contract".into()});
+                }
+            }
             if parser_id.trim().is_empty() {
                 return Err(HostError::InvalidManifest {
                     message: format!("subscription {} has a blank parser ID", subscription.id),
@@ -14705,6 +14739,8 @@ fn create_store(
             guest_hook_calls: 0,
             #[cfg(test)]
             catalog_measurement: None,
+            editor_readonly: false,
+            editor_mutation_attempted: false,
             incremental_impure_call: false,
             epoch_clock: None,
             cancellation: None,
@@ -18920,6 +18956,7 @@ mod tests {
                 CAPABILITY_AST_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
+                editor_completion::CAPABILITY,
                 CAPABILITY_EXPRESSION_PARSER,
                 CAPABILITY_DEFAULT_EXPRESSION,
                 crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,

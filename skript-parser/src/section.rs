@@ -902,6 +902,9 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
             continue;
         };
         let domain = BodySyntaxDomain::for_node(body_mode, child.kind);
+        if child.kind == RawNodeKind::Simple {
+            if let Some(span)=&child.code_span { session.observe_editor_line(span.virtual_range)?; }
+        }
         match child.kind {
             RawNodeKind::Blank | RawNodeKind::Comment => {
                 body.push(SectionBodyNode::Trivia(child.id));
