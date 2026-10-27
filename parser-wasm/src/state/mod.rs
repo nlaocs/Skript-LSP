@@ -772,6 +772,7 @@ impl ParseTransaction {
             parse: Arc::clone(&self.inner),
             component_id,
             track_reads: false,
+            access_failed: false,
             writes: BTreeMap::new(),
             reads: BTreeSet::new(),
             write_set: BTreeSet::new(),
@@ -869,6 +870,7 @@ impl ParseTransaction {
             parse: Arc::clone(&self.inner),
             component_id: String::new(),
             track_reads: false,
+            access_failed: false,
             writes: delta.writes.clone(),
             reads: delta.reads.clone(),
             write_set: delta.write_set.clone(),
@@ -1003,6 +1005,8 @@ pub struct InvocationTransaction {
     parse: Arc<Mutex<ParseTransactionInner>>,
     component_id: String,
     track_reads: bool,
+    // Always tracked, including when incremental read observations are disabled.
+    access_failed: bool,
     writes: BTreeMap<Address, Option<StateValue>>,
     reads: BTreeSet<StateRecordKey>,
     write_set: BTreeSet<StateRecordKey>,
@@ -1038,6 +1042,7 @@ impl InvocationTransaction {
             Ok(values.get(key).cloned())
         })();
         if result.is_err() {
+            self.access_failed = true;
             self.note_read_failure()?;
         }
         result
@@ -1092,6 +1097,7 @@ impl InvocationTransaction {
             Ok(entries)
         })();
         if result.is_err() {
+            self.access_failed = true;
             self.note_read_failure()?;
         }
         result
@@ -1106,9 +1112,12 @@ impl InvocationTransaction {
         key: &str,
         value: StateValue,
     ) -> Result<(), StateError> {
-        self.note_mutation_attempt()?;
-        self.write(scope, visibility, namespace, key, Some(value))
-            .map(|_| ())
+        let result = (|| {
+            self.note_mutation_attempt()?;
+            self.write(scope, visibility, namespace, key, Some(value)).map(|_| ())
+        })();
+        self.access_failed |= result.is_err();
+        result
     }
 
     /// Stages deletion of one key and reports whether it was visible.
@@ -1119,8 +1128,12 @@ impl InvocationTransaction {
         namespace: &str,
         key: &str,
     ) -> Result<bool, StateError> {
-        self.note_mutation_attempt()?;
-        self.write(scope, visibility, namespace, key, None)
+        let result = (|| {
+            self.note_mutation_attempt()?;
+            self.write(scope, visibility, namespace, key, None)
+        })();
+        self.access_failed |= result.is_err();
+        result
     }
 
     /// Conditionally replaces a value using schema ID, encoding, and bytes for equality.
@@ -1133,13 +1146,28 @@ impl InvocationTransaction {
         expected: Option<&StateValue>,
         replacement: Option<StateValue>,
     ) -> Result<bool, StateError> {
-        self.note_mutation_attempt()?;
-        let current = self.get(scope, visibility, namespace, key)?;
-        if current.as_ref() != expected {
-            return Ok(false);
-        }
-        self.write(scope, visibility, namespace, key, replacement)?;
-        Ok(true)
+        let result = (|| {
+            self.note_mutation_attempt()?;
+            let current = self.get(scope, visibility, namespace, key)?;
+            if current.as_ref() != expected {
+                return Ok(false);
+            }
+            self.write(scope, visibility, namespace, key, replacement)?;
+            Ok(true)
+        })();
+        self.access_failed |= result.is_err();
+        result
+    }
+
+    /// Classify only the direct reach of actual successful writes. Private
+    /// owners come from the host caller ID; ACLs cannot share their namespace.
+    /// This grants no cacheability, type authority, or permission to skip calls.
+    pub(crate) fn has_only_isolated_private_writes(&self) -> bool {
+        !self.access_failed && self.write_set.iter().all(|key| {
+            matches!(key.scope, StateScope::Invocation | StateScope::Parse)
+                && key.visibility == NamespaceVisibility::Private
+                && key.owner.as_deref() == Some(self.component_id.as_str())
+        })
     }
 
     /// Returns dependencies accumulated by this speculative invocation.
@@ -1624,6 +1652,8 @@ pub(super) fn persistence_error(error: impl std::fmt::Display) -> StateError {
 
 #[cfg(test)]
 mod candidate_tests;
+#[cfg(test)]
+mod semantic_isolation_tests;
 
 #[cfg(test)]
 mod release_tests {

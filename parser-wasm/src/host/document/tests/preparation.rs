@@ -204,10 +204,19 @@ fn observer_keeps_the_same_active_document_parse_and_hook_calls() {
             header.matched.registration_id,
             final_candidate.matched.registration_id
         );
-        assert_eq!(
-            header.metadata, final_candidate.metadata,
-            "preparation must follow actual Enter metadata"
-        );
+        let receipt = "parser.semantic-writer-receipt.v1";
+        let semantic_metadata = |metadata: &BTreeMap<String, String>| metadata.iter()
+            .filter(|(key, _)| key.as_str() != receipt)
+            .map(|(key, value)| (key.clone(), value.clone())).collect::<BTreeMap<_, _>>();
+        assert_eq!(semantic_metadata(&header.metadata), semantic_metadata(&final_candidate.metadata),
+            "the current fixture keeps the same semantic facts across Enter and Exit");
+        let enter: u64 = header.metadata[receipt].parse().unwrap();
+        let exit: u64 = final_candidate.metadata[receipt].parse().unwrap();
+        assert_ne!(enter, exit, "the final candidate adopts its own fresh Exit receipt");
+        for token in [enter, exit] {
+            assert!(observed.syntax_calls.iter().any(|call| call.semantic_receipt == Some(token)),
+                "both references must identify actual retained calls");
+        }
         assert!(
             !matches!(final_candidate.body, StructureBody::None),
             "body parsing must continue after observation"
@@ -486,7 +495,7 @@ impl ExpressionParseEnvironment for LifecycleEnvironment {
             matches!(&request.candidate.body, StructureBody::Raw(children) if children.len() == 1)
         );
         if request.candidate.matched.registration_id != "test:observer:first:0" {
-            return Ok(StructureExitDecision::Accept);
+            return Ok(StructureExitDecision::Accept { metadata: request.candidate.metadata.clone() });
         }
         match self.outcome {
             ExitOutcome::RejectFirst => Ok(StructureExitDecision::Reject {

@@ -15,7 +15,20 @@ use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 const RECEIPT: &str = "parser.semantic-writer-receipt.v1";
 
 mod body;
+#[cfg(test)]
+mod local_state_tests;
 pub(super) use body::BodyReceiptBundle;
+
+/// Direct reach of accepted host effects, not a guest purity certificate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum SemanticEffects {
+    #[default]
+    None,
+    /// Host-proven own private Invocation/Parse writes. Keep the local receipt.
+    Local,
+    /// Context, extra parsing, registration, or State writes not proven local.
+    Unbound,
+}
 
 #[derive(Debug, Clone)]
 struct Receipt {
@@ -135,9 +148,9 @@ impl ReceiptRegistry {
         payload: &mut HookPayload,
         component: &str,
         mode: HookMode,
-        semantic_effects: bool,
+        semantic_effects: SemanticEffects,
     ) -> Option<u64> {
-        if matches!(mode, HookMode::Observe) && !semantic_effects {
+        if matches!(mode, HookMode::Observe) && semantic_effects == SemanticEffects::None {
             return None;
         }
         writers.writers.insert(component.to_owned());
@@ -154,7 +167,7 @@ impl ReceiptRegistry {
                 parents: writers.parents.clone(),
                 admitted_nested: writers.admitted_nested.clone(),
                 valid: !writers.invalid,
-                unbound: semantic_effects,
+                unbound: semantic_effects == SemanticEffects::Unbound,
             },
         );
         writers.parents.insert(token);
@@ -750,7 +763,7 @@ mod tests {
         SyntaxKind, WitTextRange,
     };
 
-    fn node(id: u64) -> AstNode {
+    pub(super) fn node(id: u64) -> AstNode {
         AstNode {
             id,
             kind: SyntaxKind::Expression,
@@ -773,7 +786,7 @@ mod tests {
         }
     }
 
-    fn payload() -> HookPayload {
+    pub(super) fn payload() -> HookPayload {
         HookPayload::Matching(MatchingPayload {
             input: "value".into(),
             pattern: None,
@@ -792,7 +805,7 @@ mod tests {
         })
     }
 
-    fn write(registry: &mut ReceiptRegistry, node: &mut AstNode, issuer: &str) -> HookCall {
+    pub(super) fn write(registry: &mut ReceiptRegistry, node: &mut AstNode, issuer: &str) -> HookCall {
         let mut payload = payload();
         if let HookPayload::Matching(value) = &mut payload {
             value.metadata = node.metadata.clone();
@@ -803,7 +816,7 @@ mod tests {
             &mut payload,
             issuer,
             HookMode::Transform,
-            false,
+            SemanticEffects::None,
         );
         if let HookPayload::Matching(value) = payload {
             node.metadata = value.metadata;
@@ -848,7 +861,7 @@ mod tests {
             &mut payload,
             "state-observer",
             HookMode::Observe,
-            true,
+            SemanticEffects::Unbound,
         );
         let mut first = node(0);
         if let HookPayload::Matching(value) = payload {
@@ -915,7 +928,7 @@ mod tests {
             &mut payload,
             "context-observer",
             HookMode::Observe,
-            true,
+            SemanticEffects::Unbound,
         );
         assert!(observer.is_some());
         let mut root = node(0);
@@ -1000,7 +1013,7 @@ mod tests {
                     &mut observed_payload,
                     "observer",
                     HookMode::Observe,
-                    false
+                    SemanticEffects::None
                 )
                 .is_none()
         );
@@ -1154,7 +1167,7 @@ mod tests {
             &mut payload,
             issuer,
             HookMode::Transform,
-            true,
+            SemanticEffects::Unbound,
         );
         if let HookPayload::Matching(value) = payload {
             node.metadata = value.metadata;

@@ -5588,7 +5588,9 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 diagnostics: rejection_diagnostics,
             });
         }
-        Ok(StructureExitDecision::Accept)
+        Ok(StructureExitDecision::Accept {
+            metadata: metadata_entries(output.candidate.metadata)?,
+        })
     }
 
     fn state_revision(&self) -> Result<u64, String> {
@@ -12598,7 +12600,7 @@ impl ParserHost {
             let mut parse_results = Vec::new();
             let mut candidate_parse_results = BTreeMap::new();
             let mut continuation_base = None;
-            let mut candidate_semantic_effects = false;
+            let mut candidate_semantic_effects = semantic_proof::SemanticEffects::None;
             let (output, state_invocation, dynamic_update) = loop {
                 if let Err(cancelled) = self.check_native_cancellation() {
                     transaction
@@ -12888,9 +12890,12 @@ impl ParserHost {
                 drop(measured);
                 #[cfg(test)]
                 let measured = self.measurement_scope("dispatch.output_validation");
-                candidate_semantic_effects |= !output.effects.context_updates.is_empty()
+                if !output.effects.context_updates.is_empty()
                     || !output.effects.parse_requests.is_empty()
-                    || !output.effects.parse_results.is_empty();
+                    || !output.effects.parse_results.is_empty()
+                {
+                    candidate_semantic_effects = semantic_proof::SemanticEffects::Unbound;
+                }
                 stamp_parse_result_attachments(&mut output.effects, &component_id);
 
                 if let Some(replacement) = output.replacement.as_mut()
@@ -13012,11 +13017,19 @@ impl ParserHost {
                         }
                         break;
                     }
-                    candidate_semantic_effects |=
-                        !state_invocation.read_write_set().writes.is_empty()
-                            || dynamic_update
-                                .as_ref()
-                                .is_some_and(DynamicSyntaxUpdate::has_staged_changes);
+                    // State isolation is host-proven, not an addon assertion.
+                    // Keep local Observe receipts and all write dependencies;
+                    // only their document-global propagation is narrowed.
+                    if !state_invocation.read_write_set().writes.is_empty() {
+                        if !state_invocation.has_only_isolated_private_writes() {
+                            candidate_semantic_effects = semantic_proof::SemanticEffects::Unbound;
+                        } else if candidate_semantic_effects == semantic_proof::SemanticEffects::None {
+                            candidate_semantic_effects = semantic_proof::SemanticEffects::Local;
+                        }
+                    }
+                    if dynamic_update.as_ref().is_some_and(DynamicSyntaxUpdate::has_staged_changes) {
+                        candidate_semantic_effects = semantic_proof::SemanticEffects::Unbound;
+                    }
                     #[cfg(test)]
                     let measured = self.measurement_scope("dispatch.commit_and_receipt");
                     state_invocation.commit()?;

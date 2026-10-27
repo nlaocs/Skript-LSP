@@ -878,3 +878,22 @@ workspace全体のcheckでは、host専用dependencyがguest componentへ誤っ�
 WIT 0.44.0 / ABI 26.0 では汎用の EditCode Tree 操作を追加した。現在のネイティブノードの種類・子・syntax context を保持し、未変更のソース区間と置換部分の出所を分離する。オフセットは物理ソースとバイト単位で一致する decoded code に対する値で、anchor・空または重複する範囲・改行・字句変換で対応が曖昧な範囲は拒否する。変更のない編集は展開を作らない。後続providerは編集済みsnapshotを参照し、同じproviderを再実行しない。ReplaceNode の生成文脈と再入動作は維持する。
 
 構造一覧には、元文書全体に結び付いたネイティブの元範囲を使用する。ヘッダーと選択範囲の完全なソース一致・provider証明・現在の所有者の一意性を検証し、本文の展開だけで元のヘッダーを失わないようにする。この表示範囲をソース編集や本文の型保証には使用しない。
+
+### Private State の semantic receipt の範囲
+
+所有 component の Private Invocation/Parse namespace への採用済み書込みは、
+host receipt・発行者・State 依存を保持します。その直接の到達範囲は局所的なので、
+この書込みだけを文書全体の semantic writer にしません。private の所有者は実際の
+host caller から解決し、他 component へのアクセス権を設定できません。共有・長寿命
+scope・所有者不明の書込みや、State API の捕捉済みエラーと成功書込みが混在する場合は、
+保守的な文書全体の依存として扱います。context・追加解析・動的登録の作用も従来どおりです。
+
+局所作用は純粋性・型・incremental 再利用の証明ではありません。実際の node 変換、
+祖先と部分木の writer、未接続の採用済み receipt、型の発行者の一意性、native の
+source/revision 検証を維持します。表示用の所有権は型の権限を与えません。
+既存 WIT 0.47 / ABI 29 の StateStore 契約で host が区別するため、addon の新しい
+宣言や opt-in は不要です。
+
+採用された Structure Exit は、検証済み metadata を最終候補へ返します。Rust の
+`StructureExitDecision::Accept` は metadata を持ち、無変更の環境も入力 metadata を
+引き継ぎます。拒否・取消では採用せず、Exit receipt の未接続を偽の文書全体依存にしません。

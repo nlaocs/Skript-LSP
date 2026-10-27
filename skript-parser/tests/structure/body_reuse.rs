@@ -61,12 +61,15 @@ impl ExpressionParseEnvironment for ReuseEnvironment {
         self.semantic_order.push("effect");
         Ok(EffectSemanticDecision::UseCandidate)
     }
-    fn exit_structure(&mut self, _: StructureHookRequest<'_>) -> Result<StructureExitDecision, String> {
+    fn exit_structure(&mut self, request: StructureHookRequest<'_>) -> Result<StructureExitDecision, String> {
         self.exits += 1;
         self.semantic_order.push("exit");
         self.cancelled |= self.cancel_at == Some("exit");
         if self.reject_exit {Ok(StructureExitDecision::Reject {reason:"test parent rejection".into(),diagnostics:Vec::new()})}
-        else {Ok(StructureExitDecision::Accept)}
+        else {
+            let mut metadata=request.candidate.metadata.clone();metadata.insert("structure-phase".into(),"accepted-exit".into());
+            Ok(StructureExitDecision::Accept {metadata})
+        }
     }
     fn enter_section_children(&mut self, request:skript_parser::SectionChildrenRequest<'_>)->Result<skript_parser::SectionChildrenDecision,String> {
         let mut metadata=request.metadata.clone();metadata.insert("phase".into(),"enter".into());
@@ -153,6 +156,7 @@ fn nested_body_replay_republishes_enter_context_and_rejects_incomplete_owners() 
     let mut env=ReuseEnvironment::default();
     let cold=run_source(&catalog,&mut env,source).unwrap();
     assert!(cold.diagnostics.is_empty());
+    assert_eq!(selected(&cold).metadata.get("structure-phase").map(String::as_str),Some("accepted-exit"));
     let StructureBody::Trigger(body)=&selected(&cold).body else {panic!("trigger body")};
     let skript_parser::SectionBodyNode::Section(section)=&body[0] else {panic!("nested section")};
     assert_eq!(section.selected.as_ref().unwrap().metadata.get("phase").map(String::as_str),Some("exit"));

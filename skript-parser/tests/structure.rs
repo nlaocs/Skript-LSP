@@ -235,7 +235,9 @@ impl ExpressionParseEnvironment for RejectStructureExit {
         if let Some(registration_id) = self.reject_registration
             && request.candidate.matched.registration_id.as_str() != registration_id
         {
-            return Ok(StructureExitDecision::Accept);
+            let mut metadata=request.candidate.metadata.clone();
+            metadata.insert("accepted-exit".into(),request.candidate.matched.registration_id.to_string());
+            return Ok(StructureExitDecision::Accept { metadata });
         }
         Ok(StructureExitDecision::Reject {
             reason: "rejected after parsing the Structure body".to_owned(),
@@ -367,6 +369,7 @@ fn structure_exit_rejection_retries_a_later_candidate() {
         .as_ref()
         .expect("the fallback Structure must be selected");
     assert_eq!(selected.matched.registration_id, "registration:fallback");
+    assert_eq!(selected.metadata.get("accepted-exit").map(String::as_str),Some("registration:fallback"));
     assert!(matches.unknown.is_none());
 }
 
@@ -1863,7 +1866,7 @@ mod editing_preparation {
                     diagnostics: Vec::new(),
                 });
             }
-            Ok(StructureExitDecision::Accept)
+            Ok(StructureExitDecision::Accept { metadata: request.candidate.metadata.clone() })
         }
         fn enter_section_children(
             &mut self,

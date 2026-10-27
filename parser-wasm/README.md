@@ -1181,3 +1181,26 @@ remove the existing initial-analysis wait.
 WIT 0.44.0 / ABI 26.0 adds the generic EditCode Tree operation. It keeps the current native node kind, children and syntax context, preserving untouched source slices and recording replacement provenance. Offsets address byte-identical decoded code; anchors, empty/overlapping ranges, line breaks and ambiguous decoded/physical offsets are rejected. No-op edits produce no expansion. Later providers observe the edited snapshot; the current provider is not restarted. ReplaceNode retains its generated-source context and re-entry behavior.
 
 Outline ranges use native original extents bound to the full original document, with an exact authenticated header/selection and unique current owner. An expanded body does not make an unchanged header disappear. These display extents do not authorize source edits or prove body type facts.
+
+### Semantic receipt scope for private State
+
+Accepted writes to an owning component's Private Invocation/Parse namespace keep
+their host receipt, issuer and State dependencies. Their direct reach is local;
+they do not by themselves add a document-global semantic writer. Private owners
+are resolved from the actual host caller, and private namespaces cannot grant
+other components access. Shared or longer-lived writes, unknown ownership, and
+successful writes mixed with a caught State API error remain conservative global
+dependencies. Context, extra parsing and dynamic registration effects retain
+their existing global treatment.
+
+Local State reach is not a purity, type or incremental-reuse certificate. Actual
+node transformations and ancestor/subtree writers, unattached retained receipts,
+the unique semantic issuer check and native source/revision validation all remain
+in force. Editing proposal ownership cannot grant semantic type authority. This
+host-side distinction uses the existing WIT 0.47 / ABI 29 StateStore contract;
+addons require no new declaration or opt-in.
+
+Successful Structure Exit returns validated metadata to the final candidate. The
+Rust `StructureExitDecision::Accept` carries metadata; unchanged environments
+preserve the incoming map. Rejection and cancellation do not adopt it. This
+keeps accepted Exit receipts attached without relaxing truly unattached writers.

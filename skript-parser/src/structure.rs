@@ -711,7 +711,10 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                     .exit_structure(exit)
                     .map_err(|message| session.environment_error(message))?
                 {
-                    StructureExitDecision::Accept => None,
+                    StructureExitDecision::Accept { metadata } => {
+                        candidate.metadata = metadata;
+                        None
+                    },
                     StructureExitDecision::Reject {
                         reason,
                         diagnostics,
@@ -1763,7 +1766,11 @@ fn declared_node_type<E: ExpressionParseEnvironment>(
 /// Addon decision after the selected Structure body has been parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StructureExitDecision {
-    Accept,
+    /// Adopt validated candidate metadata only after successful Exit.
+    Accept {
+        /// Includes host provenance from the final ordered Exit hooks.
+        metadata: BTreeMap<String, String>,
+    },
     Reject {
         reason: String,
         diagnostics: Vec<crate::SemanticDiagnostic>,

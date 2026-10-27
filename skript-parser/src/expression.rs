@@ -1489,9 +1489,9 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
     /// Observes the completed Structure body while its parse state is still transactional.
     fn exit_structure(
         &mut self,
-        _request: crate::StructureHookRequest<'_>,
+        request: crate::StructureHookRequest<'_>,
     ) -> Result<crate::StructureExitDecision, String> {
-        Ok(crate::StructureExitDecision::Accept)
+        Ok(crate::StructureExitDecision::Accept { metadata: request.candidate.metadata.clone() })
     }
 
     /// Discards declarations provisionally emitted by a rejected Structure candidate.
