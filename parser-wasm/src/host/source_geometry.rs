@@ -100,6 +100,27 @@ pub fn retain_pattern_captures(node: &mut AstNode, captures: &[PatternCapture]) 
     }
 }
 
+/// Canonicalize text only in a private semantic-subject hash projection.
+/// Validate the original native checksum before deriving the checksum for the
+/// normalized copy. Never publish this copy or reseal an AST macro's output.
+/// All spans, captures, semantic fields and owners remain in the projection;
+/// the final source and unmodified forest are authenticated separately.
+pub(super) fn canonicalize_semantic_subject_text(node: &mut AstNode) -> bool {
+    if !pattern_capture_geometry_is_current(node) {
+        return false;
+    }
+    node.text.clear();
+    let Some(value) = fingerprint(node) else {
+        return false;
+    };
+    let Some(seal) = node.metadata.iter_mut().find(|entry|
+        entry.owner_component_id.is_none() && entry.key == SEAL) else {
+        return false;
+    };
+    seal.value = value;
+    true
+}
+
 pub fn has_pattern_capture_geometry(node: &AstNode) -> bool {
     node.metadata
         .iter()

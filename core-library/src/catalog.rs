@@ -997,6 +997,7 @@ pub(crate) fn identity_delta_types_for_summary(
     identity_delta_classes()
 }
 fn default_clone_input(summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary) -> bool {
+    if crate::storage::native_inputs::clone_classes(summary).is_some() { return true; }
     // This discriminator is minted only by the native binder, and capture
     // summaries cannot be rewritten by registered hooks. A provider's Function
     // leaf does not receive it. The audited runtime ExprFunctionCall inherits
@@ -1066,6 +1067,9 @@ fn closed_clone_identity(
     summary: &crate::nlaocs::skript_parser_addon::types::ParseSummary,
     identity_classes: &[String],
 ) -> bool {
+    if let Some(classes) = crate::storage::native_inputs::clone_classes(summary) {
+        return classes.iter().all(|class| identity_classes.contains(class));
+    }
     let mut entries = summary
         .metadata
         .iter()

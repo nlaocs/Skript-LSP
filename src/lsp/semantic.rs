@@ -427,11 +427,15 @@ impl Document {
             let provider = witnesses.unique_issuer(original);
             let trusted = witnesses.native_valid(original) || provider.is_some();
             if trusted { witnessed_nodes.insert(node.id); }
-            retain_semantic_contracts(node, provider);
+            let composed = original.metadata.iter().filter(|entry| witnesses.composed_metadata_valid(original, entry))
+                .filter_map(|entry| entry.owner_component_id.as_ref().map(|owner|(owner.clone(),entry.key.clone())))
+                .collect::<BTreeSet<_>>();
+            retain_semantic_contracts_with_composition(node, provider, &composed);
             if !trusted {
                 node.summary = None;
                 node.function = None;
             } else if provider.is_none()
+                && !witnesses.composed_public_data_valid(original, IDENTITY)
                 && let Some(summary) = &mut node.summary
             {
                 summary
@@ -2040,7 +2044,11 @@ fn join_facts(left: &Facts, right: &Facts) -> Facts {
 }
 // The issuer comes from the original node's accepted provider witness. Preserve
 // duplicate contracts for the existing unique-metadata checks; do not deduplicate.
+#[cfg(test)]
 fn retain_semantic_contracts(node: &mut AstNode, issuer: Option<&str>) {
+    retain_semantic_contracts_with_composition(node,issuer,&BTreeSet::new());
+}
+fn retain_semantic_contracts_with_composition(node: &mut AstNode, issuer: Option<&str>, composed:&BTreeSet<(String,String)>) {
     node.metadata.retain(|entry| {
         !matches!(
             entry.key.as_str(),
@@ -2053,6 +2061,7 @@ fn retain_semantic_contracts(node: &mut AstNode, issuer: Option<&str>) {
                 | VARIABLE_READ
                 | EVALUATION_CONTEXT
         ) || issuer.is_some_and(|issuer| entry.owner_component_id.as_deref() == Some(issuer))
+            || entry.owner_component_id.as_ref().is_some_and(|owner| composed.contains(&(owner.clone(),entry.key.clone())))
     });
 }
 fn unique_metadata<'a>(node: &'a AstNode, key: &str) -> Option<&'a str> {

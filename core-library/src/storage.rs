@@ -1,4 +1,5 @@
 mod domain;
+pub(crate) mod native_inputs;
 mod backend;
 pub(crate) mod context;
 pub(crate) use backend::{command_argument, event_reference, local_add_rules};
@@ -56,7 +57,7 @@ pub(crate) fn for_summary(summary: &ParseSummary) -> Option<ResultType> {
         .metadata
         .iter()
         .filter(|entry| entry.key == METADATA_KEY);
-    let Some(entry) = entries.next() else { return backend::native_function(summary); };
+    let Some(entry) = entries.next() else { return backend::native_function(summary).or_else(|| native_inputs::stored(summary)); };
     if entries.next().is_some() || entry.owner_component_id.as_deref() != Some(crate::COMPONENT_ID)
     {
         return None;

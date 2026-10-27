@@ -1213,3 +1213,12 @@ Successful Structure Exit returns validated metadata to the final candidate. The
 Rust `StructureExitDecision::Accept` carries metadata; unchanged environments
 preserve the incoming map. Rejection and cancellation do not adopt it. This
 keeps accepted Exit receipts attached without relaxing truly unattached writers.
+
+## Sealed value facts
+
+`parser.semantic-value-facts` v1 composes selected parent facts from current
+native-sealed expression inputs. It preserves the advertised expression type,
+separates value/absence/storage guarantees from evaluation effects, and leaves
+whole-node issuer checks unchanged. It uses the existing ABI 29 metadata layout;
+a producer requiring it is rejected by an older host. See the
+[value-fact contract](../docs/wasm-value-facts.md) for schemas, bounds and limits.

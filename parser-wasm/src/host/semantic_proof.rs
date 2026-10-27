@@ -15,6 +15,7 @@ use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 const RECEIPT: &str = "parser.semantic-writer-receipt.v1";
 
 mod body;
+pub(super) mod value_facts;
 #[cfg(test)]
 mod local_state_tests;
 pub(super) use body::BodyReceiptBundle;
@@ -43,6 +44,7 @@ struct Receipt {
 
 #[derive(Debug, Default)]
 pub(super) struct ReceiptRegistry {
+    pub(super) value_facts: value_facts::Registry,
     receipts: BTreeMap<u64, Receipt>,
     sequence: Arc<AtomicU64>,
     exhausted: bool,
@@ -346,6 +348,7 @@ pub(super) fn with_payload_receipts_normalized<T>(
     payload: &mut HookPayload,
     render: impl FnOnce(&HookPayload) -> T,
 ) -> Option<T> {
+    if value_facts::volatile(payload) { return None; }
     let ordinals = receipt_ordinals(payload)?;
     let mut originals = Vec::new();
     cache_metadata_mut(payload, &mut |metadata| {
@@ -370,6 +373,7 @@ pub(super) fn with_payload_receipts_normalized<T>(
 /// Stored output references are ordinal placeholders, never old registry IDs.
 /// Unknown/forged references cannot become cache entries.
 pub(super) fn normalize_output_receipts(original: &HookPayload, output: &mut HookOutput) -> bool {
+    if value_facts::volatile(original) || output.replacement.as_ref().is_some_and(value_facts::volatile) { return false; }
     let Some(ordinals) = receipt_ordinals(original) else {
         return false;
     };
@@ -420,6 +424,7 @@ pub(super) fn restore_output_receipts(original: &HookPayload, output: &mut HookO
 
 #[derive(Debug, Default)]
 pub(super) struct SemanticProofRegistry {
+    fact_claims: BTreeMap<u64, value_facts::FactClaims>,
     forest: Option<[u8; 32]>,
     source: Option<[u8; 32]>,
     writers: BTreeMap<u64, BTreeSet<String>>,
@@ -557,6 +562,7 @@ impl SemanticProofRegistry {
             return Self::default();
         };
         let mut result = Self {
+            fact_claims: BTreeMap::new(),
             forest: Some(digest(&canonical.tree)),
             source: None,
             writers: BTreeMap::new(),
@@ -643,6 +649,7 @@ impl SemanticProofRegistry {
                 else { fallback.push(*parent); }
             }
         }
+        let fact_claims = receipts.map(|registry| registry.value_facts.certify(tree, registry, &retained, &global, &own)).unwrap_or_default();
         let index: BTreeMap<_, _> = tree.nodes.iter().map(|node| (node.id, node)).collect();
         let mut ancestors = own.clone();
         for writers in ancestors.values_mut() {
@@ -672,6 +679,7 @@ impl SemanticProofRegistry {
             let mut writers = ancestors.remove(&id).unwrap_or_default();
             writers.extend(subtree.remove(&id).unwrap_or_default());
             result.writers.insert(rank, writers);
+            if let Some(claims) = fact_claims.get(&id) { result.fact_claims.insert(rank, claims.clone()); }
         }
         result
     }
@@ -689,7 +697,7 @@ impl SemanticProofRegistry {
         source: &skript_parser::MappedSource,
     ) -> SemanticWitnesses<'a> {
         if self.source != Some(debug_digest("semantic-source-v1", source)) {
-            return SemanticWitnesses { nodes: BTreeMap::new(), writers: BTreeMap::new() };
+            return SemanticWitnesses { nodes: BTreeMap::new(), writers: BTreeMap::new(), fact_claims: BTreeMap::new() };
         }
         self.view(tree)
     }
@@ -699,14 +707,17 @@ impl SemanticProofRegistry {
             return SemanticWitnesses {
                 nodes: BTreeMap::new(),
                 writers: BTreeMap::new(),
+                fact_claims: BTreeMap::new(),
             };
         };
         if !self.valid || self.forest != Some(digest(&canonical.tree)) {
             return SemanticWitnesses {
                 nodes: BTreeMap::new(),
                 writers: BTreeMap::new(),
+                fact_claims: BTreeMap::new(),
             };
         }
+        let fact_claims = canonical.rank.iter().filter_map(|(id, rank)| self.fact_claims.get(rank).cloned().map(|claims| (*id, claims))).collect();
         let writers = canonical
             .rank
             .into_iter()
@@ -718,18 +729,31 @@ impl SemanticProofRegistry {
             })
             .collect();
         let nodes = tree.nodes.iter().map(|node| (node.id, node)).collect();
-        SemanticWitnesses { nodes, writers }
+        SemanticWitnesses { nodes, writers, fact_claims }
     }
 }
 
 /// A read-only view of final nodes whose native semantics and provider history
 /// survived every AST phase. Build once per result, then query many facts.
 pub struct SemanticWitnesses<'a> {
+    fact_claims: BTreeMap<u64, value_facts::FactClaims>,
     nodes: BTreeMap<u64, &'a AstNode>,
     writers: BTreeMap<u64, BTreeSet<String>>,
 }
 
 impl SemanticWitnesses<'_> {
+    /// A selected fact endorsed from exact current native inputs. This does not
+    /// widen the existing unique-issuer certificate for any other field.
+    pub fn composed_metadata_valid(&self,node:&AstNode,entry:&WitMetadataEntry)->bool {
+        self.native_valid(node) && node.metadata.iter().any(|m|std::ptr::eq(m,entry))
+            && entry.owner_component_id.as_ref().is_some_and(|owner|self.fact_claims.get(&node.id)
+                .is_some_and(|claims|claims.metadata.contains(&(owner.clone(),entry.key.clone()))))
+    }
+    /// Only explicitly selected public-data schemas on a sealed input.
+    pub fn composed_public_data_valid(&self,node:&AstNode,schema:&str)->bool {
+        self.native_valid(node) && self.fact_claims.get(&node.id)
+            .is_some_and(|claims|claims.public_data.iter().any(|(_,id)|id==schema))
+    }
     /// Validates native facts, including immutable capture expectations.
     pub fn native_valid(&self, node: &AstNode) -> bool {
         self.writers.contains_key(&node.id)

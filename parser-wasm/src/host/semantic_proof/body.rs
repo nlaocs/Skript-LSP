@@ -97,18 +97,18 @@ impl ReceiptRegistry {
         calls: &[HookCall],
         metadata: &[(String,String)],
     ) -> Option<BodyReceiptBundle> {
-        if self.exhausted { return None; }
+        if self.exhausted || metadata.iter().any(|(key,_)| matches!(key.as_str(),value_facts::DRAFT|value_facts::INPUT|value_facts::COMPOSE)) { return None; }
         let mut admitted = BTreeSet::new();
         for call in calls {
             let Some(token) = call.semantic_receipt else { continue; };
             let receipt = self.receipts.get(&token)?;
-            if !receipt.valid || receipt.issuer != call.component_id { return None; }
+            if !receipt.valid || receipt.issuer != call.component_id || self.value_facts.has_receipt(token) { return None; }
             admitted.insert(token);
         }
         let mut pending = admitted.iter().copied().collect::<Vec<_>>();
         while let Some(token) = pending.pop() {
             let receipt = self.receipts.get(&token)?;
-            if !receipt.valid { return None; }
+            if !receipt.valid || self.value_facts.has_receipt(token) { return None; }
             for child in &receipt.admitted_nested {
                 if admitted.insert(*child) { pending.push(*child); }
             }

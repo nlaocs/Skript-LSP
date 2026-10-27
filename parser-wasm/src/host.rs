@@ -3916,6 +3916,7 @@ impl WasmPatternHooks<'_> {
             .clone()
             .ok_or_else(|| "syntax catalog is unavailable".to_owned())?;
         let payload = effect_hook_payload(EffectHookPayloadView {
+            receipts: self.host.semantic_receipts.as_ref(),
             input: request.input,
             context: request.context,
             raw_node_id: request.candidate.raw_node_id,
@@ -6669,6 +6670,7 @@ fn condition_hook_payload(
 }
 
 struct EffectHookPayloadView<'a> {
+    receipts: Option<&'a semantic_proof::ReceiptRegistry>,
     input: &'a str,
     context: &'a ExpressionParseContext,
     raw_node_id: ParserRawNodeId,
@@ -6799,11 +6801,11 @@ fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
         timing: view.timing,
         candidate: view
             .candidate
-            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input)),
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input, view.receipts)),
         alternatives: view
             .alternatives
             .iter()
-            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input))
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input, view.receipts))
             .collect(),
         failure: view.failure.map(effect_failure_to_wit),
         near_match: view.near_match.map(effect_near_match_to_wit),
@@ -6834,7 +6836,13 @@ fn effect_candidate_to_wit(
     candidate: &EffectCandidate,
     catalog: &Catalog,
     input: &str,
+    receipts: Option<&semantic_proof::ReceiptRegistry>,
 ) -> WitEffectCandidate {
+    // Ordinary Core-only paths keep their existing cache/input behavior.
+    // Seal a candidate only when an actual current capture has a value draft.
+    let has_value = receipts.is_some_and(|registry| candidate.parsed_captures.iter().any(|capture|
+        matches!(&capture.result.value,Some(skript_parser::ParsedCaptureValue::Expression(expression))
+            if registry.value_facts.has_value(expression))));
     WitEffectCandidate {
         raw_node_id: candidate.raw_node_id.get(),
         definition_id: candidate.matched.definition_id.clone(),
@@ -6923,7 +6931,16 @@ fn effect_candidate_to_wit(
         parsed_captures: candidate
             .parsed_captures
             .iter()
-            .map(|capture| parsed_capture_to_wit(capture, input))
+            .map(|capture| {
+                let mut value = parsed_capture_to_wit(capture, input);
+                if let Some(summary) = &mut value.summary {
+                    summary.metadata.retain(|m| m.key != semantic_proof::value_facts::INPUT);
+                    if let (Some(registry), Some(skript_parser::ParsedCaptureValue::Expression(expression))) = (receipts, &capture.result.value)
+                        && has_value && capture.result.status == ParserParsedCaptureStatus::Success
+                        && let Some(seal) = registry.value_facts.seal(registry, expression) { summary.metadata.push(seal); }
+                }
+                value
+            })
             .collect(),
     }
 }
@@ -10604,6 +10621,7 @@ impl ParserHost {
         let mut failures = Vec::new();
 
         let before_payload = effect_hook_payload(EffectHookPayloadView {
+            receipts: self.semantic_receipts.as_ref(),
             input: &input,
             context: &parser_context,
             raw_node_id: node.id,
@@ -10766,6 +10784,7 @@ impl ParserHost {
             })
             .unwrap_or(DispatchTarget::SyntaxKind(SyntaxKind::Effect));
         let after_payload = effect_hook_payload(EffectHookPayloadView {
+            receipts: self.semantic_receipts.as_ref(),
             input: &input,
             context: &parser_context,
             raw_node_id: node.id,
@@ -13079,6 +13098,10 @@ impl ParserHost {
                             candidate.subscription.mode,
                             candidate_semantic_effects,
                         );
+                        if let Some(token) = receipt
+                            && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::value_facts::CAPABILITY && c.minimum_version==1) {
+                            registry.value_facts.record(token, &next_payload, &component_id);
+                        }
                         if let Some(call) = calls.last_mut() {
                             call.semantic_receipt = receipt;
                         }
@@ -13608,6 +13631,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_AST_MACRO,
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
+        semantic_proof::value_facts::CAPABILITY,
         editor_completion::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_DEFAULT_EXPRESSION,

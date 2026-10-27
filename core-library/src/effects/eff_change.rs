@@ -178,6 +178,10 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let dispatch_rules = if authentic && static_target==Some(false) && operation.mode==ChangeMode::Add {
         crate::storage::local_add_rules()
     } else { Vec::new() };
+    let composition = if authentic && operation.mode == ChangeMode::Set && storage_result.is_some() {
+        target.zip(delta).zip(operation.changer_capture).and_then(|((target,value),value_capture)|
+            crate::storage::native_inputs::compose(target,value,operation.changed_capture,value_capture,context_preserving))
+    } else { None };
     let contract = serde_json::json!({
         "version": 4,
         "bindingRole": binding_role,
@@ -209,6 +213,9 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
             crate::public_data::OPERAND_EVALUATION_METADATA_KEY,
             &serde_json::json!({"version":1,"prefix":prefix}).to_string(),
         );
+    }
+    if let Some(composition) = composition {
+        super::annotate(&mut payload, crate::storage::native_inputs::COMPOSE, &composition);
     }
     Some(continue_with(payload))
 }

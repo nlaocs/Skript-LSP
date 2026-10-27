@@ -94,8 +94,7 @@ struct AstBuilder<'a> {
     nodes: Vec<AstNode>,
 }
 
-#[cfg(test)]
-pub(super) fn expression_for_test(source: &MappedSource, expression: &ExpressionNode) -> AstTree {
+fn expression_tree(source: &MappedSource, expression: &ExpressionNode) -> AstTree {
     let mut builder = AstBuilder {
         source,
         nodes: Vec::new(),
@@ -106,6 +105,10 @@ pub(super) fn expression_for_test(source: &MappedSource, expression: &Expression
         nodes: builder.nodes,
     }
 }
+
+#[cfg(test)]
+pub(super) fn expression_for_test(source:&MappedSource,expression:&ExpressionNode)->AstTree { expression_tree(source,expression) }
+pub(super) fn expression_subject(expression:&ExpressionNode)->AstTree { expression_tree(&MappedSource::identity(""),expression) }
 
 impl AstBuilder<'_> {
     fn structure(&mut self, structure: &StructureCandidate) -> u64 {

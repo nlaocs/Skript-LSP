@@ -897,3 +897,7 @@ source/revision 検証を維持します。表示用の所有権は型の権限�
 採用された Structure Exit は、検証済み metadata を最終候補へ返します。Rust の
 `StructureExitDecision::Accept` は metadata を持ち、無変更の環境も入力 metadata を
 引き継ぎます。拒否・取消では採用せず、Exit receipt の未接続を偽の文書全体依存にしません。
+
+## 入力を認証した値の根拠
+
+`parser.semantic-value-facts` v1 は、現在の式入力をホストが認証し、親の選択した根拠だけを合成する任意機能です。式が公開する型、値の候補・欠落可能性、保存後の保証、評価時の作用を区別し、ノード全体の単一提供元チェックは維持します。ABI 29 の既存 metadata を使い、この機能を必須とする addon は未対応の古い host で拒否されます。[契約・上限・制限](../docs/wasm-value-facts.md)を参照してください。
