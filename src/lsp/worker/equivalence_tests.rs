@@ -379,11 +379,14 @@ fn project_nested_body_hits_keep_ui_epoch_and_native_revision_separate() {
         }]})),generation:1,revision:epoch,version:epoch as i32,source:Arc::from(source),
         control:Control::new(),queued_at:Instant::now(),
     };
+    // The earlier structure refreshes private storage-context receipt reads.
+    // Body hits must retain that current prefix, never restore its old keys.
+    let source=format!("on load:\n    set {{_edit_probe}} to 1\n{NESTED_FUNCTIONS_SOURCE}");
     let mut warm=analyzer();warm.project_uri=project_uri.clone();warm.prepare_completion=true;
-    let initial=warm.analyze(&job(NESTED_FUNCTIONS_SOURCE,41));
+    let initial=warm.analyze(&job(&source,41));
     assert!(diagnostics(&initial).0.is_empty());
     assert_eq!(warm.host.incremental_metrics().body_stored,2);
-    let current=NESTED_FUNCTIONS_SOURCE.replace("# edit:a","# edit:b");let mut notices=0;
+    let current=source.replace("probe} to 1","probe} to 2");let mut notices=0;
     let reused=warm.analyze_with_preparation(&job(&current,42),&mut |p| {
         notices+=1;assert_eq!(p.source.uri,uri);assert_eq!(p.source.generation,1);
         assert_eq!(p.source.source_epoch,42);assert_eq!(p.source.source.as_ref(),current);
