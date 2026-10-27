@@ -717,6 +717,17 @@ impl SemanticWitnesses<'_> {
     pub fn provider_valid(&self, node: &AstNode, issuer: &str) -> bool {
         self.unique_issuer(node) == Some(issuer)
     }
+    /// Authorship of an attached, host-stamped metadata entry in the current
+    /// sealed forest. Unlike `provider_valid`, this permits other accepted
+    /// writers in the scope. It is for data-only editing/presentation, never a
+    /// certificate of a type, parse result or other semantic guarantee.
+    pub fn metadata_owner<'n>(&self, node: &AstNode, entry: &'n WitMetadataEntry) -> Option<&'n str> {
+        if !self.native_valid(node) || !node.metadata.iter().any(|current|std::ptr::eq(current,entry)) {
+            return None;
+        }
+        let owner=entry.owner_component_id.as_deref()?;
+        self.writers.get(&node.id)?.contains(owner).then_some(owner)
+    }
     /// Public-data schemas have no owner field; the actual unique accepted
     /// provider is available only through this private native proof chain.
     pub fn unique_issuer(&self, node: &AstNode) -> Option<&str> {
@@ -865,6 +876,33 @@ mod tests {
         let view = proof.view(&tree);
         assert!(view.native_valid(&tree.nodes[1]));
         assert!(!view.provider_valid(&tree.nodes[1], "provider"));
+    }
+
+    #[test]
+    fn editing_metadata_authorship_is_distinct_from_single_issuer_semantic_proof() {
+        let mut registry=ReceiptRegistry::default();let mut root=node(0);
+        let first=write(&mut registry,&mut root,"core");
+        root.metadata.push(WitMetadataEntry {key:"editor.proposals".into(),value:"names".into(),owner_component_id:Some("provider".into())});
+        root.metadata.push(WitMetadataEntry {key:"editor.foreign".into(),value:"forged".into(),owner_component_id:Some("foreign".into())});
+        let second=write(&mut registry,&mut root,"provider");
+        let tree=AstTree {roots:vec![0],nodes:vec![root]};
+        let proof=SemanticProofRegistry::capture(&tree,Some(&registry),&[first.clone(),second]);
+        let view=proof.view(&tree);let root=&tree.nodes[0];
+        let entry=root.metadata.iter().find(|m|m.key=="editor.proposals").unwrap();
+        assert!(view.native_valid(root));assert!(!view.provider_valid(root,"provider"));
+        assert_eq!(view.metadata_owner(root,entry),Some("provider"));
+        assert_eq!(view.metadata_owner(root,&entry.clone()),None);
+        assert_eq!(view.metadata_owner(&root.clone(),entry),None);
+        let foreign=root.metadata.iter().find(|m|m.key=="editor.foreign").unwrap();
+        assert_eq!(view.metadata_owner(root,foreign),None);
+        for mode in 0..3 {
+            let mut changed=tree.clone();let index=changed.nodes[0].metadata.iter().position(|m|m.key=="editor.proposals").unwrap();
+            match mode {0=>changed.nodes[0].metadata[index].value.push_str(" changed"),1=>changed.nodes[0].metadata[index].owner_component_id=Some("foreign".into()),
+                _=>changed.nodes[0].span.virtual_range.end+=1}
+            assert_eq!(proof.view(&changed).metadata_owner(&changed.nodes[0],&changed.nodes[0].metadata[index]),None);
+        }
+        let rejected=SemanticProofRegistry::capture(&tree,Some(&registry),&[first]);
+        assert_eq!(rejected.view(&tree).metadata_owner(root,entry),None,"an unadopted/rolled-back writer grants no editing authority");
     }
 
     #[test]

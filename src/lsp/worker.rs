@@ -105,8 +105,17 @@ pub(super) fn parser_factory() -> Factory {
         let snapshot =
             ssg::load_for_parsing(&config.snapshot_path).map_err(|error| error.to_string())?;
         let catalog = Arc::new(snapshot.into_catalog());
+        if config.addon_data_sources.len()>64 {return Err("too many addon dataset sources".into());}
+        let mut remaining=16 * 1024 * 1024;
+        let mut addon_data_sources=Vec::new();
+        for source in config.addon_data_sources {
+            let captured=parser_wasm::host::AddonDataSource::from_file_with_budget(source.pin,source.path,remaining)?;
+            remaining-=captured.byte_length();
+            addon_data_sources.push(captured);
+        }
         let mut host = crate::new_parser_host(HostConfig {
             syntax_catalog: Some(Arc::clone(&catalog)),
+            addon_data_sources,
             ..HostConfig::default()
         })
         .map_err(|error| error.to_string())?;

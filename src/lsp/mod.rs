@@ -46,6 +46,7 @@ struct ProjectConfig {
     extended_symbol_kinds: bool,
     snapshot_path: PathBuf,
     addon_paths: Vec<PathBuf>,
+    addon_data_sources: Vec<AddonDataConfig>,
     hover_format: MarkupKind,
     completion_format: MarkupKind,
     semantic_legend: Option<semantic_tokens::Legend>,
@@ -60,6 +61,15 @@ struct InitializationOptions {
     snapshot_path: PathBuf,
     #[serde(default)]
     addon_paths: Vec<PathBuf>,
+    #[serde(default)]
+    addon_data_sources: Vec<AddonDataConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AddonDataConfig {
+    path: PathBuf,
+    pin: parser_wasm::host::AddonDataPin,
 }
 
 impl ProjectConfig {
@@ -201,6 +211,9 @@ impl ProjectConfig {
             extended_symbol_kinds,
             snapshot_path: absolute(options.snapshot_path),
             addon_paths: options.addon_paths.into_iter().map(absolute).collect(),
+            addon_data_sources: options.addon_data_sources.into_iter().map(|mut source| {
+                source.path = absolute(source.path); source
+            }).collect(),
             hover_format,
             completion_format,
             semantic_legend,

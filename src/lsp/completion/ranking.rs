@@ -147,7 +147,7 @@ impl<'a> Pool<'a> {
         let unverified = item
             .data
             .as_ref()
-            .is_some_and(|data| data["continuation"] == true);
+            .is_some_and(|data| data["continuation"] == true || data["addonProposal"].is_object());
         let finite_value = item.data.as_ref()
             .is_some_and(|data| data["typeValue"].is_object());
         let rank = self.rank(

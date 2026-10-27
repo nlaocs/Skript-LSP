@@ -1,0 +1,27 @@
+package nlaocs:skript-parser-addon@0.47.0;
+
+/// Immutable, explicitly configured inputs owned by one validated component.
+/// No path or caller-supplied owner is exposed. Bindings are opaque identities;
+/// addons must verify their domain meaning against the current runtime.
+interface addon-data {
+    record binding { key: string, value: string }
+    record source-info {
+        id: string,
+        schema-id: string,
+        schema-version: u32,
+        /// Digest of the complete pinned JSON envelope configured by the client.
+        envelope-sha256: string,
+        /// Digest of exactly the payload bytes returned by read.
+        content-sha256: string,
+        bindings: list<binding>,
+        byte-length: u64,
+    }
+    record chunk { offset: u64, total-length: u64, bytes: list<u8> }
+    enum error-kind { access-denied, invalid-input }
+    record error { kind: error-kind, message: string }
+
+    /// Unavailable until manifest identity has been validated, including on restart.
+    info: func(id: string) -> result<option<source-info>, error>;
+    /// Reads at most 64 KiB. Chunks may split UTF-8; assemble before decoding.
+    read: func(id: string, offset: u64, max-bytes: u32) -> result<option<chunk>, error>;
+}

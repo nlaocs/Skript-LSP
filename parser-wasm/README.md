@@ -1,6 +1,10 @@
 # Parser WASM ABI
 
-ABI 28 / WIT 0.46 adds conditional `incremental-body-handler-subscriptions`
+ABI 29 / WIT 0.47 adds component-bound immutable addon inputs through
+`addon-data`; see [the input and editing-proposal guide](../docs/addon-inputs.md).
+Host, CoreLibrary and all addons must be rebuilt together.
+
+ABI 28 / WIT 0.46 added conditional `incremental-body-handler-subscriptions`
 alongside the explicit `incremental-body-subscriptions` manifest field and
 `parser.incremental-structure-body` v1 promise. Rebuild all components
 together; older WIT layouts and ABI versions are incompatible. An empty list
@@ -70,7 +74,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.46.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.47.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -86,6 +90,7 @@ Guest exports:
 
 Host imports:
 
+- `addon-data`: component/binary-pinned immutable inputs, schema and identity bindings
 - `catalog-data`: complete read-only SSG documents, ID lookups, type relations,
   and Skript-compatible hierarchy distances
 - `state-store`: scoped key/value storage with compare-and-swap and prefix scan
@@ -141,7 +146,7 @@ multiple targets for each registered semantic handler, including dynamic
   it to 0.40.0. Native omission provenance and the opt-in incremental
   subscription manifest changed it to 0.41.0; explicit header-local Structure
   handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
-changed it to 0.43.0. The manifest's current `abi` value is 27.0 and
+changed it to 0.43.0. The manifest's current `abi` value is 29.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -163,7 +168,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 28.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 29.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts

@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.46.0;
+package nlaocs:skript-parser-addon@0.47.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -368,7 +368,7 @@ interface types {
     /// parser.epoch-cancellation-restart-safe v1 separately permits discarding
     /// the entire guest Store after observed epoch cancellation. Manifest and
     /// initialization must be deterministic with the same immutable HostProfile.
-    /// Initialization permits immutable Catalog queries only; ANY StateStore
+    /// Initialization permits immutable Catalog and authorized addon-data queries only; ANY StateStore
     /// or dynamic call attempt is rejected even if the guest ignores its error. No external effects or
     /// hidden persistent semantic history may be required; losing guest memory,
     /// globals, locks and caches plus reinitializing preserves future behavior.

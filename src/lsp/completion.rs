@@ -26,6 +26,7 @@ mod nested_frontiers;
 #[cfg(test)]
 mod nested_condition_tests;
 mod parameters;
+mod providers;
 mod prepared;
 mod ranking;
 pub(super) use prepared::{OwnerAttempt, PreparedDocument, PreparedQuery, PreparedSection};
@@ -423,6 +424,7 @@ struct Variable {
     canonical_name: Option<String>,
 }
 pub(super) struct Document {
+    provider_completions: providers::Snapshot,
     source: Arc<str>,
     lines: LineIndex,
     context: BTreeMap<u32, Line>,
@@ -469,6 +471,7 @@ impl Document {
         let lines = LineIndex::new(&source);
         let context = raw_context(&tree, &source, &lines, false)?;
         Ok(Self {
+            provider_completions: providers::Snapshot::default(),
             source,
             lines,
             context,
@@ -535,6 +538,7 @@ impl Document {
         }
         let mut context = raw_context(&result.raw_tree, &source, &lines, true)?;
         let entry_scopes = structure::apply(result, &mut context);
+        let provider_completions = providers::collect_or_suppress(result,&source,&context,&lines,&blocked);
         let nodes = result
             .ast
             .nodes
@@ -664,6 +668,7 @@ impl Document {
             lines,
             context,
             entry_scopes,
+            provider_completions,
             variables,
             parameters,
             functions,
@@ -906,6 +911,7 @@ impl Document {
             }
         }
         if expression && variable_start.is_none() {
+            frontier_limited |= self.push_provider_candidates(line,offset,&mut items)?;
             frontier_limited |=
                 self.push_type_names(line, offset, word_start, word_end, references, &mut items)?;
             frontier_limited |=
@@ -1543,6 +1549,7 @@ impl Document {
             .collect();
         let label = source.to_string();
         Self {
+            provider_completions: providers::Snapshot::default(),
             source,
             lines,
             context,

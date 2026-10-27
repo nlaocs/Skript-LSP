@@ -39,7 +39,7 @@ cargo build --locked --release --bin skript-lsp
 実行ファイルは`target/release/skript-lsp`（Windowsでは`skript-lsp.exe`）、または設定済みの
 `CARGO_TARGET_DIR`以下へ出力されます。必須のCoreLibraryはcompile時に埋め込まれるため、
 componentを更新したら実行ファイルも再buildします。外部parser addonはhostと同じ契約が必要です。
-現在はWIT `nlaocs:skript-parser-addon@0.46.0`、ABI `28.0`です。
+現在はWIT `nlaocs:skript-parser-addon@0.47.0`、ABI `29.0`です。
 
 対象サーバーのSkript・Addon構成から、完全なSSG export directoryを用意します。
 このrepositoryはexportを読み取る側で、generatorは独立したMinecraft pluginです。

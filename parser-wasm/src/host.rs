@@ -5,6 +5,8 @@
 #![allow(missing_docs)] // WIT transport fields are documented as aggregate contracts.
 
 mod ast_macro;
+mod addon_data;
+pub use addon_data::{AddonDataPin, AddonDataSource};
 mod ast_tree;
 #[cfg(test)]
 mod cancellation_tests;
@@ -286,6 +288,7 @@ pub struct HostConfig {
     pub max_catalog_response_bytes: usize,
     pub state_store: StateStoreConfig,
     pub syntax_catalog: Option<Arc<Catalog>>,
+    pub addon_data_sources: Vec<AddonDataSource>,
     pub runtime_profile: RuntimeProfile,
 }
 
@@ -412,6 +415,7 @@ impl Default for HostConfig {
             max_catalog_response_bytes: 32 * 1024 * 1024,
             state_store: StateStoreConfig::default(),
             syntax_catalog: None,
+            addon_data_sources: Vec::new(),
             runtime_profile: RuntimeProfile::default(),
         }
     }
@@ -497,7 +501,7 @@ impl HostConfig {
             || self.max_ast_macro_nodes == 0
             || self.max_ast_macro_calls == 0
             || self.max_catalog_response_bytes == 0;
-        if invalid {
+        if invalid || !addon_data::validate_sources(&self.addon_data_sources) {
             return Err(HostError::InvalidConfiguration);
         }
         if let Some(source) = self.syntax_catalog.as_deref().and_then(Catalog::source) {
@@ -1061,6 +1065,8 @@ impl ResourceLimiter for HostResourceLimiter {
 }
 
 struct StoreData {
+    addon_data_sources: Vec<AddonDataSource>,
+    addon_data_owner: Option<(String, String)>,
     tree_view: Option<tree_view::Lease>,
     limits: HostResourceLimiter,
     invocation: Option<InvocationTransaction>,
@@ -2882,6 +2888,7 @@ fn catalog_page_bounds(
 }
 
 struct ComponentEntry {
+    component_sha256: String,
     component: Component,
     manifest: ComponentManifest,
     registered_handler_bindings: Vec<WitRegisteredHandlerBinding>,
@@ -13204,6 +13211,7 @@ impl ParserHost {
             &handler_bindings,
         )?;
         entry.store.data_mut().registered_handler_bindings = handler_bindings.clone();
+        entry.store.data_mut().addon_data_owner = Some((component_id.clone(), entry.component_sha256.clone()));
         let profile = host_profile(
             &self.capabilities,
             &self.config.runtime_profile,
@@ -13323,6 +13331,9 @@ impl ParserHost {
             });
         }
 
+        let component_sha256 = format!("{:x}", Sha256::digest(bytes));
+        store.data_mut().addon_data_owner = Some((manifest.component_id.clone(), component_sha256.clone()));
+
         prepare_store(
             &mut store,
             self.config.fuel_per_call,
@@ -13389,6 +13400,7 @@ impl ParserHost {
         self.registry
             .register(component_index, load_order, &manifest.subscriptions);
         self.components.push(ComponentEntry {
+            component_sha256,
             component,
             manifest,
             registered_handler_bindings,
@@ -13551,6 +13563,7 @@ fn component_promises(
 /// Dynamic syntax is advertised only by configured hosts that receive a Catalog.
 pub fn host_capabilities() -> Vec<Capability> {
     [
+        crate::CAPABILITY_ADDON_DATA,
         CAPABILITY_HOOKS,
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,
@@ -14664,6 +14677,8 @@ fn create_store(
     let mut store = Store::new(
         engine,
         StoreData {
+            addon_data_sources: config.addon_data_sources.clone(),
+            addon_data_owner: None,
             tree_view: None,
             limits: HostResourceLimiter {
                 memory_bytes: config.max_memory_bytes,
@@ -18884,6 +18899,7 @@ mod tests {
         assert_eq!(
             ids,
             [
+                crate::CAPABILITY_ADDON_DATA,
                 CAPABILITY_HOOKS,
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,

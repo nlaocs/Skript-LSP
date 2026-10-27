@@ -34,7 +34,14 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(28, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(29, 0);
+
+/// Read-only, component-binary-bound immutable dataset inputs.
+pub const CAPABILITY_ADDON_DATA: &str = "parser.addon-data";
+
+/// Accepted root-declaration exports of bounded, unverified identifier proposals.
+/// The JSON contract is documented in the public SDK README.
+pub const DOCUMENT_COMPLETIONS_METADATA: &str = "skript.editor.document-completions";
 
 /// Explicit immutable/local semantic hook result contract for incremental analysis.
 pub const CAPABILITY_INCREMENTAL_LOCAL_SYNTAX: &str = "parser.incremental-local-syntax";

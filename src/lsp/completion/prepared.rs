@@ -129,6 +129,7 @@ impl PreparedDocument {
         }
         Ok(Self {
             document: Document {
+                provider_completions: super::providers::Snapshot::default(),
                 source,
                 lines,
                 context,
