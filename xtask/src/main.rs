@@ -123,6 +123,17 @@ const BODY_LIFECYCLE_ADDON: ComponentSpec = ComponentSpec {
     feature: Some("body-lifecycle"),
 };
 
+const SEMANTIC_STATE_ADDON_A: ComponentSpec = ComponentSpec {
+    package: "expression-data-addon", module_name: "expression_data_addon.wasm",
+    artifact_name: "semantic-state-addon-a.wasm", display_name: "semantic State test addon A",
+    feature: Some("semantic-state"),
+};
+const SEMANTIC_STATE_ADDON_B: ComponentSpec = ComponentSpec {
+    package: "expression-data-addon", module_name: "expression_data_addon.wasm",
+    artifact_name: "semantic-state-addon-b.wasm", display_name: "semantic State test addon B",
+    feature: Some("semantic-state,addon-b"),
+};
+
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("build-core-library") => build_core_library(),
@@ -150,7 +161,9 @@ fn build_test_components() -> Result<()> {
     ])?;
     build_components(&[&EXPRESSION_DATA_ADDON_A])?;
     build_components(&[&EXPRESSION_DATA_ADDON_B])?;
-    build_components(&[&BODY_LIFECYCLE_ADDON])
+    build_components(&[&BODY_LIFECYCLE_ADDON])?;
+    build_components(&[&SEMANTIC_STATE_ADDON_A])?;
+    build_components(&[&SEMANTIC_STATE_ADDON_B])
 }
 
 fn build_components(specs: &[&ComponentSpec]) -> Result<()> {

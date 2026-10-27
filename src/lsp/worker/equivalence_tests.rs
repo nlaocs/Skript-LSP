@@ -1,4 +1,5 @@
 //! Actual ParserAnalyzer outputs after changed input versus a fresh current parse.
+mod mixed_provider_tests;
 use super::*;
 use lsp_types::{DiagnosticSeverity, MarkupKind, NumberOrString, Position, Range};
 

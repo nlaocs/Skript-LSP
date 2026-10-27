@@ -2,6 +2,10 @@
 #![allow(missing_docs)]
 
 mod default_expression;
+#[cfg(feature = "semantic-state")]
+mod semantic_state;
+#[cfg(feature = "semantic-state")]
+use semantic_state::SemanticStateAddon;
 #[cfg(feature = "body-lifecycle")]
 mod body_lifecycle;
 #[cfg(feature = "body-lifecycle")]
@@ -576,7 +580,10 @@ impl ast_macro::Guest for ExpressionDataAddon {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", not(feature = "body-lifecycle")))]
+#[cfg(all(target_arch = "wasm32", not(any(feature = "body-lifecycle", feature = "semantic-state"))))]
 export!(ExpressionDataAddon);
 #[cfg(all(target_arch = "wasm32", feature = "body-lifecycle"))]
 export!(BodyLifecycleAddon);
+
+#[cfg(all(target_arch = "wasm32", feature = "semantic-state"))]
+export!(SemanticStateAddon);

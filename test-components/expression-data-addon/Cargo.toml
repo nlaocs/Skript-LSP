@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 addon-b = []
 body-lifecycle = []
+semantic-state = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]
