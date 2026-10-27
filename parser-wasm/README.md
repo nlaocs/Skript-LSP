@@ -163,7 +163,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 25.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 28.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts

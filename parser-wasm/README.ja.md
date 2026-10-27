@@ -119,7 +119,7 @@ Function情報は不正なhook出力として拒否し、providerのstateをroll
 このWIT/ABI変更ではCoreLibraryと外部componentの再ビルドが必要です。
 WIT 0.40.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
 `@0.40.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 22.0の
-componentは、必要なABI 26.0を示すhandshake診断で拒否されます。
+componentは、必要なABI 28.0を示すhandshake診断で拒否されます。
 現行WITとSDKを使って再ビルドしてください。manifestのversion変更だけでは移行できません。
 
 ### WIT 0.41: 省略の根拠と明示的な再利用契約
