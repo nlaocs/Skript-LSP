@@ -153,7 +153,12 @@ impl ReceiptRegistry {
         if matches!(mode, HookMode::Observe) && semantic_effects == SemanticEffects::None {
             return None;
         }
-        writers.writers.insert(component.to_owned());
+        // A validated Observe cannot replace payload or change control. Its
+        // host-proven private State writes retain participation/dependencies,
+        // but do not author the current payload's semantic facts.
+        if !matches!(mode, HookMode::Observe) || semantic_effects != SemanticEffects::Local {
+            writers.writers.insert(component.to_owned());
+        }
         let Ok(previous) = self.sequence.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(1)) else {
             self.exhausted = true;
             return None;
@@ -612,23 +617,31 @@ impl SemanticProofRegistry {
             }
         }
         let mut global = BTreeSet::new();
-        for token in &retained {
-            if let Some(receipt) = receipts
-                .and_then(|registry| registry.receipts.get(token))
-                .filter(|receipt| receipt.unbound)
-            {
-                global.extend(receipt.writers.iter().cloned());
-            }
-        }
-        for token in retained.difference(&attached) {
-            let Some(receipt) = receipts.and_then(|registry| registry.receipts.get(token)) else {
+        let mut fallback = retained.iter().filter(|token| {
+            !attached.contains(*token) || receipts
+                .and_then(|registry| registry.receipts.get(*token))
+                .is_some_and(|receipt| receipt.unbound)
+        }).copied().collect::<Vec<_>>();
+        let mut visited = BTreeSet::new();
+        while let Some(token) = fallback.pop() {
+            if !visited.insert(token) { continue; }
+            let Some(receipt) = receipts.and_then(|registry| registry.receipts.get(&token)) else {
                 result.valid = false;
                 continue;
             };
             result.valid &= receipt.valid;
-            // Matching/other receipts without a surviving native-node binding
-            // conservatively affect the document, never disappear from proof.
+            // Unknown/unattached reach keeps every participant, including a
+            // private observer excluded from the bound semantic-writer set.
+            // This is conservative recovery, never admission of another call.
+            global.insert(receipt.issuer.clone());
             global.extend(receipt.writers.iter().cloned());
+            for parent in receipt.parents.iter().chain(&receipt.admitted_nested) {
+                // Host IDs are allocated after parents/nested calls. Body
+                // imports preserve those IDs and topology. A forward/self
+                // edge is invalid; visited does not legitimize a cycle.
+                if *parent >= token { result.valid = false; }
+                else { fallback.push(*parent); }
+            }
         }
         let index: BTreeMap<_, _> = tree.nodes.iter().map(|node| (node.id, node)).collect();
         let mut ancestors = own.clone();

@@ -1193,6 +1193,15 @@ successful writes mixed with a caught State API error remain conservative global
 dependencies. Context, extra parsing and dynamic registration effects retain
 their existing global treatment.
 
+A host-validated Observe hook cannot replace the payload or change parser control.
+When its only writes are the proven private Invocation/Parse writes above, its
+receipt and State dependencies remain recorded, but the hook does not become a
+semantic modifier of the current payload. This preserves independent Core header
+and binding facts without certifying any observer-provided facts. Actual modifying
+hooks, even from the same component, remain semantic writers. Unknown/unattached
+reach recovers all receipt participants through the closed host ancestry, including
+past private observers; it never grants adoption or reuse authority.
+
 Local State reach is not a purity, type or incremental-reuse certificate. Actual
 node transformations and ancestor/subtree writers, unattached retained receipts,
 the unique semantic issuer check and native source/revision validation all remain

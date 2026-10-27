@@ -31,6 +31,7 @@ fn isolated_private_writes_preserve_core_types_with_one_or_two_other_addons() {
         let actual=analyze(&mut mixed(count,"local"),SOURCE,1);
         assert_eq!(hints(&actual),expected,"count={count}");
         assert_eq!(diagnostics(&actual).0,diagnostics(&baseline).0);
+        assert_eq!(actual.semantic.as_ref().unwrap().document_symbols(true),baseline.semantic.as_ref().unwrap().document_symbols(true),"count={count}");
         let read=position(SOURCE,SOURCE.rfind("{_x}").unwrap()+2);
         assert_eq!(actual.semantic.as_ref().unwrap().hover(read),baseline.semantic.as_ref().unwrap().hover(read));
     }
@@ -49,9 +50,25 @@ fn mixed_private_state_results_follow_current_source_edits_and_reopen() {
     let changed=SOURCE.replace("to 1","to \"日本😀\"");
     let edited=analyze(&mut warm,&changed,2);let fresh=analyze(&mut mixed(2,"local"),&changed,1);
     assert_eq!(hints(&edited),hints(&fresh));assert_ne!(hints(&edited),hints(&initial));
+    assert_eq!(edited.semantic.as_ref().unwrap().document_symbols(true),fresh.semantic.as_ref().unwrap().document_symbols(true));
     let at=position(&changed,changed.find("{_x}").unwrap()+2);
     assert!(matches!(edited.semantic.as_ref().unwrap().type_at(at),Some((_,semantic::InferredType::Values {classes,..})) if classes.contains("java.lang.String")));
     let uri="file:///workspace/output-equivalence.sk";
     assert!(warm.host.release_document("file:///workspace",&document_key(uri),2).unwrap());
     let reopened=analyze(&mut warm,SOURCE,3);assert_eq!(hints(&reopened),hints(&initial));
+    assert_eq!(reopened.semantic.as_ref().unwrap().document_symbols(true),initial.semantic.as_ref().unwrap().document_symbols(true));
+}
+
+#[test]
+fn private_observers_preserve_first_event_outline_and_binding_types() {
+    let source=SOURCE.replacen("on load:\n","on load:\n    set {_setup} to 7\n",1);
+    let baseline=analyze(&mut analyzer(),&source,1);let expected=hints(&baseline);
+    assert_eq!(expected.as_array().unwrap().len(),3);
+    let symbols=baseline.semantic.as_ref().unwrap().document_symbols(true);assert_eq!(symbols.as_array().unwrap().len(),2);
+    for count in 1..=2 {
+        let actual=analyze(&mut mixed(count,"local"),&source,1);
+        assert_eq!(hints(&actual),expected,"count={count}");
+        assert_eq!(actual.semantic.as_ref().unwrap().document_symbols(true),symbols,"count={count}");
+        assert_eq!(diagnostics(&actual).0,diagnostics(&baseline).0);
+    }
 }
