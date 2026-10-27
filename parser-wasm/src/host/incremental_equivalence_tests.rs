@@ -829,6 +829,51 @@ fn real_core_nested_medium_bodies_remain_cold_with_unlisted_resolvers() {
 }
 
 #[test]
+fn real_core_body_preserves_current_prefix_through_consecutive_edits() {
+    let source="on load:\n    set {_edit_probe} to 1\nfunction publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 3:\n        return \"regular\"\n    return \"starter\"\n";
+    let fixture="skript-2.15.4-type-runtime";
+    let mut host=actual_host_with_fixture(fixture);
+    host.components[0].manifest.incremental_local_subscriptions.clear();
+    host.components[0].manifest.incremental_header_handlers.clear();
+    let initial=run(&mut host,source,1);
+    assert!(initial.syntax.diagnostics.is_empty(),"{:?}",initial.syntax.diagnostics);
+    assert_eq!(host.incremental_metrics().body_stored,2);
+    let mut current=source.to_owned();
+    for (index,(label,next,must_hit)) in [
+        ("same",source.to_owned(),true),
+        ("sibling-edit",source.replace("probe} to 1","probe} to 2"),true),
+        ("consecutive-edit",source.replace("probe} to 1","probe} to 3"),true),
+        ("prefix-length",source.replace("probe} to 1","probe} to 333"),false),
+        ("unicode-offset",format!("# \u{65e5}\u{1f98a}\r\n{source}"),false),
+        ("declaration",source.replace("streak: number","streak: text"),false),
+        ("incomplete",source.replace("if {_streak} >= 7:","if:"),false),
+    ].into_iter().enumerate() {
+        assert!(index==0 || current!=next);
+        current=next;
+        let revision=index as u64+2;
+        let before=guest_calls(&host);
+        let (warm,events)=run_with_body_preparations(&mut host,&current,revision);
+        let calls=guest_calls(&host)-before;
+        let metrics=host.incremental_metrics();
+        let mut cold=actual_host_with_fixture(fixture);
+        cold.components[0].manifest.incremental_local_subscriptions.clear();
+        cold.components[0].manifest.incremental_header_handlers.clear();
+        cold.components[0].manifest.incremental_body_subscriptions.clear();
+        cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+        let before=guest_calls(&cold);
+        let (clean,clean_events)=run_with_body_preparations(&mut cold,&current,revision);
+        assert_equivalent(&warm,&clean);
+        assert_eq!(events,clean_events,"{label}: current owner/context/preparation order");
+        if must_hit {
+            assert_eq!(metrics.body_hits,2,"{label}: {metrics:?}");
+            assert!(calls<guest_calls(&cold)-before,"{label}");
+        }
+        assert!(host.active_parse_requests.is_empty());
+        assert!(host.components.iter().all(|entry|entry.store.data().invocation.is_none()));
+    }
+}
+
+#[test]
 fn real_core_nested_body_replays_real_preparations_and_complete_invocations() {
     let source="# edit:a\nfunction publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    if {_streak} >= 3:\n        return 4\n    return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 7:\n        return \"weekly\"\n    if {_streak} >= 3:\n        return \"regular\"\n    return \"starter\"\n";
     for fixture in ["skript-2.15.4-type-runtime","skript-2.16.2-java25"] {

@@ -672,6 +672,7 @@ struct ParseTransactionInner {
     // Not rolled back: different speculative writes must not share memo keys.
     next_overlay_revision: u64,
     applied_deltas: Arc<BTreeSet<u64>>,
+    // One non-rewound clock orders both delta IDs and their origin savepoints.
     next_delta_id: u64,
     // Observed reads and mutation attempts are not rewound by candidate rollback.
     observations: observation::ReadObservations,
@@ -679,7 +680,42 @@ struct ParseTransactionInner {
 }
 
 impl ParseTransactionInner {
+    fn reserve_receipt_id(&mut self) -> Result<u64, StateError> {
+        let id = self.next_delta_id;
+        self.next_delta_id = id.checked_add(1).ok_or_else(|| StateError::Internal {
+            message: "candidate receipt ID overflow".to_owned(),
+        })?;
+        Ok(id)
+    }
+
+    fn savepoint(&mut self) -> Result<StateSavepoint, StateError> {
+        Ok(StateSavepoint {
+            origin: self.reserve_receipt_id()?,
+            first_dependency_import: self.observations.dependency_origins.len(),
+            transaction_id: Arc::clone(&self.transaction_id),
+            writes: self.writes.clone(),
+            read_write_set: self.read_write_set.clone(),
+            base_revisions: self.base_revisions.clone(),
+            current_revisions: self.current_revisions.clone(),
+            overlay_revision: self.overlay_revision,
+            applied_deltas: self.applied_deltas.clone(),
+        })
+    }
+
     fn restore(&mut self, savepoint: &StateSavepoint) {
+        // Restoring a sibling snapshot can introduce dependencies just like a
+        // deferred delta. Pure rollback (discarding dependencies) needs no new
+        // receipt; preserve the origin only when dependencies are imported.
+        if self.observations.enabled && (
+            (!Arc::ptr_eq(&self.read_write_set, &savepoint.read_write_set)
+                && (!savepoint.read_write_set.reads.is_subset(&self.read_write_set.reads)
+                    || savepoint.read_write_set.namespace_revisions.keys()
+                        .any(|key| !self.read_write_set.namespace_revisions.contains_key(key))))
+            || (!Arc::ptr_eq(&self.current_revisions, &savepoint.current_revisions)
+                && savepoint.current_revisions.keys().any(|key| !self.current_revisions.contains_key(key)))
+        ) {
+            self.observations.import_dependencies(savepoint.origin);
+        }
         self.writes.clone_from(&savepoint.writes);
         self.read_write_set.clone_from(&savepoint.read_write_set);
         self.base_revisions.clone_from(&savepoint.base_revisions);
@@ -745,17 +781,9 @@ impl ParseTransaction {
 
     /// Captures a rollback point in the current parse overlay.
     pub fn savepoint(&self) -> Result<StateSavepoint, StateError> {
-        let inner = self.lock()?;
+        let mut inner = self.lock()?;
         inner.ensure_open()?;
-        Ok(StateSavepoint {
-            transaction_id: Arc::clone(&inner.transaction_id),
-            writes: inner.writes.clone(),
-            read_write_set: inner.read_write_set.clone(),
-            base_revisions: inner.base_revisions.clone(),
-            current_revisions: inner.current_revisions.clone(),
-            overlay_revision: inner.overlay_revision,
-            applied_deltas: inner.applied_deltas.clone(),
-        })
+        inner.savepoint()
     }
 
     /// Discards all parse-overlay changes after a compatible savepoint.
@@ -776,17 +804,15 @@ impl ParseTransaction {
         if !Arc::ptr_eq(&inner.transaction_id, &before.transaction_id) {
             return Err(StateError::ForeignSavepoint);
         }
-        let id = inner.next_delta_id;
-        inner.next_delta_id =
-            inner
-                .next_delta_id
-                .checked_add(1)
-                .ok_or_else(|| StateError::Internal {
-                    message: "candidate delta ID overflow".to_owned(),
-                })?;
+        let id = inner.reserve_receipt_id()?;
+        // Nested work may have been captured before this savepoint even when
+        // its aggregate delta is created afterwards. Keep its original floor.
+        let origin = inner.observations.dependency_origins[before.first_dependency_import..].iter()
+            .copied().fold(before.origin, u64::min);
         let delta = StateDelta {
             transaction_id: Arc::clone(&inner.transaction_id),
             id,
+            origin,
             writes: inner
                 .writes
                 .iter()
@@ -838,6 +864,7 @@ impl ParseTransaction {
         if inner.applied_deltas.contains(&delta.id) {
             return Ok(false);
         }
+        inner.observations.import_dependencies(delta.origin);
         let invocation = InvocationTransaction {
             parse: Arc::clone(&self.inner),
             component_id: String::new(),
@@ -940,6 +967,8 @@ impl ParseTransaction {
 /// Collections are shared until changed, so read-only probes do not copy the
 /// entire accepted prefix. Each branch still owns its writes and delta receipts.
 pub struct StateSavepoint {
+    origin: u64,
+    first_dependency_import: usize,
     transaction_id: Arc<()>,
     writes: Arc<BTreeMap<Address, Option<StateValue>>>,
     read_write_set: Arc<StateReadWriteSet>,
@@ -954,6 +983,7 @@ pub struct StateSavepoint {
 pub(crate) struct StateDelta {
     transaction_id: Arc<()>,
     id: u64,
+    origin: u64,
     writes: BTreeMap<Address, Option<StateValue>>,
     reads: BTreeSet<StateRecordKey>,
     write_set: BTreeSet<StateRecordKey>,

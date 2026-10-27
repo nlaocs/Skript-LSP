@@ -23,6 +23,20 @@ impl BodyReadCertificate {
     /// Payload bytes plus conservative per-record collection/struct allowance.
     pub(crate) fn retained_bytes(&self) -> usize { self.retained_bytes }
 
+    /// Prefix receipts may change only outside the complete body read footprint.
+    /// Namespace observations include negative and losing reads, and rereads of
+    /// prefix keys which do not appear in the adopted set difference.
+    fn prefix_reads_compatible(&self, current: &BTreeSet<StateRecordKey>) -> bool {
+        if current == &self.prefix_reads { return true; }
+        let observed = self.observations.iter().map(|entry| (
+            entry.key.scope, entry.key.namespace.visibility(),
+            entry.key.namespace.owner(), entry.key.namespace.name(),
+        )).collect::<BTreeSet<_>>();
+        self.prefix_reads.symmetric_difference(current).all(|key| !observed.contains(&(
+            key.scope, key.visibility, key.owner.as_deref(), key.namespace.as_str(),
+        )))
+    }
+
     /// A set delta is bookkeeping, not a complete read footprint: a body may
     /// reread an existing prefix record. Keep observation-namespace overlap too.
     #[cfg(test)]
@@ -64,11 +78,12 @@ impl ParseTransaction {
     pub(crate) fn body_read_refusal_profile(&self, certificate:&BodyReadCertificate, detail:bool) -> Result<serde_json::Value,StateError> {
         use sha2::{Digest,Sha256};
         let parse=self.lock()?;parse.ensure_open()?;
-        let reads=parse.read_write_set.reads==certificate.prefix_reads;
+        let reads_equal=parse.read_write_set.reads==certificate.prefix_reads;
+        let reads=certificate.prefix_reads_compatible(&parse.read_write_set.reads);
         let current=parse.current_revisions.keys().eq(certificate.prefix_namespaces.iter());
         let adopted=parse.read_write_set.namespace_revisions.keys().eq(certificate.prefix_adopted_namespaces.iter());
         let mut changed_namespaces=BTreeMap::new();let mut identity_blocked=false;
-        if !reads && parse.read_write_set.reads.len().saturating_add(certificate.prefix_reads.len())<=8192 {
+        if !reads_equal && parse.read_write_set.reads.len().saturating_add(certificate.prefix_reads.len())<=8192 {
             for (side,keys) in [("historicalOnly",certificate.prefix_reads.difference(&parse.read_write_set.reads)),
                 ("currentOnly",parse.read_write_set.reads.difference(&certificate.prefix_reads))] {
                 for key in keys {
@@ -79,7 +94,7 @@ impl ParseTransaction {
                 }
                 if identity_blocked {break;}
             }
-        } else if !reads {identity_blocked=true;}
+        } else if !reads_equal {identity_blocked=true;}
         let prefix_reason=if !parse.observations.enabled {Some("disabled")}
             else if parse.observations.exhausted {Some("exhausted")}
             else if !reads {Some("prefix_reads")}
@@ -157,7 +172,7 @@ impl ParseTransaction {
             }
         }
         Ok(serde_json::json!({"firstPrefixFailure":prefix_reason,
-            "prefixReadsEqual":reads,"prefixCurrentNamespacesEqual":current,"prefixAdoptedNamespacesEqual":adopted,
+            "prefixReadsEqual":reads_equal,"prefixReadsCompatible":reads,"prefixCurrentNamespacesEqual":current,"prefixAdoptedNamespacesEqual":adopted,
             "prefixChangedNamespaces":changed_namespaces,"prefixIdentityBudgetBlocked":identity_blocked,
             "expectedPrefixReads":certificate.prefix_reads.len(),"currentPrefixReads":parse.read_write_set.reads.len(),
             "prefixIdentityShapesEqual":prefix_identity_shapes_equal,"detailRequested":detail,
@@ -173,7 +188,7 @@ impl ParseTransaction {
     pub(crate) fn body_shadow_check_reads(&self, certificate:&BodyReadCertificate) -> Result<serde_json::Value,StateError> {
         use sha2::Digest;
         let parse=self.lock()?;parse.ensure_open()?;
-        let prefix=parse.read_write_set.reads==certificate.prefix_reads
+        let prefix=certificate.prefix_reads_compatible(&parse.read_write_set.reads)
             && parse.current_revisions.keys().eq(certificate.prefix_namespaces.iter())
             && parse.read_write_set.namespace_revisions.keys().eq(certificate.prefix_adopted_namespaces.iter());
         let store=parse.store.lock()?;
@@ -223,9 +238,18 @@ impl ParseTransaction {
     }
 
     pub(crate) fn body_observation_checkpoint(&self) -> Result<BodyObservationCheckpoint, StateError> {
+        // Capture observations, the overlay and the deferred-work generation
+        // under one lock; no deferred read may fall between these boundaries.
+        let mut parse = self.lock()?;
+        parse.ensure_open()?;
         Ok(BodyObservationCheckpoint {
-            observation: self.observation_checkpoint()?,
-            state: self.savepoint()?,
+            observation: StateObservationCheckpoint {
+                transaction_id: parse.transaction_id.clone(),
+                first: parse.observations.entries.len(),
+                mutations: parse.observations.mutation_attempts,
+                failures: parse.observations.failures,
+            },
+            state: parse.savepoint()?,
         })
     }
 
@@ -251,6 +275,10 @@ impl ParseTransaction {
             || parse.read_write_set.writes != before.state.read_write_set.writes
             || parse.overlay_revision != before.state.overlay_revision
             || !before.state.applied_deltas.is_subset(&parse.applied_deltas)
+            // Dependencies captured before this body must not be imported by
+            // a later-created delta, even in a losing/rolled-back candidate.
+            || parse.observations.dependency_origins[before.state.first_dependency_import..].iter()
+                .any(|origin| *origin < before.state.origin)
             || !before.state.current_revisions.iter().all(|(key,value)| parse.current_revisions.get(key) == Some(value))
             || !before.state.base_revisions.iter().all(|(key,value)| parse.base_revisions.get(key) == Some(value))
             || !before.state.read_write_set.reads.is_subset(&parse.read_write_set.reads)
@@ -296,7 +324,7 @@ impl ParseTransaction {
         let mut parse = self.lock()?;
         parse.ensure_open()?;
         if !parse.observations.enabled || parse.observations.exhausted
-            || parse.read_write_set.reads != certificate.prefix_reads
+            || !certificate.prefix_reads_compatible(&parse.read_write_set.reads)
             || !parse.current_revisions.keys().eq(certificate.prefix_namespaces.iter())
             || !parse.read_write_set.namespace_revisions.keys().eq(certificate.prefix_adopted_namespaces.iter())
         {
@@ -310,13 +338,22 @@ impl ParseTransaction {
         for key in &certificate.namespaces {
             let revision = parse.revision(&mut store, key)?;
             let public = key.public();
-            if certificate.adopted_namespaces.contains(&public) {
+            if certificate.adopted_namespaces.contains(&public)
+                && !parse.read_write_set.namespace_revisions.contains_key(&public)
+            {
                 Arc::make_mut(&mut parse.read_write_set)
                     .namespace_revisions.entry(public).or_insert(revision);
             }
         }
-        if parse.read_write_set.reads != certificate.adopted_reads {
-            Arc::make_mut(&mut parse.read_write_set).reads = certificate.adopted_reads.clone();
+        // Keep the fresh prefix, including current preparation/receipt keys.
+        // Only selected body reads are adopted; never copy the historical
+        // prefix, or adopt reads from rejected speculative candidates.
+        if certificate.adopted_reads.difference(&certificate.prefix_reads)
+            .any(|key| !parse.read_write_set.reads.contains(key))
+        {
+            Arc::make_mut(&mut parse.read_write_set).reads.extend(
+                certificate.adopted_reads.difference(&certificate.prefix_reads).cloned(),
+            );
         }
         // Preserve rejected/negative observations for an enclosing certified
         // scope, without adopting their speculative read/write dependencies.
@@ -401,6 +438,249 @@ mod tests {
         call.observe_reads();
         call.get(StateScope::Parse, NamespaceVisibility::Private, NAMESPACE, key).unwrap();
         if adopted { call.commit().unwrap(); } else { call.rollback(); }
+    }
+    fn prefix_receipt(parse: &ParseTransaction, key: &str) {
+        let mut call = parse.begin_invocation(OWNER).unwrap();
+        call.observe_reads();
+        call.get(StateScope::Parse, NamespaceVisibility::Private, "losing", key).unwrap();
+        call.commit().unwrap();
+    }
+    #[test]
+    fn body_certificate_merges_only_body_reads_into_the_current_prefix() {
+        let store = store();
+        let first = parse(&store, 1);
+        prefix_receipt(&first, "old-receipt");
+        let before = first.body_observation_checkpoint().unwrap();
+        get(&first, "selected", true);
+        get(&first, "rejected", false);
+        let certificate = first.body_read_certificate(&before).unwrap().unwrap();
+        first.cancel().unwrap();
+
+        for revision in 2..6 {
+            let receipt = format!("current-receipt-{revision}");
+            let current = parse(&store, revision);
+            prefix_receipt(&current, &receipt);
+            let prefix = current.savepoint().unwrap();
+            let expected_prefix = current.read_write_set().unwrap();
+            let report = current.body_read_refusal_profile(&certificate, true).unwrap();
+            assert_eq!(report["prefixReadsEqual"], false);
+            assert_eq!(report["prefixReadsCompatible"], true);
+            assert_eq!(current.body_shadow_check_reads(&certificate).unwrap()["status"], "Pass");
+            assert!(current.replay_body_read_certificate(&certificate).unwrap());
+            let actual = current.read_write_set().unwrap();
+            assert!(expected_prefix.reads.is_subset(&actual.reads));
+            assert!(!actual.reads.iter().any(|read| matches!(read.key.as_str(), "old-receipt" | "rejected")));
+            current.rollback_to(&prefix).unwrap();
+            assert_eq!(current.read_write_set().unwrap(), expected_prefix);
+            get(&current, "selected", true);
+            get(&current, "rejected", false);
+            assert_eq!(current.read_write_set().unwrap(), actual, "cold dependencies in the current revision");
+            current.cancel().unwrap();
+        }
+    }
+    #[test]
+    fn body_certificate_namespace_overlap_includes_rereads_and_losing_empty_scans() {
+        for reread in [false, true] {
+            let store = store();
+            let first = parse(&store, 1);
+            prefix_receipt(&first, "old");
+            let before = first.body_observation_checkpoint().unwrap();
+            if reread {
+                prefix_receipt(&first, "old");
+            } else {
+                let mut losing = first.begin_invocation(OWNER).unwrap();
+                losing.observe_reads();
+                assert!(losing.scan_prefix(StateScope::Parse, NamespaceVisibility::Private, "losing", "missing", 1).unwrap().is_empty());
+                losing.rollback();
+            }
+            let certificate = first.body_read_certificate(&before).unwrap().unwrap();
+            assert!(certificate.adopted_reads.difference(&certificate.prefix_reads).next().is_none());
+            first.cancel().unwrap();
+            let current = parse(&store, 2);
+            prefix_receipt(&current, "new");
+            let prefix = current.read_write_set().unwrap();
+            assert!(!current.replay_body_read_certificate(&certificate).unwrap());
+            assert_eq!(current.read_write_set().unwrap(), prefix);
+            current.cancel().unwrap();
+        }
+    }
+    #[test]
+    fn body_certificate_prefix_compatibility_uses_scope_visibility_and_owner() {
+        let store = store();
+        let first = parse(&store, 1);
+        let before = first.body_observation_checkpoint().unwrap();
+        get(&first, "value", false);
+        let mut certificate = first.body_read_certificate(&before).unwrap().unwrap();
+        let mut key = StateRecordKey { scope: StateScope::Parse, visibility: NamespaceVisibility::Private,
+            owner: Some(OWNER.into()), namespace: NAMESPACE.into(), key: "old".into() };
+        for distinct in ["same", "scope", "owner", "visibility", "name"] {
+            key.scope = StateScope::Parse; key.visibility = NamespaceVisibility::Private;
+            key.owner = Some(OWNER.into()); key.namespace = NAMESPACE.into(); key.key = "old".into();
+            match distinct {
+                "scope" => key.scope = StateScope::Project,
+                "owner" => key.owner = Some("test.other".into()),
+                "visibility" => { key.visibility = NamespaceVisibility::Shared; key.owner = None; },
+                "name" => key.namespace = "other".into(),
+                _ => {},
+            }
+            certificate.prefix_reads = BTreeSet::from([key.clone()]);
+            key.key = "current".into();
+            assert_eq!(certificate.prefix_reads_compatible(&BTreeSet::from([key.clone()])), distinct != "same", "{distinct}");
+        }
+        first.cancel().unwrap();
+    }
+    #[test]
+    fn body_certificate_rejects_pre_body_deferred_reads_including_nested_deltas() {
+        for (nested, rolled_back) in [(false, false), (true, false), (false, true), (true, true)] {
+            let store = store();
+            let current = parse(&store, 1);
+            let prefix = current.savepoint().unwrap();
+            get(&current, "deferred-read", true);
+            let old = current.defer_since(&prefix).unwrap();
+            let before = current.body_observation_checkpoint().unwrap();
+            assert!(current.apply_delta(&old).unwrap());
+            if nested {
+                let outer = current.defer_since(&prefix).unwrap();
+                assert!(current.apply_delta(&outer).unwrap());
+            }
+            if rolled_back { current.rollback_to(&prefix).unwrap(); }
+            assert!(current.body_read_certificate(&before).unwrap().is_none(), "{nested}/{rolled_back}");
+            current.cancel().unwrap();
+        }
+    }
+    #[test]
+    fn body_certificate_rejects_new_deltas_from_savepoints_crossing_the_body_boundary() {
+        for nested in [false, true] {
+            let store = store();
+            let current = parse(&store, 1);
+            let old = current.savepoint().unwrap();
+            get(&current, "pre-body-read", true);
+            let before = current.body_observation_checkpoint().unwrap();
+            let late = current.defer_since(&old).unwrap();
+            assert!(late.id > before.state.origin);
+            assert!(late.origin < before.state.origin, "creation time is not the dependency origin");
+            assert!(current.apply_delta(&late).unwrap());
+            if nested {
+                let outer = current.defer_since(&before.state).unwrap();
+                assert_eq!(outer.origin, old.origin, "wrapping a late delta must not erase its older dependencies");
+                assert!(current.apply_delta(&outer).unwrap());
+            }
+            assert!(current.body_read_certificate(&before).unwrap().is_none(), "{nested}");
+            current.cancel().unwrap();
+        }
+    }
+    #[test]
+    fn body_certificate_rejects_pre_body_snapshot_dependency_imports_after_rollback() {
+        for rolled_back in [false, true] {
+            let store = store();
+            let current = parse(&store, 1);
+            get(&current, "prefix", true);
+            let prefix = current.savepoint().unwrap();
+            get(&current, "earlier-branch-read", true);
+            let earlier = current.savepoint().unwrap();
+            current.rollback_to(&prefix).unwrap();
+            let before = current.body_observation_checkpoint().unwrap();
+            current.rollback_to(&earlier).unwrap();
+            if rolled_back { current.rollback_to(&prefix).unwrap(); }
+            assert!(current.body_read_certificate(&before).unwrap().is_none(), "{rolled_back}");
+            current.cancel().unwrap();
+        }
+    }
+    #[test]
+    fn body_certificate_allows_body_local_snapshot_imports_and_dependency_discard() {
+        for restore_body_snapshot in [false, true] {
+            let store = store();
+            let current = parse(&store, 1);
+            get(&current, "prefix", true);
+            let prefix = current.savepoint().unwrap();
+            let before = current.body_observation_checkpoint().unwrap();
+            let history = current.lock().unwrap().observations.dependency_origins.len();
+            get(&current, "body", true);
+            let body_snapshot = current.savepoint().unwrap();
+            current.rollback_to(&prefix).unwrap();
+            assert_eq!(current.lock().unwrap().observations.dependency_origins.len(), history,
+                "dropping dependencies must not attribute reads to an older prefix");
+            if restore_body_snapshot { current.rollback_to(&body_snapshot).unwrap(); }
+            assert!(current.body_read_certificate(&before).unwrap().is_some(), "{restore_body_snapshot}");
+            current.cancel().unwrap();
+        }
+    }
+    #[test]
+    fn body_certificate_allows_body_local_deferred_reads_and_existing_prefix_deltas() {
+        let store = store();
+        let first = parse(&store, 1);
+        let prefix = first.savepoint().unwrap();
+        prefix_receipt(&first, "old");
+        let prefix_delta = first.defer_since(&prefix).unwrap();
+        first.apply_delta(&prefix_delta).unwrap();
+        let before = first.body_observation_checkpoint().unwrap();
+        assert!(!first.apply_delta(&prefix_delta).unwrap(), "already-applied prefix delta is a no-op");
+        let point = first.savepoint().unwrap();
+        get(&first, "selected", true);
+        let body_delta = first.defer_since(&point).unwrap();
+        first.apply_delta(&body_delta).unwrap();
+        let certificate = first.body_read_certificate(&before).unwrap().unwrap();
+        first.cancel().unwrap();
+        let current = parse(&store, 2);
+        prefix_receipt(&current, "new");
+        let prefix = current.read_write_set().unwrap();
+        assert!(current.replay_body_read_certificate(&certificate).unwrap());
+        assert!(prefix.reads.is_subset(&current.read_write_set().unwrap().reads));
+        assert!(current.lock().unwrap().applied_deltas.is_empty(), "historical delta receipts grant no current authority");
+        current.cancel().unwrap();
+    }
+    #[test]
+    fn body_certificate_delta_observation_limit_fails_closed() {
+        let store = store();
+        let current = parse(&store, 1);
+        let point = current.savepoint().unwrap();
+        let before = current.body_observation_checkpoint().unwrap();
+        let delta = current.defer_since(&point).unwrap();
+        current.lock().unwrap().observations.dependency_origins = vec![delta.origin; MAX_OBSERVATIONS];
+        assert!(current.apply_delta(&delta).unwrap());
+        assert!(current.lock().unwrap().observations.exhausted);
+        assert!(current.body_read_certificate(&before).unwrap().is_none());
+        current.cancel().unwrap();
+    }
+    #[test]
+    fn body_certificate_savepoint_origin_clock_never_wraps_or_rolls_back() {
+        let store = store();
+        let current = parse(&store, 1);
+        let point = current.savepoint().unwrap();
+        let later = current.savepoint().unwrap();
+        current.rollback_to(&point).unwrap();
+        let after = current.savepoint().unwrap();
+        assert!(point.origin < later.origin && later.origin < after.origin);
+        current.lock().unwrap().next_delta_id = u64::MAX;
+        assert!(current.savepoint().is_err());
+        assert!(current.body_observation_checkpoint().is_err());
+        assert_eq!(current.lock().unwrap().next_delta_id, u64::MAX);
+        current.cancel().unwrap();
+    }
+    #[test]
+    fn body_certificate_disjoint_prefix_still_checks_values_and_permissions() {
+        let store = store();
+        let first = parse(&store, 1);
+        prefix_receipt(&first, "old");
+        let before = first.body_observation_checkpoint().unwrap();
+        get(&first, "missing", false);
+        let certificate = first.body_read_certificate(&before).unwrap().unwrap();
+        first.cancel().unwrap();
+        for changed_value in [false, true] {
+            let current = parse(&store, if changed_value { 3 } else { 2 });
+            prefix_receipt(&current, "new");
+            let mut cert = certificate.clone();
+            if changed_value {
+                let mut write = current.begin_invocation(OWNER).unwrap();
+                write.put(StateScope::Parse, NamespaceVisibility::Private, NAMESPACE, "missing",
+                    StateValue::new("test.values", StateEncoding::Raw, b"now-present")).unwrap();
+                write.commit().unwrap();
+            } else { cert.observations[0].component = "test.unknown".into(); }
+            let unchanged = current.read_write_set().unwrap();
+            assert!(!current.replay_body_read_certificate(&cert).unwrap());
+            assert_eq!(current.read_write_set().unwrap(), unchanged);
+            current.cancel().unwrap();
+        }
     }
     #[test]
     fn refusal_profile_distinguishes_prefix_identity_values_and_unobserved_limits_without_effects() {

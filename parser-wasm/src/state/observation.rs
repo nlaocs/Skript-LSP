@@ -243,6 +243,9 @@ mod tests {
 pub(super) struct ReadObservations {
     pub(super) enabled: bool,
     entries: Vec<NamespaceObservation>,
+    // Deferred work and snapshot imports survive candidate rollback, including
+    // failed merge attempts. Store origins, never payloads or opaque resources.
+    pub(super) dependency_origins: Vec<u64>,
     bytes: usize,
     exhausted: bool,
     mutation_attempts: u64,
@@ -250,6 +253,19 @@ pub(super) struct ReadObservations {
 }
 
 impl ReadObservations {
+    pub(super) fn import_dependencies(&mut self, origin: u64) {
+        if !self.enabled || self.exhausted { return; }
+        let bytes = std::mem::size_of::<u64>();
+        if self.dependency_origins.len() >= MAX_OBSERVATIONS
+            || self.bytes.saturating_add(bytes) > MAX_OBSERVED_BYTES
+        {
+            self.exhausted = true;
+            return;
+        }
+        self.bytes += bytes;
+        self.dependency_origins.push(origin);
+    }
+
     pub(super) fn read(
         &mut self,
         component: &str,

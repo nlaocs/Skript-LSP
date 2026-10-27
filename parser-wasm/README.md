@@ -15,6 +15,13 @@ consumed-resource coverage before data-only preparations can be replayed. No old
 opaque resource or State delta is adopted. Function lookup, AdditionalParse
 attempts, unknown resources and mutations remain cold. Headers,
 declaration registration, ExitBody and final source/forest proof still run.
+Body replay retains the current prefix's State read dependencies and adds only
+the certified body's adopted reads. Changed prefix record identities are allowed
+only in namespaces disjoint from every body observation, including negative and
+rejected reads. Namespace identity includes scope, visibility and owner; current
+namespace sets, values and permissions are still checked. Dependency imports
+from pre-body savepoints, including later-created deferred work and restored
+snapshots, stay cold; bounded origin history survives rejection and rollback.
 Aggregate registered-expression subscriptions can opt in for an individually
 audited handler set. All handlers targeting the current registration must be
 listed, even when their pattern/tag/mark selectors do not match. The declaration
