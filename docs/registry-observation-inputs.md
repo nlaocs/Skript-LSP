@@ -12,7 +12,7 @@ The whole-Manifest limit includes ordinary environment metadata. It differs from
 SSG's 512 KiB limit for the compact observation object itself. Larger or malformed
 inputs fail closed; neither limit is removed.
 
-Preparation parses the Manifest once, moves its observation out of the JSON tree,
+Preparation reads the observation directly into bounded typed structures,
 and checks every Type/EventValue projection, exact binding and referenced identity.
 Production input uses an opaque Manifest token constructed only by the fixed host
 reader. Its full retained-source digest covers every filename, length and exact

@@ -178,3 +178,20 @@ fn trusted_manifest_token_keeps_name_source_and_unbound_bytes_separate() {
     let mut changed=source.clone();changed.source_digest="b".repeat(64);
     assert_eq!(BoundObservation::split_bound_manifest(&token,&changed).err(),Some(Failure::Source));
 }
+
+#[test]
+fn typed_envelope_keeps_missing_null_malformed_duplicate_and_unknown_fields_distinct() {
+    let f=fixture();let mut root:Value=serde_json::from_slice(&manifest(&f)).unwrap();
+    for malformed in [Value::Null,json!(false),json!({"version":1})] {
+        root["registryCapture"]=malformed;
+        assert_eq!(BoundObservation::parse(&source(),&serde_json::to_vec(&root).unwrap(),&source()).err(),Some(Failure::Version));
+    }
+    let absent=serde_json::to_vec(&json!({"schemaVersion":7,"snapshotId":source().snapshot_id})).unwrap();
+    assert!(BoundObservation::parse(&source(),&absent,&source()).unwrap().is_none());
+    let duplicate=format!("{{\"schemaVersion\":7,\"schemaVersion\":7,\"snapshotId\":\"{}\"}}",source().snapshot_id);
+    assert!(serde_json::from_str::<Value>(&duplicate).is_ok(),"the duplicate fixture is syntactically valid JSON");
+    assert_eq!(BoundObservation::parse(&source(),duplicate.as_bytes(),&source()).err(),Some(Failure::Version));
+    let mut original:Value=serde_json::from_slice(&manifest(&f)).unwrap();original["unusedFutureData"]=json!({"values":[1,2,3]});
+    let bound=BoundObservation::parse(&source(),&serde_json::to_vec(&original).unwrap(),&source()).unwrap().unwrap();
+    assert_eq!(bound.check_projection(f["types"].as_array().unwrap(),f["eventValues"].as_array().unwrap()),Ok(()));
+}

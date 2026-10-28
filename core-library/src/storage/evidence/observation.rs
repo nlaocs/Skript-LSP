@@ -13,6 +13,28 @@ pub(super) struct Observation {
     before:Boundary, after:Boundary, consistent:bool, complete:bool, entries:Vec<Entry>,
     exact_bindings:Vec<Exact>, classes:Vec<JavaClass>, loaders:Vec<Loader>, getters:Vec<Getter>, failures:Vec<String>,
 }
+/// Only the metadata actually consumed by the storage source model. Unknown
+/// fields remain available through the immutable host Catalog; skipping them
+/// here neither removes their raw-source fence nor supplies semantic authority.
+#[derive(Deserialize)]
+#[serde(rename_all="camelCase")]
+struct ManifestEnvelope {
+    schema_version:u32,
+    snapshot_id:String,
+    #[serde(default)] server:Value,
+    #[serde(default)] plugins:Value,
+    #[serde(default)] registry_capture:ObservationField,
+}
+
+#[derive(Default)]
+enum ObservationField { #[default] Absent, Present(Observation) }
+impl<'de> Deserialize<'de> for ObservationField {
+    fn deserialize<D:serde::Deserializer<'de>>(deserializer:D)->Result<Self,D::Error> {
+        // Only a missing field is Absent. Explicit null/malformed observations
+        // must not become a missing optional proof or authorize the legacy path.
+        Observation::deserialize(deserializer).map(Self::Present)
+    }
+}
 #[derive(Debug, Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Boundary { complete:bool, registrations_closed:Option<bool>, fingerprint:Option<String> }
@@ -54,8 +76,8 @@ impl BoundObservation {
         Self::split_manifest(before,bytes,after).and_then(|(_,observation)|observation)
     }
 
-    /// Parse the retained Manifest once. Move its optional observation out of
-    /// the JSON tree so source-profile checks need neither a second parse nor a
+    /// Parse the retained Manifest once directly into typed observation fields.
+    /// Source-profile checks need neither a large intermediate Value tree nor a
     /// deep clone. The raw-byte fence still covers the unmodified input bytes.
     pub(in crate::storage) fn split_manifest(before:&SourceIdentity, bytes:&[u8], after:&SourceIdentity)
         -> Result<(Value,Result<Option<Self>,Failure>),Failure>
@@ -78,11 +100,12 @@ impl BoundObservation {
     {
         if bytes.len()>2*1024*1024 {return Err(Failure::Limit);}
         if before!=after || !digest(&before.snapshot_id) || !digest(&before.source_digest) {return Err(Failure::Source);}
-        let mut root:Value=serde_json::from_slice(bytes).map_err(|_|Failure::Version)?;
-        if root["schemaVersion"]!=7 || root["snapshotId"].as_str()!=Some(before.snapshot_id.as_str()) {return Err(Failure::Source);}
-        let Some(raw)=root.as_object_mut().and_then(|o|o.remove("registryCapture")) else {return Ok((root,Ok(None)));};
+        let envelope:ManifestEnvelope=serde_json::from_slice(bytes).map_err(|_|Failure::Version)?;
+        if envelope.schema_version!=7 || envelope.snapshot_id!=before.snapshot_id {return Err(Failure::Source);}
+        let root=serde_json::json!({"schemaVersion":envelope.schema_version,"snapshotId":envelope.snapshot_id,
+            "server":envelope.server,"plugins":envelope.plugins});
+        let ObservationField::Present(observation)=envelope.registry_capture else {return Ok((root,Ok(None)));};
         let observation=(||{
-            let observation:Observation=serde_json::from_value(raw).map_err(|_|Failure::Version)?;
             observation.check()?;
             Ok(Some(Self {source:before.clone(),manifest_fence:fence(),observation}))
         })();
