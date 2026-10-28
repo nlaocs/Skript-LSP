@@ -24,6 +24,7 @@ mod document_symbols;
 #[cfg(test)]
 mod geometry_measurement;
 mod history;
+mod editor_types;
 mod navigation;
 mod type_knowledge;
 use history::{Invalidation, TypeHistory, historical_facts, invalidate, invalidate_where};
@@ -303,6 +304,7 @@ pub(super) struct Document {
     declared_parameters: HashMap<VariableKey, InferredType>,
     completion_points: Vec<CompletionPoint>,
     completion_type_bindings: usize,
+    editor_type_facts: Vec<parser_wasm::host::EditorCompletionTypeFact>,
     writes: Vec<Write>,
     pub functions: Vec<FunctionSymbol>,
     pub dependencies: BTreeSet<Dependency>,
@@ -454,6 +456,7 @@ impl Document {
             Some(result.functions.document_id().to_owned()),
             Some(&result.source),
             witnessed_nodes,
+            result.editor_completions.iter().flat_map(|batch|batch.inputs.iter()).filter(|input|input.is_current()).cloned().collect(),
         )?;
         document.symbols = document_symbols::collect(result, &document.lines, |node, issuer| {
             witnesses.provider_valid(node, issuer)
@@ -531,6 +534,7 @@ impl Document {
         native_owner: Option<String>,
         mapped_source: Option<&skript_parser::MappedSource>,
         witnessed_nodes: HashSet<u64>,
+        editor_inputs: Vec<parser_wasm::host::EditorCompletionInput>,
     ) -> Result<Self, String> {
         if mapped_source.is_some_and(|mapped| mapped.original()!=source.as_ref()) {
             return Err("semantic mapping differs from parsed source".into());
@@ -555,6 +559,7 @@ impl Document {
             declared_parameters: HashMap::new(),
             completion_points: Vec::new(),
             completion_type_bindings: 0,
+            editor_type_facts: Vec::new(),
             writes: Vec::new(),
             functions,
             dependencies: BTreeSet::new(),
@@ -585,6 +590,7 @@ impl Document {
             pending_completion_owner: None,
             evaluation_context: None,
             context_preservation: HashMap::new(),
+            editor_inputs,
         };
         for root in &ast.roots {
             let mut facts = Facts::new();
@@ -598,6 +604,8 @@ impl Document {
             .sort_by_key(|point| (point.range.start, point.range.end));
         Ok(document)
     }
+    pub fn editor_type_facts(&self) -> &[parser_wasm::host::EditorCompletionTypeFact] { &self.editor_type_facts }
+
     /// Only this exact revision's authenticated operand boundary can certify a
     /// candidate's stored local type. No previous occurrence is extrapolated.
     pub fn completion_input(
@@ -1101,6 +1109,7 @@ struct Engine<'a> {
     pending_completion_owner: Option<CompletionOwner>,
     evaluation_context: Option<(String, String, String)>,
     context_preservation: HashMap<u64, bool>,
+    editor_inputs: Vec<parser_wasm::host::EditorCompletionInput>,
 }
 impl Engine<'_> {
     fn node(&mut self, id: u64, scope: u64, facts: &mut Facts) -> Result<InferredType, String> {
@@ -1540,8 +1549,27 @@ impl Engine<'_> {
             })
             .collect::<Vec<_>>();
         barriers.sort_unstable_by_key(|(at, _)| *at);
+        // Read editing inputs at the same ordered boundary without advancing the
+        // semantic barriers or changing the final flow/history. A preceding
+        // unresolved line invalidates every local type, so that input is omitted.
+        let mut editing=if !opaque {self.editor_inputs.iter().filter(|input| {
+            raw_owner.is_some_and(|owner|owner.id.get()==input.owner_raw_node()
+                && owner.children.iter().filter_map(|id|self.raw_tree.get(*id)).filter(|raw|
+                    raw.parent==Some(owner.id) && raw.code_span.as_ref().is_some_and(|span|
+                        span.virtual_range.start as u64==input.line_span().virtual_range.start
+                        && span.virtual_range.end as u64==input.line_span().virtual_range.end
+                        && self.mapped_source.is_some_and(|source|source.virtual_source().get(span.virtual_range.start..span.virtual_range.end)==Some(input.line_input())))).count()==1)
+        }).cloned().collect::<Vec<_>>()}else{Vec::new()};
+        editing.sort_by_key(|input|input.line_span().virtual_range.start);
+        let mut editing=editing.into_iter().peekable();
         let mut barrier = 0;
         for (id, start) in ordered {
+            while editing.peek().is_some_and(|input|start.is_none_or(|at|input.line_span().virtual_range.start<=at as u64)) {
+                let input=editing.next().expect("peeked input");
+                if !barriers.get(barrier).is_some_and(|(at,_)|(*at as u64)<input.line_span().virtual_range.start) {
+                    self.observe_editor_input(&input,scope,facts);
+                }
+            }
             if opaque {
                 invalidate(facts, self.exact(owner), Invalidation::Source);
                 self.evaluation_context = None;
@@ -1559,6 +1587,11 @@ impl Engine<'_> {
                 barrier += 1;
             }
             self.node(id, scope, facts)?;
+        }
+        for input in editing {
+            if !barriers.get(barrier).is_some_and(|(at,_)|(*at as u64)<input.line_span().virtual_range.start) {
+                self.observe_editor_input(&input,scope,facts);
+            }
         }
         if opaque || barrier < barriers.len() {
             invalidate(facts, self.exact(owner), Invalidation::Source);

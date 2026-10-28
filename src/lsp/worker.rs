@@ -396,6 +396,12 @@ impl Analyzer for ParserAnalyzer {
                     } else {
                         "complete"
                     };
+                if let Some(document)=&semantic {
+                    match self.host.refine_editor_completions(&result,document.editor_type_facts(),Some(job.control.token.clone())) {
+                        Ok(batches)=>result.editor_completions.extend(batches),
+                        Err(error)=>completion_error=Some(format!("typed editing refinement failed: {error}")),
+                    }
+                }
                 // Conversion and recursive destruction stay on the worker's large stack.
                 match completion::Document::from_result(
                     &result,

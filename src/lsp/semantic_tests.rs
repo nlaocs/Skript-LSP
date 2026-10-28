@@ -381,6 +381,7 @@ impl Fixture {
             None,
             None,
             HashSet::new(),
+            Vec::new(),
         )
         .unwrap()
     }
@@ -2390,7 +2391,7 @@ fn reassigned_raw_body_membership_does_not_recover_reaching_definitions() {
     let mut raw=skript_parser::parse_raw_tree(&mapped,skript_parser::RawTreeOptions::for_skript_version(2,15));
     let other=raw.roots[1];
     raw.nodes.iter_mut().find(|node|node.text.contains("bind {_a}")).unwrap().parent=Some(other);
-    let document=Document::from_ast(fixture.source,"file:///fixture.sk".parse().unwrap(),catalog(),&AstTree {roots:vec![root],nodes:fixture.nodes},&raw,Vec::new(),Vec::new(),None,None,HashSet::new()).unwrap();
+    let document=Document::from_ast(fixture.source,"file:///fixture.sk".parse().unwrap(),catalog(),&AstTree {roots:vec![root],nodes:fixture.nodes},&raw,Vec::new(),Vec::new(),None,None,HashSet::new(),Vec::new()).unwrap();
     assert_eq!(inferred(&document,2,13),InferredType::Unknown);
     assert!(document.definitions_at(Position::new(2,13),&[]).is_empty());
 }
