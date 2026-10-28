@@ -396,7 +396,7 @@ fn completion_without_snippet_support_never_inserts_placeholder_syntax() {
     let capabilities = client.response(1).response_result.unwrap();
     assert_eq!(
         capabilities["capabilities"]["completionProvider"]["triggerCharacters"],
-        json!(["{"])
+        json!(["{", "."])
     );
     assert_eq!(
         capabilities["capabilities"]["completionProvider"]["resolveProvider"],
