@@ -1,0 +1,2 @@
+# Preserve exact capture and projection bytes across platform checkouts.
+*.json -text
