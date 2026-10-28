@@ -266,10 +266,10 @@ fn load_source() -> Option<Arc<PreparedSource>> {
     let key = format!("{}:{}",source.source_digest,source.snapshot_id);
     if let Some(value) = MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).cloned() { return Some(value); }
     let identity=SourceIdentity {snapshot_id:source.snapshot_id.clone(),source_digest:source.source_digest.clone()};
-    let bytes=read_document(&identity,"Manifest.json",super::document::MANIFEST_LIMIT).ok()??;
-    let (manifest,observation)=BoundObservation::split_manifest(&identity,&bytes,&current_source().ok()?).ok()?;
+    let document=super::document::read_manifest(&identity).ok()??;
+    let (manifest,observation)=BoundObservation::split_bound_manifest(&document,&current_source().ok()?).ok()?;
     let records=read_fields(&source,"Types.json", &["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"],1024)?;
-    let events=if matches!(&observation,Ok(Some(_))) {
+    let events=if matches!(&observation,Ok(Some(o)) if o.is_complete()) {
         read_fields(&source,"EventValues.json", &["registrationId","resolutionOrder","eventClass","valueClass"],4096)?
     } else {Vec::new()};
     // Keep the existing operations bound; a large optional operations document
@@ -291,9 +291,7 @@ fn load_source() -> Option<Arc<PreparedSource>> {
 
 #[cfg(target_arch="wasm32")]
 fn current_source() -> Result<SourceIdentity,super::document::ReadFailure> {
-    let source=crate::nlaocs::skript_parser_addon::catalog_data::source().ok().flatten().ok_or(super::document::ReadFailure::Unavailable)?;
-    if source.format!="ssg" || source.schema_version!=7 { return Err(super::document::ReadFailure::Source); }
-    Ok(SourceIdentity {snapshot_id:source.snapshot_id,source_digest:source.source_digest})
+    super::document::current_source()
 }
 
 #[cfg(target_arch="wasm32")]

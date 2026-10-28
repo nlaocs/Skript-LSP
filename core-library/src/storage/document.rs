@@ -15,6 +15,47 @@ pub(super) struct Chunk {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ReadFailure { Unavailable, Source, Limit, Shape }
 
+/// A named Manifest read from the immutable host Catalog. Fields and the
+/// production constructor are confined to this module. Arbitrary guest bytes,
+/// metadata or callbacks cannot construct this fast-path provenance token.
+pub(super) struct BoundDocument {
+    name: &'static str,
+    source: SourceIdentity,
+    bytes: Vec<u8>,
+}
+impl BoundDocument {
+    pub(super) fn name(&self)->&str {self.name}
+    pub(super) fn source(&self)->&SourceIdentity {&self.source}
+    pub(super) fn bytes(&self)->&[u8] {&self.bytes}
+}
+
+#[cfg(target_arch="wasm32")]
+pub(super) fn current_source() -> Result<SourceIdentity,ReadFailure> {
+    let source=crate::nlaocs::skript_parser_addon::catalog_data::source().ok().flatten().ok_or(ReadFailure::Unavailable)?;
+    if source.format!="ssg" || source.schema_version!=7 {return Err(ReadFailure::Source);}
+    Ok(SourceIdentity {snapshot_id:source.snapshot_id,source_digest:source.source_digest})
+}
+
+/// The only production token factory. Both source and bytes come from the
+/// same read-only host Catalog API. Its digest covers every retained filename,
+/// length and exact byte sequence, including optional Manifest observations.
+#[cfg(target_arch="wasm32")]
+pub(super) fn read_manifest(expected:&SourceIdentity) -> Result<Option<BoundDocument>,ReadFailure> {
+    let bytes=read_bound(expected,MANIFEST_LIMIT,current_source,|offset,max|{
+        crate::nlaocs::skript_parser_addon::catalog_data::read_document("Manifest.json",offset,max)
+            .map_err(|_|ReadFailure::Unavailable).map(|chunk|chunk.map(|c|Chunk {offset:c.offset,total_length:c.total_length,bytes:c.bytes}))
+    })?;
+    Ok(bytes.map(|bytes|BoundDocument {name:"Manifest.json",source:expected.clone(),bytes}))
+}
+
+#[cfg(test)]
+pub(super) fn mock_document(expected:&SourceIdentity,name:&'static str,
+    source:impl FnMut()->Result<SourceIdentity,ReadFailure>,
+    read:impl FnMut(u64,u32)->Result<Option<Chunk>,ReadFailure>) -> Result<Option<BoundDocument>,ReadFailure>
+{
+    read_bound(expected,MANIFEST_LIMIT,source,read).map(|bytes|bytes.map(|bytes|BoundDocument {name,source:expected.clone(),bytes}))
+}
+
 /// Errors (including cancellation/transport failure) must not be cached as a
 /// permanent missing proof. The source digest covers the complete retained raw
 /// source; snapshotId alone does not cover optional Manifest fields.

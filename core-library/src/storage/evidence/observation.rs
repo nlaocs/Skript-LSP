@@ -40,9 +40,12 @@ struct Method { declaring_class_id:String,name:String,parameter_class_ids:Vec<St
 #[derive(Debug)]
 pub(in crate::storage) struct BoundObservation {
     source:SourceIdentity,
-    manifest_sha256:[u8;32],
+    manifest_fence:ManifestFence,
     observation:Observation,
 }
+
+#[derive(Debug)]
+enum ManifestFence { StandaloneSha256([u8;32]), HostCatalogSource }
 
 impl BoundObservation {
     /// The caller must read the exact retained Manifest through its source-bound
@@ -57,6 +60,22 @@ impl BoundObservation {
     pub(in crate::storage) fn split_manifest(before:&SourceIdentity, bytes:&[u8], after:&SourceIdentity)
         -> Result<(Value,Result<Option<Self>,Failure>),Failure>
     {
+        Self::split_with_fence(before,bytes,after,||ManifestFence::StandaloneSha256(Sha256::digest(bytes).into()))
+    }
+
+    /// A verified host read is already fenced by the immutable Catalog's full
+    /// raw-source digest. Do not hash that complete Manifest again in guest fuel.
+    /// Standalone bytes retain their independent SHA path above.
+    pub(in crate::storage) fn split_bound_manifest(document:&crate::storage::document::BoundDocument,after:&SourceIdentity)
+        -> Result<(Value,Result<Option<Self>,Failure>),Failure>
+    {
+        if document.name()!="Manifest.json" {return Err(Failure::Source);}
+        Self::split_with_fence(document.source(),document.bytes(),after,||ManifestFence::HostCatalogSource)
+    }
+
+    fn split_with_fence(before:&SourceIdentity,bytes:&[u8],after:&SourceIdentity,fence:impl FnOnce()->ManifestFence)
+        -> Result<(Value,Result<Option<Self>,Failure>),Failure>
+    {
         if bytes.len()>2*1024*1024 {return Err(Failure::Limit);}
         if before!=after || !digest(&before.snapshot_id) || !digest(&before.source_digest) {return Err(Failure::Source);}
         let mut root:Value=serde_json::from_slice(bytes).map_err(|_|Failure::Version)?;
@@ -65,7 +84,7 @@ impl BoundObservation {
         let observation=(||{
             let observation:Observation=serde_json::from_value(raw).map_err(|_|Failure::Version)?;
             observation.check()?;
-            Ok(Some(Self {source:before.clone(),manifest_sha256:Sha256::digest(bytes).into(),observation}))
+            Ok(Some(Self {source:before.clone(),manifest_fence:fence(),observation}))
         })();
         Ok((root,observation))
     }
@@ -73,8 +92,15 @@ impl BoundObservation {
     pub(in crate::storage) fn matches_source(&self,source:&SourceIdentity) -> bool { &self.source==source }
 
     pub(super) fn matches_current(&self,source:&SourceIdentity,manifest:&[u8]) -> bool {
-        manifest.len()<=2*1024*1024 && source==&self.source && <[u8;32]>::from(Sha256::digest(manifest))==self.manifest_sha256
+        if manifest.len()>2*1024*1024 || source!=&self.source {return false;}
+        match self.manifest_fence {
+            ManifestFence::StandaloneSha256(hash)=><[u8;32]>::from(Sha256::digest(manifest))==hash,
+            // Unbound caller bytes cannot use the trusted host token's fence.
+            ManifestFence::HostCatalogSource=>false,
+        }
     }
+
+    pub(in crate::storage) fn is_complete(&self)->bool {self.observation.complete}
 
     /// Only correspondence to retained rows. No conversion into expected
     /// generation, producer origin, ResultType, metadata or a seal exists.

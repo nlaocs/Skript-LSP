@@ -157,3 +157,24 @@ fn measure_manifest_byte_scaling() {
             "guestFuelMeasured":false,"heapMeasured":false,"readerBufferUpperBoundBytes":target.min(document::MANIFEST_LIMIT)}));
     }
 }
+
+#[test]
+fn trusted_manifest_token_keeps_name_source_and_unbound_bytes_separate() {
+    use crate::storage::document::{self,Chunk};
+    let bytes=include_bytes!("data/real-capture/core-manifest.json");
+    let manifest:Value=serde_json::from_slice(bytes).unwrap();
+    let source=SourceIdentity {snapshot_id:manifest["snapshotId"].as_str().unwrap().into(),source_digest:"a".repeat(64)};
+    let make=|name|document::mock_document(&source,name,||Ok(source.clone()),|offset,max|{
+        let start=offset as usize;let end=bytes.len().min(start+max as usize);
+        Ok(Some(Chunk {offset,total_length:bytes.len() as u64,bytes:bytes[start..end].to_vec()}))
+    }).unwrap().unwrap();
+    let token=make("Manifest.json");let (_,observation)=BoundObservation::split_bound_manifest(&token,&source).unwrap();
+    let bound=observation.unwrap().unwrap();assert!(bound.matches_source(&source));
+    assert!(!bound.matches_current(&source,bytes),"arbitrary bytes cannot use a host-only fence");
+    let types:Vec<Value>=serde_json::from_str(include_str!("data/real-capture/core-types.json")).unwrap();
+    let events:Vec<Value>=serde_json::from_str(include_str!("data/real-capture/core-event-values.json")).unwrap();
+    assert_eq!(bound.check_projection(&types,&events),Ok(()));
+    assert_eq!(BoundObservation::split_bound_manifest(&make("Other.json"),&source).err(),Some(Failure::Source));
+    let mut changed=source.clone();changed.source_digest="b".repeat(64);
+    assert_eq!(BoundObservation::split_bound_manifest(&token,&changed).err(),Some(Failure::Source));
+}

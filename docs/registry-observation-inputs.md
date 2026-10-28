@@ -14,8 +14,13 @@ inputs fail closed; neither limit is removed.
 
 Preparation parses the Manifest once, moves its observation out of the JSON tree,
 and checks every Type/EventValue projection, exact binding and referenced identity.
-The checked input retains both source/snapshot identity and the exact raw-Manifest
-hash. Cache keys include the full retained-source digest, not snapshotId alone.
+Production input uses an opaque Manifest token constructed only by the fixed host
+reader. Its full retained-source digest covers every filename, length and exact
+byte sequence, including optional Manifest fields; this avoids redundant hashing
+in guest fuel. Standalone bytes retain their independent Manifest SHA path. A
+host-fenced observation cannot validate arbitrary caller bytes. Cache keys include
+the full retained-source digest, not snapshotId alone. Incomplete observations
+cannot pass projection, so their EventValue detail transfer is skipped.
 
 An observation is not an authenticated `CaptureRegistry`/`ProducerClaim`. Equal
 closed registration boundaries do not supply an independent mutation epoch.

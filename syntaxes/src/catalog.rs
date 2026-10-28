@@ -1440,3 +1440,19 @@ fn match_static_literal(input: &str, mut cursor: usize, literal: &str) -> Option
 fn normalize_literal(text: &str) -> String {
     text.trim().to_lowercase()
 }
+
+#[cfg(test)]
+mod retained_manifest_fence_tests {
+    use super::*;
+    #[test]
+    fn optional_manifest_bytes_invalidate_full_raw_source_without_changing_snapshot_id() {
+        let documents=BTreeMap::from([("Manifest.json".into(),br#"{"registryCapture":{"captureId":"one"}}"#.to_vec()),("Types.json".into(),b"[]".to_vec())]);
+        let first=CatalogSource::from_json_documents("ssg",7,"same-snapshot",documents.clone()).unwrap();
+        let mut changed=documents;changed.insert("Manifest.json".into(),br#"{"registryCapture":{"captureId":"two"}}"#.to_vec());
+        let second=CatalogSource::from_json_documents("ssg",7,"same-snapshot",changed).unwrap();
+        assert_eq!(first.snapshot_id,second.snapshot_id);assert_ne!(first.source_digest,second.source_digest);
+        assert_eq!(first.document("Manifest.json").unwrap(),br#"{"registryCapture":{"captureId":"one"}}"#);
+        let cloned=first.clone();assert_eq!(cloned.source_digest,first.source_digest);
+        assert_eq!(cloned.document("Manifest.json"),first.document("Manifest.json"));
+    }
+}
