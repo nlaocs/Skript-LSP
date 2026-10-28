@@ -114,3 +114,46 @@ fn actual_complete_captures_project_in_rust_but_do_not_certify_hidden_or_observe
             "capture-local boundary observations cannot be cast to independent generation/origin evidence");
     }
 }
+
+/// Investigation only. Padding isolates total byte transfer/JSON cost while
+/// keeping the real registry's record counts fixed; it does not model addon
+/// semantics or certify the padded document. No production limit is changed.
+#[test]
+#[ignore = "bounded offline size investigation; run explicitly with --nocapture"]
+fn measure_manifest_byte_scaling() {
+    use std::time::Instant;
+    use crate::storage::document::{self,Chunk};
+    let original=include_bytes!("data/real-capture/reflect-manifest.json");
+    let types:Vec<Value>=serde_json::from_str(include_str!("data/real-capture/reflect-types.json")).unwrap();
+    let events:Vec<Value>=serde_json::from_str(include_str!("data/real-capture/reflect-event-values.json")).unwrap();
+    let original_value:Value=serde_json::from_slice(original).unwrap();
+    let source=SourceIdentity {snapshot_id:original_value["snapshotId"].as_str().unwrap().into(),source_digest:"a".repeat(64)};
+    for target in [original.len(),1024*1024,2*1024*1024,4*1024*1024] {
+        let data=if target==original.len() {original.to_vec()} else {
+            let mut value=original_value.clone();value["measurementPadding"]=json!("");
+            let length=serde_json::to_vec(&value).unwrap().len();assert!(length<target);
+            value["measurementPadding"]=json!("x".repeat(target-length));
+            let bytes=serde_json::to_vec(&value).unwrap();assert_eq!(bytes.len(),target);bytes
+        };
+        let mut read_us=Vec::new();let mut parse_us=Vec::new();let mut projection_us=Vec::new();let mut serde_only_us=Vec::new();let mut read_calls=0;
+        for _ in 0..5 {
+            let start=Instant::now();let mut calls=0;
+            let read=document::read_bound(&source,document::MANIFEST_LIMIT,||Ok(source.clone()),|offset,max|{
+                calls+=1;let start=offset as usize;let end=data.len().min(start+max as usize);
+                Ok(Some(Chunk {offset,total_length:data.len() as u64,bytes:data[start..end].to_vec()}))
+            });read_us.push(start.elapsed().as_micros() as u64);read_calls=calls;
+            if target<=document::MANIFEST_LIMIT {
+                let read=read.unwrap().unwrap();let start=Instant::now();
+                let bound=BoundObservation::parse(&source,&read,&source).unwrap().unwrap();parse_us.push(start.elapsed().as_micros() as u64);
+                let start=Instant::now();assert_eq!(bound.check_projection(&types,&events),Ok(()));projection_us.push(start.elapsed().as_micros() as u64);
+            } else {assert!(matches!(read,Err(document::ReadFailure::Limit)));}
+            // A separately measured bounded stdlib deserialize at 4MiB is not
+            // acceptance by the production reader/observation contract.
+            let start=Instant::now();let parsed:Value=serde_json::from_slice(&data).unwrap();std::hint::black_box(&parsed);serde_only_us.push(start.elapsed().as_micros() as u64);
+        }
+        eprintln!("storage-input-size-measurement {}",json!({"bytes":target,"iterations":5,"profile":"native test opt1","recordCountsFixed":true,
+            "readerLimitBytes":document::MANIFEST_LIMIT,"chunkBytes":document::CHUNK_BYTES,"readCalls":read_calls,"productionReadAccepted":target<=document::MANIFEST_LIMIT,
+            "readMicros":read_us,"observationParseMicros":parse_us,"projectionMicros":projection_us,"serdeOnlyMicros":serde_only_us,
+            "guestFuelMeasured":false,"heapMeasured":false,"readerBufferUpperBoundBytes":target.min(document::MANIFEST_LIMIT)}));
+    }
+}

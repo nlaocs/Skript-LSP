@@ -31,6 +31,7 @@ struct Model {
 /// Checked retained inputs and legacy authorization have separate lifetimes and
 /// meanings. Observation success must not authorize context receipts or values.
 struct PreparedSource {
+    source: SourceIdentity,
     legacy: Option<Arc<Model>>,
     legacy_profile_matches: bool,
     observation: ObservationInput,
@@ -38,16 +39,26 @@ struct PreparedSource {
 enum ObservationInput { Absent, Invalid(Failure), Projected(BoundObservation) }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 enum StorageUnavailable {
-    LegacyProfile, LegacyRegistry, ObservationAbsent, ObservationInvalid(Failure), Gap(StorageGap),
+    Source, LegacyProfile, LegacyRegistry, ObservationAbsent, ObservationInvalid(Failure), Gap(StorageGap),
 }
 impl PreparedSource {
-    fn authorized_model(&self) -> Option<Arc<Model>> { self.legacy.clone() }
+    fn authorized_model(&self,current:&SourceIdentity) -> Option<Arc<Model>> {
+        if &self.source!=current { return None; }
+        match &self.observation {
+            ObservationInput::Invalid(_)=>None,
+            ObservationInput::Projected(o) if !o.matches_source(current)=>None,
+            _=>self.legacy.clone(),
+        }
+    }
 
     /// Internal reasons, not a public metadata schema or a weaker proof token.
     /// Called for assessment, not allocated repeatedly by body hooks.
-    fn blockers(&self,producer:Option<&str>) -> Vec<StorageUnavailable> {
-        if self.legacy.is_some() { return Vec::new(); }
-        let mut reasons=vec![if self.legacy_profile_matches {StorageUnavailable::LegacyRegistry} else {StorageUnavailable::LegacyProfile}];
+    fn blockers(&self,current:&SourceIdentity,producer:Option<&str>) -> Vec<StorageUnavailable> {
+        if &self.source!=current { return vec![StorageUnavailable::Source]; }
+        if self.authorized_model(current).is_some() { return Vec::new(); }
+        let mut reasons=Vec::new();
+        if !self.legacy_profile_matches {reasons.push(StorageUnavailable::LegacyProfile);}
+        else if self.legacy.is_none() {reasons.push(StorageUnavailable::LegacyRegistry);}
         match &self.observation {
             ObservationInput::Absent=>reasons.push(StorageUnavailable::ObservationAbsent),
             ObservationInput::Invalid(f)=>reasons.push(StorageUnavailable::ObservationInvalid(*f)),
@@ -75,7 +86,7 @@ fn prepare_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Value>,even
         Some(Arc::new(Model {records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),
             proofs:RwLock::new(HashMap::new()),operations,add_rules:RwLock::new(None)}))
     })();
-    PreparedSource {legacy,legacy_profile_matches,observation}
+    PreparedSource {source:source.clone(),legacy,legacy_profile_matches,observation}
 }
 
 fn profile(manifest: &Value) -> bool {
@@ -148,7 +159,7 @@ impl Model {
 #[cfg(target_arch="wasm32")]
 pub(super) fn prepare() -> bool {
     // A projected observation alone cannot grant the private scope receipt.
-    load_source().and_then(|source|source.authorized_model()).is_some()
+    load_source().and_then(|source|current_source().ok().and_then(|current|source.authorized_model(&current))).is_some()
 }
 
 /// A declared concrete Java class is itself an honest implementation upper
@@ -243,7 +254,7 @@ fn model() -> Option<Arc<Model>> {
     let source=catalog_data::source().ok()??;
     if source.format!="ssg" || source.schema_version!=7 { return None; }
     let key=format!("{}:{}",source.source_digest,source.snapshot_id);
-    MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).and_then(|source|source.authorized_model())
+    MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).and_then(|prepared|prepared.authorized_model(&SourceIdentity {snapshot_id:source.snapshot_id,source_digest:source.source_digest}))
 }
 
 #[cfg(target_arch="wasm32")]
@@ -471,8 +482,8 @@ mod observed_input_tests {
             assert!(!profile(&manifest),"full input does not remove the separate source/profile guard");
             let prepared=prepare_inputs(&source,&manifest,types,&events,observation,Some("2.15.4"),None);
             assert!(matches!(prepared.observation,ObservationInput::Projected(_)));
-            assert!(prepared.authorized_model().is_none(),"prepare must not grant context receipts from projection alone");
-            let blockers=prepared.blockers(Some(PLAYER_GETTER));
+            assert!(prepared.authorized_model(&source).is_none(),"prepare must not grant context receipts from projection alone");
+            let blockers=prepared.blockers(&source,Some(PLAYER_GETTER));
             assert!(blockers.contains(&StorageUnavailable::LegacyProfile));
             assert!(blockers.contains(&StorageUnavailable::Gap(StorageGap::GenerationUnproven)));
             assert!(blockers.contains(&StorageUnavailable::Gap(StorageGap::GetterImplementationUnproven)));
@@ -485,8 +496,8 @@ mod observed_input_tests {
         let (manifest,observation)=BoundObservation::split_manifest(&source,bytes,&source).unwrap();
         types[0]["registrationId"]="not-this-registration".into();
         let prepared=prepare_inputs(&source,&manifest,types,&events,observation,Some("2.15.4"),None);
-        assert!(prepared.blockers(Some(PLAYER_GETTER)).contains(&StorageUnavailable::ObservationInvalid(Failure::Routing)));
-        assert!(prepared.authorized_model().is_none());
+        assert!(prepared.blockers(&source,Some(PLAYER_GETTER)).contains(&StorageUnavailable::ObservationInvalid(Failure::Routing)));
+        assert!(prepared.authorized_model(&source).is_none());
     }
     #[test]
     fn legacy_captured_positive_path_is_preserved_without_an_observation() {
@@ -494,9 +505,24 @@ mod observed_input_tests {
         let source=identity(bytes);let (manifest,observation)=BoundObservation::split_manifest(&source,bytes,&source).unwrap();
         let types=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
         let prepared=prepare_inputs(&source,&manifest,types,&[],observation,Some("2.15.4"),None);
-        assert!(prepared.blockers(Some(PLAYER_GETTER)).is_empty());
-        let model=prepared.authorized_model().unwrap();
+        assert!(prepared.blockers(&source,Some(PLAYER_GETTER)).is_empty());
+        let model=prepared.authorized_model(&source).unwrap();
         assert!(model.stored("org.bukkit.entity.Player",IMPLEMENTATION));
         assert!(matches!(prepared.observation,ObservationInput::Absent));
     }
+    #[test]
+    fn prepared_observation_never_outlives_source_or_overrides_a_rejected_projection() {
+        let bytes=include_bytes!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Manifest.json");
+        let source=identity(bytes);let (manifest,observation)=BoundObservation::split_manifest(&source,bytes,&source).unwrap();
+        let types=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
+        let mut prepared=prepare_inputs(&source,&manifest,types,&[],observation,Some("2.15.4"),None);
+        assert!(prepared.authorized_model(&source).is_some());
+        let mut newer=source.clone();newer.source_digest="c".repeat(64);
+        assert!(prepared.authorized_model(&newer).is_none());
+        assert_eq!(prepared.blockers(&newer,None),[StorageUnavailable::Source]);
+        prepared.observation=ObservationInput::Invalid(Failure::Routing);
+        assert!(prepared.authorized_model(&source).is_none(),"explicit contradictory observation cannot be ignored even by a legacy profile");
+        assert!(prepared.blockers(&source,None).contains(&StorageUnavailable::ObservationInvalid(Failure::Routing)));
+    }
+
 }

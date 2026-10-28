@@ -70,6 +70,8 @@ impl BoundObservation {
         Ok((root,observation))
     }
 
+    pub(in crate::storage) fn matches_source(&self,source:&SourceIdentity) -> bool { &self.source==source }
+
     pub(super) fn matches_current(&self,source:&SourceIdentity,manifest:&[u8]) -> bool {
         manifest.len()<=2*1024*1024 && source==&self.source && <[u8;32]>::from(Sha256::digest(manifest))==self.manifest_sha256
     }
